@@ -366,10 +366,9 @@ export default function EmployeeHealthCheckForm() {
   // 저장
   // ============================================================================
   const handleSave = async () => {
+    console.log("[EmployeeHealthCheckForm] handleSave 시작", { savedRecordId, checkDate });
     setIsSaving(true);
     try {
-      const today = todayLocal();
-      
       // 전체 폼 데이터를 formData에 저장
       const formData = {
         checkDate,
@@ -393,8 +392,10 @@ export default function EmployeeHealthCheckForm() {
         },
       };
 
+      let result: any;
       if (savedRecordId) {
-        await gcUpdateMutation.mutateAsync({
+        console.log("[EmployeeHealthCheckForm] gcUpdateMutation 호출", { id: savedRecordId });
+        result = await gcUpdateMutation.mutateAsync({
           id: savedRecordId,
           formDate: checkDate,
           title: `종사자 건강상태 확인 일지 - ${checkDate}`,
@@ -402,15 +403,17 @@ export default function EmployeeHealthCheckForm() {
           status: approvalStatus === "draft" ? "draft" : approvalStatus,
         });
       } else {
-        const r = await gcSaveMutation.mutateAsync({
+        console.log("[EmployeeHealthCheckForm] gcSaveMutation 호출 (신규)");
+        result = await gcSaveMutation.mutateAsync({
           formType: "employee_health_check",
           formDate: checkDate,
           title: `종사자 건강상태 확인 일지 - ${checkDate}`,
           formData,
           status: "draft",
         });
-        if (r.id) setSavedRecordId(r.id);
+        if (result?.id) setSavedRecordId(result.id);
       }
+      console.log("[EmployeeHealthCheckForm] 저장 성공", result);
 
       // 결재란 작성자 승인 처리
       setApproval(prev => ({
@@ -424,8 +427,17 @@ export default function EmployeeHealthCheckForm() {
         title: "저장 완료",
         description: `종사자 건강상태 확인 일지가 저장되었습니다. (종사자 ${filledRows.length}명)`,
       });
+      return result;
     } catch (error: any) {
-      toast({ title: "저장 실패", description: error.message || "알 수 없는 오류가 발생했습니다.", variant: "destructive" });
+      console.error("[EmployeeHealthCheckForm] 저장 실패:", error);
+      // TRPCError 형태에서 message 추출
+      const msg = error?.data?.message || error?.shape?.message || error?.message || "알 수 없는 오류가 발생했습니다.";
+      toast({
+        title: "저장 실패",
+        description: msg,
+        variant: "destructive",
+      });
+      throw error;
     } finally {
       setIsSaving(false);
     }
@@ -435,66 +447,50 @@ export default function EmployeeHealthCheckForm() {
   // 승인 요청 (저장 안 되어있으면 자동 저장 후 승인 요청)
   // ============================================================================
   const handleApprovalRequest = async () => {
-    // 아직 저장되지 않았다면 먼저 저장하고 그 id로 승인 요청
+    console.log("[EmployeeHealthCheckForm] handleApprovalRequest 시작", { savedRecordId });
+
+    // 1. 아직 저장되지 않았다면 handleSave 를 재사용해 저장 → id 확보
     let recordId = savedRecordId;
     if (!recordId) {
       try {
-        const today = todayLocal();
-        const formData = {
-          checkDate,
-          questions,
-          employeeRows,
-          specialNotes,
-          actionBy,
-          approval: {
-            writerId: approval.writerId,
-            writerName: approval.writerName,
-            reviewerId: approval.reviewerId,
-            reviewerName: approval.reviewerName,
-            approverId: approval.approverId,
-            approverName: approval.approverName,
-            writerApproved: true,
-            reviewerApproved: approval.reviewerApproved,
-            approverApproved: approval.approverApproved,
-            writerDate: new Date().toLocaleDateString("ko-KR"),
-            reviewerDate: approval.reviewerDate,
-            approverDate: approval.approverDate,
-          },
-        };
-        const r = await gcSaveMutation.mutateAsync({
-          formType: "employee_health_check",
-          formDate: checkDate,
-          title: `종사자 건강상태 확인 일지 - ${checkDate}`,
-          formData,
-          status: "draft",
+        const savedResult = await handleSave();
+        recordId = savedResult?.id ?? savedRecordId;
+        console.log("[EmployeeHealthCheckForm] 자동 저장 완료 후 recordId:", recordId);
+      } catch (err) {
+        // handleSave 가 이미 토스트를 띄웠으니 여기서는 종료
+        console.error("[EmployeeHealthCheckForm] 자동 저장 실패, 승인요청 중단");
+        return;
+      }
+      if (!recordId) {
+        toast({
+          title: "저장 후 승인 요청 실패",
+          description: "저장은 되었으나 ID를 확인할 수 없습니다. 페이지 새로고침 후 다시 시도해주세요.",
+          variant: "destructive",
         });
-        if (r?.id) {
-          setSavedRecordId(r.id);
-          recordId = r.id;
-        } else {
-          toast({ title: "저장 실패", description: "저장 후 승인 요청을 다시 시도해주세요.", variant: "destructive" });
-          return;
-        }
-      } catch (err: any) {
-        toast({ title: "저장 실패", description: err?.message || "저장 중 오류가 발생했습니다.", variant: "destructive" });
         return;
       }
     }
+
+    // 2. 승인 요청 mutation 실행
+    console.log("[EmployeeHealthCheckForm] submitForReview 호출", { id: recordId });
     try {
-      await submitForReviewMutation.mutateAsync({
+      const res = await submitForReviewMutation.mutateAsync({
         id: recordId,
         requestType: "employee_health_check",
         title: `종사자 건강상태 확인 일지 - ${checkDate}`,
         description: `작성일: ${checkDate}, 작성자: ${approval.writerName || "미지정"}, 점검인원: ${employeeRows.filter(r => r.name.trim()).length}명`,
       });
+      console.log("[EmployeeHealthCheckForm] submitForReview 성공:", res);
     } catch (err: any) {
-      // onError 훅에서 이미 토스트를 띄우지만, mutateAsync는 여기서도 예외를 던지므로
-      // 추가 로깅만 해두고 삼키지 않도록 보강 (onError가 안 뜰 경우 대비)
-      console.error("[handleApprovalRequest] submitForReview error:", err);
+      // onError 훅에서 이미 토스트를 띄우지만, mutateAsync 도 예외를 던지므로
+      // 안전망으로 여기서도 로깅 + fallback 토스트
+      console.error("[EmployeeHealthCheckForm] submitForReview 실패:", err);
+      const msg = err?.data?.message || err?.shape?.message || err?.message || "네트워크 오류로 승인 요청이 완료되지 않았습니다.";
+      // onError 가 이미 처리했는지 알 수 없으니 무조건 fallback 토스트 (중복 나쁘지 않음)
       if (!submitForReviewMutation.isError) {
         toast({
           title: "승인 요청 실패",
-          description: err?.message || "네트워크 오류로 승인 요청이 완료되지 않았습니다.",
+          description: msg,
           variant: "destructive",
         });
       }
@@ -648,8 +644,8 @@ export default function EmployeeHealthCheckForm() {
 
         {/* 인쇄 영역 */}
         <div ref={printRef} className="print-container bg-white border rounded-lg shadow-sm print:border-none print:shadow-none print:rounded-none">
-          {/* 결재란 */}
-          <div className="flex justify-between items-start px-4 pt-4">
+          {/* 결재란 (인쇄 시 제목과 나란히 배치되도록 상단 여백 최소화) */}
+          <div className="flex justify-between items-start px-4 pt-4 print:pt-0 print:px-2 print-approval-row">
             <div className="flex-1"></div>
             <div>
               <table className="border-collapse text-xs">
@@ -699,12 +695,12 @@ export default function EmployeeHealthCheckForm() {
           </div>
 
           {/* 제목 */}
-          <div className="px-6 py-4 text-center">
-            <h2 className="text-2xl font-bold tracking-wide">작업장 출입 전 종사자 건강상태 확인 일지</h2>
+          <div className="px-6 py-4 text-center print:py-1 print:px-2 print-title">
+            <h2 className="text-2xl font-bold tracking-wide print:text-lg">작업장 출입 전 종사자 건강상태 확인 일지</h2>
           </div>
 
           {/* 안내문구 (인쇄용) */}
-          <div className="px-6 pb-2 text-xs text-gray-600 space-y-0.5">
+          <div className="px-6 pb-2 text-xs text-gray-600 space-y-0.5 print:px-2 print:pb-1 print-guide">
             <p>★ 작업 시작 전 종사자 본인이 직접 아래 질문(1~{questions.length}번)에 대한 답변 작성</p>
             <p className="pl-4">→ 해당하는 경우 "O" / 해당하지 않는 경우 "X" 기재</p>
             <p>★ 작업 시작 전 팀장은 종사자가 작성한 내용 확인</p>
@@ -871,16 +867,18 @@ export default function EmployeeHealthCheckForm() {
         </div>
       </div>
 
-      {/* 인쇄 전용 스타일 — A4 세로 1페이지 fit */}
+      {/* 인쇄 전용 스타일 — A4 세로 1페이지 fit, 상단 여백 최소화 */}
       <style>{`
         @media print {
           /* A4 세로 방향 + 여백 최소화 → 1페이지 안에 딱 맞춤 */
           @page {
             size: A4 portrait;
-            margin: 6mm 6mm 6mm 6mm;
+            margin: 5mm 6mm 5mm 6mm;
           }
           html, body {
             width: 210mm !important;
+            margin: 0 !important;
+            padding: 0 !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
           }
@@ -911,18 +909,106 @@ export default function EmployeeHealthCheckForm() {
           .bg-gray-50 {
             background-color: #f9fafb !important;
           }
+
           /* 전체 폼을 1페이지에 억지로 맞추기 위한 스케일링 */
-          .space-y-6 { gap: 4px !important; }
-          .space-y-6 > * { margin-top: 2px !important; margin-bottom: 2px !important; }
+          .space-y-6 { gap: 0 !important; }
+          .space-y-6 > * { margin-top: 0 !important; margin-bottom: 0 !important; }
+          .space-y-6 > * + * { margin-top: 0 !important; }
           .px-4 { padding-left: 4px !important; padding-right: 4px !important; }
-          .py-2 { padding-top: 2px !important; padding-bottom: 2px !important; }
-          .pt-4 { padding-top: 2px !important; }
-          .pb-6 { padding-bottom: 2px !important; }
-          .mb-4 { margin-bottom: 2px !important; }
-          .mt-2 { margin-top: 1px !important; }
-          .mt-4 { margin-top: 2px !important; }
-          /* 제목 축소 */
+          .py-2 { padding-top: 1px !important; padding-bottom: 1px !important; }
+          .pt-4 { padding-top: 0 !important; }
+          .pb-6 { padding-bottom: 0 !important; }
+          .mb-4 { margin-bottom: 0 !important; }
+          .mt-2 { margin-top: 0 !important; }
+          .mt-4 { margin-top: 0 !important; }
           h1, h2, h3 { margin: 0 !important; }
+
+          /* ★ 인쇄 컨테이너 자체를 relative 로 만들어 결재란을 절대 위치로 */
+          .print-container {
+            position: relative !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            border: none !important;
+            box-shadow: none !important;
+          }
+
+          /* ★ 결재란을 오른쪽 상단에 절대 위치로 붙여 상단 공백 제거
+             폭 약 60mm, 높이 약 30mm 확보 */
+          .print-approval-row {
+            position: absolute !important;
+            top: 0 !important;
+            right: 0 !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            z-index: 10 !important;
+            display: block !important;
+            width: auto !important;
+          }
+          .print-approval-row .flex-1 {
+            display: none !important;
+          }
+          .print-approval-row > div:last-child {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          .print-approval-row table {
+            font-size: 8px !important;
+            border-collapse: collapse !important;
+          }
+          .print-approval-row table td {
+            padding: 0 2px !important;
+            height: auto !important;
+            line-height: 1.1 !important;
+          }
+          .print-approval-row table td[class*="h-16"] {
+            height: 30px !important;
+            width: 36px !important;
+            padding: 0 !important;
+          }
+          .print-approval-row table td[class*="h-16"] > div {
+            width: 24px !important;
+            height: 24px !important;
+          }
+          .print-approval-row table td[class*="h-16"] > div span {
+            font-size: 7px !important;
+            line-height: 1 !important;
+          }
+
+          /* ★ 제목 영역 — 결재란 왼쪽 공간을 채우도록 왼쪽 정렬로 배치
+             결재란 폭(약 130px)만큼 오른쪽 padding 확보 */
+          .print-title {
+            padding: 0 130px 2px 4px !important;
+            margin: 0 !important;
+            text-align: center !important;
+            min-height: 32px !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+          }
+          .print-title h2 {
+            font-size: 15px !important;
+            margin: 0 !important;
+            padding: 0 !important;
+            line-height: 1.15 !important;
+            font-weight: 700 !important;
+          }
+
+          /* ★ 안내 문구 — 결재란 아래로 자연스럽게 배치
+             결재란 높이(약 96px)만큼은 이미 제목이 소화하므로 여기서는 상단여백 없이 */
+          .print-guide {
+            padding: 1px 4px 1px 4px !important;
+            margin: 0 !important;
+            font-size: 8.5px !important;
+            line-height: 1.2 !important;
+          }
+          .print-guide p {
+            margin: 0 !important;
+            padding: 0 !important;
+          }
+          .print-guide .pl-4 {
+            padding-left: 8px !important;
+          }
+
           /* 메인 표 인쇄 최적화 — A4 세로 폭(198mm)에 딱 맞춤 */
           .employee-health-table {
             width: 100% !important;
@@ -949,24 +1035,18 @@ export default function EmployeeHealthCheckForm() {
             padding: 0 !important;
             height: auto !important;
           }
-          /* 체크박스 셀 크기 축소 */
           .employee-health-table td[class*="cursor-pointer"] {
             padding: 0 !important;
-            height: 12px !important;
+            height: 11px !important;
           }
           .employee-health-table td[class*="cursor-pointer"] > div {
             width: 8px !important;
             height: 8px !important;
           }
-          /* 결재란 축소 */
-          .print-approval-cell {
-            height: 32px !important;
-            width: 40px !important;
-          }
           /* 특이사항 축소 */
           textarea {
-            min-height: 24px !important;
-            font-size: 9px !important;
+            min-height: 20px !important;
+            font-size: 8.5px !important;
           }
           /* 페이지 분리 방지 */
           .print-container, .print-container * {
