@@ -399,27 +399,32 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
 // ============================================================================
 // 종사자 건강상태 확인 일지 전용 렌더러
 // ============================================================================
-export function renderEmployeeHealthCheck(data: FormData) {
+export function renderEmployeeHealthCheck(data: FormData, doc?: DocInfo) {
   const questions = data?.questions || [];
   const employeeRows = data?.employeeRows || [];
   const checkDate = data?.checkDate || "";
   const specialNotes = data?.specialNotes || "";
-  const writerName = data?.approval?.writerName || "";
+  const actionBy = data?.actionBy || "";
+  const writerName = data?.approval?.writerName || doc?.authorName || "";
 
   return (
     <div>
-      <div className="text-center mb-4">
-        <h2 className="text-xl font-bold">작업장 출입 전 종사자 건강상태 확인 일지</h2>
-      </div>
-      <div className="text-sm mb-3 space-y-0.5">
-        <p>★ 작업 시작 전 종사자 본인이 직접 아래 질문(1~5번)에 대한 답변 작성</p>
+      {/* 제목 + 결재란(작성/검토/승인) — 다른 승인문서와 동일하게 공용 컴포넌트 사용 */}
+      <TitleWithApproval
+        title="작업장 출입 전 종사자 건강상태 확인 일지"
+        doc={doc}
+        infoLeft={
+          <span className="text-sm">
+            <span className="font-medium bg-gray-100 px-2 py-0.5">작성일자</span> {checkDate || "-"}
+            <span className="font-medium bg-gray-100 px-2 py-0.5 ml-4">작성자</span> {writerName || "-"}
+          </span>
+        }
+      />
+      <div className="text-xs mb-2 mt-1 space-y-0.5">
+        <p>★ 작업 시작 전 종사자 본인이 직접 아래 질문(1~{questions.length || 5}번)에 대한 답변 작성</p>
         <p className="ml-4">→ 해당하는 경우 "O" / 해당하지 않는 경우 "X" 기재</p>
         <p>★ 작업 시작 전 팀장은 종사자가 작성한 내용 확인</p>
         <p className="ml-4">→ "O" 표시한 항목이 있는 경우, 팀장 확인 후 당일 작업 여부 결정</p>
-      </div>
-      <div className="flex items-center gap-8 mb-3 text-sm border border-gray-400 p-2">
-        <div><span className="font-medium bg-gray-100 px-2 py-0.5">작성일자</span> {checkDate}</div>
-        <div><span className="font-medium bg-gray-100 px-2 py-0.5">작성자</span> {writerName || "-"}</div>
       </div>
       <div className="text-center font-bold text-sm mb-1">질문내용</div>
       <table className="w-full border-collapse border border-gray-400 text-[10px]">
@@ -442,9 +447,10 @@ export function renderEmployeeHealthCheck(data: FormData) {
         <tbody>
           {employeeRows.length > 0 ? employeeRows.map((row: { name?: string; answers?: Record<string, string> }, idx: number) => (
             <tr key={idx}>
-              <td className="border border-gray-400 px-1 py-0.5 text-center">{row.name || `종사자 ${idx + 1}`}</td>
+              {/* 빈 행은 이름/체크 없이 공란 (이전: "종사자 N" placeholder + 미응답 강제 X 표시 버그) */}
+              <td className="border border-gray-400 px-1 py-0.5 text-center">{row.name || ""}</td>
               {questions.map((q: { id?: string; label?: string; text?: string; field?: string }, qIdx: number) => {
-                const answer = (q.id && row.answers?.[q.id]) || "X";
+                const answer = (q.id && row.answers?.[q.id]) || "";
                 return (
                   <React.Fragment key={qIdx}>
                     <td className="border border-gray-400 px-1 py-0.5 text-center">{answer === "O" ? "✓" : ""}</td>
@@ -458,7 +464,19 @@ export function renderEmployeeHealthCheck(data: FormData) {
           )}
         </tbody>
       </table>
-      {specialNotes && <div className="mt-3 border border-gray-400 p-2 text-sm"><span className="font-bold">특이사항: </span>{specialNotes}</div>}
+      {/* 하단 특이사항 및 개선조치 내역 + 조치자 (작성폼과 동일 구조) */}
+      <table className="w-full border-collapse border border-gray-400 text-sm mt-2">
+        <tbody>
+          <tr className="bg-gray-50">
+            <td className="border border-gray-400 px-2 py-1 font-bold text-center" style={{ width: "78%" }}>특이사항 및 개선조치 내역</td>
+            <td className="border border-gray-400 px-2 py-1 font-bold text-center">조치자</td>
+          </tr>
+          <tr>
+            <td className="border border-gray-400 px-2 py-3 align-top">{specialNotes}</td>
+            <td className="border border-gray-400 px-2 py-3 text-center align-top">{actionBy}</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }
