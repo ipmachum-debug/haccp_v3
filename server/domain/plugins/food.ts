@@ -91,13 +91,12 @@ export const foodPlugin: IndustryPlugin = {
           { icon: "Activity", label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"] },
           { icon: "TrendingUp", label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"] },
           { icon: "GitBranch", label: "변경관리", path: "/dashboard/food/change-control", roles: ["super_admin", "admin", "inspector", "monitor"] },
-          { icon: "AlertCircle", label: "부적합 관리 (통합)", path: "/dashboard/food/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"] },
-          { icon: "AlertTriangle", label: "CAPA (시정·예방)", path: "/dashboard/food/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"] },
-          { icon: "ClipboardCheck", label: "감사 (Audit)", path: "/dashboard/food/audit", roles: ["super_admin", "admin", "inspector", "monitor"] },
-          { icon: "GraduationCap", label: "교육 / 훈련", path: "/dashboard/food/training", roles: ["super_admin", "admin", "inspector", "monitor"] },
-          { icon: "Sliders", label: "검교정 / 설비 자격", path: "/dashboard/food/calibration", roles: ["super_admin", "admin", "inspector", "monitor"] },
-          { icon: "Building", label: "공급업체 (AVL)", path: "/dashboard/food/supplier", roles: ["super_admin", "admin", "inspector", "monitor"] },
-          { icon: "AlertTriangle", label: "위험 평가 (HA)", path: "/dashboard/food/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"] },
+          // ★ Y-시리즈 7개(부적합 관리 통합/CAPA/감사/교육/검교정/공급업체/위험평가)는 식품 legacy 메뉴와 중복이라
+          //   사이드바에서 제거. (변경관리만 유지 — legacy 대응 메뉴가 없음)
+          //   매핑: 부적합 관리(통합)→부적합제품관리, CAPA→시정조치 관리, 감사(Audit)→감사관리,
+          //         공급업체(AVL)→감사관리>거래처감사, 위험평가→HACCP 검증>7원칙,
+          //         검교정→HACCP 체크리스트, 교육/훈련→HACCP 체크리스트>교육훈련일지.
+          //   라우트(/dashboard/food/*)는 App.tsx 에 유지 (직접 URL 접근 호환).
         ],
       },
       {
