@@ -91,7 +91,7 @@ export const COMMON_MENU_GROUPS: MenuGroupDef[] = [
 // ─── 슈퍼관리자 전용 메뉴 ───
 export const SUPER_ADMIN_MENU_ITEMS: BuiltMenuItem[] = [
   { icon: getIcon("Crown"), label: "슈퍼관리자 대시보드", path: "/dashboard/super-admin", roles: ["super_admin"] },
-  { icon: getIcon("UserCheck"), label: "사용자 승인", path: "/dashboard/users/approval", roles: ["super_admin"] },
+  { icon: getIcon("UserCheck"), label: "사용자 승인", path: "/dashboard/user-approval", roles: ["super_admin"] },
   { icon: getIcon("Building"), label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"] },
 ];
 

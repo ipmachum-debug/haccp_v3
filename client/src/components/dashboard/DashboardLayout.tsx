@@ -297,7 +297,7 @@ function mapCategoryToIndustryKey(category: string | null | undefined): string |
 const menuItems = [
   // 슈퍼관리자 전용 메뉴 (WORK 탭)
   { icon: Crown, label: "슈퍼관리자 대시보드", path: "/dashboard/super-admin", roles: ["super_admin"], category: "work" },
-  { icon: UserCheck, label: "사용자 승인", path: "/dashboard/users/approval", roles: ["super_admin"], category: "work" },
+  { icon: UserCheck, label: "사용자 승인", path: "/dashboard/user-approval", roles: ["super_admin"], category: "work" },
   { icon: Building, label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"], category: "work" },
 
   // ─── 대시보드 ───
