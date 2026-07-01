@@ -392,6 +392,16 @@ export default function EmployeeHealthCheckForm() {
         },
       };
 
+      // 저장 payload 를 미리 직렬화 시도 → 직렬화 오류가 있으면 여기서 잡힘
+      let serializedPreview = "";
+      try {
+        serializedPreview = JSON.stringify({ checkDate, formData }).slice(0, 500);
+        console.log("[EmployeeHealthCheckForm] payload 직렬화 OK, 미리보기:", serializedPreview);
+      } catch (serErr) {
+        console.error("[EmployeeHealthCheckForm] payload 직렬화 실패!", serErr);
+        throw new Error("저장 데이터를 JSON 으로 변환할 수 없습니다: " + (serErr as any)?.message);
+      }
+
       let result: any;
       if (savedRecordId) {
         console.log("[EmployeeHealthCheckForm] gcUpdateMutation 호출", { id: savedRecordId });

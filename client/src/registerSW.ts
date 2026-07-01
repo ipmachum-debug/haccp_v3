@@ -25,49 +25,51 @@ function maybeReloadForSwUpdate(reason: string) {
   }
 }
 
+// v11-2026-07-01: SW 완전 제거 모드
+// 배경: v10 pass-through 로 수정해도 일부 브라우저에서 저장/승인요청이
+//   서버에 도달하지 못하는 사고 지속. SW 를 완전히 없애기로 결정.
+//   기존 사용자 브라우저에 남은 SW 는 페이지 로드 시 강제 unregister.
 export function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    // ★ PR-T: SW 가 보낸 SW_UPDATED 메시지 처리 → 자동 reload (사용자 입력 불필요)
-    navigator.serviceWorker.addEventListener('message', (event) => {
-      if (event.data?.type === 'SW_UPDATED') {
-        console.log('[SW] SW_UPDATED received, version=', event.data.version);
-        maybeReloadForSwUpdate(`SW_UPDATED ${event.data.version}`);
+  if (!('serviceWorker' in navigator)) return;
+
+  // SW 가 보낸 SW_UPDATED (kill-switch 완료 신호) → 자동 새로고침
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data?.type === 'SW_UPDATED') {
+      console.log('[SW] SW_UPDATED received (kill-switch), version=', event.data.version);
+      maybeReloadForSwUpdate(`SW_UPDATED ${event.data.version}`);
+    }
+  });
+
+  window.addEventListener('load', async () => {
+    try {
+      // ① 이미 등록된 SW 가 있으면 즉시 unregister 시도
+      const existing = await navigator.serviceWorker.getRegistrations();
+      if (existing.length > 0) {
+        console.log(`[SW] found ${existing.length} existing registration(s) — unregistering all`);
+        await Promise.all(existing.map((r) => r.unregister().catch(() => false)));
+        // 모든 캐시 정리
+        try {
+          if ('caches' in window) {
+            const keys = await caches.keys();
+            await Promise.all(keys.map((k) => caches.delete(k)));
+          }
+        } catch {
+          // ignore
+        }
+        // 한 번만 새로고침 (guard 가 무한루프 방지)
+        maybeReloadForSwUpdate('unregister-existing');
+        return;
       }
-    });
 
-    // ★ PR-T: controllerchange 도 같이 — 새 SW 가 클레임한 직후 자동 새로고침
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      console.log('[SW] controllerchange — new SW took control');
-      maybeReloadForSwUpdate('controllerchange');
-    });
-
-    window.addEventListener('load', () => {
-      navigator.serviceWorker
-        .register('/sw.js')
-        .then((registration) => {
-          console.log('Service Worker registered:', registration.scope);
-
-          // 업데이트 확인 (수동 confirm 흐름 제거, 자동 reload 흐름으로 통일)
-          registration.addEventListener('updatefound', () => {
-            const newWorker = registration.installing;
-            if (newWorker) {
-              newWorker.addEventListener('statechange', () => {
-                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  console.log('[SW] New worker installed — waiting for activate/claim');
-                  // ★ PR-T: 사용자에게 confirm 묻지 않음 → 자동 reload 흐름
-                  //   ① SW activate → clients.claim → controllerchange → maybeReloadForSwUpdate
-                  //   ② SW activate 핸들러가 보내는 SW_UPDATED 메시지 수신 → maybeReloadForSwUpdate
-                  //   둘 중 먼저 도착하는 게 reload 를 트리거하고, guard 가 중복 방지.
-                }
-              });
-            }
-          });
-        })
-        .catch((error) => {
-          console.error('Service Worker registration failed:', error);
-        });
-    });
-  }
+      // ② 등록된 SW 가 없으면, 새 kill-switch SW 를 한 번 등록해서
+      //    브라우저에 남아있을 수 있는 stale SW 를 확실히 제거하도록 한다.
+      //    (kill-switch SW 는 activate 시 자기 자신을 unregister 함)
+      const registration = await navigator.serviceWorker.register('/sw.js');
+      console.log('[SW] kill-switch SW registered:', registration.scope);
+    } catch (error) {
+      console.error('[SW] registration/cleanup failed:', error);
+    }
+  });
 }
 
 // PWA 설치 프롬프트
