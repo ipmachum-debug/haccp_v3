@@ -921,7 +921,12 @@ function DashboardLayoutContent({
   //   path 기반 필터링으로 시각적 industry 격리 보장. 데이터는 기존부터 router
   //   industry view filter 가 격리.
   if (applyMenuFilters) {
-    const tenantIndustry = mapCategoryToIndustryKey(industryCategory);
+    // ★ 격리 기준 = 플러그인 key(권위값) 우선. category 매핑은 폴백.
+    //   이유: 의료기기(C27)는 IndustryCategory enum 에 medical_device 가 없어 category="general" 로
+    //   폴백되고, mapCategoryToIndustryKey("general")="general-manufacturing" 로 오판되어
+    //   /dashboard/medical-device/* 메뉴가 숨겨졌다. 플러그인 key("medical-device")는 path 세그먼트와
+    //   정확히 일치하므로, 플러그인이 있으면 그 key 를 격리 기준으로 사용한다.
+    const tenantIndustry = domainPlugin?.key ?? mapCategoryToIndustryKey(industryCategory);
     displayedMenuItems = displayedMenuItems.filter((item: any) => {
       const required = getMenuRequiredIndustry(item.path);
       if (!required) return true; // industry-specific 패턴 아님 → 표시
