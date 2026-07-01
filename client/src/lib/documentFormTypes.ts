@@ -108,14 +108,17 @@ export const DOCUMENT_FORM_TYPES: DocumentFormType[] = [
   { formType: "cosmetic_release", name: "QA 출고 (Release) 승인", category: "화장품 GMP", industry: "gmp" },
   { formType: "cosmetic_stability", name: "안정성시험 (ICH Q1A)", category: "화장품 GMP", industry: "gmp" },
 
-  // ─── Y-시리즈 cross-cutting (화장품 GMP + 식품 HACCP 공통, 다만 양식 동일) ───
+  // ─── Y-시리즈 cross-cutting (Phase 2 GMP lifecycle) ───
+  // ★ 사이드바(DashboardLayout)는 이 항목들을 requireModule:"gmp" 로 식품(HACCP)에서 숨긴다.
+  //   문서결재설정도 동일하게 gmp 로 맞춰, 식품 테넌트에 legacy HACCP 문서와 중복 노출되지 않게 한다.
+  //   (변경관리는 식품 사이드바에도 유지되므로 common 유지 — 식품이 변경관리 문서를 설정할 수 있어야 함)
   { formType: "y_change_control", name: "변경관리 (Change Control)", category: "품질관리 (Y-시리즈)", industry: "common" },
-  { formType: "y_nonconforming", name: "부적합 관리 (통합)", category: "품질관리 (Y-시리즈)", industry: "common" },
-  { formType: "y_corrective_action", name: "CAPA (시정·예방조치)", category: "품질관리 (Y-시리즈)", industry: "common" },
-  { formType: "y_audit", name: "감사 (Audit)", category: "품질관리 (Y-시리즈)", industry: "common" },
-  { formType: "y_calibration", name: "검교정 / 설비 자격", category: "품질관리 (Y-시리즈)", industry: "common" },
-  { formType: "y_quality_supplier", name: "공급업체 (AVL)", category: "품질관리 (Y-시리즈)", industry: "common" },
-  { formType: "y_risk_assessment", name: "위험 평가 (ICH Q9)", category: "품질관리 (Y-시리즈)", industry: "common" },
+  { formType: "y_nonconforming", name: "부적합 관리 (통합)", category: "품질관리 (Y-시리즈)", industry: "gmp" },
+  { formType: "y_corrective_action", name: "CAPA (시정·예방조치)", category: "품질관리 (Y-시리즈)", industry: "gmp" },
+  { formType: "y_audit", name: "감사 (Audit)", category: "품질관리 (Y-시리즈)", industry: "gmp" },
+  { formType: "y_calibration", name: "검교정 / 설비 자격", category: "품질관리 (Y-시리즈)", industry: "gmp" },
+  { formType: "y_quality_supplier", name: "공급업체 (AVL)", category: "품질관리 (Y-시리즈)", industry: "gmp" },
+  { formType: "y_risk_assessment", name: "위험 평가 (ICH Q9)", category: "품질관리 (Y-시리즈)", industry: "gmp" },
 ];
 
 /**
