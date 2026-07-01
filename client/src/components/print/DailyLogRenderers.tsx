@@ -407,6 +407,13 @@ export function renderEmployeeHealthCheck(data: FormData, doc?: DocInfo) {
   const actionBy = data?.actionBy || "";
   const writerName = data?.approval?.writerName || doc?.authorName || "";
 
+  // 인쇄용 체크박스 — 작성폼과 동일하게 모든 칸에 네모, 선택된 칸에만 ✓
+  const answerBox = (on: boolean) => (
+    <span style={{ display: "inline-flex", width: "10px", height: "10px", border: "1px solid #9ca3af", borderRadius: "2px", alignItems: "center", justifyContent: "center", lineHeight: 1, verticalAlign: "middle" }}>
+      {on ? <span style={{ fontSize: "8px", fontWeight: 700, lineHeight: 1 }}>✓</span> : null}
+    </span>
+  );
+
   return (
     <div>
       {/* 제목 + 결재란(작성/검토/승인) — 다른 승인문서와 동일하게 공용 컴포넌트 사용 */}
@@ -427,19 +434,26 @@ export function renderEmployeeHealthCheck(data: FormData, doc?: DocInfo) {
         <p className="ml-4">→ "O" 표시한 항목이 있는 경우, 팀장 확인 후 당일 작업 여부 결정</p>
       </div>
       <div className="text-center font-bold text-sm mb-1">질문내용</div>
-      <table className="w-full border-collapse border border-gray-400 text-[10px]">
+      {/* ★ PrintPreviewPage 가 .print-content td/table 에 font 11px + table-layout:auto 를 강제해
+          21열(이름+질문10×2) 표가 A4 세로 폭을 넘겨 마지막 질문 열이 잘렸다.
+          이 질문표만 작게 축소 + table-layout:fixed 로 폭 안에 강제 fit (!important 오버라이드). */}
+      <style>{`
+        .ehc-qtable { table-layout: fixed !important; }
+        .ehc-qtable td, .ehc-qtable th { font-size: 8px !important; padding: 1px 2px !important; line-height: 1.15 !important; word-break: keep-all; overflow: hidden; }
+      `}</style>
+      <table className="ehc-qtable w-full border-collapse border border-gray-400">
         <thead>
           <tr className="bg-gray-50">
-            <th rowSpan={2} className="border border-gray-400 px-1 py-1 w-20">종사자명</th>
+            <th rowSpan={2} className="border border-gray-400 text-center" style={{ width: "42px" }}>종사자명</th>
             {questions.map((q: { label?: string; text?: string }, idx: number) => (
-              <th key={idx} colSpan={2} className="border border-gray-400 px-1 py-1 text-center">{q.text || `질문 ${idx + 1}`}</th>
+              <th key={idx} colSpan={2} className="border border-gray-400 text-center">{q.text || `질문 ${idx + 1}`}</th>
             ))}
           </tr>
           <tr className="bg-gray-50">
             {questions.map((_q: { label?: string; text?: string }, idx: number) => (
               <React.Fragment key={idx}>
-                <th className="border border-gray-400 px-1 py-0.5 text-center w-6">O</th>
-                <th className="border border-gray-400 px-1 py-0.5 text-center w-6">X</th>
+                <th className="border border-gray-400 text-center">O</th>
+                <th className="border border-gray-400 text-center">X</th>
               </React.Fragment>
             ))}
           </tr>
@@ -447,14 +461,14 @@ export function renderEmployeeHealthCheck(data: FormData, doc?: DocInfo) {
         <tbody>
           {employeeRows.length > 0 ? employeeRows.map((row: { name?: string; answers?: Record<string, string> }, idx: number) => (
             <tr key={idx}>
-              {/* 빈 행은 이름/체크 없이 공란 (이전: "종사자 N" placeholder + 미응답 강제 X 표시 버그) */}
-              <td className="border border-gray-400 px-1 py-0.5 text-center">{row.name || ""}</td>
+              {/* 빈 행은 이름 공란 유지 */}
+              <td className="border border-gray-400 text-center">{row.name || ""}</td>
               {questions.map((q: { id?: string; label?: string; text?: string; field?: string }, qIdx: number) => {
                 const answer = (q.id && row.answers?.[q.id]) || "";
                 return (
                   <React.Fragment key={qIdx}>
-                    <td className="border border-gray-400 px-1 py-0.5 text-center">{answer === "O" ? "✓" : ""}</td>
-                    <td className="border border-gray-400 px-1 py-0.5 text-center">{answer === "X" ? "✓" : ""}</td>
+                    <td className="border border-gray-400 text-center">{answerBox(answer === "O")}</td>
+                    <td className="border border-gray-400 text-center">{answerBox(answer === "X")}</td>
                   </React.Fragment>
                 );
               })}
