@@ -1627,6 +1627,13 @@ export const inventoryRouter = router({
         return await getProductAvailableForRelease(ctx.tenantId);
       }),
 
+    // 완제품 재고 정본 (LOT kg환산) — 메인 제품재고 화면용 (병③ 정본화)
+    getProductCanonicalStock: tenantRequiredProcedure
+      .query(async ({ ctx }) => {
+        const { getProductCanonicalStock } = await import("../../db/production/productOutboundManagement");
+        return await getProductCanonicalStock(ctx.tenantId);
+      }),
+
     // 제품 출고 취소
     cancelProductOutbound: workerProcedure
       .input(z.object({ outboundId: z.number() }))

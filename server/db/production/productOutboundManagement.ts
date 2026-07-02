@@ -305,6 +305,42 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
   return { created, skipped: false };
 }
 
+/* ───────── 완제품 재고 정본(LOT kg환산) 조회 ─────────
+ * 병③ 정본화 (docs/architecture/10): 완제품 현재고 = Σ(LOT.available × kg_per_sales_unit).
+ *   - product LOT 의 91.6% 가 sku_id NULL(kg fallback) → kg_per_sales_unit 없으면 ×1(이미 kg).
+ *   - SKU 태그 LOT(box 등) 은 kg_per_sales_unit 로 환산 → kg 단위로 통합.
+ * 반환 키 product_id = h_inventory_lots.product_id ( = item_master.legacy_product_id ).
+ * 메인 제품재고 화면이 "배치−출고" 과대계상 대신 이 정본을 읽는다.
+ */
+export async function getProductCanonicalStock(tenantId: number) {
+  const conn = await getRawConnection();
+  const [rows] = await conn.execute(
+    `SELECT
+       l.product_id,
+       SUM(l.available_quantity * COALESCE(ps.kg_per_sales_unit, 1)) AS canonical_kg,
+       SUM(l.available_quantity)                                     AS raw_sum,
+       COUNT(*)                                                      AS lot_count,
+       SUM(CASE WHEN l.sku_id IS NOT NULL THEN 1 ELSE 0 END)         AS sku_tagged_lots,
+       COUNT(DISTINCT l.unit)                                        AS distinct_units
+     FROM h_inventory_lots l
+     LEFT JOIN product_skus ps ON ps.id = l.sku_id
+     WHERE l.tenant_id = ?
+       AND l.product_id IS NOT NULL
+       AND l.status = 'available'
+       AND CAST(l.available_quantity AS DECIMAL(10,3)) > 0
+     GROUP BY l.product_id`,
+    [tenantId],
+  );
+  return (rows as any[]).map((r) => ({
+    productId: Number(r.product_id),
+    canonicalKg: parseFloat(r.canonical_kg || "0"),
+    rawSum: parseFloat(r.raw_sum || "0"),
+    lotCount: Number(r.lot_count || 0),
+    skuTaggedLots: Number(r.sku_tagged_lots || 0),
+    mixedUnits: Number(r.distinct_units || 0) > 1, // 실사 raw 합산 시 주의 대상
+  }));
+}
+
 /* ───────── 제품 출고 가능 재고 조회 (LOT 기반, FEFO) ───────── */
 export async function getProductAvailableForRelease(tenantId: number) {
   await ensureProductOutboundTable();

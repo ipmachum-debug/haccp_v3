@@ -49,6 +49,8 @@ export function ProductStockView() {
   const { data: skuList } = trpc.productSku.listAll.useQuery();
   const { data: itemList, isLoading: isLoadingItems } = trpc.itemMaster.list.useQuery({ itemType: "own_product", limit: 500 });
   const { data: outboundByProduct } = trpc.inventory.getProductOutboundByProduct.useQuery();
+  // 병③ 정본화: 현재고는 배치−출고(과대계상) 대신 LOT kg환산 정본에서 읽는다.
+  const { data: canonicalStock } = trpc.inventory.getProductCanonicalStock.useQuery();
   const isLoading = isLoadingBatches || isLoadingItems;
 
   const productInventory = useMemo(() => {
@@ -74,6 +76,14 @@ export function ProductStockView() {
       batchMap.set(key, existing);
     });
 
+    // 완제품 재고 정본(LOT kg환산) 맵 — key: product_id( = legacyProductId )
+    const canonicalMap = new Map<number, number>();
+    if (Array.isArray(canonicalStock)) {
+      (canonicalStock as Array<{ productId: number; canonicalKg: number }>).forEach((c) => {
+        if (c.productId) canonicalMap.set(Number(c.productId), Number(c.canonicalKg || 0));
+      });
+    }
+
     // 출고 데이터를 제품명 기준으로 맵 생성
     const outboundMap = new Map<string, { totalOutbound: number; outboundCount: number; lastReleaseDate: string | null }>();
     if (outboundByProduct && Array.isArray(outboundByProduct)) {
@@ -95,7 +105,8 @@ export function ProductStockView() {
       const batchData = legacyId ? (batchMap.get(legacyId) || { totalProduced: 0, lotCount: 0, latestBatch: "" })
                                  : { totalProduced: 0, lotCount: 0, latestBatch: "" };
       const outData = outboundMap.get(item.itemName || "") || { totalOutbound: 0, outboundCount: 0, lastReleaseDate: null };
-      const currentStock = batchData.totalProduced - outData.totalOutbound;
+      // 현재고 = LOT 정본(kg환산). 정본에 없으면(가용 LOT 0) 0. 배치−출고 즉석계산은 폐기.
+      const currentStock = legacyId ? (canonicalMap.get(legacyId) ?? 0) : 0;
       return {
         productName: item.itemName || "알 수 없음",
         productCode: item.itemCode || "",
@@ -121,7 +132,7 @@ export function ProductStockView() {
       return toTs(b.latestBatch) - toTs(a.latestBatch);
     });
     return result;
-  }, [batches, skuList, itemList, outboundByProduct]);
+  }, [batches, skuList, itemList, outboundByProduct, canonicalStock]);
 
   const totalProduced = productInventory.reduce((s: number, p: ProductInventoryRow) => s + p.totalProduced, 0);
   const totalOutbound = productInventory.reduce((s: number, p: ProductInventoryRow) => s + p.totalOutbound, 0);
@@ -161,7 +172,7 @@ export function ProductStockView() {
         <StatCard icon={BoxIcon} label="제품 종류" value={productInventory.length} color="blue" />
         <StatCard icon={Factory} label="총 생산량" value={`${totalProduced.toFixed(1)} kg`} color="emerald" />
         <StatCard icon={Truck} label="총 출고량" value={`${totalOutbound.toFixed(1)} kg`} color="amber" />
-        <StatCard icon={Package} label="현재 재고" value={`${totalStock.toFixed(1)} kg`} color="slate" sub="생산 - 출고" />
+        <StatCard icon={Package} label="현재 재고" value={`${totalStock.toFixed(1)} kg`} color="slate" sub="LOT 실재고(kg환산)" />
         <StatCard icon={Hash} label="생산 배치" value={totalBatches} color="purple" />
       </div>
 
