@@ -23,6 +23,7 @@ import { riskAssessmentRouter } from "../coreMes/quality/riskAssessment.router";
 import { foodDefenseRouter } from "../coreMes/quality/foodDefense.router";
 import { foodFraudRouter } from "../coreMes/quality/foodFraud.router";
 import { foodSafetyCultureRouter } from "../coreMes/quality/foodSafetyCulture.router";
+import { allergenRouter } from "../coreMes/quality/allergen.router";
 
 export const coreMesRouterMap = {
   /** Change Control (변경관리) — Phase Y-2-0-b */
@@ -127,4 +128,14 @@ export const coreMesRouterMap = {
    * 리스크 스코어링이 아닌 문화 성숙도 진단 + 개선활동 추적.
    */
   foodSafetyCulture: foodSafetyCultureRouter,
+
+  /**
+   * Allergen Management (알레르겐 관리) — Phase Y-11
+   *
+   * 단일 테이블 h_allergen_assessments + present/crossContact/controlMeasures JSON.
+   * 식약처 알레르기 유발물질 표시대상(19품목) 카탈로그 기준.
+   * 품목/원료별 의도적 함유 + 교차오염(may contain) + 통제수단 + 표시문구 관리.
+   * 식약처 표시기준 / FSSC 22000 / Codex CXC 80-2020.
+   */
+  allergen: allergenRouter,
 } as const;

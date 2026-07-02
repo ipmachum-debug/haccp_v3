@@ -130,6 +130,8 @@ const FoodFraud = lazy(() => import("./pages/foodFraud/FoodFraud"));
 const FoodSafetyCulture = lazy(() => import("./pages/foodSafetyCulture/FoodSafetyCulture"));
 // Phase Y-10: 식품방어·문화 통합 (식품방어/식품사기/식품안전문화 → 단일 메뉴 + 탭)
 const FoodProtectionManagement = lazy(() => import("./pages/foodProtection/FoodProtectionManagement"));
+// Phase Y-11: Allergen Management (알레르겐 관리 — 식약처 표시기준 / FSSC / Codex)
+const FoodAllergen = lazy(() => import("./pages/allergen/FoodAllergen"));
 // Phase 3 — Pharmaceutical KGMP industry 활성화 (8 Y-시리즈 entity)
 const PharmaceuticalChangeControl = lazy(() => import("./pages/changeControl/PharmaceuticalChangeControl"));
 const PharmaceuticalNonconforming = lazy(() => import("./pages/nonconforming/PharmaceuticalNonconforming"));
@@ -591,6 +593,8 @@ function Router() {
       <Route path="/dashboard/food/food-safety-culture" component={FoodSafetyCulture} />
       {/* Phase Y-10 — 식품방어·문화 통합 (단일 메뉴 + 탭) */}
       <Route path="/dashboard/food/food-protection" component={FoodProtectionManagement} />
+      {/* Phase Y-11 — Allergen Management (알레르겐 관리) */}
+      <Route path="/dashboard/food/allergen" component={FoodAllergen} />
       {/* Phase 3 — Pharmaceutical KGMP routes (8 Y-시리즈 entity) */}
       <Route path="/dashboard/pharmaceutical/change-control" component={PharmaceuticalChangeControl} />
       <Route path="/dashboard/pharmaceutical/nonconforming" component={PharmaceuticalNonconforming} />

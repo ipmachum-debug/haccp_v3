@@ -91,6 +91,8 @@ export const foodPlugin: IndustryPlugin = {
           { icon: "Activity", label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"] },
           { icon: "TrendingUp", label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"] },
           { icon: "GitBranch", label: "변경관리", path: "/dashboard/food/change-control", roles: ["super_admin", "admin", "inspector", "monitor"] },
+          // 알레르겐 관리 — Phase Y-11. 식약처 표시기준(19품목) + 교차오염 + 표시문구. 신규.
+          { icon: "Wheat", label: "알레르겐 관리", path: "/dashboard/food/allergen", roles: ["super_admin", "admin", "inspector", "monitor"] },
           // ★ Y-시리즈 7개(부적합 관리 통합/CAPA/감사/교육/검교정/공급업체/위험평가)는 식품 legacy 메뉴와 중복이라
           //   사이드바에서 제거 (변경관리만 유지 — legacy 대응 메뉴 없음).
           //   이미 통합된 위치: 부적합 관리(통합)→부적합제품관리, CAPA→시정조치 관리, 감사(Audit)→감사관리,

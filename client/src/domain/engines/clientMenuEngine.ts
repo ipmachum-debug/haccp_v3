@@ -22,7 +22,7 @@ import {
   Database, Sparkles, FlaskConical, Tag, Truck, Thermometer, GitBranch,
   AlertCircle, AlertTriangle, GraduationCap, Sliders, Activity, TrendingUp,
   FileWarning, Building2, Settings, ArrowLeftRight, Pill, ChefHat, Syringe,
-  Factory,
+  Factory, Wheat, SearchCheck, Users,
 } from "lucide-react";
 
 // ─── 아이콘 string → Component 매핑 ───
@@ -32,7 +32,7 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   Database, Sparkles, FlaskConical, Tag, Truck, Thermometer, GitBranch,
   AlertCircle, AlertTriangle, GraduationCap, Sliders, Activity, TrendingUp,
   FileWarning, Building2, Settings, ArrowLeftRight, Pill, ChefHat, Syringe,
-  Factory,
+  Factory, Wheat, SearchCheck, Users,
 };
 
 export function getIcon(name: string): LucideIcon {
