@@ -423,8 +423,9 @@ const menuItems = [
   // 감사관리 (Legacy HACCP 감사 — "HACCP 인증 유지를 위한 감사" — Y-2-3 Audit 으로 이주됨)
   { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "감사·검증" },
   { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "감사·검증" },
-  // 감사 리포트 (HACCP 감사 리포트 — CCP/위생검사/시정조치 통합 점수 — HACCP 전용)
-  { icon: Shield, label: "감사 리포트", path: "/dashboard/audit-report", roles: ["super_admin", "admin"], requireModule: "haccp", group: "감사·검증" },
+  // 감사 리포트: "감사관리" 페이지의 탭으로 통합됨 (#375). 사이드바 독립 메뉴 제거 —
+  //   라우트 /dashboard/audit-report 는 App.tsx 에 유지 (직접 URL 호환).
+  //   (audit-menu-routes.ts 탭 중복 감사로 검출 → 폴백 메뉴에서도 제거)
 
   // ─── 시스템 ───
   { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"], group: "시스템" },
