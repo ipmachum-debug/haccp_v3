@@ -86,6 +86,28 @@ export const calibrationRouter = router({
     await db.update(calibrationEquipment).set({ ...rest, ...(purchaseDate && { purchaseDate: new Date(purchaseDate) }) }).where(and(eq(calibrationEquipment.id, id), eq(calibrationEquipment.tenantId, Number(ctx.tenantId))));
     return { success: true };
   }),
+  // 설비 삭제 — 검교정 기록(이력)이 없을 때만 완전 삭제 허용.
+  //   기록이 있으면(교체된 기존 설비) HACCP 이력 보존을 위해 삭제 차단 → 비활성화 안내.
+  deleteEquipment: tenantRequiredProcedure.input(z.object({ id: z.number() })).mutation(async ({ ctx, input }) => {
+    const db = await getDb();
+    if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
+    // 테넌트 소유 확인
+    const [owned] = await db.select({ id: calibrationEquipment.id }).from(calibrationEquipment)
+      .where(and(eq(calibrationEquipment.id, input.id), eq(calibrationEquipment.tenantId, Number(ctx.tenantId)))).limit(1);
+    if (!owned) throw new TRPCError({ code: "NOT_FOUND", message: "설비를 찾을 수 없습니다" });
+    // 검교정 기록 존재 여부 확인 (테넌트 격리)
+    const records = await db.select({ id: calibrationRecords.id }).from(calibrationRecords)
+      .where(and(eq(calibrationRecords.equipmentId, input.id), eq(calibrationRecords.tenantId, Number(ctx.tenantId)))).limit(1);
+    if (records.length > 0) {
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "검교정 기록이 있는 설비는 완전 삭제할 수 없습니다. 이력 보존을 위해 '비활성화'로 목록에서 숨기세요.",
+      });
+    }
+    await db.delete(calibrationEquipment)
+      .where(and(eq(calibrationEquipment.id, input.id), eq(calibrationEquipment.tenantId, Number(ctx.tenantId))));
+    return { success: true };
+  }),
   listRecords: tenantRequiredProcedure.input(z.object({ equipmentId: z.number().optional(), startDate: z.string().optional(), endDate: z.string().optional() }).optional()).query(async ({ ctx, input }) => {
     const db = await getDb();
     if (!db) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "데이터베이스 연결 실패" });
