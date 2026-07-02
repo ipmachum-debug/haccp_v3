@@ -87,9 +87,10 @@ const LEVEL_COLOR: Record<"low" | "medium" | "high", string> = {
 
 interface Props {
   industry: IndustryKey;
+  embedded?: boolean;
 }
 
-export default function FoodFraudPage({ industry }: Props) {
+export default function FoodFraudPage({ industry, embedded }: Props) {
   const [statusFilter, setStatusFilter] = useState<FoodFraudStatus | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<FraudCategory | "all">("all");
   const [highVulnOnly, setHighVulnOnly] = useState(false);
@@ -133,8 +134,7 @@ export default function FoodFraudPage({ industry }: Props) {
     return level === "high" && v.status !== "archived";
   }).length ?? 0;
 
-  return (
-    <DashboardLayout>
+  const content = (
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -273,8 +273,9 @@ export default function FoodFraudPage({ industry }: Props) {
           </CardContent>
         </Card>
       </div>
-    </DashboardLayout>
   );
+  if (embedded) return content;
+  return <DashboardLayout>{content}</DashboardLayout>;
 }
 
 /* ─────────── 신규 등록 다이얼로그 ─────────── */

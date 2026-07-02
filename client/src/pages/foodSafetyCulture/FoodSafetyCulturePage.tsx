@@ -87,9 +87,10 @@ const MATURITY_COLOR: Record<"initial" | "developing" | "mature" | "excellent", 
 
 interface Props {
   industry: IndustryKey;
+  embedded?: boolean;
 }
 
-export default function FoodSafetyCulturePage({ industry }: Props) {
+export default function FoodSafetyCulturePage({ industry, embedded }: Props) {
   const [statusFilter, setStatusFilter] = useState<CultureStatus | "all">("all");
   const [createOpen, setCreateOpen] = useState(false);
 
@@ -121,8 +122,7 @@ export default function FoodSafetyCulturePage({ industry }: Props) {
     },
   });
 
-  return (
-    <DashboardLayout>
+  const content = (
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -217,8 +217,9 @@ export default function FoodSafetyCulturePage({ industry }: Props) {
           </CardContent>
         </Card>
       </div>
-    </DashboardLayout>
   );
+  if (embedded) return content;
+  return <DashboardLayout>{content}</DashboardLayout>;
 }
 
 /* ─────────── 신규 등록 다이얼로그 ─────────── */

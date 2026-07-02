@@ -86,9 +86,10 @@ const LEVEL_COLOR: Record<"low" | "medium" | "high", string> = {
 
 interface Props {
   industry: IndustryKey;
+  embedded?: boolean;
 }
 
-export default function FoodDefensePage({ industry }: Props) {
+export default function FoodDefensePage({ industry, embedded }: Props) {
   const [statusFilter, setStatusFilter] = useState<FoodDefenseStatus | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<ThreatCategory | "all">("all");
   const [highThreatOnly, setHighThreatOnly] = useState(false);
@@ -132,8 +133,7 @@ export default function FoodDefensePage({ industry }: Props) {
     return level === "high" && t.status !== "archived";
   }).length ?? 0;
 
-  return (
-    <DashboardLayout>
+  const content = (
       <div className="p-6 space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -269,8 +269,9 @@ export default function FoodDefensePage({ industry }: Props) {
           </CardContent>
         </Card>
       </div>
-    </DashboardLayout>
   );
+  if (embedded) return content;
+  return <DashboardLayout>{content}</DashboardLayout>;
 }
 
 /* ─────────── 신규 등록 다이얼로그 ─────────── */
