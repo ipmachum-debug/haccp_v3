@@ -536,6 +536,19 @@ export async function completeBatch(params: {
           eq(hInventory.productId, existingBatch.productId),
           eq(hInventory.tenantId, tId)
         ));
+    } else {
+      // ★ P2b: 완제품 집계 행이 아직 없으면 신규 생성.
+      //   기존엔 UPDATE-only 라 '해당 제품 최초 생산' 시 h_inventory 행이 안 생겨
+      //   생산해도 제품재고가 0/누락으로 표시되는 버그("생산후 제품재고 증가 불일치").
+      //   INSERT-or-UPDATE(upsert)로 최초 생산도 집계에 반영.
+      await db.insert(hInventory).values({
+        tenantId: tId,
+        productId: existingBatch.productId,
+        totalQuantity: actualQuantity.toString(),
+        availableQuantity: actualQuantity.toString(),
+        reservedQuantity: "0.000",
+        unit: "kg",
+      } as any);
     }
     // 완제품 입고 기록은 SKU LOT 생성에서 처리
   } catch (error) {
