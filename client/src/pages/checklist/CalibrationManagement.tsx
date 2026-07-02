@@ -23,16 +23,16 @@ export default function CalibrationManagement() {
 
   const { toast } = useToast();
   // 설비 목록 조회
-  const { data: equipments, refetch: refetchEquipments } = trpc.calibration.listEquipments.useQuery({
+  const { data: equipments, refetch: refetchEquipments } = trpc.checklistCalibration.listEquipments.useQuery({
     search: searchTerm,
     isActive: true,
   });
 
   // 검교정 기록 목록 조회
-  const { data: records } = trpc.calibration.listRecords.useQuery({});
+  const { data: records } = trpc.checklistCalibration.listRecords.useQuery({});
 
   // 다음 교정일 임박/초과 알림 (설비별 최신 기록 기준)
-  const { data: upcoming } = trpc.calibration.upcomingCalibrations.useQuery({ withinDays: 30 });
+  const { data: upcoming } = trpc.checklistCalibration.upcomingCalibrations.useQuery({ withinDays: 30 });
 
   // D-day 표시 (남은 일수 → 라벨/색상)
   const getDdayBadge = (daysRemaining: number | null, status: string) => {
@@ -403,7 +403,7 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
     notes: equipment?.notes || "",
   });
 
-  const createMutation = trpc.calibration.createEquipment.useMutation({
+  const createMutation = trpc.checklistCalibration.createEquipment.useMutation({
     onSuccess: () => {
       alert("설비가 등록되었습니다");
       onSuccess();
@@ -413,7 +413,7 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
     },
   });
 
-  const updateMutation = trpc.calibration.updateEquipment.useMutation({
+  const updateMutation = trpc.checklistCalibration.updateEquipment.useMutation({
     onSuccess: () => {
       alert("설비가 수정되었습니다");
       onSuccess();
@@ -573,7 +573,7 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
 function LogModal({ open, onClose, onSuccess, equipment }: any) {
   const { toast } = useToast();
   // 설비 선택용 목록 (상단 "일지 작성" 버튼으로 사전 선택 없이 열 때 필요)
-  const { data: equipmentList } = trpc.calibration.listEquipments.useQuery({ isActive: true });
+  const { data: equipmentList } = trpc.checklistCalibration.listEquipments.useQuery({ isActive: true });
   const [formData, setFormData] = useState({
     equipmentId: equipment?.id || "",
     calibrationDate: format(new Date(), "yyyy-MM-dd"),
@@ -618,7 +618,7 @@ function LogModal({ open, onClose, onSuccess, equipment }: any) {
   // 판정 자동 유도 (미선택 시 보정값 행 전체 합격 여부)
   const derivedResult: "pass" | "fail" = formData.results.every((r) => r.pass) ? "pass" : "fail";
 
-  const createRecord = trpc.calibration.createRecord.useMutation({
+  const createRecord = trpc.checklistCalibration.createRecord.useMutation({
     onSuccess: () => {
       toast({ title: "검교정 일지가 저장되었습니다." });
       onSuccess?.();

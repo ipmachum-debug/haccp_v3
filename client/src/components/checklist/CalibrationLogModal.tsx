@@ -63,16 +63,16 @@ export default function CalibrationLogModal({ open, onClose, onSuccess }: Calibr
   const [notes, setNotes] = useState("");
 
   // 설비 목록 조회
-  const { data: equipmentList } = trpc.calibration.listEquipment.useQuery({ isActive: true });
+  const { data: equipmentList } = trpc.checklistCalibration.listEquipment.useQuery({ isActive: true });
 
   // 선택된 설비 정보
-  const { data: selectedEquipment } = trpc.calibration.getEquipmentById.useQuery(
+  const { data: selectedEquipment } = trpc.checklistCalibration.getEquipmentById.useQuery(
     { id: selectedEquipmentId! },
     { enabled: !!selectedEquipmentId }
   );
 
   // 검교정 일지 생성 mutation
-  const createLogMutation = trpc.calibration.createRecord.useMutation({
+  const createLogMutation = trpc.checklistCalibration.createRecord.useMutation({
     onSuccess: () => {
       alert("검교정 일지가 저장되었습니다");
       onSuccess();
