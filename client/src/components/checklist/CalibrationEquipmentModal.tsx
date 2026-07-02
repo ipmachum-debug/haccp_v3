@@ -36,7 +36,7 @@ export default function CalibrationEquipmentModal({
   });
 
   // 설비 생성 mutation
-  const createEquipmentMutation = trpc.calibration.createEquipment.useMutation({
+  const createEquipmentMutation = trpc.checklistCalibration.createEquipment.useMutation({
     onSuccess: () => {
       alert("검교정 설비가 등록되었습니다");
       onSuccess();

@@ -17,7 +17,7 @@ export default function CalibrationLogListModal({ open, onClose }: CalibrationLo
   const [endDate, setEndDate] = useState("");
 
   // 검교정 기록 목록 조회
-  const { data: records, refetch } = trpc.calibration.listRecords.useQuery(
+  const { data: records, refetch } = trpc.checklistCalibration.listRecords.useQuery(
     {
       startDate: startDate || undefined,
       endDate: endDate || undefined,
