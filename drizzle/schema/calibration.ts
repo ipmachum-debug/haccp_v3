@@ -1,4 +1,4 @@
-import {mysqlTable,  bigint, varchar, text, decimal, date, boolean, timestamp, mysqlEnum, index, int} from "drizzle-orm/mysql-core";
+import {mysqlTable,  bigint, varchar, text, decimal, date, boolean, timestamp, mysqlEnum, index, int, json} from "drizzle-orm/mysql-core";
 import { tenants } from './schema_main';
 import { relations } from "drizzle-orm";
 import { users } from "./schema_main";
@@ -11,7 +11,8 @@ export const calibrationEquipment = mysqlTable("calibration_equipment", {
   name: varchar("name", { length: 200 }).notNull(), // 검교정설비명
   calibrationType: mysqlEnum("calibration_type", ["certified", "internal"]).notNull(), // 검교정구분 (공인기관/사내)
   equipmentType: mysqlEnum("equipment_type", ["scale", "thermometer", "facility_thermometer", "timer"]).default("thermometer"), // 설비 유형
-  
+  calibrationCycleMonths: int("calibration_cycle_months"), // 교정 주기(개월) — 다음교정일 자동계산 근거
+
   model: varchar("model", { length: 100 }), // 모델
   manufacturer: varchar("manufacturer", { length: 100 }), // 제조회사
   purchasePrice: decimal("purchase_price", { precision: 15, scale: 2 }), // 구입가격
@@ -37,7 +38,15 @@ export const calibrationRecords = mysqlTable("calibration_records", {
   calibrationDate: date("calibration_date").notNull(), // 검교정일자
   nextCalibrationDate: date("next_calibration_date").notNull(), // 차기 검교정 일자
   regularCalibrationDate: date("regular_calibration_date"), // 정기 검교정 일자(설정치)
-  
+
+  // ── 강화: 성적서 / 판정 / 보정값 ──
+  calibrationInstitution: varchar("calibration_institution", { length: 200 }), // 교정기관
+  certificateNumber: varchar("certificate_number", { length: 100 }), // 성적서 번호
+  calibratedBy: varchar("calibrated_by", { length: 200 }), // 교정자
+  result: mysqlEnum("result", ["pass", "fail", "conditional_pass"]), // 판정
+  resultsJson: json("results_json"), // 항목별 보정값(JSON)
+  certificateFile: text("certificate_file"), // 성적서 첨부(base64, 실제 DB 는 LONGTEXT)
+
   notes: text("notes"), // 비고
   
   approvalStatus: mysqlEnum("approval_status", ["draft", "pending_review", "approved", "rejected"]).default("draft"),

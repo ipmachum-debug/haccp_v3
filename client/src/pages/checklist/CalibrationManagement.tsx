@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { trpc } from "@/lib/trpc";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Search, Calendar, AlertCircle, CheckCircle, Clock, FileText } from "lucide-react";
-import { format, differenceInDays } from "date-fns";
+import { format } from "date-fns";
 import { ko } from "date-fns/locale";
 
 export default function CalibrationManagement() {
@@ -31,19 +31,17 @@ export default function CalibrationManagement() {
   // 검교정 기록 목록 조회
   const { data: records } = trpc.calibration.listRecords.useQuery({});
 
-  // D-day 계산 및 상태 표시
-  const getCalibrationStatus = (nextDate: string | null) => {
-    if (!nextDate) return { label: "미정", color: "gray", daysLeft: null };
-    
-    const daysLeft = differenceInDays(new Date(nextDate), new Date());
-    
-    if (daysLeft < 0) {
-      return { label: "기간 초과", color: "red", daysLeft };
-    } else if (daysLeft <= 7) {
-      return { label: `D-${daysLeft}`, color: "orange", daysLeft };
-    } else {
-      return { label: `${daysLeft}일 남음`, color: "green", daysLeft };
-    }
+  // 다음 교정일 임박/초과 알림 (설비별 최신 기록 기준)
+  const { data: upcoming } = trpc.calibration.upcomingCalibrations.useQuery({ withinDays: 30 });
+
+  // D-day 표시 (남은 일수 → 라벨/색상)
+  const getDdayBadge = (daysRemaining: number | null, status: string) => {
+    if (status === "no_record") return { label: "기록 없음", color: "gray" };
+    if (daysRemaining === null) return { label: "미정", color: "gray" };
+    if (daysRemaining < 0) return { label: `${Math.abs(daysRemaining)}일 초과`, color: "red" };
+    if (daysRemaining === 0) return { label: "오늘", color: "orange" };
+    if (daysRemaining <= 7) return { label: `D-${daysRemaining}`, color: "orange" };
+    return { label: `${daysRemaining}일 남음`, color: "green" };
   };
 
   return (
@@ -110,63 +108,65 @@ export default function CalibrationManagement() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {equipments && equipments.length > 0 ? (
+                  {upcoming && upcoming.length > 0 ? (
                     <div className="grid gap-4">
-                      {equipments
-                        .filter((eq: any) => eq.nextCalibrationDate)
-                        .sort((a: any, b: any) => {
-                          const aDate = new Date(a.nextCalibrationDate);
-                          const bDate = new Date(b.nextCalibrationDate);
-                          return aDate.getTime() - bDate.getTime();
+                      {[...upcoming]
+                        .sort((a, b) => {
+                          // 초과(음수) → 임박 → 기록없음(null) 순
+                          const av = a.daysRemaining ?? Number.MAX_SAFE_INTEGER;
+                          const bv = b.daysRemaining ?? Number.MAX_SAFE_INTEGER;
+                          return av - bv;
                         })
-                        .map((equipment: any) => {
-                          const status = getCalibrationStatus(equipment.nextCalibrationDate);
+                        .map((item) => {
+                          const dday = getDdayBadge(item.daysRemaining, item.status);
                           return (
                             <div
-                              key={equipment.id}
+                              key={item.equipmentId}
                               className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/50 transition-colors"
                             >
                               <div className="flex-1">
                                 <div className="flex items-center gap-2">
-                                  <h3 className="font-semibold">{equipment.name}</h3>
-                                  <Badge variant="outline">{equipment.code}</Badge>
-                                  <Badge variant="secondary">
-                                    {equipment.equipmentType === "scale" && "저울"}
-                                    {equipment.equipmentType === "thermometer" && "온도계"}
-                                    {equipment.equipmentType === "facility_thermometer" && "시설온도계"}
-                                    {equipment.equipmentType === "timer" && "타이머"}
-                                  </Badge>
+                                  <h3 className="font-semibold">{item.equipmentName}</h3>
+                                  <Badge variant="outline">{item.equipmentCode}</Badge>
+                                  {item.calibrationCycleMonths && (
+                                    <Badge variant="secondary">주기 {item.calibrationCycleMonths}개월</Badge>
+                                  )}
                                 </div>
                                 <p className="text-sm text-muted-foreground mt-1">
-                                  {equipment.location} | 주기: {equipment.calibrationCycle}개월
+                                  {item.status === "no_record"
+                                    ? "검교정 기록이 없습니다 — 일지를 작성하세요"
+                                    : `최근 교정일: ${item.lastCalibrationDate ? format(new Date(item.lastCalibrationDate), "yyyy-MM-dd") : "-"}`}
                                 </p>
                               </div>
                               <div className="flex items-center gap-4">
                                 <div className="text-right">
                                   <p className="text-sm text-muted-foreground">다음 검교정일</p>
                                   <p className="font-semibold">
-                                    {equipment.nextCalibrationDate
-                                      ? format(new Date(equipment.nextCalibrationDate), "yyyy-MM-dd")
+                                    {item.nextCalibrationDate
+                                      ? format(new Date(item.nextCalibrationDate), "yyyy-MM-dd")
                                       : "미정"}
                                   </p>
                                 </div>
                                 <Badge
                                   variant={
-                                    status.color === "red"
+                                    dday.color === "red"
                                       ? "destructive"
-                                      : status.color === "orange"
+                                      : dday.color === "orange"
                                       ? "default"
                                       : "secondary"
                                   }
                                   className="min-w-[80px] justify-center"
                                 >
-                                  {status.color === "red" && <AlertCircle className="w-3 h-3 mr-1" />}
-                                  {status.label}
+                                  {(dday.color === "red" || dday.color === "orange") && (
+                                    <AlertCircle className="w-3 h-3 mr-1" />
+                                  )}
+                                  {dday.label}
                                 </Badge>
                                 <Button
                                   size="sm"
                                   onClick={() => {
-                                    setSelectedEquipment(equipment);
+                                    const eqp = equipments?.find((e: any) => e.id === item.equipmentId) || null;
+                                    setSelectedEquipment(eqp);
                                     setLogModalOpen(true);
                                   }}
                                 >
@@ -179,16 +179,22 @@ export default function CalibrationManagement() {
                     </div>
                   ) : (
                     <div className="text-center py-12 text-muted-foreground">
-                      <Calendar className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                      <p>등록된 검교정 설비가 없습니다</p>
-                      <Button
-                        variant="outline"
-                        className="mt-4"
-                        onClick={() => setEquipmentModalOpen(true)}
-                      >
-                        <Plus className="w-4 h-4 mr-2" />
-                        첫 설비 등록하기
-                      </Button>
+                      <CheckCircle className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                      <p>
+                        {equipments && equipments.length > 0
+                          ? "임박하거나 초과된 검교정 일정이 없습니다"
+                          : "등록된 검교정 설비가 없습니다"}
+                      </p>
+                      {(!equipments || equipments.length === 0) && (
+                        <Button
+                          variant="outline"
+                          className="mt-4"
+                          onClick={() => setEquipmentModalOpen(true)}
+                        >
+                          <Plus className="w-4 h-4 mr-2" />
+                          첫 설비 등록하기
+                        </Button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -226,10 +232,10 @@ export default function CalibrationManagement() {
                               </Badge>
                             </div>
                             <div className="grid grid-cols-2 gap-2 mt-2 text-sm text-muted-foreground">
-                              <p>위치: {equipment.location || "-"}</p>
+                              <p>검교정 유형: {equipment.calibrationType === "certified" ? "공인 검교정" : "자체 검교정"}</p>
                               <p>제조사: {equipment.manufacturer || "-"}</p>
                               <p>모델: {equipment.model || "-"}</p>
-                              <p>주기: {equipment.calibrationCycle}개월</p>
+                              <p>주기: {equipment.calibrationCycleMonths ? `${equipment.calibrationCycleMonths}개월` : "미설정"}</p>
                             </div>
                           </div>
                           <div className="flex gap-2">
@@ -382,21 +388,18 @@ export default function CalibrationManagement() {
   );
 }
 
-// 설비 등록 모달 컴포넌트
+// 설비 등록/수정 모달 컴포넌트
 function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
+  const isEdit = !!equipment?.id;
   const [formData, setFormData] = useState({
     code: equipment?.code || "",
     name: equipment?.name || "",
     equipmentType: equipment?.equipmentType || "thermometer",
-    location: equipment?.location || "",
     manufacturer: equipment?.manufacturer || "",
     model: equipment?.model || "",
-    serialNumber: equipment?.serialNumber || "",
-    purchaseDate: equipment?.purchaseDate || "",
+    purchaseDate: equipment?.purchaseDate ? String(equipment.purchaseDate).slice(0, 10) : "",
     calibrationType: equipment?.calibrationType || "internal",
-    calibrationCycle: equipment?.calibrationCycle || 12,
-    lastCalibrationDate: equipment?.lastCalibrationDate || "",
-    nextCalibrationDate: equipment?.nextCalibrationDate || "",
+    calibrationCycleMonths: equipment?.calibrationCycleMonths ?? 12,
     notes: equipment?.notes || "",
   });
 
@@ -410,14 +413,39 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
     },
   });
 
+  const updateMutation = trpc.calibration.updateEquipment.useMutation({
+    onSuccess: () => {
+      alert("설비가 수정되었습니다");
+      onSuccess();
+    },
+    onError: (error: { message: string }) => {
+      alert(`수정 실패: ${error.message}`);
+    },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!formData.code || !formData.name) {
       alert("설비 코드와 이름은 필수입니다");
       return;
     }
-    createMutation.mutate(formData);
+    const payload = {
+      name: formData.name,
+      equipmentType: formData.equipmentType,
+      calibrationType: formData.calibrationType,
+      calibrationCycleMonths: formData.calibrationCycleMonths || undefined,
+      manufacturer: formData.manufacturer || undefined,
+      model: formData.model || undefined,
+      purchaseDate: formData.purchaseDate || undefined,
+      notes: formData.notes || undefined,
+    };
+    if (isEdit) {
+      updateMutation.mutate({ id: equipment.id, ...payload });
+    } else {
+      createMutation.mutate({ code: formData.code, ...payload });
+    }
   };
+  const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
@@ -434,6 +462,7 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
                 onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                 placeholder="예: TEMP-001"
                 required
+                disabled={isEdit}
               />
             </div>
             <div>
@@ -465,14 +494,6 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <Label>설치 위치</Label>
-              <Input
-                value={formData.location}
-                onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                placeholder="예: 1층 냉장실"
-              />
-            </div>
-            <div>
               <Label>제조사</Label>
               <Input
                 value={formData.manufacturer}
@@ -480,8 +501,6 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
                 placeholder="예: 삼성전자"
               />
             </div>
-          </div>
-          <div className="grid grid-cols-2 gap-4">
             <div>
               <Label>모델명</Label>
               <Input
@@ -490,64 +509,42 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
                 placeholder="예: RT-1234"
               />
             </div>
-            <div>
-              <Label>시리얼 번호</Label>
-              <Input
-                value={formData.serialNumber}
-                onChange={(e) => setFormData({ ...formData, serialNumber: e.target.value })}
-                placeholder="예: SN-123456"
-              />
-            </div>
-          </div>
-          <div>
-            <Label>검교정 유형</Label>
-            <Select
-              value={formData.calibrationType}
-              onValueChange={(value: any) => setFormData({ ...formData, calibrationType: value })}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="internal">자체 검교정</SelectItem>
-                <SelectItem value="certified">공인 검교정</SelectItem>
-              </SelectContent>
-            </Select>
           </div>
           <div className="grid grid-cols-3 gap-4">
+            <div>
+              <Label>검교정 유형</Label>
+              <Select
+                value={formData.calibrationType}
+                onValueChange={(value: any) => setFormData({ ...formData, calibrationType: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="internal">자체 검교정</SelectItem>
+                  <SelectItem value="certified">공인 검교정</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div>
               <Label>검교정 주기 (개월)</Label>
               <Input
                 type="number"
-                value={formData.calibrationCycle}
-                onChange={(e) => setFormData({ ...formData, calibrationCycle: parseInt(e.target.value) || 12 })}
+                value={formData.calibrationCycleMonths}
+                onChange={(e) => setFormData({ ...formData, calibrationCycleMonths: parseInt(e.target.value) || 0 })}
                 min="1"
+                placeholder="예: 12"
               />
+              <p className="text-xs text-muted-foreground mt-1">일지 작성 시 다음 교정일 자동계산에 사용</p>
             </div>
             <div>
-              <Label>최근 검교정일</Label>
+              <Label>구매일</Label>
               <Input
                 type="date"
-                value={formData.lastCalibrationDate}
-                onChange={(e) => setFormData({ ...formData, lastCalibrationDate: e.target.value })}
+                value={formData.purchaseDate}
+                onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
               />
             </div>
-            <div>
-              <Label>다음 검교정일</Label>
-              <Input
-                type="date"
-                value={formData.nextCalibrationDate}
-                onChange={(e) => setFormData({ ...formData, nextCalibrationDate: e.target.value })}
-              />
-            </div>
-          </div>
-          <div>
-            <Label>구매일</Label>
-            <Input
-              type="date"
-              value={formData.purchaseDate}
-              onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
-            />
           </div>
           <div>
             <Label>비고</Label>
@@ -562,8 +559,8 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
             <Button type="button" variant="outline" onClick={onClose}>
               취소
             </Button>
-            <Button type="submit" disabled={createMutation.isPending}>
-              {createMutation.isPending ? "등록 중..." : equipment ? "수정" : "등록"}
+            <Button type="submit" disabled={isPending}>
+              {isPending ? "저장 중..." : isEdit ? "수정" : "등록"}
             </Button>
           </DialogFooter>
         </form>
@@ -575,21 +572,29 @@ function EquipmentModal({ open, onClose, onSuccess, equipment }: any) {
 // 일지 작성 모달 컴포넌트 (완전 버전)
 function LogModal({ open, onClose, onSuccess, equipment }: any) {
   const { toast } = useToast();
+  // 설비 선택용 목록 (상단 "일지 작성" 버튼으로 사전 선택 없이 열 때 필요)
+  const { data: equipmentList } = trpc.calibration.listEquipments.useQuery({ isActive: true });
   const [formData, setFormData] = useState({
     equipmentId: equipment?.id || "",
     calibrationDate: format(new Date(), "yyyy-MM-dd"),
     nextCalibrationDate: "",
     regularCalibrationDate: "",
+    // 성적서(인증서) 관리
+    calibrationInstitution: "",
+    certificateNumber: "",
+    calibratedBy: "",
+    certificateFile: null as string | null,
+    // 판정
+    result: "" as "" | "pass" | "fail" | "conditional_pass",
     calibrationMethod: [
       "한국표준과학연구원 사이트에 접속하여 표준시각으로 맞춘다(Utck 3.1)을 다운도드함. URL : https://www.kriss.re.kr/standard/view.do?pg=standard_set_01",
       "다운도드한 압축파일을 풀고 실행 파일 가동시킨다.",
       "프로그램이 대상 컴퓨터와 시간을 자동적으로 대조하여 오차를 제 동시에 맞추어 보정한 후 프로그램의 오차를 출력 (모니터링 시간에 맞추어 입력수 있는 곳을 클릭하여 시간이 맞추어 입력수 있도록 한다.",
     ],
     toleranceCriteria: "± 1℃",
-    improvementMethod: "",
-    photoEquipment: null,
-    photoPosition: null,
-    photoResult: null,
+    photoEquipment: null as string | null,
+    photoPosition: null as string | null,
+    photoResult: null as string | null,
     results: [
       { category: "시작점", calibrationValue: "", panelValue: "", deviation: 0, pass: true },
     ],
@@ -597,6 +602,21 @@ function LogModal({ open, onClose, onSuccess, equipment }: any) {
     improvementAction: "",
     notes: "",
   });
+
+  // 선택된 설비 (auto 다음교정일 계산 근거)
+  const selectedEq = (equipmentList || []).find((e: any) => e.id === Number(formData.equipmentId));
+
+  // 다음 교정일 자동계산 미리보기 (미입력 시 설비 주기 적용)
+  const autoNextDate = (() => {
+    if (formData.nextCalibrationDate) return null;
+    if (!selectedEq?.calibrationCycleMonths || !formData.calibrationDate) return null;
+    const d = new Date(formData.calibrationDate);
+    d.setMonth(d.getMonth() + selectedEq.calibrationCycleMonths);
+    return format(d, "yyyy-MM-dd");
+  })();
+
+  // 판정 자동 유도 (미선택 시 보정값 행 전체 합격 여부)
+  const derivedResult: "pass" | "fail" = formData.results.every((r) => r.pass) ? "pass" : "fail";
 
   const createRecord = trpc.calibration.createRecord.useMutation({
     onSuccess: () => {
@@ -610,11 +630,34 @@ function LogModal({ open, onClose, onSuccess, equipment }: any) {
   });
 
   const handleSubmit = (status: "draft" | "pending_review") => {
+    if (!formData.equipmentId) {
+      toast({ title: "설비를 선택하세요", variant: "destructive" });
+      return;
+    }
     createRecord.mutate({
-      ...formData,
       equipmentId: Number(formData.equipmentId),
-      status,
-      results: formData.results.map(r => ({ ...r, calibrationValue: Number(r.calibrationValue), panelValue: Number(r.panelValue) })),
+      calibrationDate: formData.calibrationDate,
+      nextCalibrationDate: formData.nextCalibrationDate || undefined,
+      regularCalibrationDate: formData.regularCalibrationDate || undefined,
+      calibrationInstitution: formData.calibrationInstitution || undefined,
+      certificateNumber: formData.certificateNumber || undefined,
+      calibratedBy: formData.calibratedBy || undefined,
+      certificateFile: formData.certificateFile || undefined,
+      result: (formData.result || derivedResult) as "pass" | "fail" | "conditional_pass",
+      calibrationMethod: formData.calibrationMethod,
+      judgmentCriteria: formData.toleranceCriteria || undefined,
+      deviationContent: formData.deviationContent || undefined,
+      improvementMethod: formData.improvementAction || undefined,
+      photoEquipment: formData.photoEquipment || undefined,
+      photoPosition: formData.photoPosition || undefined,
+      photoResult: formData.photoResult || undefined,
+      notes: formData.notes || undefined,
+      approvalStatus: status,
+      results: formData.results.map((r) => ({
+        ...r,
+        calibrationValue: Number(r.calibrationValue),
+        panelValue: Number(r.panelValue),
+      })),
     });
   };
 
@@ -660,6 +703,26 @@ function LogModal({ open, onClose, onSuccess, equipment }: any) {
           <DialogTitle>검교정 일지 작성</DialogTitle>
         </DialogHeader>
         <div className="space-y-6 py-4">
+          {/* 설비 선택 */}
+          <div>
+            <label className="text-sm font-medium">검교정 설비 *</label>
+            <Select
+              value={formData.equipmentId ? String(formData.equipmentId) : ""}
+              onValueChange={(value) => setFormData({ ...formData, equipmentId: Number(value) })}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="설비를 선택하세요" />
+              </SelectTrigger>
+              <SelectContent>
+                {(equipmentList || []).map((e: any) => (
+                  <SelectItem key={e.id} value={String(e.id)}>
+                    {e.name} ({e.code}){e.calibrationCycleMonths ? ` · 주기 ${e.calibrationCycleMonths}개월` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
           {/* 검교정 일자 */}
           <div className="grid grid-cols-3 gap-4">
             <div>
@@ -677,6 +740,11 @@ function LogModal({ open, onClose, onSuccess, equipment }: any) {
                 value={formData.nextCalibrationDate}
                 onChange={(e) => setFormData({ ...formData, nextCalibrationDate: e.target.value })}
               />
+              {autoNextDate && (
+                <p className="text-xs text-blue-600 mt-1">
+                  미입력 시 자동계산: {autoNextDate} (주기 {selectedEq?.calibrationCycleMonths}개월)
+                </p>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium">정기 검교정일</label>
@@ -686,6 +754,74 @@ function LogModal({ open, onClose, onSuccess, equipment }: any) {
                 onChange={(e) => setFormData({ ...formData, regularCalibrationDate: e.target.value })}
               />
             </div>
+          </div>
+
+          {/* 성적서(인증서) 관리 */}
+          <div className="border rounded-lg p-4 bg-muted/30 space-y-4">
+            <div className="flex items-center gap-2">
+              <FileText className="w-4 h-4" />
+              <span className="text-sm font-semibold">교정 성적서(인증서)</span>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div>
+                <label className="text-sm font-medium">교정기관</label>
+                <Input
+                  value={formData.calibrationInstitution}
+                  onChange={(e) => setFormData({ ...formData, calibrationInstitution: e.target.value })}
+                  placeholder="예: 한국표준과학연구원"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">성적서 번호</label>
+                <Input
+                  value={formData.certificateNumber}
+                  onChange={(e) => setFormData({ ...formData, certificateNumber: e.target.value })}
+                  placeholder="예: KRISS-2026-001"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium">교정자</label>
+                <Input
+                  value={formData.calibratedBy}
+                  onChange={(e) => setFormData({ ...formData, calibratedBy: e.target.value })}
+                  placeholder="예: 홍길동"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium">성적서 파일 첨부</label>
+              <Input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={(e) => e.target.files?.[0] && handleFileUpload("certificateFile", e.target.files[0])}
+              />
+              {formData.certificateFile && (
+                <p className="text-xs text-green-600 mt-1">✓ 성적서 파일이 첨부되었습니다</p>
+              )}
+            </div>
+          </div>
+
+          {/* 판정 */}
+          <div>
+            <label className="text-sm font-medium">최종 판정</label>
+            <Select
+              value={formData.result || derivedResult}
+              onValueChange={(value: any) => setFormData({ ...formData, result: value })}
+            >
+              <SelectTrigger className="max-w-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="pass">합격</SelectItem>
+                <SelectItem value="fail">부적합</SelectItem>
+                <SelectItem value="conditional_pass">조건부 합격(보정 후 사용)</SelectItem>
+              </SelectContent>
+            </Select>
+            {!formData.result && (
+              <p className="text-xs text-muted-foreground mt-1">
+                미선택 시 보정값 판정 기준 자동 적용: <strong>{derivedResult === "pass" ? "합격" : "부적합"}</strong>
+              </p>
+            )}
           </div>
 
           {/* 검교정 방법 */}
