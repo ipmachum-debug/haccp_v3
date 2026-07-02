@@ -24,6 +24,7 @@ import { foodDefenseRouter } from "../coreMes/quality/foodDefense.router";
 import { foodFraudRouter } from "../coreMes/quality/foodFraud.router";
 import { foodSafetyCultureRouter } from "../coreMes/quality/foodSafetyCulture.router";
 import { allergenRouter } from "../coreMes/quality/allergen.router";
+import { environmentalMonitoringRouter } from "../coreMes/quality/environmentalMonitoring.router";
 
 export const coreMesRouterMap = {
   /** Change Control (변경관리) — Phase Y-2-0-b */
@@ -138,4 +139,13 @@ export const coreMesRouterMap = {
    * 식약처 표시기준 / FSSC 22000 / Codex CXC 80-2020.
    */
   allergen: allergenRouter,
+
+  /**
+   * Environmental Monitoring (환경 모니터링 / EMP) — Phase Y-12
+   *
+   * 단일 테이블 h_environmental_monitoring — Zone(1~4) 기반 채취 지점별
+   * 병원균(Listeria/Salmonella)/지표균/ATP 검사 결과(pass/fail/pending) 기록 + 부적합 시정조치.
+   * FSSC 22000 / Codex CXC 1-1969. correctiveActionId 로 CAPA(Y-2-2) 연계.
+   */
+  environmentalMonitoring: environmentalMonitoringRouter,
 } as const;
