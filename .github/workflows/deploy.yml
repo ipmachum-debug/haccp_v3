@@ -233,8 +233,10 @@ jobs:
           #     - 4xx (영구 에러): retry 안 함 (즉시 fail)
           #   서버 endpoint (server/_core/index.ts:609) 의 deployInProgress 가드가 동시 호출
           #   안전 보장 → retry 시 deploy 중복 실행 위험 없음.
-          MAX_ATTEMPTS=3
-          RETRY_DELAY=15
+          # 2026-07: v0.8.279 배포 1차 실패(curl exit 28 = --max-time 300 초과) 대비.
+          #   전체 배포(pull+build+reload)가 300s 근처로 길어질 때 3회/15s 로는 부족 → 여유 확대.
+          MAX_ATTEMPTS=5
+          RETRY_DELAY=60
           HTTP_CODE=""
           CURL_EXIT=0
 
