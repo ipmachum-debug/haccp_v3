@@ -24,11 +24,21 @@
  * `autoMaterialIssue`가 `h_inventory_lots WHERE material_id = 168`로 조회하면
  * 결과가 0건 → 차감 실패 → unit_price=0 저장.
  *
- * ## 해결
+ * ## 해결 (2026-07 P1 — 이름매칭 → FK 우선)
  *
- * 이 헬퍼는 **자재명(item_name/material_name) 매칭으로 두 ID를 양방향 변환**합니다:
- *   - `resolveCanonicalMaterialId(rawId)` → `h_materials.id` (lot 조회용)
- *   - `resolveItemMasterId(rawId)`         → `item_master.id` (BOM 조회용)
+ * item_master → h_materials 변환을 **신뢰할 FK `item_master.legacy_material_id`
+ * 우선**으로 수행하고, FK 가 부재/dangling 일 때만 이름 문자열 매칭으로 폴백합니다.
+ *   1. `h_materials.id = rawId` 직접 (hm_direct)
+ *   2a. `item_master.legacy_material_id → h_materials.id` (im_to_hm_byfk, 신뢰)
+ *   2b. FK 부재/dangling 시 `TRIM(item_name)=TRIM(material_name)` (im_to_hm_byname, 취약 폴백)
+ *   3. 모두 실패 → rawId 그대로 (fallback_unchanged)
+ *
+ * 이름 매칭은 "멥쌀" vs "멥쌀(20kg)" 같은 사소한 차이로 깨져 차감이 단락되던
+ * 근본 원인(docs/architecture/08-inventory-identity-diagnosis.md 병①)이었음.
+ * FK 정본이 채워진 자재는 이제 이름과 무관하게 정확히 변환됨.
+ *
+ * ⚠️ 완전한 효과를 위해 `item_master.legacy_material_id` 백필 필요
+ *    (P0 진단 1a legacy_null 5건 / 1b dangling 3건 — scripts/sql 백필 + 수동검증).
  *
  * 이 헬퍼는 신규 배치 INSERT, 차감 lookup, 단가 폴백 모든 곳에서 사용해야 합니다.
  *
@@ -47,7 +57,9 @@ interface ResolveResult {
   canonicalId: number;       // h_materials.id (lot lookup용)
   itemMasterId: number | null; // item_master.id (BOM lookup용, null 가능)
   materialName: string | null;
-  source: "hm_direct" | "im_to_hm_byname" | "fallback_unchanged" | "not_found";
+  // im_to_hm_byfk: item_master.legacy_material_id FK 로 변환 (신뢰 경로, 2026-07 P1)
+  // im_to_hm_byname: FK 부재/dangling 시 이름 문자열 폴백 (레거시, 취약)
+  source: "hm_direct" | "im_to_hm_byfk" | "im_to_hm_byname" | "fallback_unchanged" | "not_found";
 }
 
 // 프로세스 메모리 캐시 (요청 단위로는 충분)
@@ -114,15 +126,44 @@ export async function resolveMaterialIds(
     return result;
   }
 
-  // 2) item_master.id = rawId → item_name → h_materials.material_name 매칭
+  // 2) item_master.id = rawId → legacy_material_id FK 우선, 실패 시 item_name 매칭
+  //    (2026-07 P1: 신뢰할 FK 가 있는데 이름 문자열로 잇던 근본 결함 수정.
+  //     이름이 조금만 달라도 매칭이 깨져 차감이 단락되던 문제 — FK 를 정본으로.)
   const [imRows]: any = await conn.execute(
-    `SELECT id, item_name FROM item_master
+    `SELECT id, item_name, legacy_material_id FROM item_master
        WHERE id = ? AND tenant_id = ? LIMIT 1`,
     [rawId, tenantId]
   );
   if ((imRows as any[]).length > 0) {
     const im = (imRows as any[])[0];
     const itemName = im.item_name as string | null;
+
+    // 2a) FK 우선 — legacy_material_id 가 유효한 h_materials 를 가리키면 신뢰.
+    const legacyId = im.legacy_material_id != null ? Number(im.legacy_material_id) : null;
+    if (legacyId != null && Number.isFinite(legacyId) && legacyId > 0) {
+      const [hmByFk]: any = await conn.execute(
+        `SELECT id, material_name FROM h_materials
+           WHERE id = ? AND tenant_id = ? LIMIT 1`,
+        [legacyId, tenantId]
+      );
+      if ((hmByFk as any[]).length > 0) {
+        const hm = (hmByFk as any[])[0];
+        const result: ResolveResult = {
+          canonicalId: Number(hm.id),
+          itemMasterId: rawId,
+          materialName: hm.material_name ?? itemName,
+          source: "im_to_hm_byfk",
+        };
+        setCache(cacheKey, result);
+        return result;
+      }
+      // FK 가 dangling(가리키는 h_materials 없음) → 이름 폴백으로 진행 (경고).
+      console.warn(
+        `[materialIdResolver] item_master.id=${rawId} legacy_material_id=${legacyId} dangling — 이름 폴백. (P0 진단 1b 대상)`
+      );
+    }
+
+    // 2b) FK 부재/dangling → item_name → h_materials.material_name 매칭 (레거시 폴백)
     if (itemName) {
       const [hmByName]: any = await conn.execute(
         `SELECT id, material_name FROM h_materials
