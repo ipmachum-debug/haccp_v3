@@ -34,6 +34,37 @@ export default function CalibrationManagement() {
   // 다음 교정일 임박/초과 알림 (설비별 최신 기록 기준)
   const { data: upcoming } = trpc.checklistCalibration.upcomingCalibrations.useQuery({ withinDays: 30 });
 
+  // 설비 삭제 (기록 없을 때만) / 비활성화 (기록 있는 교체 설비)
+  const deleteEquipmentMutation = trpc.checklistCalibration.deleteEquipment.useMutation({
+    onSuccess: () => {
+      toast({ title: "설비가 삭제되었습니다" });
+      refetchEquipments();
+    },
+    onError: (error: { message: string }) => {
+      toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
+    },
+  });
+  const deactivateEquipmentMutation = trpc.checklistCalibration.updateEquipment.useMutation({
+    onSuccess: () => {
+      toast({ title: "설비가 비활성화되었습니다", description: "목록에서 숨겨지며 이력은 보존됩니다." });
+      refetchEquipments();
+    },
+    onError: (error: { message: string }) => {
+      toast({ title: "비활성화 실패", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleDeleteEquipment = (equipment: any) => {
+    if (confirm(`설비 '${equipment.name}'을(를) 삭제하시겠습니까?\n\n※ 검교정 기록이 있으면 삭제되지 않고 안내됩니다 (이력 보존).`)) {
+      deleteEquipmentMutation.mutate({ id: equipment.id });
+    }
+  };
+  const handleDeactivateEquipment = (equipment: any) => {
+    if (confirm(`설비 '${equipment.name}'을(를) 비활성화하시겠습니까?\n\n목록에서 숨겨지고 검교정 이력은 그대로 보존됩니다. (교체된 기존 설비 처리용)`)) {
+      deactivateEquipmentMutation.mutate({ id: equipment.id, isActive: false });
+    }
+  };
+
   // D-day 표시 (남은 일수 → 라벨/색상)
   const getDdayBadge = (daysRemaining: number | null, status: string) => {
     if (status === "no_record") return { label: "기록 없음", color: "gray" };
@@ -238,7 +269,7 @@ export default function CalibrationManagement() {
                               <p>주기: {equipment.calibrationCycleMonths ? `${equipment.calibrationCycleMonths}개월` : "미설정"}</p>
                             </div>
                           </div>
-                          <div className="flex gap-2">
+                          <div className="flex flex-wrap gap-2 justify-end">
                             <Button
                               size="sm"
                               variant="outline"
@@ -257,6 +288,23 @@ export default function CalibrationManagement() {
                               }}
                             >
                               일지 작성
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-amber-600 border-amber-300 hover:bg-amber-50"
+                              onClick={() => handleDeactivateEquipment(equipment)}
+                              disabled={deactivateEquipmentMutation.isPending}
+                            >
+                              비활성화
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleDeleteEquipment(equipment)}
+                              disabled={deleteEquipmentMutation.isPending}
+                            >
+                              삭제
                             </Button>
                           </div>
                         </div>
