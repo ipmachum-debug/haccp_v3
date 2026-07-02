@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 import { todayKST } from "../../utils/timezone";
+import { recomputeAggregateFromLots } from "../inventory/applyInventoryDelta";
 
 /**
  * 매입 CANCEL 로직 — purchasePost 의 완전 대칭 역수행 (Module 1, 2026-04-14)
@@ -134,7 +135,7 @@ export async function cancelPurchase(
 
       // B-1. LOT 잠금 + 현재 가용 수량 확인
       const [lotLockRows] = await conn.execute(
-        `SELECT available_quantity, current_quantity, quantity
+        `SELECT available_quantity, current_quantity, quantity, material_id, product_id
          FROM h_inventory_lots
          WHERE id = ? AND tenant_id = ?
          FOR UPDATE`,
@@ -167,6 +168,19 @@ export async function cancelPurchase(
            WHERE id = ? AND tenant_id = ?`,
           [cancelQty, cancelQty, cancelQty, lotId, tenantId],
         );
+
+        // B-2b. ★ P2: 집계(h_inventory) 자가 치유 — LOT 정본으로 재계산.
+        //   기존 cancel 은 집계 leg 을 누락(병② AGG-omitted)해 취소 후 집계가 표류했다.
+        //   LOT 의 canonical id(material_id/product_id)로 재계산해 id 공간 오염 방지.
+        const canonMatId = lotRow.material_id != null ? Number(lotRow.material_id) : null;
+        const canonProdId = lotRow.product_id != null ? Number(lotRow.product_id) : null;
+        if (canonMatId || canonProdId) {
+          await recomputeAggregateFromLots(conn, {
+            tenantId,
+            subject: canonMatId ? { materialId: canonMatId } : { productId: canonProdId },
+            unit: purchase.unit || undefined,
+          });
+        }
       }
 
       // B-3. 재고 원장에 취소 기록 (usage 타입, 양수 quantity)

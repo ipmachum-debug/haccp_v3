@@ -6,6 +6,7 @@ import { z } from "zod";
 import { router, adminProcedure } from "../../_core/trpc";
 import { getPool } from "../../db/pool";
 import { withTransaction } from "../../db";
+import { recomputeAggregateFromLots } from "../../lib/inventory/applyInventoryDelta";
 
 export const purchaseReturnRouter = router({
   /**
@@ -56,7 +57,7 @@ export const purchaseReturnRouter = router({
         // 3. 재고 차감 (LOT에서 가용수량 감소)
         try {
           const [lotRows]: any = await conn.execute(
-            `SELECT id, available_quantity FROM h_inventory_lots
+            `SELECT id, available_quantity, material_id, product_id FROM h_inventory_lots
              WHERE tenant_id = ? AND material_id = ? AND status = 'available'
              ORDER BY receipt_date ASC LIMIT 1`,
             [tenantId, purchase.material_id],
@@ -78,6 +79,16 @@ export const purchaseReturnRouter = router({
               [tenantId, lotRows[0].id, purchase.material_id ?? null, input.returnQty, purchase.unit || "EA",
                input.purchaseId, `[반품] ${input.reason}`, ctx.user.id],
             );
+            // ★ P2: 집계(h_inventory) 자가 치유 — 기존엔 AGG leg 누락(병②)이라 반품 후 표류.
+            const rMatId = lotRows[0].material_id != null ? Number(lotRows[0].material_id) : null;
+            const rProdId = lotRows[0].product_id != null ? Number(lotRows[0].product_id) : null;
+            if (rMatId || rProdId) {
+              await recomputeAggregateFromLots(conn, {
+                tenantId,
+                subject: rMatId ? { materialId: rMatId } : { productId: rProdId },
+                unit: purchase.unit || undefined,
+              });
+            }
           }
         } catch (err: any) {
           console.warn("[return] 재고 차감 실패 (계속):", err.message?.substring(0, 80));
