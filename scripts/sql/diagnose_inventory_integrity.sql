@@ -114,9 +114,10 @@ WHERE ROUND(agg_total - lot_avail, 3) <> 0;
 --       (#361 확장 — 차감 플래그만 있고 원장엔 소모 기록 없음 → 장부 어긋남)
 SELECT '3b_deducted_without_usage_tx' AS metric,
        COUNT(*) AS cnt,
-       ROUND(SUM(bi.actual_qty), 3) AS total_qty
+       ROUND(SUM(COALESCE(bi.actual_quantity, bi.planned_quantity)), 3) AS total_qty
 FROM h_batch_inputs bi
-WHERE bi.tenant_id = @t AND bi.inventory_deducted = 1 AND bi.actual_qty > 0
+WHERE bi.tenant_id = @t AND bi.inventory_deducted = 1
+  AND COALESCE(bi.actual_quantity, bi.planned_quantity) > 0
   AND NOT EXISTS (
     SELECT 1 FROM h_inventory_transactions t
     WHERE t.tenant_id = bi.tenant_id AND t.transaction_type = 'usage'
