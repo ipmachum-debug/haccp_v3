@@ -126,6 +126,8 @@ const FoodRiskAssessment = lazy(() => import("./pages/riskAssessment/FoodRiskAss
 const FoodDefense = lazy(() => import("./pages/foodDefense/FoodDefense"));
 // Phase Y-8: Food Fraud (식품사기 완화 VACCP — FSSC 22000 v6 §2.5.4 / GFSI)
 const FoodFraud = lazy(() => import("./pages/foodFraud/FoodFraud"));
+// Phase Y-9: Food Safety Culture (식품안전문화 — FSSC 22000 v6 §2.5.1 / GFSI)
+const FoodSafetyCulture = lazy(() => import("./pages/foodSafetyCulture/FoodSafetyCulture"));
 // Phase 3 — Pharmaceutical KGMP industry 활성화 (8 Y-시리즈 entity)
 const PharmaceuticalChangeControl = lazy(() => import("./pages/changeControl/PharmaceuticalChangeControl"));
 const PharmaceuticalNonconforming = lazy(() => import("./pages/nonconforming/PharmaceuticalNonconforming"));
@@ -583,6 +585,8 @@ function Router() {
       <Route path="/dashboard/food/food-defense" component={FoodDefense} />
       {/* Phase Y-8 — Food Fraud (식품사기 완화 VACCP) */}
       <Route path="/dashboard/food/food-fraud" component={FoodFraud} />
+      {/* Phase Y-9 — Food Safety Culture (식품안전문화) */}
+      <Route path="/dashboard/food/food-safety-culture" component={FoodSafetyCulture} />
       {/* Phase 3 — Pharmaceutical KGMP routes (8 Y-시리즈 entity) */}
       <Route path="/dashboard/pharmaceutical/change-control" component={PharmaceuticalChangeControl} />
       <Route path="/dashboard/pharmaceutical/nonconforming" component={PharmaceuticalNonconforming} />
