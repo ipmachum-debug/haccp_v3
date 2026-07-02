@@ -458,7 +458,16 @@ export function renderCcpFormRecord(fr: any, doc: any) {
       if (eqType === "passage") return "passage";
       // equipment_type이 NULL인 경우 데이터 패턴으로 분류
       const hasPassageData = r.passTimeStart || r.pass_time_start || r.passTimeEnd || r.pass_time_end;
-      const hasSensitivityData = r.metalPassTime || r.metal_pass_time || r.metalFeMid || r.metal_fe_mid;
+      // #275 재확인(2026-07): metal_fe_product / metal_sus_product 등 '제품통과' 감도 신호가
+      //   기존 판정에서 빠져 있어, metal_pass_time·metal_fe_mid 가 NULL 이고 제품 컬럼만 채워진
+      //   감도 행(form_record 1110 패턴)이 'unknown' 으로 누락 → 감도 테이블 빈 PDF. 신호 보강.
+      const hasSensitivityData =
+        r.metalPassTime || r.metal_pass_time ||
+        r.metalFeMid || r.metal_fe_mid ||
+        r.metalSusMid || r.metal_sus_mid ||
+        r.metalFeProduct || r.metal_fe_product ||
+        r.metalSusProduct || r.metal_sus_product ||
+        r.metalProductOnly || r.metal_product_only;
       if (hasPassageData) return "passage";
       if (hasSensitivityData) return "sensitivity";
       return "unknown";
