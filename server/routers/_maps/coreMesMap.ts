@@ -20,6 +20,7 @@ import { trainingRouter } from "../coreMes/quality/training.router";
 import { calibrationRouter } from "../coreMes/quality/calibration.router";
 import { qualitySupplierRouter } from "../coreMes/quality/supplier.router";
 import { riskAssessmentRouter } from "../coreMes/quality/riskAssessment.router";
+import { foodDefenseRouter } from "../coreMes/quality/foodDefense.router";
 
 export const coreMesRouterMap = {
   /** Change Control (변경관리) — Phase Y-2-0-b */
@@ -86,4 +87,18 @@ export const coreMesRouterMap = {
    * Mitigations 의 correctiveActionId 가 CAPA (Y-2-2) 와 연계.
    */
   riskAssessment: riskAssessmentRouter,
+
+  /**
+   * Food Defense (식품 방어 / TACCP) — Phase Y-7
+   *
+   * 단일 테이블 h_food_defense_assessments + countermeasures JSON.
+   * likelihood × impact (1~5 × 1~5) → threat score (1~25).
+   * FSSC 22000 v6 §2.5.3 Food Defense / PAS 96 TACCP.
+   * Countermeasures 의 correctiveActionId 가 CAPA (Y-2-2) 와 연계.
+   *
+   * riskAssessment(Y-6, 우발적 위해/HACCP) 와 도메인 구분:
+   *   - riskAssessment → 위해 분석 (우발적)
+   *   - foodDefense    → 위협 평가 (고의적)
+   */
+  foodDefense: foodDefenseRouter,
 } as const;

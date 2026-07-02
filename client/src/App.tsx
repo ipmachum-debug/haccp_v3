@@ -122,6 +122,8 @@ const FoodSupplier = lazy(() => import("./pages/supplier/FoodSupplier"));
 // Phase Y-6: Risk Assessment (ICH Q9 / ISO 14971 / Codex / KGMP §3.5)
 const CosmeticRiskAssessment = lazy(() => import("./pages/riskAssessment/CosmeticRiskAssessment"));
 const FoodRiskAssessment = lazy(() => import("./pages/riskAssessment/FoodRiskAssessment"));
+// Phase Y-7: Food Defense (식품방어 TACCP — FSSC 22000 v6 §2.5.3 / PAS 96)
+const FoodDefense = lazy(() => import("./pages/foodDefense/FoodDefense"));
 // Phase 3 — Pharmaceutical KGMP industry 활성화 (8 Y-시리즈 entity)
 const PharmaceuticalChangeControl = lazy(() => import("./pages/changeControl/PharmaceuticalChangeControl"));
 const PharmaceuticalNonconforming = lazy(() => import("./pages/nonconforming/PharmaceuticalNonconforming"));
@@ -575,6 +577,8 @@ function Router() {
       <Route path="/dashboard/food/supplier" component={FoodSupplier} />
       <Route path="/dashboard/cosmetic/risk-assessment" component={CosmeticRiskAssessment} />
       <Route path="/dashboard/food/risk-assessment" component={FoodRiskAssessment} />
+      {/* Phase Y-7 — Food Defense (식품방어 TACCP) */}
+      <Route path="/dashboard/food/food-defense" component={FoodDefense} />
       {/* Phase 3 — Pharmaceutical KGMP routes (8 Y-시리즈 entity) */}
       <Route path="/dashboard/pharmaceutical/change-control" component={PharmaceuticalChangeControl} />
       <Route path="/dashboard/pharmaceutical/nonconforming" component={PharmaceuticalNonconforming} />
