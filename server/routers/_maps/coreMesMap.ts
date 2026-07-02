@@ -21,6 +21,7 @@ import { calibrationRouter } from "../coreMes/quality/calibration.router";
 import { qualitySupplierRouter } from "../coreMes/quality/supplier.router";
 import { riskAssessmentRouter } from "../coreMes/quality/riskAssessment.router";
 import { foodDefenseRouter } from "../coreMes/quality/foodDefense.router";
+import { foodFraudRouter } from "../coreMes/quality/foodFraud.router";
 
 export const coreMesRouterMap = {
   /** Change Control (변경관리) — Phase Y-2-0-b */
@@ -101,4 +102,18 @@ export const coreMesRouterMap = {
    *   - foodDefense    → 위협 평가 (고의적)
    */
   foodDefense: foodDefenseRouter,
+
+  /**
+   * Food Fraud (식품 사기 취약성 / VACCP) — Phase Y-8
+   *
+   * 단일 테이블 h_food_fraud_assessments + controlMeasures JSON.
+   * likelihood × impact (1~5 × 1~5) → vulnerability score (1~25).
+   * FSSC 22000 v6 §2.5.4 Food Fraud Mitigation / GFSI VACCP.
+   * ControlMeasures 의 correctiveActionId 가 CAPA (Y-2-2) 와 연계.
+   *
+   * foodDefense(Y-7, TACCP) 와 도메인 구분:
+   *   - foodDefense → 고의적 위해 (사람을 해치려는 의도)
+   *   - foodFraud   → 경제적 사기 (돈을 벌려는 의도, EMA)
+   */
+  foodFraud: foodFraudRouter,
 } as const;
