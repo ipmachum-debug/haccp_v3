@@ -59,6 +59,28 @@ SKU 는 품목마스터(`item_master`)에 등록, 각 SKU 가 자기 단위를 �
    제품 출고·판매·번들을 관문 경유로 이주(09 대장에 편입).
 5. **검증 루프** — `diagnose_finished_goods_integrity.sql` 주기 실행으로 A/B/C 괴리 상시 감시.
 
-## 다음 스텝
-- `scripts/sql/diagnose_finished_goods_integrity.sql` (read-only) 로 tenant2 의 A/B/C 괴리와
-  단위드리프트를 **수치화**(Genspark 실행) → 규모 확인 후 위 1~5 착수 순서 확정.
+## 실측 결과 (2026-07-02, tenant2 — Genspark 실행)
+
+| 지표 | 값 | 판독 |
+|------|-----|------|
+| Q5 C(제품 kg 집계) 행 수 | **0** | 고아 카운터가 아예 비어 있음 → #399 는 **없던 죽은 카운터를 새로 채우기 시작**하는 것 → 철회 확정 |
+| Q5 B'(ΣLOT × kg_per_sales_unit) | **52,337 kg** | 실제 완제품 재고(정본) |
+| Q4 sku_id NULL 제품 LOT | **140건 / 47,957 kg (91.6%)** | ★ 대부분 LOT 이 **kg fallback**(SKU 미태그) — "SKU box 정본" 이 아니라 **kg 환산 정본**이 실체 |
+| Q2 LOT 단위 드리프트 | **0** | LOT.unit = SKU.sales_unit (태그된 것들은 이미 정합) |
+| Q3 제품내 혼합단위 | **6 제품** | 소규모 — 실사 raw 합산(D 버그) 노출면만 |
+| Q1 A vs B' | **A ≫ B' (거의 전제품)** | 메인화면(A=배치−출고)이 **출고를 못 빼 과대계상** → 사용자가 겪은 "제품재고 증가 불일치" 실체 |
+
+**스키마 정정(실측)**: `h_product_outbound` 에는 `sku_id` **컬럼이 없다**. 실제: `batch_id, lot_id,
+product_name(string), quantity, unit, lot_number`. 출고→제품 매핑은 `product_name` 문자열이 유일 경로
+(`lot_id` 도 대부분 NULL). 앱 ProductStockView 도 product_name 으로 출고를 뺀다 — 이 매칭이 새거나
+틀리면 A 가 과대계상된다.
+
+**모델 정정**: LOT 의 91.6% 가 sku_id NULL(kg) 이므로 정본은 "SKU box" 가 아니라
+**`Σ(LOT.available × kg_per_sales_unit)` (kg 환산, NULL 은 ×1)** — kg fallback LOT 과 SKU box LOT 을
+한 단위로 통합한다. 아래 방향의 "정본(B)" 은 이 **kg 환산 정본**을 뜻한다.
+
+## 다음 스텝 (실측 반영)
+- **1(카운터 은퇴/#399 철회), 3(단위버그), 5(검증루프)**: 안전·저위험 → 우선 착수 가능.
+- **2(메인화면 A→B 통일)**: 사용자 노출 재고가 **과대 → 정확(하향)** 으로 바뀜 → **사용자 승인 필수**.
+- **4(관문 SKU/kg-equiv 버전)**: #398(원재료 관문) 배포 후 착수 — `recomputeFinishedGoodsFromLots`
+  = `Σ(available × kg_per_sales_unit)` 로 파생 롤업 제공 + 제품 출고/판매/번들 관문 경유.

@@ -38,14 +38,15 @@ LEFT JOIN (
   GROUP BY product_id
 ) bt ON bt.product_id = p.id
 LEFT JOIN (
-  -- 제품출고: sku_id → item_master → legacy_product_id 로 제품 매핑 (없으면 제외)
-  SELECT im.legacy_product_id AS product_id, SUM(o.quantity) AS out_qty
-  FROM h_product_outbound o
-  JOIN product_skus s ON s.id = o.sku_id
-  JOIN item_master im ON im.id = s.item_id AND im.tenant_id = @t
-  WHERE o.tenant_id=@t AND o.status='confirmed'
-  GROUP BY im.legacy_product_id
-) ob ON ob.product_id = p.id
+  -- 제품출고: ⚠️ h_product_outbound 에는 sku_id 컬럼이 없다(실측 확인).
+  --   실제 컬럼: batch_id, lot_id, product_name(string), quantity, unit, lot_number.
+  --   앱 ProductStockView 와 동일하게 product_name 으로 집계(문자열 매칭 — fragile).
+  --   (lot_id 도 대부분 NULL 이라 lot 경유 매핑 불가 → product_name 이 유일 경로)
+  SELECT product_name, SUM(quantity) AS out_qty
+  FROM h_product_outbound
+  WHERE tenant_id=@t AND status='confirmed'
+  GROUP BY product_name
+) ob ON ob.product_name = p.product_name
 LEFT JOIN (
   SELECT l.product_id,
          SUM(l.available_quantity) AS raw_sum,
