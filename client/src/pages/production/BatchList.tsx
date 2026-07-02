@@ -302,10 +302,8 @@ export default function BatchList() {
             {`${L("batch")} 목록 로딩 실패:`} {error?.message || "서버 에러"}
             <Button variant="outline" size="sm" className="ml-3" onClick={() => refetch()}>재시도</Button>
           </div>
-        ) : batches && batches.length > 0 ? (
-          <>
-            {viewMode === "calendar" ? (
-              /* ── 달력 뷰 ── */
+        ) : viewMode === "calendar" ? (
+              /* ── 달력 뷰 (배치 0건이어도 그리드+월 네비 항상 표시 → 빈 달에서 다른 달 탐색 가능) ── */
               <Card>
                 <CardContent className="p-3">
                   {/* 월 네비게이션 */}
@@ -389,7 +387,7 @@ export default function BatchList() {
                   </div>
                 </CardContent>
               </Card>
-            ) : (
+        ) : batches && batches.length > 0 ? (
               /* ── 테이블 뷰 ── */
               <>
                 {/* 데스크톱: 테이블 뷰 */}
@@ -554,8 +552,6 @@ export default function BatchList() {
                   </div>
                 )}
               </>
-            )}
-          </>
         ) : (
           <EmptyState
             icon={Package}
