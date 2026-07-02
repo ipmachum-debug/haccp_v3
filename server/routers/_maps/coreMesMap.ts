@@ -22,6 +22,7 @@ import { qualitySupplierRouter } from "../coreMes/quality/supplier.router";
 import { riskAssessmentRouter } from "../coreMes/quality/riskAssessment.router";
 import { foodDefenseRouter } from "../coreMes/quality/foodDefense.router";
 import { foodFraudRouter } from "../coreMes/quality/foodFraud.router";
+import { foodSafetyCultureRouter } from "../coreMes/quality/foodSafetyCulture.router";
 
 export const coreMesRouterMap = {
   /** Change Control (변경관리) — Phase Y-2-0-b */
@@ -116,4 +117,14 @@ export const coreMesRouterMap = {
    *   - foodFraud   → 경제적 사기 (돈을 벌려는 의도, EMA)
    */
   foodFraud: foodFraudRouter,
+
+  /**
+   * Food Safety Culture (식품안전문화) — Phase Y-9
+   *
+   * 단일 테이블 h_food_safety_culture_assessments + dimensionScores/improvementActions JSON.
+   * 6개 차원(리더십/소통/인식/책임/자원/지속개선) 각 1~5 → 종합점수(평균) → 성숙도 등급.
+   * FSSC 22000 v6 §2.5.1 Food Safety and Quality Culture / GFSI.
+   * 리스크 스코어링이 아닌 문화 성숙도 진단 + 개선활동 추적.
+   */
+  foodSafetyCulture: foodSafetyCultureRouter,
 } as const;

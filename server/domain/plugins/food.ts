@@ -109,6 +109,8 @@ export const foodPlugin: IndustryPlugin = {
           { icon: "Shield", label: "식품방어 (TACCP)", path: "/dashboard/food/food-defense", roles: ["super_admin", "admin", "inspector", "monitor"] },
           // 식품사기 완화(VACCP) — Phase Y-8. FSSC 22000 v6 §2.5.4 필수요건, legacy 대응 메뉴 없음(신규).
           { icon: "SearchCheck", label: "식품사기 완화 (VACCP)", path: "/dashboard/food/food-fraud", roles: ["super_admin", "admin", "inspector", "monitor"] },
+          // 식품안전문화(Food Safety Culture) — Phase Y-9. FSSC 22000 v6 §2.5.1 필수요건, 신규.
+          { icon: "Users", label: "식품안전문화", path: "/dashboard/food/food-safety-culture", roles: ["super_admin", "admin", "inspector", "monitor"] },
           // 감사 리포트는 감사관리 페이지의 '감사 리포트' 탭으로 통합 (사이드바 메뉴 제거).
           //   라우트 /dashboard/audit-report 는 App.tsx 에 유지 (직접 URL 호환).
         ],
