@@ -612,6 +612,26 @@ export default function ChecklistDashboard() {
     ? allItems 
     : allItems.filter(item => item.category.filterLabel === selectedCategory);
 
+  // 일지 검색 모달용 항목 (체크리스트 카탈로그 → 검색 가능한 목록)
+  const searchItems = allItems.map((item) => ({
+    id: item.id,
+    name: item.title,
+    code: item.category?.filterLabel,
+    subInfo: item.description,
+    data: item,
+  }));
+
+  // 검색 결과 선택 시 해당 일지로 이동 (listPath 우선, 없으면 첫 액션 실행)
+  const handleSearchSelect = (selected: { data?: any }) => {
+    const item = selected?.data;
+    if (!item) return;
+    if (item.listPath) {
+      navigate(item.listPath);
+    } else if (Array.isArray(item.actions) && item.actions.length > 0) {
+      item.actions[0].onClick?.();
+    }
+  };
+
   // 카테고리 필터 버튼
   const categoryFilters = [
     { id: "all", label: "전체" },
@@ -1069,12 +1089,17 @@ export default function ChecklistDashboard() {
         />
       )}
       
-      {/* 검색 모달 */}
+      {/* 일지 검색 모달 */}
       {searchModalOpen && (
         <SearchModal
           open={searchModalOpen}
-          // @ts-ignore - SearchModal props mismatch
-          onClose={() => setSearchModalOpen(false)}
+          onOpenChange={setSearchModalOpen}
+          title="일지 검색"
+          description="작성할 체크리스트/일지 유형을 검색하세요"
+          searchPlaceholder="일지 이름 또는 분류로 검색 (예: 개인 위생, 세척)"
+          emptyMessage="검색 결과가 없습니다"
+          items={searchItems}
+          onSelect={handleSearchSelect}
         />
       )}
 
