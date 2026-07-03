@@ -58,7 +58,11 @@
  * ============================================================================
  */
 
-import { getRawConnection } from "../../db";
+// ⚠️ 배럴(`../../db`) 대신 소스 모듈에서 직접 import — no-circular 규칙 준수.
+//   `../../db` 배럴은 batchFunctions/batchCRUD/productAndCcp 를 재export 하므로,
+//   여기서 배럴을 import 하면 batchCompletionHooks → db → batch* → batchCompletionHooks
+//   순환의존 3건이 형성됨(arch:check FAILURE). getRawConnection 은 db/connection 소유.
+import { getRawConnection } from "../../db/connection";
 
 export interface BatchCompletionHookOptions {
   /** 호출 출처 식별 (로깅용) */
