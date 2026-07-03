@@ -283,6 +283,32 @@ export async function finalApproveRequest(
           WHERE id = ${batchId} AND tenant_id = ${tenantId}
         `);
         console.log(`[finalApprove] 배치 #${batchId} 상태 → completed (planned_date 기준)`);
+
+        // ★ 2026-07-03 근본수정: 승인경로 완료가 상태 플래그만 바꾸고 완제품 LOT 을
+        //   안 만들던 버그(26배치 LOT 0건) 해소. 상태 UPDATE 는 planned_date 17:00 을
+        //   유지하고, 여기서 정상 완료 후처리(완제품 LOT 생성 + 훅)를 마저 실행한다.
+        //   completeBatch 전체를 부르지 않는 이유: 원가/CCP 재실행·completed_at 재설정
+        //   부작용을 피하고, LOT 생성만 멱등(ensureBatchLots)으로 보강하기 위함.
+        try {
+          const { ensureBatchLots } = await import("../../db/production/productOutboundManagement");
+          const lotResult = await ensureBatchLots(batchId, tenantId);
+          console.log(
+            `[finalApprove] 배치 #${batchId} 완제품 LOT 보강: 생성 ${lotResult?.created?.length ?? 0}건` +
+            (lotResult?.skipped ? ` (skip: ${JSON.stringify(lotResult.skipped)})` : ""),
+          );
+        } catch (lotErr: any) {
+          console.error(`[finalApprove] 배치 #${batchId} 완제품 LOT 생성 실패:`, lotErr);
+        }
+
+        try {
+          const { runBatchCompletionHooks } = await import("./batchCompletionHooks");
+          const hookResult = await runBatchCompletionHooks(batchId, tenantId, { source: "manual" });
+          if (hookResult.warnings.length > 0) {
+            console.warn(`[finalApprove] 배치 #${batchId} 완료 훅 경고:`, hookResult.warnings);
+          }
+        } catch (hookErr: any) {
+          console.error(`[finalApprove] 배치 #${batchId} 완료 훅 실패:`, hookErr);
+        }
       } catch (batchErr: any) {
         console.error(`[finalApprove] 배치 상태 업데이트 실패 (승인은 완료):`, batchErr);
       }
