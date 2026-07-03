@@ -136,6 +136,25 @@ export async function createProductLotFromBatch(params: {
   return { lotId, lotNumber, isNew: true };
 }
 
+/**
+ * lot_number 전역 유니크 충돌 회피.
+ * ★ 2026-07-03: 배치 삭제 후 batch_code 순번이 리셋돼 재사용되면, 삭제된 옛 배치의
+ *   LOT 이 같은 lot_number 를 이미 점유 → 신규 LOT INSERT 가 Duplicate entry 로 실패
+ *   (예: #815/816 완제품 LOT 생성 실패, self-healer 도 같은 dup 로 무한 실패).
+ *   base 가 이미 있으면 -R1, -R2 … 접미사를 붙여 유일 번호를 반환한다.
+ */
+async function uniqueLotNumber(conn: any, base: string): Promise<string> {
+  for (let i = 0; i <= 50; i++) {
+    const candidate = i === 0 ? base : `${base}-R${i}`;
+    const [rows]: any = await conn.execute(
+      `SELECT 1 FROM h_inventory_lots WHERE lot_number = ? LIMIT 1`,
+      [candidate],
+    );
+    if ((rows as any[]).length === 0) return candidate;
+  }
+  return `${base}-R${Date.now() % 1000000}`;
+}
+
 /* ───────── 배치 LOT 보장 (idempotent) ─────────
  * 배치가 'completed' 인데 h_inventory_lots 에 LOT 가 없으면 생성.
  * SKU 실적 (production_sku_output) 이 있으면 SKU 별로 멀티 LOT,
@@ -207,7 +226,7 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
       const kgPerUnit = parseFloat(String(sku.kg_per_sales_unit || "1")) || 1;
       skuTotalInBatchUnit += skuQty * kgPerUnit;
 
-      const lotNumber = `${batchCode}-${sku.sku_code || sku.sku_id}`;
+      const lotNumber = await uniqueLotNumber(conn, `${batchCode}-${sku.sku_code || sku.sku_id}`);
       const salesUnit = sku.sales_unit || "box";
       const skuName = sku.sku_name || "";
 
@@ -265,7 +284,7 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
     return { created: [], skipped: true, reason: "no_quantity" };
   }
 
-  const lotNumber = `PROD-${batchCode}`;
+  const lotNumber = await uniqueLotNumber(conn, `PROD-${batchCode}`);
   // unit 폴백: item_master.base_unit → 'kg'
   const [unitRow]: any = await conn.execute(
     `SELECT base_unit FROM item_master
