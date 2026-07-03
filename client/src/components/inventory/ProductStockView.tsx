@@ -349,6 +349,33 @@ export function ProductReleaseTab() {
     onError: (e: { message: string }) => alert(`취소 실패: ${e.message}`),
   });
 
+  // 미적용 LOT 정산 (병③ 보강): 출고됐으나 LOT 미차감(lot_id NULL)건을 배치 LOT 에 소급 반영
+  const { data: unapplied } = trpc.inventory.getUnappliedOutbounds.useQuery();
+  const reconcileMut = trpc.inventory.reconcileUnappliedOutbounds.useMutation({
+    onSuccess: (r: { applied: unknown[]; skipped: Array<{ outboundId: number; reason: string }>; appliedQuantity: number }) => {
+      utils.inventory.getUnappliedOutbounds.invalidate();
+      utils.inventory.getProductAvailableForRelease.invalidate();
+      utils.inventory.getProductOutboundHistory.invalidate();
+      utils.inventory.list.invalidate();
+      const skippedMsg = r.skipped.length > 0
+        ? `\n\n미정산 ${r.skipped.length}건 (수동 확인):\n` + r.skipped.slice(0, 5).map((s) => `· #${s.outboundId}: ${s.reason}`).join("\n")
+        : "";
+      alert(`미적용 LOT 정산 완료\n\n정산 ${r.applied.length}건 / ${r.appliedQuantity} 차감${skippedMsg}`);
+    },
+    onError: (e: { message: string }) => alert(`정산 실패: ${e.message}`),
+  });
+  const handleReconcile = () => {
+    if (!unapplied || unapplied.reconcilableCount === 0) {
+      alert("정산할 미적용 출고가 없습니다.");
+      return;
+    }
+    if (!confirm(
+      `미적용 LOT 정산\n\n출고됐으나 LOT 이 안 깎인 건을 배치 LOT 에 소급 반영합니다.\n` +
+      `대상(정산가능): ${unapplied.reconcilableCount}건 / 전체 미적용 ${unapplied.count}건\n\n진행하시겠습니까?`,
+    )) return;
+    reconcileMut.mutate({});
+  };
+
   // 이미 선택된 재고를 다른 행에서 제외
   const getAvailableStockForItem = (currentItemId: number) => {
     if (!availableStock) return [];
@@ -482,6 +509,18 @@ export function ProductReleaseTab() {
                 <Badge variant="outline" className="text-xs px-2 py-1 text-emerald-600 border-emerald-300">
                   출고 가능 {availableStock.length}건
                 </Badge>
+              )}
+              {unapplied && unapplied.count > 0 && (
+                <Button
+                  className="h-9 text-xs px-3 border-amber-400 text-amber-700 hover:bg-amber-50"
+                  variant="outline"
+                  onClick={handleReconcile}
+                  disabled={reconcileMut.isPending || unapplied.reconcilableCount === 0}
+                  title="출고됐으나 LOT 이 안 깎인 건을 배치 LOT 에 소급 반영"
+                >
+                  <AlertCircle className="h-3.5 w-3.5 mr-1.5" />
+                  미적용 LOT 정산 {unapplied.reconcilableCount}/{unapplied.count}
+                </Button>
               )}
               <Button className="h-9 text-xs px-4" variant={showForm ? "secondary" : "default"} onClick={() => setShowForm(!showForm)}>
                 <PackageMinus className="h-3.5 w-3.5 mr-1.5" />{showForm ? "접기" : "출고 등록"}

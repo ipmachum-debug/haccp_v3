@@ -1642,6 +1642,24 @@ export const inventoryRouter = router({
         return await cancelProductOutbound(input.outboundId, ctx.user.id, ctx.tenantId);
       }),
 
+    // 미적용 LOT 정산 — 출고됐으나 LOT 미차감(lot_id NULL)건 조회 (병③ 보강)
+    getUnappliedOutbounds: tenantRequiredProcedure
+      .query(async ({ ctx }) => {
+        const { getUnappliedOutbounds } = await import("../../lib/production/reconcileOutbound");
+        return await getUnappliedOutbounds(ctx.tenantId);
+      }),
+
+    // 미적용 LOT 정산 실행 (배치 LOT 에 소급 차감)
+    reconcileUnappliedOutbounds: workerProcedure
+      .input(z.object({ outboundIds: z.array(z.number()).optional(), dryRun: z.boolean().optional() }).optional())
+      .mutation(async ({ input, ctx }) => {
+        const { reconcileUnappliedOutbounds } = await import("../../lib/production/reconcileOutbound");
+        return await reconcileUnappliedOutbounds(ctx.tenantId, ctx.user.id, {
+          outboundIds: input?.outboundIds,
+          dryRun: input?.dryRun,
+        });
+      }),
+
     // 제품 출고 추이 (일별)
     getProductOutboundTrend: tenantRequiredProcedure
       .input(
