@@ -69,9 +69,16 @@ export async function allocateLotsFEFO(
       hInventoryLots.id // 동일 유통기한이면 LOT ID 순
     );
 
-  // 폴백: inventory_id로 LOT를 못 찾으면 material_id로 재검색 (기존 LOT에 inventory_id 미설정 대응)
-  if (availableLots.length === 0 && materialId) {
-    availableLots = await db
+  // 폴백: inventory_id 로 찾은 재고가 요청량에 '부족'하면 material_id 로 재검색.
+  //   ★ 2026-07-03 근본수정 (단절2 유령 차감):
+  //   기존 조건은 length===0(0건)일 때만 폴백 → inventory_id 에 소량 잔여 LOT 이
+  //   1건이라도(예: 0.055kg) 있으면 폴백이 안 떠서, inventory_id=NULL/구값 LOT 에
+  //   대기 중인 실제 재고(수백 kg)를 못 보고 "재고 부족" 유령 차감이 발생했다.
+  //   조건을 "가용 합계가 요청량보다 부족하면"으로 완화. material_id 조회는
+  //   모든 inventory_id(NULL/구값 포함)를 커버하므로 숨은 재고를 찾는다.
+  const firstTotal = (availableLots as any[]).reduce((s: number, l: any) => s + Number(l.availableQuantity || 0), 0);
+  if (firstTotal + 0.001 < requestedQuantity && materialId) {
+    const byMaterial = await db
       .select({
         id: hInventoryLots.id,
         availableQuantity: hInventoryLots.availableQuantity,
@@ -91,12 +98,17 @@ export async function allocateLotsFEFO(
         hInventoryLots.id
       );
 
-    // 찾은 LOT들의 inventory_id를 자동 수정 (향후 정상 동작하도록)
-    if (availableLots.length > 0) {
+    const materialTotal = (byMaterial as any[]).reduce((s: number, l: any) => s + Number(l.availableQuantity || 0), 0);
+    // material_id 조회가 inventory_id 조회보다 재고를 더 찾았을 때만 채택
+    // (= inventory_id 밖 NULL/구값 LOT 에 숨은 재고 존재). 같거나 적으면 진짜 부족.
+    if (byMaterial.length > 0 && materialTotal > firstTotal + 0.001) {
+      availableLots = byMaterial;
       console.warn(
-        `[lot0-trace] fefo_inventory_id_recovery material=${materialId} inventory=${inventoryId} ` +
-        `tenant=${tenantId} recovered_lots=${availableLots.length}`
+        `[lot0-trace] fefo_material_fallback material=${materialId} inventory=${inventoryId} ` +
+        `tenant=${tenantId} first_total=${firstTotal.toFixed(3)} material_total=${materialTotal.toFixed(3)} ` +
+        `lots=${byMaterial.length} requested=${requestedQuantity}`
       );
+      // NULL/0 inventory_id 자동 복구 (향후 첫 쿼리에서 바로 잡히도록)
       await db.execute(sql`
         UPDATE h_inventory_lots
         SET inventory_id = ${inventoryId}
