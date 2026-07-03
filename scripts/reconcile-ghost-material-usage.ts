@@ -43,12 +43,17 @@ interface Canon { canonicalId: number; source: string; name: string | null; }
   const { resolveMaterialIds } = await import("../server/lib/production/materialIdResolver");
 
   // 1) 유령 usage tx
+  //   ★ 안전 가드: 실제 생산이 일어난 배치만(취소/미시작 제외). cancelled/planned 배치의
+  //   유령을 재차감하면 없는 소비를 만들어 재고를 잘못 깎음(lot_id NULL 이라 원래 안 깎였고
+  //   취소면 되돌릴 것도 없음). 존재하지 않는 배치(삭제) 도 JOIN 으로 자동 제외.
   const [ghostRows]: any = await conn.execute(
-    `SELECT id, source_id AS batch_id, material_id, quantity, unit
-       FROM h_inventory_transactions
-      WHERE tenant_id=? AND source_type='BATCH' AND transaction_type='usage'
-        AND (lot_id IS NULL OR lot_id=0)
-      ORDER BY id`,
+    `SELECT t.id, t.source_id AS batch_id, t.material_id, t.quantity, t.unit
+       FROM h_inventory_transactions t
+       JOIN h_batches b ON b.id = t.source_id AND b.tenant_id = t.tenant_id
+      WHERE t.tenant_id=? AND t.source_type='BATCH' AND t.transaction_type='usage'
+        AND (t.lot_id IS NULL OR t.lot_id=0)
+        AND b.status NOT IN ('cancelled', 'planned')
+      ORDER BY t.id`,
     [TENANT],
   );
   const ghosts = ghostRows as Array<{ id: number; batch_id: number; material_id: number; quantity: string; unit: string }>;
@@ -171,7 +176,7 @@ interface Canon { canonicalId: number; source: string; name: string | null; }
     `SELECT COUNT(*) AS remaining FROM h_inventory_transactions
       WHERE tenant_id=? AND source_type='BATCH' AND transaction_type='usage' AND (lot_id IS NULL OR lot_id=0)`,
     [TENANT]);
-  console.log(`[검증] 남은 유령 usage: ${after.remaining}건 (SHORT/미해결 만 잔존해야 정상)`);
+  console.log(`[검증] 남은 유령 usage(전체): ${after.remaining}건 (SHORT + 미해결 + cancelled/planned/삭제배치 만 잔존해야 정상)`);
 
   await conn.end();
   console.log(`\n=== 종료 ===\n`);
