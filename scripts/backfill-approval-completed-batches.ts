@@ -211,6 +211,9 @@ const TO = arg("to", "2026-07-02");
 
   await conn.end();
   console.log("\n=== 종료 ===\n");
+  // ensureBatchLots/resolveMaterialIds 가 여는 app pool(getRawConnection)이 안 닫혀
+  // 이벤트 루프가 안 끝나는 문제 → 모든 쓰기가 await 완료된 뒤 명시 종료.
+  process.exit(0);
 })().catch((e) => {
   console.error("백필 실패:", e);
   process.exit(1);
