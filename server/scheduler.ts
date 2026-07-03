@@ -82,6 +82,22 @@ export function initScheduler() {
     }
   }));
 
+  // ★ 2026-07-03: 배치 완제품 LOT 자가치유 (완료경로 파편화 봉인, 단절3) — 매시간 :15
+  //   완료됐는데 완제품 LOT 이 없는 배치(어느 경로로 완료됐든)를 찾아 LOT 소급 생성.
+  //   ensureBatchLots 멱등이라 안전. 최근 3일·최대 100건만(가볍게) — 전체 백로그는 수동 트리거.
+  cron.schedule("15 * * * *", () => withSchedulerLock("batch_lot_self_heal", async () => {
+    const timestamp = new Date().toISOString();
+    try {
+      const { healIncompleteBatchLots } = await import("./schedulers/batchLotSelfHealer");
+      const r = await healIncompleteBatchLots({ sinceDays: 3, limit: 100 });
+      if (r.healed > 0 || r.failed > 0) {
+        console.log(`[Scheduler] ${timestamp} - 배치 LOT 자가치유: 치유 ${r.healed}건 / LOT ${r.lotsCreated}건 / 실패 ${r.failed}건`);
+      }
+    } catch (error) {
+      console.error(`[Scheduler] ${timestamp} - 배치 LOT 자가치유 실패:`, error);
+    }
+  }));
+
   // ★ Phase 3 (CRM): 매일 오전 8시 거래처 서류 만료 알림
   cron.schedule("0 8 * * *", () => withSchedulerLock("partner_doc_expiry", async () => {
     const timestamp = new Date().toISOString();
