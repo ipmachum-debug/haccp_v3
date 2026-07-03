@@ -1634,6 +1634,19 @@ export const inventoryRouter = router({
         return await getProductCanonicalStock(ctx.tenantId);
       }),
 
+    // 배치 완제품 LOT 자가치유 수동 트리거 (전체 백로그) — 완료경로 파편화 봉인(단절3)
+    //   완료됐는데 완제품 LOT 이 없는 배치를 찾아 소급 생성(멱등). 어느 경로로 완료됐든 커버.
+    healIncompleteBatchLots: adminProcedure
+      .input(z.object({ limit: z.number().optional(), sinceDays: z.number().optional() }).optional())
+      .mutation(async ({ input, ctx }) => {
+        const { healIncompleteBatchLots } = await import("../../schedulers/batchLotSelfHealer");
+        return await healIncompleteBatchLots({
+          tenantId: ctx.tenantId, // 호출자 테넌트로 격리
+          limit: input?.limit ?? 500,
+          sinceDays: input?.sinceDays, // 미지정 = 전체 백로그
+        });
+      }),
+
     // 제품 출고 취소
     cancelProductOutbound: workerProcedure
       .input(z.object({ outboundId: z.number() }))
