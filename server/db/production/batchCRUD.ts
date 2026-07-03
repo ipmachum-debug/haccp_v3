@@ -620,80 +620,129 @@ export async function updateBatchStatus(batchId: number, status: string, tenantI
   }
 }
 
+/**
+ * 배치 삭제 — 완전한 역수행(undo) + 원자성 (2026-07-03 근본수정)
+ * ============================================================================
+ * 기존 문제: 배치만/일부 자식만 지우고 h_inventory_lots(제품 LOT)와
+ *   h_inventory_transactions(usage/inbound)를 남겨 orphan 발생 →
+ *   (a) 삭제 후 batch_code 재사용 시 lot_number 충돌, (b) phantom 제품재고,
+ *   (c) BATCH_DELETED 유령 usage. 또 원재료 소모를 안 되돌려 재고 손실.
+ *
+ * 수정: 하나의 트랜잭션으로
+ *   1) 이미 출고/소비된 완제품 LOT 이 있으면 삭제 차단(되돌릴 수 없음).
+ *   2) 원재료 소모 복원 — 실제 LOT 을 깎은 usage(lot_id>0)를 그 LOT 에 되돌림
+ *      + 해당 자재 집계(h_inventory) 재계산.
+ *   3) 배치의 재고 거래(usage/inbound) + 제품 LOT 삭제(orphan 원천 제거).
+ *   4) 기존 자식(ccp/inputs/schedules/docs/approvals/sku/metal) 정리.
+ *   5) 배치 삭제.
+ */
 export async function deleteBatch(batchId: number, tenantId?: number) {
   const pool = await getRawConnection();
-
-  // 관련 데이터 cascade 삭제 (CCP 행 → CCP 인스턴스 → 배치)
-  // P0: tenant_id 필터 추가 - 테넌트 격리
-  if (tenantId) {
-    await pool.execute(`DELETE r FROM h_ccp_rows r
-      INNER JOIN h_ccp_instances i ON r.instance_id = i.id
-      WHERE i.batch_id = ? AND i.tenant_id = ?`, [batchId, tenantId]);
-    await pool.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-    await pool.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-    await pool.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-  } else {
-    await pool.execute(`DELETE r FROM h_ccp_rows r
-      INNER JOIN h_ccp_instances i ON r.instance_id = i.id
-      WHERE i.batch_id = ?`, [batchId]);
-    await pool.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ?`, [batchId]);
-    await pool.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [batchId]);
-    await pool.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ?`, [batchId]);
-  }
-
-  // 배치 자체 삭제 (테넌트 격리 적용)
-  // ★ 2026-04-15: 레거시 `batches` 테이블은 존재하지 않음 (h_batches 단일 테이블)
-  //   이전: dual table sync 로 batches 도 DELETE → "Table doesn't exist" 에러
-  if (tenantId) {
-    await pool.execute(`DELETE FROM h_batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
-  } else {
-    await pool.execute(`DELETE FROM h_batches WHERE id = ?`, [batchId]);
-  }
-  // CCP 모니터링 기록지 삭제
+  const conn = await pool.getConnection();
+  const tf = tenantId ? " AND tenant_id = ?" : "";
+  const bp = tenantId ? [batchId, tenantId] : [batchId];
   try {
-    if (tenantId) {
-      await pool.execute(`DELETE rows FROM h_ccp_form_rows rows JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id WHERE rec.batch_id = ? AND rec.tenant_id = ?`, [batchId, tenantId]);
-      await pool.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-    } else {
-      await pool.execute(`DELETE rows FROM h_ccp_form_rows rows JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id WHERE rec.batch_id = ?`, [batchId]);
-      await pool.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ?`, [batchId]);
+    await conn.beginTransaction();
+
+    // ── 0. 배치 로드 (없으면 조용히 종료) ──
+    const [bRows]: any = await conn.execute(
+      `SELECT id, product_id, status FROM h_batches WHERE id = ?${tf} LIMIT 1`, bp);
+    if ((bRows as any[]).length === 0) { await conn.commit(); return; }
+
+    // ── 1. 완제품 LOT 안전검사 — 이미 출고/소비됐으면 삭제 불가 ──
+    const [prodLots]: any = await conn.execute(
+      `SELECT id, quantity, available_quantity FROM h_inventory_lots
+        WHERE batch_id = ?${tf} AND product_id IS NOT NULL`, bp);
+    for (const l of prodLots as any[]) {
+      const q = parseFloat(l.quantity || "0"), av = parseFloat(l.available_quantity || "0");
+      if (av + 0.001 < q) {
+        throw new Error(`이미 출고/소비된 완제품 LOT(#${l.id})이 있어 배치를 삭제할 수 없습니다. 제품 출고를 먼저 취소하세요.`);
+      }
     }
-  } catch (_e) { /* ignore if table not exists */ }
-  // 문서 인스턴스 삭제 (document_instances)
-  try {
-    if (tenantId) {
-      await pool.execute(`DELETE FROM document_instances WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-    } else {
-      await pool.execute(`DELETE FROM document_instances WHERE batch_id = ?`, [batchId]);
-    }
-  } catch (_e) { /* ignore if table not exists */ }
+    const prodLotIds = (prodLots as any[]).map((l) => Number(l.id));
 
-  // 승인 요청 삭제 (batch 직접 + batch_group)
-  if (tenantId) {
-    await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type IN ('batch', 'batch_group') AND reference_id = ? AND tenant_id = ?`, [batchId, tenantId]);
-  } else {
-    await pool.execute(`DELETE FROM h_approval_requests WHERE reference_type IN ('batch', 'batch_group') AND reference_id = ?`, [batchId]);
+    // ── 2. 원재료 소모 복원 (배치가 없던 일이 되므로) ──
+    const [usageTx]: any = await conn.execute(
+      `SELECT id, lot_id, quantity FROM h_inventory_transactions
+        WHERE source_type='BATCH' AND source_id = ? AND transaction_type='usage'${tf}`, bp);
+    const restoredLotIds = new Set<number>();
+    for (const t of usageTx as any[]) {
+      const lotId = Number(t.lot_id || 0), q = parseFloat(t.quantity || "0");
+      if (lotId > 0 && q > 0) {
+        await conn.execute(
+          `UPDATE h_inventory_lots
+              SET available_quantity = available_quantity + ?,
+                  current_quantity = COALESCE(current_quantity, quantity) + ?,
+                  status = CASE WHEN status IN ('used','disposed','expired') THEN 'available' ELSE status END,
+                  updated_at = NOW()
+            WHERE id = ?${tenantId ? " AND tenant_id = ?" : ""}`,
+          tenantId ? [q, q, lotId, tenantId] : [q, q, lotId]);
+        restoredLotIds.add(lotId);
+      }
+    }
+    // 복원된 LOT 들의 자재 집계(h_inventory) 재계산 — LOT 정본과 일치시킴
+    if (restoredLotIds.size > 0 && tenantId) {
+      try {
+        const ph = [...restoredLotIds].map(() => "?").join(",");
+        const [mats]: any = await conn.execute(
+          `SELECT DISTINCT material_id FROM h_inventory_lots WHERE id IN (${ph}) AND material_id IS NOT NULL`,
+          [...restoredLotIds]);
+        const { recomputeAggregateFromLots } = await import("../../lib/inventory/applyInventoryDelta");
+        for (const m of mats as any[]) {
+          await recomputeAggregateFromLots(conn as any, { tenantId, subject: { materialId: Number(m.material_id) } });
+        }
+      } catch (e) { console.error(`[deleteBatch] 자재 집계 재계산 경고(배치#${batchId}):`, e); }
+    }
+
+    // ── 3. 배치 재고 거래 + 제품 LOT 삭제 (orphan 원천 제거) ──
+    await conn.execute(
+      `DELETE FROM h_inventory_transactions WHERE source_type='BATCH' AND source_id = ?${tf}`, bp);
+    if (prodLotIds.length > 0) {
+      const ph = prodLotIds.map(() => "?").join(",");
+      await conn.execute(
+        `DELETE FROM h_inventory_transactions WHERE lot_id IN (${ph})${tenantId ? " AND tenant_id = ?" : ""}`,
+        tenantId ? [...prodLotIds, tenantId] : [...prodLotIds]);
+      await conn.execute(
+        `DELETE FROM h_inventory_lots WHERE id IN (${ph})${tenantId ? " AND tenant_id = ?" : ""}`,
+        tenantId ? [...prodLotIds, tenantId] : [...prodLotIds]);
+    }
+
+    // ── 4. 기존 자식 데이터 정리 ──
+    await conn.execute(`DELETE r FROM h_ccp_rows r
+      INNER JOIN h_ccp_instances i ON r.instance_id = i.id
+      WHERE i.batch_id = ?${tenantId ? " AND i.tenant_id = ?" : ""}`, bp);
+    await conn.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ?${tf}`, bp);
+    await conn.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ?${tf}`, bp);
+    await conn.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ?${tf}`, bp);
+    await conn.execute(`DELETE FROM h_approval_requests
+      WHERE reference_type IN ('batch','batch_group') AND reference_id = ?${tf}`, bp);
+    // 존재하지 않을 수 있는 테이블 — 개별 try/catch(트랜잭션 abort 방지)
+    try {
+      await conn.execute(`DELETE rows FROM h_ccp_form_rows rows JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id WHERE rec.batch_id = ?${tenantId ? " AND rec.tenant_id = ?" : ""}`, bp);
+      await conn.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ?${tf}`, bp);
+    } catch (_e) { /* table 없음 */ }
+    try {
+      await conn.execute(`DELETE FROM document_instances WHERE batch_id = ?${tf}`, bp);
+    } catch (_e) { /* table 없음 */ }
+    try {
+      await conn.execute(`DELETE FROM production_sku_output WHERE batch_id = ?${tf}`, bp);
+    } catch { /* 없음 */ }
+    try {
+      await conn.execute(`DELETE sc FROM h_ccp_metal_sensitivity_checks sc JOIN h_ccp_batch_process_runs pr ON sc.batch_process_run_id = pr.id WHERE pr.batch_id = ?${tenantId ? " AND pr.tenant_id = ?" : ""}`, bp);
+      await conn.execute(`DELETE sl FROM h_ccp_metal_sku_slots sl JOIN h_ccp_batch_process_runs pr ON sl.batch_process_run_id = pr.id WHERE pr.batch_id = ?${tenantId ? " AND pr.tenant_id = ?" : ""}`, bp);
+      await conn.execute(`DELETE FROM h_ccp_batch_process_runs WHERE batch_id = ?${tf}`, bp);
+    } catch { /* 없음 */ }
+
+    // ── 5. 배치 삭제 ──
+    await conn.execute(`DELETE FROM h_batches WHERE id = ?${tf}`, bp);
+
+    await conn.commit();
+  } catch (e) {
+    try { await conn.rollback(); } catch { /* noop */ }
+    throw e;
+  } finally {
+    conn.release();
   }
-  // SKU 생산수량 삭제
-  try {
-    await pool.execute(`DELETE FROM production_sku_output WHERE batch_id = ?${tenantId ? ' AND tenant_id = ?' : ''}`, tenantId ? [batchId, tenantId] : [batchId]);
-  } catch { /* ignore */ }
-  // 금속검출 시간 슬롯/감도체크 삭제
-  try {
-    await pool.execute(
-      `DELETE sc FROM h_ccp_metal_sensitivity_checks sc
-       JOIN h_ccp_batch_process_runs pr ON sc.batch_process_run_id = pr.id
-       WHERE pr.batch_id = ?${tenantId ? ' AND pr.tenant_id = ?' : ''}`,
-      tenantId ? [batchId, tenantId] : [batchId]
-    );
-    await pool.execute(
-      `DELETE sl FROM h_ccp_metal_sku_slots sl
-       JOIN h_ccp_batch_process_runs pr ON sl.batch_process_run_id = pr.id
-       WHERE pr.batch_id = ?${tenantId ? ' AND pr.tenant_id = ?' : ''}`,
-      tenantId ? [batchId, tenantId] : [batchId]
-    );
-    await pool.execute(`DELETE FROM h_ccp_batch_process_runs WHERE batch_id = ?${tenantId ? ' AND tenant_id = ?' : ''}`, tenantId ? [batchId, tenantId] : [batchId]);
-  } catch { /* ignore */ }
 }
 
 /**
