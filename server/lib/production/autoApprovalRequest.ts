@@ -250,6 +250,18 @@ export async function finalApproveRequest(
           if (actualQuantity > 0) {
             await productionCompleteDispatch(batchId, actualQuantity, approverId, tenantId);
             console.log(`[finalApprove] 배치 #${batchId} 재고이동/회계연동 완료`);
+
+            // ★ 2026-07-03: dispatch(productionCompletePost/V2)는 receipt 원장만 쓰고
+            //   완제품 LOT 을 안 만든다(path D 구멍). batch 브랜치(#404)와 동일하게
+            //   여기서도 완제품 LOT 을 멱등 생성해 두 승인경로를 모두 봉인.
+            try {
+              const { ensureBatchLots } = await import("../../db/production/productOutboundManagement");
+              const lotResult = await ensureBatchLots(batchId, tenantId);
+              console.log(`[finalApprove] 배치 #${batchId} 완제품 LOT 보강: 생성 ${lotResult?.created?.length ?? 0}건`);
+            } catch (lotErr: any) {
+              console.error(`[finalApprove] 배치 #${batchId} 완제품 LOT 생성 실패:`, lotErr);
+            }
+
             return {
               success: true,
               message: "승인 완료 - 제품재고 이동 및 회계연동이 처리되었습니다.",
