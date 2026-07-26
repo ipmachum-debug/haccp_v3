@@ -645,19 +645,145 @@ export function renderAirborneBacteriaTest(data: FormData) {
 }
 
 // ============================================================================
-// 교육훈련 기록
+// 교육훈련 기록 (교육훈련일지)
 // ============================================================================
-export function renderTrainingLog(data: FormData) {
-  const formData = data || {};
+const EDUCATION_TYPE_LABELS: Record<string, string> = {
+  internal: "사내교육",
+  external: "외부교육",
+  online: "온라인교육",
+  other: "기타",
+};
+
+export function renderTrainingLog(data: FormData, doc?: DocInfo) {
+  const f = data || {};
+  // 저장 스키마는 snake_case (education_date, educator, education_content …).
+  // 구버전 카멜케이스(date/instructor/content) 도 폴백으로 함께 처리.
+  const educationDate = f.education_date || f.date || f.formDate || "";
+  const title = f.title || "";
+  const educator = f.educator || f.instructor || "";
+  const startTime = f.start_time || "";
+  const endTime = f.end_time || "";
+  const timeRange = startTime && endTime ? `${startTime} ~ ${endTime}` : startTime || endTime || "";
+  const location = f.location || "";
+  const educationType = EDUCATION_TYPE_LABELS[f.education_type as string] || f.education_type || "";
+  const targetAudience = f.target_audience || "";
+  const educationContent = f.education_content || f.content || "";
+  const textbookName = f.textbook_name || "";
+  const contentSummary = f.content_summary || "";
+  const evidenceDescription = f.evidence_description || "";
+  const attendees: Array<Record<string, string>> = Array.isArray(f.attendees) ? f.attendees : [];
+  const concentration = f.concentration_level || "";
+  const understanding = f.understanding_level || "";
+  const reflection = f.reflection_level || "";
+  const improvement = f.improvement_action || "";
+
+  const label = "border border-gray-400 px-3 py-2 bg-gray-50 font-medium whitespace-nowrap";
+  const cell = "border border-gray-400 px-3 py-2";
+
   return (
     <div>
-      <div className="text-center mb-4"><h2 className="text-xl font-bold">교육훈련 기록</h2></div>
+      <TitleWithApproval title="교육훈련일지" doc={doc} />
+
+      {/* 기본 정보 */}
+      <table className="w-full border-collapse border border-gray-400 text-sm mt-2 mb-4">
+        <tbody>
+          <tr>
+            <td className={`${label} w-[15%]`}>교육명</td>
+            <td className={`${cell} w-[35%]`} colSpan={3}>{title || "-"}</td>
+          </tr>
+          <tr>
+            <td className={label}>교육일</td>
+            <td className={cell}>{educationDate || "-"}</td>
+            <td className={label}>교육시간</td>
+            <td className={cell}>{timeRange || "-"}</td>
+          </tr>
+          <tr>
+            <td className={label}>교육구분</td>
+            <td className={cell}>{educationType || "-"}</td>
+            <td className={label}>교육장소</td>
+            <td className={cell}>{location || "-"}</td>
+          </tr>
+          <tr>
+            <td className={label}>교육자</td>
+            <td className={cell}>{educator || "-"}</td>
+            <td className={label}>교육대상</td>
+            <td className={cell}>{targetAudience || "-"}</td>
+          </tr>
+          {textbookName && (
+            <tr>
+              <td className={label}>교재명</td>
+              <td className={cell} colSpan={3}>{textbookName}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      {/* 교육 내용 */}
       <table className="w-full border-collapse border border-gray-400 text-sm mb-4">
         <tbody>
-          {formData.date && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium w-1/4">교육일</td><td className="border border-gray-400 px-3 py-2">{formData.date}</td></tr>}
-          {formData.title && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">교육명</td><td className="border border-gray-400 px-3 py-2">{formData.title}</td></tr>}
-          {formData.instructor && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">교육자</td><td className="border border-gray-400 px-3 py-2">{formData.instructor}</td></tr>}
-          {formData.content && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">교육내용</td><td className="border border-gray-400 px-3 py-2 whitespace-pre-wrap">{formData.content}</td></tr>}
+          <tr>
+            <td className={`${label} w-[15%]`}>교육내용</td>
+            <td className={`${cell} whitespace-pre-wrap`}>{educationContent || "-"}</td>
+          </tr>
+          {contentSummary && (
+            <tr>
+              <td className={label}>내용요약</td>
+              <td className={`${cell} whitespace-pre-wrap`}>{contentSummary}</td>
+            </tr>
+          )}
+          {evidenceDescription && (
+            <tr>
+              <td className={label}>증빙설명</td>
+              <td className={`${cell} whitespace-pre-wrap`}>{evidenceDescription}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      {/* 참석자 목록 */}
+      <div className="mb-4">
+        <div className="font-medium text-sm mb-1">참석자 목록</div>
+        <table className="w-full border-collapse border border-gray-400 text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="border border-gray-400 px-2 py-1 w-12">번호</th>
+              <th className="border border-gray-400 px-2 py-1">이름</th>
+              <th className="border border-gray-400 px-2 py-1">직책</th>
+              <th className="border border-gray-400 px-2 py-1">부서</th>
+              <th className="border border-gray-400 px-2 py-1 w-28">서명</th>
+            </tr>
+          </thead>
+          <tbody>
+            {attendees.length > 0 ? attendees.map((a, idx) => (
+              <tr key={idx}>
+                <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+                <td className="border border-gray-400 px-2 py-1">{a.name || "-"}</td>
+                <td className="border border-gray-400 px-2 py-1">{a.position || "-"}</td>
+                <td className="border border-gray-400 px-2 py-1">{a.department || "-"}</td>
+                <td className="border border-gray-400 px-2 py-1 text-center">{a.signature || ""}</td>
+              </tr>
+            )) : (
+              <tr><td colSpan={5} className="border border-gray-400 px-2 py-4 text-center text-gray-400">참석자 없음</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 교육 후 결과 */}
+      <table className="w-full border-collapse border border-gray-400 text-sm">
+        <tbody>
+          <tr>
+            <td className={`${label} w-[15%] text-center`}>집중도</td>
+            <td className={`${cell} text-center`}>{concentration || "-"}</td>
+            <td className={`${label} text-center`}>이해도</td>
+            <td className={`${cell} text-center`}>{understanding || "-"}</td>
+            <td className={`${label} text-center`}>반영도</td>
+            <td className={`${cell} text-center`}>{reflection || "-"}</td>
+          </tr>
+          <tr>
+            <td className={label}>개선 및 조치사항</td>
+            <td className={`${cell} whitespace-pre-wrap`} colSpan={5}>{improvement || "-"}</td>
+          </tr>
         </tbody>
       </table>
     </div>
