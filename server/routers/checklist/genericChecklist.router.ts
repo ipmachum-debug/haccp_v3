@@ -558,4 +558,59 @@ export const genericChecklistRouter = router({
         return { success: false, message: err.message || "재생성 실패" };
       }
     }),
+
+  // ── 증빙 사진/파일 업로드 (S3) ──
+  //    form_data 에는 stable 한 storage key 만 저장하고, 표시/인쇄 시
+  //    resolvePhotoUrls 로 fresh presigned URL 을 재발급한다 (presigned 는 1시간 만료).
+  uploadPhoto: tenantRequiredProcedure
+    .input(z.object({
+      formType: z.string(),
+      file: z.object({
+        name: z.string(),
+        type: z.string(),
+        data: z.string(), // base64 (data: prefix 제외)
+      }),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { storagePut, StorageNotConfiguredError } = await import("../../storage");
+      const { TRPCError } = await import("@trpc/server");
+      const tenantId = getEffectiveTenantId(ctx);
+      const buffer = Buffer.from(input.file.data, "base64");
+      // 한글/영숫자/._- 외 문자는 언더스코어로 치환 (경로 안전)
+      const safeName = (input.file.name || "photo").replace(/[^\w.\-가-힣]/g, "_");
+      const safeType = (input.formType || "generic").replace(/[^\w\-]/g, "_");
+      const fileKey = `tenant-${tenantId}/${safeType}-photos/${Date.now()}-${safeName}`;
+      try {
+        const { key, url } = await storagePut(fileKey, buffer, input.file.type || "application/octet-stream");
+        return { key, url, name: input.file.name };
+      } catch (err: any) {
+        if (err instanceof StorageNotConfiguredError) {
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: err.userMessage, cause: err });
+        }
+        throw err;
+      }
+    }),
+
+  // ── 저장된 storage key 들에 대해 fresh presigned URL 재발급 (표시/인쇄용) ──
+  resolvePhotoUrls: tenantRequiredProcedure
+    .input(z.object({ keys: z.array(z.string()).max(50) }))
+    .query(async ({ input, ctx }) => {
+      const { storageGet } = await import("../../storage");
+      const tenantId = getEffectiveTenantId(ctx);
+      const results: Array<{ key: string; url: string | null }> = [];
+      for (const key of input.keys) {
+        // 테넌트 격리: 자기 테넌트 prefix 의 key 만 허용
+        if (!key || !key.startsWith(`tenant-${tenantId}/`)) {
+          results.push({ key, url: null });
+          continue;
+        }
+        try {
+          const { url } = await storageGet(key);
+          results.push({ key, url });
+        } catch {
+          results.push({ key, url: null });
+        }
+      }
+      return results;
+    }),
 });

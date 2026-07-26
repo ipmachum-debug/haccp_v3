@@ -14,9 +14,30 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Upload, Loader2, X } from "lucide-react";
+import { trpc } from "@/lib/trpc";
+import { useToast } from "@/hooks/use-toast";
 
 import { todayLocal } from "../../lib/dateUtils";
+
+interface EvidencePhoto {
+  key: string;
+  name?: string;
+  url?: string; // 표시용 (presigned, 만료 가능) — 저장 시 제외
+}
+
+// File → base64 (data: prefix 제외)
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      resolve(result.includes(",") ? result.split(",")[1] : result);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 const config: ChecklistFormConfig = {
   formType: "training_log",
@@ -52,6 +73,12 @@ export default function TrainingLogForm() {
   const [understanding_level, setUnderstandingLevel] = useState("");
   const [reflection_level, setReflectionLevel] = useState("");
   const [improvement_action, setImprovementAction] = useState("");
+  const [evidence_photos, setEvidencePhotos] = useState<EvidencePhoto[]>([]);
+  const [uploading, setUploading] = useState(false);
+
+  const { toast } = useToast();
+  const uploadPhotoMutation = trpc.genericChecklist.uploadPhoto.useMutation();
+  const trpcUtils = trpc.useUtils();
 
   const collectFormData = () => ({
     title,
@@ -71,6 +98,8 @@ export default function TrainingLogForm() {
     understanding_level,
     reflection_level,
     improvement_action,
+    // url 은 만료되므로 저장에서 제외 — key/name 만 영속화
+    evidence_photos: evidence_photos.map((p) => ({ key: p.key, name: p.name })),
   });
 
   const onDataRestore = (fd: any) => {
@@ -91,6 +120,53 @@ export default function TrainingLogForm() {
     if (fd.understanding_level) setUnderstandingLevel(fd.understanding_level);
     if (fd.reflection_level) setReflectionLevel(fd.reflection_level);
     if (fd.improvement_action) setImprovementAction(fd.improvement_action);
+    if (Array.isArray(fd.evidence_photos) && fd.evidence_photos.length > 0) {
+      const photos: EvidencePhoto[] = fd.evidence_photos
+        .map((p: any) => (typeof p === "string" ? { key: p } : { key: p?.key, name: p?.name }))
+        .filter((p: EvidencePhoto) => !!p.key);
+      setEvidencePhotos(photos);
+      // 표시용 presigned URL 재발급
+      if (photos.length > 0) {
+        trpcUtils.genericChecklist.resolvePhotoUrls
+          .fetch({ keys: photos.map((p) => p.key) })
+          .then((resolved) => {
+            const urlMap = new Map(resolved.map((r) => [r.key, r.url]));
+            setEvidencePhotos((prev) => prev.map((p) => ({ ...p, url: urlMap.get(p.key) || undefined })));
+          })
+          .catch(() => {});
+      }
+    }
+  };
+
+  const handlePhotoUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith("image/")) {
+          toast({ title: "이미지 파일만 업로드 가능", description: file.name, variant: "destructive" });
+          continue;
+        }
+        if (file.size > 10 * 1024 * 1024) {
+          toast({ title: "파일이 너무 큽니다 (최대 10MB)", description: file.name, variant: "destructive" });
+          continue;
+        }
+        const data = await fileToBase64(file);
+        const res = await uploadPhotoMutation.mutateAsync({
+          formType: "training_log",
+          file: { name: file.name, type: file.type, data },
+        });
+        setEvidencePhotos((prev) => [...prev, { key: res.key, name: res.name, url: res.url }]);
+      }
+    } catch (err: any) {
+      toast({ title: "사진 업로드 실패", description: err?.message || "알 수 없는 오류", variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const removePhoto = (key: string) => {
+    setEvidencePhotos((prev) => prev.filter((p) => p.key !== key));
   };
 
   const addAttendee = () => {
@@ -252,6 +328,53 @@ export default function TrainingLogForm() {
                 onChange={(e) => setEvidenceDescription(e.target.value)}
                 placeholder="증빙 자료 설명"
               />
+            </div>
+            <div>
+              <Label>교육 사진 (증빙자료)</Label>
+              <div className="border-2 border-dashed rounded-lg p-4 text-center">
+                <Upload className="mx-auto h-8 w-8 text-gray-400" />
+                <p className="mt-1 text-sm text-gray-500">교육 현장 사진을 첨부하세요 (이미지, 최대 10MB)</p>
+                <Input
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="mt-3"
+                  disabled={uploading}
+                  onChange={(e) => {
+                    handlePhotoUpload(e.target.files);
+                    e.target.value = ""; // 같은 파일 재선택 허용
+                  }}
+                />
+                {uploading && (
+                  <p className="mt-2 text-sm text-blue-600 flex items-center justify-center gap-1">
+                    <Loader2 className="h-4 w-4 animate-spin" /> 업로드 중...
+                  </p>
+                )}
+              </div>
+              {evidence_photos.length > 0 && (
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-3">
+                  {evidence_photos.map((photo) => (
+                    <div key={photo.key} className="relative group border rounded-md overflow-hidden">
+                      {photo.url ? (
+                        <img src={photo.url} alt={photo.name || "교육사진"} className="w-full h-24 object-cover" />
+                      ) : (
+                        <div className="w-full h-24 flex items-center justify-center bg-gray-50 text-xs text-gray-400 px-1 text-center">
+                          {photo.name || "이미지"}
+                        </div>
+                      )}
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        size="sm"
+                        className="absolute top-1 right-1 h-6 w-6 p-0 opacity-80"
+                        onClick={() => removePhoto(photo.key)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

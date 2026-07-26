@@ -671,6 +671,8 @@ export function renderTrainingLog(data: FormData, doc?: DocInfo) {
   const textbookName = f.textbook_name || "";
   const contentSummary = f.content_summary || "";
   const evidenceDescription = f.evidence_description || "";
+  // 인쇄 시 PrintPreviewPage 에서 storage key → presigned URL 로 미리 해석해 주입
+  const evidencePhotoUrls: string[] = Array.isArray(f.evidence_photo_urls) ? f.evidence_photo_urls : [];
   const attendees: Array<Record<string, string>> = Array.isArray(f.attendees) ? f.attendees : [];
   const concentration = f.concentration_level || "";
   const understanding = f.understanding_level || "";
@@ -739,6 +741,23 @@ export function renderTrainingLog(data: FormData, doc?: DocInfo) {
           )}
         </tbody>
       </table>
+
+      {/* 교육 사진 (증빙자료) */}
+      {evidencePhotoUrls.length > 0 && (
+        <div className="mb-4">
+          <div className="font-medium text-sm mb-1">교육 사진 (증빙자료)</div>
+          <div className="grid grid-cols-2 gap-2">
+            {evidencePhotoUrls.map((url, i) => (
+              <img
+                key={i}
+                src={url}
+                alt={`교육사진 ${i + 1}`}
+                className="w-full max-h-64 object-contain border border-gray-300"
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* 참석자 목록 */}
       <div className="mb-4">
