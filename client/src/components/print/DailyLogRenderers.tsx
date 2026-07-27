@@ -684,6 +684,8 @@ export function renderTrainingLogBody(data: FormData) {
   // break-words: 긴 한글 문단이 셀 폭을 넘겨 테이블이 오버플로우되지 않도록 줄바꿈 강제
   const cell = "border border-gray-400 px-3 py-2 break-words";
   const fixed = { tableLayout: "fixed" as const, width: "100%" };
+  // 인라인 보증: Tailwind 클래스가 purge 되거나 외부 CSS 가 개입해도 줄바꿈이 반드시 적용되도록
+  const wrapStyle: React.CSSProperties = { overflowWrap: "anywhere", wordBreak: "break-word", whiteSpace: "pre-wrap" };
 
   return (
     <div>
@@ -736,18 +738,18 @@ export function renderTrainingLogBody(data: FormData) {
         <tbody>
           <tr>
             <td className={label}>교육내용</td>
-            <td className={`${cell} whitespace-pre-wrap`}>{educationContent || "-"}</td>
+            <td className={`${cell} whitespace-pre-wrap`} style={wrapStyle}>{educationContent || "-"}</td>
           </tr>
           {contentSummary && (
             <tr>
               <td className={label}>내용요약</td>
-              <td className={`${cell} whitespace-pre-wrap`}>{contentSummary}</td>
+              <td className={`${cell} whitespace-pre-wrap`} style={wrapStyle}>{contentSummary}</td>
             </tr>
           )}
           {evidenceDescription && (
             <tr>
               <td className={label}>증빙설명</td>
-              <td className={`${cell} whitespace-pre-wrap`}>{evidenceDescription}</td>
+              <td className={`${cell} whitespace-pre-wrap`} style={wrapStyle}>{evidenceDescription}</td>
             </tr>
           )}
         </tbody>
@@ -820,7 +822,7 @@ export function renderTrainingLogBody(data: FormData) {
           </tr>
           <tr>
             <td className={label}>개선 및 조치사항</td>
-            <td className={`${cell} whitespace-pre-wrap`} colSpan={5}>{improvement || "-"}</td>
+            <td className={`${cell} whitespace-pre-wrap`} colSpan={5} style={wrapStyle}>{improvement || "-"}</td>
           </tr>
         </tbody>
       </table>
