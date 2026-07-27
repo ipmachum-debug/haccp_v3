@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2, Upload, Loader2, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useToast } from "@/hooks/use-toast";
+import { renderTrainingLogBody } from "@/components/print/DailyLogRenderers";
 
 import { todayLocal } from "../../lib/dateUtils";
 
@@ -193,7 +194,8 @@ export default function TrainingLogForm() {
       collectFormData={collectFormData}
       onDataRestore={onDataRestore}
     >
-      <div className="space-y-6 px-6 pb-6">
+      {/* 화면 편집 영역 (인쇄 시 숨김) — 인쇄는 아래 문서 양식을 사용해 승인 인쇄와 통일 */}
+      <div className="space-y-6 px-6 pb-6 print:hidden">
         {/* 기본 정보 */}
         <Card>
           <CardHeader>
@@ -530,6 +532,14 @@ export default function TrainingLogForm() {
             </div>
           </CardContent>
         </Card>
+      </div>
+
+      {/* 인쇄 전용 문서 양식 (승인 후 인쇄와 동일한 renderTrainingLogBody 사용) */}
+      <div className="hidden print:block px-6 pb-6">
+        {renderTrainingLogBody({
+          ...collectFormData(),
+          evidence_photo_urls: evidence_photos.map((p) => p.url).filter(Boolean),
+        })}
       </div>
     </ChecklistFormLayout>
   );

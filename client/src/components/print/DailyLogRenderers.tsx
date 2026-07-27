@@ -654,7 +654,8 @@ const EDUCATION_TYPE_LABELS: Record<string, string> = {
   other: "기타",
 };
 
-export function renderTrainingLog(data: FormData, doc?: DocInfo) {
+// 결재란/제목을 제외한 문서 본문 (승인 인쇄와 작성폼 인쇄가 동일 양식을 공유하도록 분리)
+export function renderTrainingLogBody(data: FormData) {
   const f = data || {};
   // 저장 스키마는 snake_case (education_date, educator, education_content …).
   // 구버전 카멜케이스(date/instructor/content) 도 폴백으로 함께 처리.
@@ -686,8 +687,6 @@ export function renderTrainingLog(data: FormData, doc?: DocInfo) {
 
   return (
     <div>
-      <TitleWithApproval title="교육훈련일지" doc={doc} />
-
       {/* 기본 정보 */}
       <table className="w-full border-collapse border border-gray-400 text-sm mt-2 mb-4" style={fixed}>
         <colgroup>
@@ -756,9 +755,9 @@ export function renderTrainingLog(data: FormData, doc?: DocInfo) {
 
       {/* 교육 사진 (증빙자료) */}
       {evidencePhotoUrls.length > 0 && (
-        <div className="mb-4">
-          <div className="font-medium text-sm mb-1">교육 사진 (증빙자료)</div>
-          <div className="grid grid-cols-2 gap-2">
+        <div className="mb-4 border border-gray-400">
+          <div className="font-medium text-sm px-3 py-2 bg-gray-50 border-b border-gray-400">교육 사진 (증빙자료)</div>
+          <div className="grid grid-cols-2 gap-2 p-2">
             {evidencePhotoUrls.map((url, i) => (
               <img
                 key={i}
@@ -825,6 +824,16 @@ export function renderTrainingLog(data: FormData, doc?: DocInfo) {
           </tr>
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// 승인 인쇄용: 결재란/제목 + 본문
+export function renderTrainingLog(data: FormData, doc?: DocInfo) {
+  return (
+    <div>
+      <TitleWithApproval title="교육훈련일지" doc={doc} />
+      {renderTrainingLogBody(data || {})}
     </div>
   );
 }
