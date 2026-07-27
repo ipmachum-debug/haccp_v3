@@ -680,18 +680,26 @@ export function renderTrainingLog(data: FormData, doc?: DocInfo) {
   const improvement = f.improvement_action || "";
 
   const label = "border border-gray-400 px-3 py-2 bg-gray-50 font-medium whitespace-nowrap";
-  const cell = "border border-gray-400 px-3 py-2";
+  // break-words: 긴 한글 문단이 셀 폭을 넘겨 테이블이 오버플로우되지 않도록 줄바꿈 강제
+  const cell = "border border-gray-400 px-3 py-2 break-words";
+  const fixed = { tableLayout: "fixed" as const, width: "100%" };
 
   return (
     <div>
       <TitleWithApproval title="교육훈련일지" doc={doc} />
 
       {/* 기본 정보 */}
-      <table className="w-full border-collapse border border-gray-400 text-sm mt-2 mb-4">
+      <table className="w-full border-collapse border border-gray-400 text-sm mt-2 mb-4" style={fixed}>
+        <colgroup>
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "35%" }} />
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "35%" }} />
+        </colgroup>
         <tbody>
           <tr>
-            <td className={`${label} w-[15%]`}>교육명</td>
-            <td className={`${cell} w-[35%]`} colSpan={3}>{title || "-"}</td>
+            <td className={label}>교육명</td>
+            <td className={cell} colSpan={3}>{title || "-"}</td>
           </tr>
           <tr>
             <td className={label}>교육일</td>
@@ -721,10 +729,14 @@ export function renderTrainingLog(data: FormData, doc?: DocInfo) {
       </table>
 
       {/* 교육 내용 */}
-      <table className="w-full border-collapse border border-gray-400 text-sm mb-4">
+      <table className="w-full border-collapse border border-gray-400 text-sm mb-4" style={fixed}>
+        <colgroup>
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "85%" }} />
+        </colgroup>
         <tbody>
           <tr>
-            <td className={`${label} w-[15%]`}>교육내용</td>
+            <td className={label}>교육내용</td>
             <td className={`${cell} whitespace-pre-wrap`}>{educationContent || "-"}</td>
           </tr>
           {contentSummary && (
@@ -789,10 +801,18 @@ export function renderTrainingLog(data: FormData, doc?: DocInfo) {
       </div>
 
       {/* 교육 후 결과 */}
-      <table className="w-full border-collapse border border-gray-400 text-sm">
+      <table className="w-full border-collapse border border-gray-400 text-sm" style={fixed}>
+        <colgroup>
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "18%" }} />
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "18%" }} />
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "19%" }} />
+        </colgroup>
         <tbody>
           <tr>
-            <td className={`${label} w-[15%] text-center`}>집중도</td>
+            <td className={`${label} text-center`}>집중도</td>
             <td className={`${cell} text-center`}>{concentration || "-"}</td>
             <td className={`${label} text-center`}>이해도</td>
             <td className={`${cell} text-center`}>{understanding || "-"}</td>

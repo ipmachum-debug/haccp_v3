@@ -156,7 +156,9 @@ export default function TrainingLogForm() {
           formType: "training_log",
           file: { name: file.name, type: file.type, data },
         });
-        setEvidencePhotos((prev) => [...prev, { key: res.key, name: res.name, url: res.url }]);
+        // 업로드 직후 미리보기는 로컬 파일(object URL)로 표시 → 스토리지 접근 여부와 무관하게 항상 보임
+        const previewUrl = URL.createObjectURL(file);
+        setEvidencePhotos((prev) => [...prev, { key: res.key, name: res.name, url: previewUrl }]);
       }
     } catch (err: any) {
       toast({ title: "사진 업로드 실패", description: err?.message || "알 수 없는 오류", variant: "destructive" });
@@ -166,7 +168,11 @@ export default function TrainingLogForm() {
   };
 
   const removePhoto = (key: string) => {
-    setEvidencePhotos((prev) => prev.filter((p) => p.key !== key));
+    setEvidencePhotos((prev) => {
+      const target = prev.find((p) => p.key === key);
+      if (target?.url && target.url.startsWith("blob:")) URL.revokeObjectURL(target.url);
+      return prev.filter((p) => p.key !== key);
+    });
   };
 
   const addAttendee = () => {

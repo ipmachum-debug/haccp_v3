@@ -630,7 +630,7 @@ export const genericChecklistRouter = router({
       }),
     }))
     .mutation(async ({ input, ctx }) => {
-      const { storagePut, storageGet, StorageNotConfiguredError } = await import("../../storage");
+      const { storagePut, StorageNotConfiguredError } = await import("../../storage");
       const { TRPCError } = await import("@trpc/server");
       const tenantId = getEffectiveTenantId(ctx);
       const buffer = Buffer.from(input.file.data, "base64");
@@ -640,11 +640,8 @@ export const genericChecklistRouter = router({
       const fileKey = `tenant-${tenantId}/${safeType}-photos/${Date.now()}-${safeName}`;
       try {
         const { key } = await storagePut(fileKey, buffer, input.file.type || "application/octet-stream");
-        // 즉시 표시용 URL 은 CDN(AWS_S3_PUBLIC_BASE_URL) 이 아닌 presigned GET 으로 발급
-        //  → CDN 미설정/오설정 환경에서도 건강진단서와 동일한 방식으로 안정적으로 표시됨
-        let url = "";
-        try { url = (await storageGet(key)).url; } catch { /* presign 실패 시 빈 URL */ }
-        return { key, url, name: input.file.name };
+        // 표시는 클라이언트 로컬 미리보기(object URL) / 재조회 시 resolvePhotoUrls(data URI) 사용
+        return { key, name: input.file.name };
       } catch (err: any) {
         if (err instanceof StorageNotConfiguredError) {
           throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: err.userMessage, cause: err });
@@ -653,7 +650,10 @@ export const genericChecklistRouter = router({
       }
     }),
 
-  // ── 저장된 storage key 들에 대해 fresh presigned URL 재발급 (표시/인쇄용) ──
+  // ── 저장된 storage key 들을 표시/인쇄용 이미지로 해석 (data URI) ──
+  //    presigned URL 을 그대로 브라우저 <img> 에 쓰면, 스토리지 엔드포인트가
+  //    브라우저에서 직접 접근 불가(내부 엔드포인트/버킷 정책/CORS)일 때 깨진다.
+  //    → 서버가 바이트를 읽어 data URI 로 내려주면 어떤 환경에서도 안정적으로 표시/인쇄됨.
   resolvePhotoUrls: tenantRequiredProcedure
     .input(z.object({ keys: z.array(z.string()).max(50) }))
     .query(async ({ input, ctx }) => {
@@ -668,7 +668,12 @@ export const genericChecklistRouter = router({
         }
         try {
           const { url } = await storageGet(key);
-          results.push({ key, url });
+          // 서버 → 스토리지 fetch (presigned) → data URI 변환
+          const resp = await fetch(url);
+          if (!resp.ok) { results.push({ key, url: null }); continue; }
+          const buf = Buffer.from(await resp.arrayBuffer());
+          const ct = resp.headers.get("content-type") || "image/jpeg";
+          results.push({ key, url: `data:${ct};base64,${buf.toString("base64")}` });
         } catch {
           results.push({ key, url: null });
         }
