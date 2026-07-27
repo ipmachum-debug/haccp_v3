@@ -380,6 +380,26 @@ export function renderCcpFormRecord(fr: any, doc: any) {
           </tbody>
         </table>
 
+        {/* 모니터링 방법 (공정그룹 텍스트 우선, 없으면 굽기 기본 문구) */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50 text-center align-top`} style={{ width: "12%" }}>
+                모니터링<br />방 법
+              </td>
+              <td className={`${bCls} px-2 py-1 leading-relaxed`}>
+                {monitoringMethodText ? renderMultiline(monitoringMethodText) : (
+                <div className="space-y-0.5">
+                  <p>○ 가열온도 : 모니터링 담당자는 가열기에 부착된 판넬에 표시되는 온도를 확인하여 일지에 기록한다.</p>
+                  <p>○ 가열시간 : 모니터링 담당자는 가열기에 부착된 판넬에 표시되는 시간을 확인하여 일지에 기록한다.</p>
+                  <p>※ 가열기는 연 1회 검·교정을 실시한다.</p>
+                </div>
+                )}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
         {/* 모니터링 기록 */}
         <table className="w-full border-collapse border border-gray-600 mb-0 ccp-print-table">
           <thead>
@@ -423,6 +443,40 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 </tr>
               );
             })}
+          </tbody>
+        </table>
+
+        {/* 개선조치 방법 (공정그룹 텍스트 우선, 없으면 표준 문구) */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50 text-center align-top`} style={{ width: "12%" }}>
+                개선조치<br />방법
+              </td>
+              <td className={`${bCls} px-2 py-1 leading-relaxed`}>
+                {correctiveActionText ? renderMultiline(correctiveActionText) : (
+                <div className="space-y-0.5">
+                  <p>○ 가열온도 또는 가열시간 미달 시</p>
+                  <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
+                  <p>&nbsp;- 가열온도와 가열시간을 재조정한 후 미달된 제품에 대해 재가열을 실시하고</p>
+                  <p>&nbsp;&nbsp;&nbsp;제품검사(관능)를 실시하여 이상이 없는 경우 다음 공정을 진행한다.</p>
+                  <p>&nbsp;- 한계기준 이탈내용과 개선조치 내용을 모니터링 일지에 기록한다.</p>
+                  <p>○ 가열온도 또는 가열시간 초과 시</p>
+                  <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
+                  <p>&nbsp;- 제품검사(관능 등)를 실시하여 이상이 없는 경우 다음공정을 진행한다.</p>
+                  <p>&nbsp;- 한계기준 이탈내용과 개선조치 내용을 모니터링 일지에 기록한다.</p>
+                  <p>○ 기계고장 시</p>
+                  <p>&nbsp;- 모니터링 담당자는 가열기 등 기계고장 시 즉시 작업을 중지한다.</p>
+                  <p>&nbsp;- 수리 후 정상적으로 작동 시 재가동한다.</p>
+                  <p>&nbsp;&nbsp;※ 즉각적인 수리가 불가능할 경우 교차오염이 되지 않도록 보호조치하여</p>
+                  <p>&nbsp;&nbsp;&nbsp;&nbsp;냉장창고에 보관한후, 수리가 끝나면 제품 생산을 계속한다.</p>
+                  <p>○ 공통 : 개선조치 시</p>
+                  <p>&nbsp;- 문제 발생 시 HACCP팀장에게 보고 후 조치하며, 개선조치 후 모니터링 일지에</p>
+                  <p>&nbsp;&nbsp;&nbsp;기록후 HACCP팀장에게 승인을 받는다.</p>
+                </div>
+                )}
+              </td>
+            </tr>
           </tbody>
         </table>
 
