@@ -404,13 +404,12 @@ export function renderCcpFormRecord(fr: any, doc: any) {
         <table className="w-full border-collapse border border-gray-600 mb-0 ccp-print-table">
           <thead>
             <tr>
-              <th className={thCls} style={{ width: "14%" }}>품 명</th>
-              <th className={thCls} style={{ width: "10%" }}>측정시각</th>
-              <th className={thCls} style={{ width: "14%" }}>오븐기</th>
-              <th className={thCls} style={{ width: "12%" }}>가열시간(분)</th>
-              <th className={thCls} style={{ width: "14%" }}>가열온도(℃)</th>
-              <th className={thCls} style={{ width: "10%" }}>투입량(kg)</th>
-              <th className={thCls} style={{ width: "12%" }}>
+              <th className={thCls} style={{ width: "18%" }}>품 명</th>
+              <th className={thCls} style={{ width: "12%" }}>측정시각</th>
+              <th className={thCls} style={{ width: "16%" }}>가열시간(분)</th>
+              <th className={thCls} style={{ width: "20%" }}>가열온도(판넬온도)</th>
+              <th className={thCls} style={{ width: "14%" }}>투입량(kg)</th>
+              <th className={thCls} style={{ width: "20%" }}>
                 판 정<br />(적합/부적합)
               </th>
             </tr>
@@ -419,7 +418,6 @@ export function renderCcpFormRecord(fr: any, doc: any) {
             {displayRows.map((row: any, idx: number) => {
               const rowProductName = s(row.productName || row.product_name) || productName;
               const measureTime = s(row.measurementTime || row.measurement_time);
-              const equipName = s(row.equipmentName || row.equipment_name);
               const heatTime = row.heatTimeMin ?? row.heat_time_min;
               const heatTemp = row.heatTempC ?? row.heat_temp_c;
               const inputQty = row.inputQtyKg ?? row.input_qty_kg;
@@ -429,7 +427,6 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 <tr key={idx}>
                   <td className={tdCls}>{rowProductName || ""}</td>
                   <td className={tdCls}>{measureTime || ":"}</td>
-                  <td className={tdCls}>{equipName || ""}</td>
                   <td className={tdCls}>{heatTime != null ? `${heatTime}분` : ""}</td>
                   <td className={tdCls}>{heatTemp != null ? `${heatTemp}℃` : ""}</td>
                   <td className={tdCls}>{inputQty != null ? `${inputQty}kg` : ""}</td>
