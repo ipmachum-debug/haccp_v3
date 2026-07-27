@@ -79,6 +79,10 @@ export function renderCcpFormRecord(fr: any, doc: any) {
     "CCP-2B": "[가열(굽기)공정]",
     "CCP-4P": "[금속검출공정]",
   };
+  // 문서 부제: 실제 공정그룹명을 우선 사용 (하드코딩 라벨은 공정그룹명이 없을 때만 폴백).
+  //  동일 CCP 유형이라도 공정그룹은 여러 개(교반-가열/증숙(설기류)/증숙(약식류) 등)이므로
+  //  ccpType 만으로 라벨을 고정하면 모든 CCP-1B 가 "가열(증숙)"으로 잘못 표기됨.
+  const ccpSubtitle = processGroupName ? `[${processGroupName}]` : (ccpSubLabels[ccpType] || "");
 
   // 날짜 포맷
   const formatWorkDate = (d: string) => {
@@ -129,7 +133,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
       <div className="text-xs">
         <TitleWithApproval
           title={ccpTypeLabels[ccpType]}
-          subtitle={ccpSubLabels[ccpType]}
+          subtitle={ccpSubtitle}
           doc={doc}
           infoLeft={<><span className="font-medium">작성일자:</span> {formatWorkDate(workDate)} &nbsp;&nbsp; <span className="font-medium">요일:</span> {getDayOfWeek(workDate)}</>}
         />
@@ -332,7 +336,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
       <div className="text-xs">
         <TitleWithApproval
           title={ccpTypeLabels[ccpType]}
-          subtitle={ccpSubLabels[ccpType]}
+          subtitle={ccpSubtitle}
           doc={doc}
           infoLeft={<><span className="font-medium">작성일자:</span> {formatWorkDate(workDate)} &nbsp;&nbsp; <span className="font-medium">요일:</span> {getDayOfWeek(workDate)}</>}
         />
@@ -501,7 +505,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
       <div className="text-xs" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <TitleWithApproval
           title={ccpTypeLabels[ccpType]}
-          subtitle={ccpSubLabels[ccpType]}
+          subtitle={ccpSubtitle}
           doc={doc}
           infoLeft={<><span className="font-medium">점검일자:</span> {formatWorkDate(workDate)} &nbsp;&nbsp; <span className="font-medium">요일:</span> {getDayOfWeek(workDate)}</>}
         />
