@@ -86,6 +86,28 @@ function getCategoryForRequest(requestType: string): string {
   return REQUEST_TYPE_CATEGORIES[requestType] || "prerequisite";
 }
 
+// 문서 검색 동의어 — 공정 명칭이 문서마다 다르게 저장돼도 상위 개념으로 검색되게 함
+// 예) 테넌트가 공정명을 "오븐·굽기공정"으로 지어도 "가열"로 검색 가능
+const SEARCH_SYNONYM_GROUPS: string[][] = [
+  ["가열", "굽기", "증숙", "오븐", "찜", "가열공정"],
+  ["냉장", "냉장고", "냉장보관"],
+  ["냉동", "냉동고", "냉동보관"],
+  ["금속", "금속검출", "이물"],
+];
+
+// 입력 키워드를 동의어까지 확장한 검색어 목록으로 변환 (모두 소문자)
+function expandSearchTerms(keyword: string): string[] {
+  const kw = keyword.toLowerCase().trim();
+  if (!kw) return [];
+  const terms = new Set<string>([kw]);
+  for (const group of SEARCH_SYNONYM_GROUPS) {
+    if (group.some(g => kw.includes(g.toLowerCase()) || g.toLowerCase().includes(kw))) {
+      group.forEach(g => terms.add(g.toLowerCase()));
+    }
+  }
+  return Array.from(terms);
+}
+
 function getRequestTypeLabel(type: string): string {
   const labels: Record<string, string> = {
     checklist_approval: "체크리스트", ccp_review: "CCP 검토", ccp_checklist: "CCP 체크리스트",
@@ -266,7 +288,19 @@ export default function DocumentPrintManagement() {
     if (appliedFilters.dateTo) filtered = filtered.filter(r => { const d = getSortableDate(r); return d && d <= appliedFilters.dateTo; });
     if (appliedFilters.printStatus === "printed") filtered = filtered.filter(r => printedIds.has(r.id));
     else if (appliedFilters.printStatus === "unprinted") filtered = filtered.filter(r => !printedIds.has(r.id));
-    if (appliedFilters.keyword) { const kw = appliedFilters.keyword.toLowerCase(); filtered = filtered.filter(r => (r.title || "").toLowerCase().includes(kw) || getRequestTypeLabel(r.requestType).toLowerCase().includes(kw)); }
+    if (appliedFilters.keyword) {
+      const terms = expandSearchTerms(appliedFilters.keyword);
+      if (terms.length > 0) {
+        filtered = filtered.filter(r => {
+          const haystack = [
+            r.title || "",
+            getRequestTypeLabel(r.requestType),
+            (r as { description?: string }).description || "",
+          ].join(" ").toLowerCase();
+          return terms.some(t => haystack.includes(t));
+        });
+      }
+    }
     return sortByDateDesc(filtered);
   }, [appliedFilters, printedIds, getSortableDate, sortByDateDesc]);
 
