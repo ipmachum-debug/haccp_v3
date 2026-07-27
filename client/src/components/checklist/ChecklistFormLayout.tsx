@@ -247,6 +247,7 @@ export default function ChecklistFormLayout({
     onSuccess: (result: any) => { setSavedRecordId(result.id); },
   });
   const gcUpdateMutation = trpc.genericChecklist.update.useMutation({});
+  const reopenMutation = trpc.genericChecklist.reopenForEdit.useMutation({});
 
   // 승인 요청 mutation
   const submitForReviewMutation = trpc.genericChecklist.submitForReview.useMutation({
@@ -441,7 +442,11 @@ export default function ChecklistFormLayout({
     try {
       // 각 폼에서 고유 데이터 수집
       const customData = collectFormData();
-      
+
+      // 이미 검토/승인 단계로 넘어간 문서를 수정하는 경우 → 재작성(재승인) 흐름
+      //  · 검토/승인 직인 제거, 상태 draft 로 복귀, 연결된 승인요청 취소
+      const wasNonDraft = !!savedRecordId && approvalStatus !== "draft";
+
       // 전체 폼 데이터를 formData에 저장
       const formData = {
         ...customData,
@@ -454,11 +459,11 @@ export default function ChecklistFormLayout({
           approverId: approval.approverId,
           approverName: approval.approverName,
           writerApproved: true,
-          reviewerApproved: approval.reviewerApproved,
-          approverApproved: approval.approverApproved,
+          reviewerApproved: wasNonDraft ? false : approval.reviewerApproved,
+          approverApproved: wasNonDraft ? false : approval.approverApproved,
           writerDate: new Date().toLocaleDateString("ko-KR"),
-          reviewerDate: approval.reviewerDate,
-          approverDate: approval.approverDate,
+          reviewerDate: wasNonDraft ? undefined : approval.reviewerDate,
+          approverDate: wasNonDraft ? undefined : approval.approverDate,
         },
       };
 
@@ -468,8 +473,13 @@ export default function ChecklistFormLayout({
           formDate,
           title: `${config.title} - ${formDate}`,
           formData,
-          status: approvalStatus === "draft" ? "draft" : approvalStatus,
+          status: wasNonDraft ? "draft" : (approvalStatus === "draft" ? "draft" : approvalStatus),
         });
+        // 승인/검토 단계였던 문서면 연결된 승인요청까지 취소하여 재작성 상태로 전환
+        if (wasNonDraft) {
+          try { await reopenMutation.mutateAsync({ id: savedRecordId }); } catch (_) {}
+          setApprovalStatus("draft");
+        }
       } else {
         const r = await gcSaveMutation.mutateAsync({
           formType: config.formType,
@@ -481,16 +491,19 @@ export default function ChecklistFormLayout({
         if (r.id) setSavedRecordId(r.id);
       }
 
-      // 결재란 작성자 승인 처리
+      // 결재란 작성자 승인 처리 (재작성 시 검토/승인 직인은 초기화)
       setApproval(prev => ({
         ...prev,
         writerApproved: true,
         writerDate: new Date().toLocaleDateString("ko-KR"),
+        ...(wasNonDraft ? { reviewerApproved: false, approverApproved: false, reviewerDate: undefined, approverDate: undefined } : {}),
       }));
 
       toast({
         title: "저장 완료",
-        description: `${config.title}가 저장되었습니다.`,
+        description: wasNonDraft
+          ? `${config.title}가 수정되어 재작성(재승인 대기) 상태로 전환되었습니다. 다시 승인 요청해주세요.`
+          : `${config.title}가 저장되었습니다.`,
       });
     } catch (error: any) {
       toast({ title: "저장 실패", description: error.message || "알 수 없는 오류가 발생했습니다.", variant: "destructive" });
@@ -557,9 +570,11 @@ export default function ChecklistFormLayout({
 
         {/* 인쇄 영역 */}
         <div ref={printRef} className="bg-white border rounded-lg shadow-sm print:border-none print:shadow-none print:rounded-none">
-          {/* 결재란 */}
-          <div className="flex justify-between items-start px-4 pt-4">
-            <div className="flex-1"></div>
+          {/* 상단: 문서 제목(좌) + 결재란(우) — 제목이 결재란과 같은 높이에서 시작하도록 배치 */}
+          <div className="flex justify-between items-center gap-4 px-4 pt-4">
+            <div className="flex-1 text-center">
+              <h2 className="text-2xl font-bold tracking-wide">{config.documentTitle}</h2>
+            </div>
             <ApprovalStampTable approval={approval} />
           </div>
 
@@ -584,11 +599,6 @@ export default function ChecklistFormLayout({
                 문서 결재 설정에서 자동 적용되었습니다. 변경이 필요하면 드롭다운에서 선택하세요.
               </p>
             )}
-          </div>
-
-          {/* 문서 제목 */}
-          <div className="px-6 py-4 text-center">
-            <h2 className="text-2xl font-bold tracking-wide">{config.documentTitle}</h2>
           </div>
 
           {/* 각 폼의 문서 양식 + 입력 폼 영역 */}

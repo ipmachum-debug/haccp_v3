@@ -331,7 +331,7 @@ export default function TrainingLogForm() {
             </div>
             <div>
               <Label>교육 사진 (증빙자료)</Label>
-              <div className="border-2 border-dashed rounded-lg p-4 text-center">
+              <div className="border-2 border-dashed rounded-lg p-4 text-center print:hidden">
                 <Upload className="mx-auto h-8 w-8 text-gray-400" />
                 <p className="mt-1 text-sm text-gray-500">교육 현장 사진을 첨부하세요 (이미지, 최대 10MB)</p>
                 <Input
@@ -352,11 +352,15 @@ export default function TrainingLogForm() {
                 )}
               </div>
               {evidence_photos.length > 0 && (
-                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-3">
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 mt-3 print:grid-cols-2">
                   {evidence_photos.map((photo) => (
                     <div key={photo.key} className="relative group border rounded-md overflow-hidden">
                       {photo.url ? (
-                        <img src={photo.url} alt={photo.name || "교육사진"} className="w-full h-24 object-cover" />
+                        <img
+                          src={photo.url}
+                          alt={photo.name || "교육사진"}
+                          className="w-full h-24 object-cover print:h-auto print:max-h-64 print:object-contain"
+                        />
                       ) : (
                         <div className="w-full h-24 flex items-center justify-center bg-gray-50 text-xs text-gray-400 px-1 text-center">
                           {photo.name || "이미지"}
@@ -366,7 +370,7 @@ export default function TrainingLogForm() {
                         type="button"
                         variant="destructive"
                         size="sm"
-                        className="absolute top-1 right-1 h-6 w-6 p-0 opacity-80"
+                        className="absolute top-1 right-1 h-6 w-6 p-0 opacity-80 print:hidden"
                         onClick={() => removePhoto(photo.key)}
                       >
                         <X className="h-3.5 w-3.5" />

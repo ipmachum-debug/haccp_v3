@@ -559,6 +559,64 @@ export const genericChecklistRouter = router({
       }
     }),
 
+  // ── 승인 완료/대기 문서 재작성 (재수정) ──
+  //    승인된(또는 대기중) 문서를 다시 편집 가능한 draft 상태로 되돌린다.
+  //    · 레코드 status → draft, form_data.approval 의 검토/승인 직인 제거(작성자 유지)
+  //    · 연결된 승인요청(h_approval_requests) supersede → cancelled
+  //    편집 후 저장하면 다시 승인요청 → 재검토/재승인 흐름을 탄다.
+  reopenForEdit: tenantRequiredProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = getEffectiveTenantId(ctx);
+
+      // 1. 레코드 조회 (테넌트 격리)
+      const rows = await db
+        .select()
+        .from(hGenericChecklistRecords)
+        .where(and(
+          eq(hGenericChecklistRecords.id, input.id),
+          eq((hGenericChecklistRecords as any).tenantId, tenantId),
+        ))
+        .limit(1);
+      const rec = rows[0];
+      if (!rec) throw new Error("문서를 찾을 수 없습니다.");
+
+      // 2. form_data.approval 검토/승인 직인 제거 (작성자 직인은 유지)
+      const fd: any = (rec as any).formData || {};
+      if (fd && fd.approval) {
+        fd.approval.reviewerApproved = false;
+        fd.approval.approverApproved = false;
+        fd.approval.reviewerDate = null;
+        fd.approval.approverDate = null;
+      }
+
+      // 3. 레코드 → draft
+      await db.update(hGenericChecklistRecords).set({
+        status: "draft",
+        formData: fd,
+        updatedBy: ctx.user.id,
+        updatedAt: new Date(),
+      } as any).where(and(
+        eq(hGenericChecklistRecords.id, input.id),
+        eq((hGenericChecklistRecords as any).tenantId, tenantId),
+      ));
+
+      // 4. 연결된 승인요청 supersede → cancelled (checklist / generic_checklist 양쪽 reference_type)
+      await db.execute(sql`
+        UPDATE h_approval_requests
+        SET status = 'cancelled',
+            notes = CONCAT(COALESCE(notes, ''), ' [재작성으로 승인취소]')
+        WHERE reference_id = ${input.id}
+          AND reference_type IN ('checklist', 'generic_checklist')
+          AND tenant_id = ${tenantId}
+          AND status IN ('pending_writer', 'pending_review', 'pending_approval', 'pending', 'approved')
+      `);
+
+      return { success: true, message: "재작성 가능 상태로 전환되었습니다." };
+    }),
+
   // ── 증빙 사진/파일 업로드 (S3) ──
   //    form_data 에는 stable 한 storage key 만 저장하고, 표시/인쇄 시
   //    resolvePhotoUrls 로 fresh presigned URL 을 재발급한다 (presigned 는 1시간 만료).
@@ -572,7 +630,7 @@ export const genericChecklistRouter = router({
       }),
     }))
     .mutation(async ({ input, ctx }) => {
-      const { storagePut, StorageNotConfiguredError } = await import("../../storage");
+      const { storagePut, storageGet, StorageNotConfiguredError } = await import("../../storage");
       const { TRPCError } = await import("@trpc/server");
       const tenantId = getEffectiveTenantId(ctx);
       const buffer = Buffer.from(input.file.data, "base64");
@@ -581,7 +639,11 @@ export const genericChecklistRouter = router({
       const safeType = (input.formType || "generic").replace(/[^\w\-]/g, "_");
       const fileKey = `tenant-${tenantId}/${safeType}-photos/${Date.now()}-${safeName}`;
       try {
-        const { key, url } = await storagePut(fileKey, buffer, input.file.type || "application/octet-stream");
+        const { key } = await storagePut(fileKey, buffer, input.file.type || "application/octet-stream");
+        // 즉시 표시용 URL 은 CDN(AWS_S3_PUBLIC_BASE_URL) 이 아닌 presigned GET 으로 발급
+        //  → CDN 미설정/오설정 환경에서도 건강진단서와 동일한 방식으로 안정적으로 표시됨
+        let url = "";
+        try { url = (await storageGet(key)).url; } catch { /* presign 실패 시 빈 URL */ }
         return { key, url, name: input.file.name };
       } catch (err: any) {
         if (err instanceof StorageNotConfiguredError) {
