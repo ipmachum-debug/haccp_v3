@@ -52,6 +52,13 @@ export function renderCcpFormRecord(fr: any, doc: any) {
 
   const ccpType = s(fr.ccpType || fr.ccp_type);
   const processGroupName = s(fr.processGroupName || fr.process_group_name);
+  // 공정그룹별 모니터링 방법/개선조치 텍스트 (교반 vs 증숙 등 양식 차이) — 있으면 우선 사용
+  const monitoringMethodText = s(fr.monitoringMethod || fr.monitoring_method).trim();
+  const correctiveActionText = s(fr.correctiveAction || fr.corrective_action).trim();
+  // 저장된 텍스트를 그대로(줄바꿈 보존) 렌더 — 사용자가 기준서 문구를 직접 관리
+  const renderMultiline = (text: string) => (
+    <div className="whitespace-pre-wrap leading-relaxed">{text}</div>
+  );
   const productName = s(fr.productName || fr.product_name);
   const workDate = s(fr.workDate || fr.work_date);
   const status = s(fr.status) || "draft";
@@ -182,6 +189,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 모니터링<br />방 법
               </td>
               <td className={`${bCls} px-2 py-1 leading-relaxed`}>
+                {monitoringMethodText ? renderMultiline(monitoringMethodText) : (
                 <div className="space-y-0.5">
                   <p>○ 가열시간 : 모니터링 담당자는 검교정된 타이머를 이용하여 시간을 확인일지에 기록</p>
                   <p>○ 품명 및 해당 품목 가열(증숙) 압력확인 - 압력계 수치 확인</p>
@@ -192,6 +200,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                   <p>&nbsp;&nbsp;(스팀공급관에서 제일 끝시루) 상단시루에서 모서리 1곳과 중심부 1곳을 측정</p>
                   <p>○ 타이머로 설정된 시간 종료후 탐침온도계로 품온측정 및 측정시간 확인, 기록</p>
                 </div>
+                )}
               </td>
             </tr>
           </tbody>
@@ -262,6 +271,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 개선조치<br />방법
               </td>
               <td className={`${bCls} px-2 py-1 leading-relaxed`}>
+                {correctiveActionText ? renderMultiline(correctiveActionText) : (
                 <div className="space-y-0.5">
                   <p>○ 가열온도 또는 가열시간 미달 시</p>
                   <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
@@ -281,6 +291,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                   <p>&nbsp;- 문제 발생 시 HACCP팀장에게 보고 후 조치하며, 개선조치 후 모니터링 일지에</p>
                   <p>&nbsp;&nbsp;&nbsp;기록후 HACCP팀장에게 승인을 받는다.</p>
                 </div>
+                )}
               </td>
             </tr>
           </tbody>

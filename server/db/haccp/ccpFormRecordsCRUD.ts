@@ -363,6 +363,37 @@ export async function getCcpFormRecordsByBatch(batchId: number, tenantId?: numbe
  * P0: tenantId 필수 - 테넌트 격리
  * ★ CCP-4P 일일 통합 기록도 포함 (getCcpFormRecordsByBatch와 동일한 로직)
  */
+/**
+ * 기록지에 공정그룹의 모니터링 방법/개선조치 텍스트를 병합한다.
+ * (문서 양식이 공정그룹별로 달라야 하므로 — 예: 교반 vs 증숙 — ccp_process_groups
+ *  에 저장된 monitoring_method / corrective_action 을 렌더러가 사용하도록 주입)
+ */
+async function enrichWithGroupText<T extends { processGroupId?: number | null }>(
+  rec: T,
+  tenantId?: number,
+): Promise<T & { monitoringMethod?: string | null; correctiveAction?: string | null }> {
+  if (!rec || !rec.processGroupId) return rec as any;
+  try {
+    const conn = await getRawConnection();
+    const params: any[] = [rec.processGroupId];
+    let where = `id = ?`;
+    if (tenantId != null) { where += ` AND tenant_id = ?`; params.push(tenantId); }
+    const [rows] = await conn.execute<any[]>(
+      `SELECT monitoring_method, corrective_action FROM ccp_process_groups WHERE ${where} LIMIT 1`,
+      params,
+    );
+    const g = (rows as any[])[0];
+    if (g) {
+      return {
+        ...rec,
+        monitoringMethod: g.monitoring_method ?? null,
+        correctiveAction: g.corrective_action ?? null,
+      };
+    }
+  } catch { /* 공정그룹 텍스트 조회 실패 시 하드코딩 폴백 사용 */ }
+  return rec as any;
+}
+
 export async function getCcpFormRecordsWithRowsByBatch(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
@@ -373,7 +404,8 @@ export async function getCcpFormRecordsWithRowsByBatch(batchId: number, tenantId
   const result = [];
   for (const rec of records) {
     const rows = await getCcpFormRows(rec.id, tenantId);
-    result.push({ ...rec, rows });
+    const enriched = await enrichWithGroupText(rec as any, tenantId);
+    result.push({ ...enriched, rows });
   }
   return result;
 }
@@ -395,7 +427,8 @@ export async function getCcpFormRecordById(id: number, tenantId?: number) {
     .limit(1);
   if (!records.length) return null;
   const rows = await getCcpFormRows(id, tenantId);
-  return { record: records[0], rows };
+  const record = await enrichWithGroupText(records[0] as any, tenantId);
+  return { record, rows };
 }
 
 // ═══════════════════════════════════════════════════════════════
