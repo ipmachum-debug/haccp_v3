@@ -685,7 +685,10 @@ export function renderTrainingLogBody(data: FormData) {
   const cell = "border border-gray-400 px-3 py-2 break-words";
   const fixed = { tableLayout: "fixed" as const, width: "100%" };
   // 인라인 보증: Tailwind 클래스가 purge 되거나 외부 CSS 가 개입해도 줄바꿈이 반드시 적용되도록
-  const wrapStyle: React.CSSProperties = { overflowWrap: "anywhere", wordBreak: "break-word", whiteSpace: "pre-wrap" };
+  const wrapStyle: React.CSSProperties = { overflowWrap: "anywhere", wordBreak: "break-word", whiteSpace: "pre-wrap", verticalAlign: "top" };
+  // 긴 본문 행: 전역 print CSS 의 `tr { break-inside: avoid }` 로 인해 한 페이지보다 긴 행이
+  // 잘리는 것을 방지 — 여러 페이지에 걸쳐 나뉘도록 허용
+  const rowSplit: React.CSSProperties = { breakInside: "auto", pageBreakInside: "auto" };
 
   return (
     <div>
@@ -736,18 +739,18 @@ export function renderTrainingLogBody(data: FormData) {
           <col style={{ width: "85%" }} />
         </colgroup>
         <tbody>
-          <tr>
+          <tr style={rowSplit}>
             <td className={label}>교육내용</td>
             <td className={`${cell} whitespace-pre-wrap`} style={wrapStyle}>{educationContent || "-"}</td>
           </tr>
           {contentSummary && (
-            <tr>
+            <tr style={rowSplit}>
               <td className={label}>내용요약</td>
               <td className={`${cell} whitespace-pre-wrap`} style={wrapStyle}>{contentSummary}</td>
             </tr>
           )}
           {evidenceDescription && (
-            <tr>
+            <tr style={rowSplit}>
               <td className={label}>증빙설명</td>
               <td className={`${cell} whitespace-pre-wrap`} style={wrapStyle}>{evidenceDescription}</td>
             </tr>
@@ -820,7 +823,7 @@ export function renderTrainingLogBody(data: FormData) {
             <td className={`${label} text-center`}>반영도</td>
             <td className={`${cell} text-center`}>{reflection || "-"}</td>
           </tr>
-          <tr>
+          <tr style={rowSplit}>
             <td className={label}>개선 및 조치사항</td>
             <td className={`${cell} whitespace-pre-wrap`} colSpan={5} style={wrapStyle}>{improvement || "-"}</td>
           </tr>
