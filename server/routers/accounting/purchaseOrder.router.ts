@@ -623,8 +623,9 @@ export const purchaseOrderRouter = router({
     //         → 재고 원장 / 입고전표 / 재무제표 반영 안 됨
     //   현재: pending 상태 INSERT 후 postPurchase 호출로 전체 파이프라인 처리
     //         (LOT + 재고 이력 + 입고전표 + 수불부 + 회계 분개)
+    //         HACCP 비활성 테넌트는 자동으로 ERP 전용 경로 사용
     const { accountingPurchases } = await import("../../../drizzle/schema");
-    const { postPurchase } = await import("../../lib/accounting/purchasePost");
+    const { dispatchPostPurchase } = await import("../../lib/accounting/postDispatcher");
     const receiptDate = input.receiptDate || new Date().toISOString().slice(0, 10);
     const createdPurchases: number[] = [];
     // ★ 2026-04-15: 라인별 실패 수집 → 부분 성공 허용 + 상세 에러 메시지
@@ -695,7 +696,7 @@ export const purchaseOrderRouter = router({
         if (!newPurchaseId) throw new Error("매입전표 INSERT 실패 (insertId 없음)");
 
         // (2) postPurchase 호출 — LOT + 재고 이력 + 입고전표 + 수불부 + 회계 분개 전체 처리
-        await postPurchase(newPurchaseId, ctx.user.id);
+        await dispatchPostPurchase(newPurchaseId, ctx.user.id);
         createdPurchases.push(newPurchaseId);
 
         // (3) 라인 received_qty 업데이트
