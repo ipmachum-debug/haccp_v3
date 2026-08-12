@@ -1733,9 +1733,17 @@ export const aiRouter = router({
     }),
 
   // ── AI 브리핑 (로그인 시 플로팅 메시지) ──
+  // HACCP 활성 → 생산/재고/품질 브리핑, ERP 전용 → 회계 브리핑
   briefing: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { generateAIBriefing } = await import("./db/ai/aiBriefing");
-      return generateAIBriefing(ctx.tenantId!, ctx.user?.name || '사장님');
+      const { isHaccpEnabled } = await import("./lib/accounting/tenantModuleCheck");
+      const haccp = await isHaccpEnabled(ctx.tenantId!);
+      if (haccp) {
+        const { generateAIBriefing } = await import("./db/ai/aiBriefing");
+        return generateAIBriefing(ctx.tenantId!, ctx.user?.name || '사장님');
+      } else {
+        const { generateAccountingBriefing } = await import("./db/ai/aiBriefingAccounting");
+        return generateAccountingBriefing(ctx.tenantId!, ctx.user?.name || '사장님');
+      }
     }),
 });

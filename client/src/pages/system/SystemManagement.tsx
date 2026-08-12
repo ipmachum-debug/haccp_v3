@@ -10,15 +10,13 @@ import PositionManagement from "./PositionManagement";
 import EmployeeManagement from "./EmployeeManagement";
 import DocumentApprovalSettingsPage from "./DocumentApprovalSettingsPage";
 import SubscriptionManagement from "./SubscriptionManagement";
-import { trpc } from "@/lib/trpc";
+import { useIndustryFeatures } from "@/hooks/useIndustryFeatures";
 
 export default function SystemManagement() {
   const [activeTab, setActiveTab] = useState<"users" | "settings" | "organization" | "approval" | "subscription">("users");
 
-  // HACCP 모듈 활성화 여부 확인 (문서 결재 탭 표시 조건)
-  const { data: subStatus } = trpc.subscriptionPublic.checkSubscriptionStatus.useQuery();
-  const moduleHACCP = subStatus?.modules?.haccp !== false;
-  const tabCount = moduleHACCP ? 5 : 4;
+  const { hasHACCP } = useIndustryFeatures();
+  const tabCount = hasHACCP ? 5 : 4;
 
   return (
     <DashboardLayout>
@@ -48,7 +46,7 @@ export default function SystemManagement() {
             <Building2 className="h-4 w-4" />
             조직·책임
           </TabsTrigger>
-          {moduleHACCP && (
+          {hasHACCP && (
           <TabsTrigger value="approval" className="flex items-center gap-2">
             <FileCheck className="h-4 w-4" />
             문서 결재
@@ -103,7 +101,7 @@ export default function SystemManagement() {
           </div>
         </TabsContent>
 
-        {moduleHACCP && (
+        {hasHACCP && (
         <TabsContent value="approval" className="space-y-4">
           <DocumentApprovalSettingsPage />
         </TabsContent>
