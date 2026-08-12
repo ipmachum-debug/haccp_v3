@@ -23,7 +23,7 @@ import {
   InlineChatbot,
 } from "./index";
 import type { Section } from "./index";
-import { useIndustryFeatures } from "@/hooks/useIndustryFeatures";
+import { useTenantModules } from "@/hooks/useTenantModules";
 
 // ============================================================================
 // 섹션 정의
@@ -74,7 +74,7 @@ const SECTION_GREETING: Record<Section, string> = {
 // 메인 컴포넌트
 // ============================================================================
 export default function AIDashboard() {
-  const { hasHACCP } = useIndustryFeatures();
+  const { hasHACCP } = useTenantModules();
   const defaultSection: Section = hasHACCP ? "haccp" : "erp";
   const [section, setSection] = useState<Section>(defaultSection);
   const [activeTab, setActiveTab] = useState(DEFAULT_TABS[defaultSection]);

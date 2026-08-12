@@ -10,12 +10,12 @@ import PositionManagement from "./PositionManagement";
 import EmployeeManagement from "./EmployeeManagement";
 import DocumentApprovalSettingsPage from "./DocumentApprovalSettingsPage";
 import SubscriptionManagement from "./SubscriptionManagement";
-import { useIndustryFeatures } from "@/hooks/useIndustryFeatures";
+import { useTenantModules } from "@/hooks/useTenantModules";
 
 export default function SystemManagement() {
   const [activeTab, setActiveTab] = useState<"users" | "settings" | "organization" | "approval" | "subscription">("users");
 
-  const { hasHACCP } = useIndustryFeatures();
+  const { hasHACCP } = useTenantModules();
   const tabCount = hasHACCP ? 5 : 4;
 
   return (

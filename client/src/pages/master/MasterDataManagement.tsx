@@ -10,11 +10,12 @@ import SuppliersTab from "@/components/masterData/SuppliersTab";
 import { IntermediatesContent } from "@/pages/manufacturing/IntermediatesPage";
 
 import { useTabWithUrl } from "@/hooks/useTabWithUrl";
-import { useIndustryLabel, useIndustryFeatures } from "@/hooks/useIndustryFeatures";
+import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
+import { useTenantModules } from "@/hooks/useTenantModules";
 
 export default function MasterDataManagement() {
   const L = useIndustryLabel();
-  const { hasHACCP } = useIndustryFeatures();
+  const { hasHACCP } = useTenantModules();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'products');
   const tabCount = hasHACCP ? 6 : 4;
   return (
