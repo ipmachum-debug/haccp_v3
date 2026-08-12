@@ -851,6 +851,11 @@ function DashboardLayoutContent({
     { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"], group: "마감" },
     { icon: FileText, label: "변경이력", path: "/dashboard/accounting/change-log", roles: ["super_admin", "admin"], group: "마감" },
     { icon: FolderOpen, label: "문서함", path: "/accounting/documents", roles: ["super_admin", "admin"], group: "마감" },
+
+    // ⚙️ 설정 (ERP 전용 모드에서 회계 탭 안에서 바로 접근)
+    ...(isErpOnly ? [
+      { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"], group: "설정" },
+    ] : []),
   ];
   
   // 슈퍼관리자 전용 메뉴 정의 (Work 탭에는 일반 메뉴만 표시)
