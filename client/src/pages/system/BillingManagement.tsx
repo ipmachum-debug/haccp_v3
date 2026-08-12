@@ -12,7 +12,7 @@ import {
 import SuperAdminLayout from "@/components/dashboard/SuperAdminLayout";
 
 const PLAN_LABEL: Record<string, string> = {
-  starter: "Starter", standard: "Standard", enterprise: "Enterprise",
+  starter: "Starter", standard: "Standard", erp_basic: "ERP Basic", enterprise: "Enterprise",
   basic: "Basic (레거시)", pro: "Pro (레거시)",
 };
 
@@ -50,7 +50,7 @@ export default function BillingManagement() {
   const expiringTenants = (expiring as any)?.tenants || expiring || [];
 
   // 매출 추산
-  const planPrices: Record<string, number> = { starter: 99000, standard: 199000, enterprise: 299000 };
+  const planPrices: Record<string, number> = { erp_basic: 49000, starter: 99000, standard: 199000, enterprise: 299000 };
   const monthlyRevenue = Array.isArray(tenants)
     ? tenants.reduce((sum: number, t: any) => sum + (planPrices[t.subscriptionPackage] || 0), 0)
     : 0;
@@ -89,7 +89,7 @@ export default function BillingManagement() {
                   <CardTitle className="text-lg">플랜별 분포</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {["starter", "standard", "enterprise"].map(plan => {
+                  {["erp_basic", "starter", "standard", "enterprise"].map(plan => {
                     const count = Array.isArray(tenants)
                       ? tenants.filter((t: any) => t.subscriptionPackage === plan).length : 0;
                     const total = Array.isArray(tenants) ? tenants.length : 1;

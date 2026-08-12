@@ -17,18 +17,21 @@ import {
 } from "lucide-react";
 
 const PLAN_ICONS: Record<string, any> = {
+  erp_basic: Briefcase,
   starter: Zap,
   standard: Crown,
   enterprise: Building2,
 };
 
 const PLAN_COLORS: Record<string, string> = {
+  erp_basic: "border-emerald-300 hover:border-emerald-500",
   starter: "border-blue-300 hover:border-blue-500",
   standard: "border-purple-300 hover:border-purple-500",
   enterprise: "border-amber-300 hover:border-amber-500",
 };
 
 const PLAN_SELECTED: Record<string, string> = {
+  erp_basic: "border-emerald-500 bg-emerald-50 ring-2 ring-emerald-200",
   starter: "border-blue-500 bg-blue-50 ring-2 ring-blue-200",
   standard: "border-purple-500 bg-purple-50 ring-2 ring-purple-200",
   enterprise: "border-amber-500 bg-amber-50 ring-2 ring-amber-200",
@@ -62,7 +65,7 @@ export default function OnboardingPage() {
     companyName: "",
     businessNumber: "",
     phone: "",
-    plan: "starter" as "starter" | "standard" | "enterprise",
+    plan: "starter" as "starter" | "standard" | "enterprise" | "erp_basic",
     industryCode: "",
   });
   const [result, setResult] = useState<{
@@ -334,6 +337,7 @@ export default function OnboardingPage() {
 }
 
 const PLAN_CONFIG_NAMES: Record<string, string> = {
+  erp_basic: "ERP Basic",
   starter: "Starter",
   standard: "Standard",
   enterprise: "Enterprise",

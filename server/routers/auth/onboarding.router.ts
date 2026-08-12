@@ -25,7 +25,7 @@ export const onboardingRouter = router({
         companyName: z.string().min(1, "회사명을 입력해주세요"),
         businessNumber: z.string().optional(),
         phone: z.string().optional(),
-        plan: z.enum(["starter", "standard", "enterprise"]).default("starter"),
+        plan: z.enum(["starter", "standard", "enterprise", "erp_basic"]).default("starter"),
         industryCode: z.string().min(2).max(20).optional(),
       })
     )

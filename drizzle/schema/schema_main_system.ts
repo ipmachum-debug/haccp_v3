@@ -98,7 +98,7 @@ export const subscriptionNotifications = mysqlTable("subscription_notifications"
 export const packageFeatures = mysqlTable("package_features", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
-  packageName: mysqlEnum("package_name", ["basic", "pro", "starter", "standard", "enterprise"]).notNull(),
+  packageName: mysqlEnum("package_name", ["basic", "pro", "starter", "standard", "enterprise", "erp_basic"]).notNull(),
   featureName: varchar("feature_name", { length: 100 }).notNull(), // "haccp", "accounting"
   isEnabled: boolean("is_enabled").default(true).notNull(),
   description: text("description"),

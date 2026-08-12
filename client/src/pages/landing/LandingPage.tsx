@@ -123,6 +123,23 @@ const translations = {
       guarantee: "30일 무료 체험 · 언제든 해지 가능 · 모든 요금 부가세 별도",
       plans: [
         {
+          name: "ERP Basic",
+          price: "49,000",
+          unit: "원/월 (부가세 별도)",
+          desc: "회계 관리만 필요한 소규모 업체",
+          features: [
+            "사용자 2명",
+            "회계 모듈 (매입·매출·전표·재무보고서)",
+            "AI 비서 '하나'",
+            "거래처 관리",
+            "비용 관리",
+            "은행 자동 매칭",
+            "엑셀 내보내기",
+            "이메일 지원",
+          ],
+          popular: false,
+        },
+        {
           name: "Starter",
           price: "99,000",
           unit: "원/월 (부가세 별도)",
@@ -1092,7 +1109,7 @@ export default function LandingPage() {
             </motion.p>
           </motion.div>
 
-          <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={stagger} className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+          <motion.div initial="hidden" whileInView="visible" viewport={{ once: true, margin: "-80px" }} variants={stagger} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 max-w-6xl mx-auto">
             {t.pricing.plans.map((plan, i) => (
               <motion.div key={i} variants={fadeUp} className={`relative rounded-3xl p-8 transition-all duration-300 ${
                 plan.popular 

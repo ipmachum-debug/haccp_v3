@@ -77,7 +77,7 @@ export const subscriptionRouter = router({
    */
   changePlan: adminProcedure
     .input(z.object({
-      newPlan: z.enum(["starter", "standard", "enterprise"]),
+      newPlan: z.enum(["starter", "standard", "enterprise", "erp_basic"]),
     }))
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
@@ -271,6 +271,6 @@ export const subscriptionRouter = router({
 });
 
 function getPlanOrder(plan: string): number {
-  const order: Record<string, number> = { starter: 1, standard: 2, enterprise: 3 };
+  const order: Record<string, number> = { erp_basic: 0, starter: 1, standard: 2, enterprise: 3 };
   return order[plan] || 0;
 }

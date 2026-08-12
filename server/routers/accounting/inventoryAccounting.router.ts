@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { tenantRequiredProcedure, router } from "../../_core/trpc";
-import { postPurchase } from "../../lib/accounting/purchasePost";
+import { dispatchPostPurchase, dispatchPostSale } from "../../lib/accounting/postDispatcher";
 import { cancelPurchase } from "../../lib/accounting/purchaseCancel";
 import { postMaterialOutbound } from "../../lib/inventory/materialOutboundPost";
 import { cancelMaterialOutbound } from "../../lib/inventory/materialOutboundCancel";
@@ -8,7 +8,6 @@ import { cancelMaterialOutbound } from "../../lib/inventory/materialOutboundCanc
 // USE_PRODUCTION_COMPLETE_V2 / USE_PRODUCTION_COMPLETE_V2_TENANTS 로 점진 v2 전환 가능.
 import { productionCompleteDispatch } from "../../lib/production/productionCompleteDispatcher";
 import { cancelProductionComplete } from "../../lib/production/productionCompleteCancel";
-import { postProductSale } from "../../lib/accounting/productSalePost";
 import { cancelProductSale } from "../../lib/accounting/productSaleCancel";
 import { getRawConnection } from "../../db";
 
@@ -21,7 +20,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { purchaseId: number }, ctx: any }) => {
-      await postPurchase(input.purchaseId, ctx.user.id);
+      await dispatchPostPurchase(input.purchaseId, ctx.user.id);
       return { success: true, message: "매입이 승인되었습니다." };
     }),
 
@@ -139,7 +138,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { saleId: number }, ctx: any }) => {
-      await postProductSale(input.saleId, ctx.user.id);
+      await dispatchPostSale(input.saleId, ctx.user.id);
       return { success: true, message: "제품 출고/판매가 확정되었습니다." };
     }),
 

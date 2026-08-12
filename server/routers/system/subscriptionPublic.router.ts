@@ -22,7 +22,7 @@ export const subscriptionPublicRouter = router({
     .input(
       z.object({
         tenantId: z.number(), // 슈퍼관리자가 관리 대상 테넌트 지정
-        subscriptionPackage: z.enum(["starter", "standard", "enterprise"]),
+        subscriptionPackage: z.enum(["starter", "standard", "enterprise", "erp_basic"]),
         subscriptionDays: z.number().min(1),
         startDate: z.string().optional(),
       })
@@ -233,7 +233,7 @@ export const subscriptionPublicRouter = router({
    * 패키지 기능 목록 조회 (공개 정보이므로 protectedProcedure 유지)
    */
   getPackageFeatures: protectedProcedure
-    .input(z.object({ packageName: z.enum(["starter", "standard", "enterprise"]) }))
+    .input(z.object({ packageName: z.enum(["starter", "standard", "enterprise", "erp_basic"]) }))
     .query(async ({ input }) => {
       const db = await getDb();
       // ★ PR-O (2026-05-15): db.query 미가용 → db.select() 사용
@@ -270,6 +270,7 @@ export const subscriptionPublicRouter = router({
     const packageModules: Record<string, { erp: boolean; haccp: boolean }> = {
       starter: { erp: false, haccp: true },       // HACCP만
       standard: { erp: true, haccp: false },       // ERP만
+      erp_basic: { erp: true, haccp: false },     // ERP 전용 (소규모)
       enterprise: { erp: true, haccp: true },      // 통합
       pro: { erp: true, haccp: true },             // 레거시 통합
       basic: { erp: false, haccp: true },          // 레거시 HACCP
@@ -497,7 +498,7 @@ export const subscriptionPublicRouter = router({
   addPackageFeature: superAdminProcedure
     .input(
       z.object({
-        packageName: z.enum(["starter", "standard", "enterprise"]),
+        packageName: z.enum(["starter", "standard", "enterprise", "erp_basic"]),
         featureName: z.string(),
         featureDisplayName: z.string(),
         isEnabled: z.boolean().default(true),

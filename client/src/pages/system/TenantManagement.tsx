@@ -88,7 +88,7 @@ export default function TenantManagement() {
 
   // 구독 폼 상태
   const [subscriptionForm, setSubscriptionForm] = useState({
-    subscriptionPackage: "starter" as "starter" | "standard" | "enterprise",
+    subscriptionPackage: "starter" as "starter" | "standard" | "enterprise" | "erp_basic",
     subscriptionDays: 30,
     startDate: todayLocal(),
   });
@@ -351,8 +351,8 @@ export default function TenantManagement() {
     }
     // ★ 패키지 값 검증 (구 값 "basic" / "pro" 호환)
     const rawPkg = tenant.subscriptionPackage;
-    const validPkg: "starter" | "standard" | "enterprise" =
-      rawPkg === "starter" || rawPkg === "standard" || rawPkg === "enterprise"
+    const validPkg: "starter" | "standard" | "enterprise" | "erp_basic" =
+      rawPkg === "starter" || rawPkg === "standard" || rawPkg === "enterprise" || rawPkg === "erp_basic"
         ? rawPkg
         : "starter";
     setSubscriptionForm({
@@ -610,7 +610,7 @@ export default function TenantManagement() {
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <Package className="h-4 w-4" />
                       <span>
-                        패키지: {tenant.subscriptionPackage === "starter" ? "Starter" : tenant.subscriptionPackage === "standard" ? "Standard" : tenant.subscriptionPackage === "enterprise" ? "Enterprise" : tenant.subscriptionPackage}
+                        패키지: {tenant.subscriptionPackage === "starter" ? "Starter" : tenant.subscriptionPackage === "standard" ? "Standard" : tenant.subscriptionPackage === "erp_basic" ? "ERP Basic" : tenant.subscriptionPackage === "enterprise" ? "Enterprise" : tenant.subscriptionPackage}
                       </span>
                     </div>
                   )}
@@ -1114,6 +1114,7 @@ export default function TenantManagement() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
+                    <SelectItem value="erp_basic">ERP Basic (월 49,000원)</SelectItem>
                     <SelectItem value="starter">Starter (월 99,000원)</SelectItem>
                     <SelectItem value="standard">Standard (월 199,000원)</SelectItem>
                     <SelectItem value="enterprise">Enterprise (월 299,000원)</SelectItem>
