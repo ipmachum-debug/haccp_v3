@@ -613,6 +613,7 @@ function DashboardLayoutContent({
   }, []);
   const moduleERP = dynamicModules.erp;
   const moduleHACCP = dynamicModules.haccp;
+  const isErpOnly = moduleERP && !moduleHACCP;
   
   // location 변경 시 탭 자동 전환
   useEffect(() => {
@@ -773,8 +774,6 @@ function DashboardLayoutContent({
   
   // WORK 탭 메뉴 정의 (activeMenuItem보다 먼저 정의해야 함)
   // ERP 전용 모드: HACCP 관련 메뉴 숨기고 회계 관련만 표시
-  const isErpOnly = moduleERP && !moduleHACCP;
-
   const workMenuItems = isErpOnly ? [
     { icon: LayoutDashboard, label: "대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
