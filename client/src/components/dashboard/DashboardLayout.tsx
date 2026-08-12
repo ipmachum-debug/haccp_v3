@@ -636,13 +636,22 @@ function DashboardLayoutContent({
   }, [location]);
 
   // localStorage에서 탭 상태 불러오기 (최초 로그인 시에만)
+  // ERP 전용 모드: 기본 탭을 "회계"로 자동 전환
   useEffect(() => {
-    const saved = localStorage.getItem("dashboard-active-tab");
-    if (saved === "finance" || saved === "haccp" || saved === "compliance") {
-      // compliance는 haccp으로 변환
-      setActiveTab(saved === "compliance" ? "haccp" : saved as "work" | "finance" | "haccp");
+    if (isErpOnly) {
+      const saved = localStorage.getItem("dashboard-active-tab");
+      if (!saved || saved === "haccp" || saved === "compliance") {
+        setActiveTab("finance");
+      } else {
+        setActiveTab(saved as "work" | "finance" | "haccp");
+      }
+    } else {
+      const saved = localStorage.getItem("dashboard-active-tab");
+      if (saved === "finance" || saved === "haccp" || saved === "compliance") {
+        setActiveTab(saved === "compliance" ? "haccp" : saved as "work" | "finance" | "haccp");
+      }
     }
-  }, []);
+  }, [isErpOnly]);
 
   useEffect(() => {
     localStorage.setItem("dashboard-active-tab", activeTab);
@@ -763,10 +772,18 @@ function DashboardLayoutContent({
   };
   
   // WORK 탭 메뉴 정의 (activeMenuItem보다 먼저 정의해야 함)
-  const workMenuItems = [
+  // ERP 전용 모드: HACCP 관련 메뉴 숨기고 회계 관련만 표시
+  const isErpOnly = moduleERP && !moduleHACCP;
+
+  const workMenuItems = isErpOnly ? [
+    { icon: LayoutDashboard, label: "대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
+    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
+    { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
+    { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "worker"] },
+    { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
+  ] : [
     { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
-    // AI 어시스턴트: 하단 고정 버튼으로 탭 무관 접근 가능 → 사이드바에서 제거
     { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
     { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"] },
     { icon: Bell, label: "사내공지관리", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
@@ -1055,7 +1072,7 @@ function DashboardLayoutContent({
                 <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "work" | "finance" | "haccp")} className="w-full">
                   <TabsList className={`grid w-full grid-cols-${1 + (moduleERP && !isDemo ? 1 : 0) + (moduleHACCP ? 1 : 0)} text-[11px] h-8 bg-sidebar-accent/60`}>
                     <TabsTrigger value="work" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
-                      WORK
+                      {isErpOnly ? "일반" : "WORK"}
                     </TabsTrigger>
                     {moduleERP && !isDemo && (
                       <TabsTrigger value="finance" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">회계</TabsTrigger>
