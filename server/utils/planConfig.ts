@@ -5,7 +5,7 @@
  * 미들웨어, 라우터, 프론트에서 이 설정을 참조.
  */
 
-export type PlanType = "starter" | "standard" | "enterprise";
+export type PlanType = "starter" | "standard" | "enterprise" | "erp_basic";
 
 export interface PlanLimits {
   /** 플랜 이름 */
@@ -77,6 +77,27 @@ export const PLAN_CONFIG: Record<PlanType, PlanLimits> = {
       excelExport: true,
       financialReports: true,
       autoBackup: true,
+    },
+  },
+
+  erp_basic: {
+    name: "ERP Basic",
+    monthlyPrice: 49000,
+    yearlyPrice: 490000,
+    maxUsers: 2,
+    maxProducts: 50,
+    maxBatchesPerMonth: 0,
+    maxSites: 1,
+    dataRetentionDays: 365,
+    features: {
+      accounting: true,
+      aiAssistant: true,
+      documentPdf: true,
+      customPdf: false,
+      apiIntegration: false,
+      excelExport: true,
+      financialReports: true,
+      autoBackup: false,
     },
   },
 

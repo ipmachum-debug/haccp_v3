@@ -121,6 +121,7 @@ function SubscriptionInfo({ isCollapsed }: { isCollapsed: boolean }) {
   const PACKAGE_LABEL: Record<string, string> = {
     starter: "Starter",
     standard: "Standard",
+    erp_basic: "ERP Basic",
     enterprise: "Enterprise",
     pro: "Pro",      // legacy
     basic: "Basic",  // legacy

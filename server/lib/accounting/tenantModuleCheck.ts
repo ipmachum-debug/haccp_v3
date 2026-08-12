@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 const PACKAGE_MODULES: Record<string, { erp: boolean; haccp: boolean }> = {
   starter:    { erp: false, haccp: true },
   standard:   { erp: true,  haccp: false },
+  erp_basic:  { erp: true,  haccp: false },
   enterprise: { erp: true,  haccp: true },
   pro:        { erp: true,  haccp: true },
   basic:      { erp: false, haccp: true },
