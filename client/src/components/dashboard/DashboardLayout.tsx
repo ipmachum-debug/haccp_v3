@@ -811,6 +811,13 @@ function DashboardLayoutContent({
     // ★ 2026-04-22 Phase 2: B2C 플랫폼 정산 모듈 (Millio 킬러 피처)
     { icon: Receipt, label: "B2C 플랫폼 정산", path: "/dashboard/accounting/b2c-platform", roles: ["super_admin", "admin"], group: "매출·판매" },
 
+    // 📦 품목·재고 (ERP 전용 모드에서만 표시 — HACCP 모드는 HACCP 탭에서 관리)
+    ...(isErpOnly ? [
+      { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin"], group: "품목·재고" },
+      { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin"], group: "품목·재고" },
+      { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin"], group: "품목·재고" },
+    ] : []),
+
     // 💳 자금·비용
     { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"], group: "자금·비용" },
     { icon: Landmark, label: "은행 관리", path: "/dashboard/accounting/bank-management", roles: ["super_admin", "admin"], group: "자금·비용" },
