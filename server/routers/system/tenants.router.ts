@@ -181,14 +181,45 @@ export const tenantsRouter = router({
     }),
 
   /**
-   * 테넌트 삭제 (슈퍼관리자 전용)
-   * 주의: 테넌트에 속한 사용자가 있으면 삭제 불가
+   * 테넌트 소속 사용자 수 조회 (삭제 전 확인용)
+   */
+  getUserCount: localSuperAdminProcedure
+    .input(z.object({ tenantId: z.number() }))
+    .query(async ({ input }) => {
+      const db = await getDb();
+      const result = await db
+        .select({ count: count() })
+        .from(users)
+        .where(eq(users.tenantId, input.tenantId));
+      return { count: result[0]?.count || 0 };
+    }),
+
+  /**
+   * 테넌트 소속 사용자 전체 삭제 (2단계 삭제 1단계)
+   */
+  deleteUsers: localSuperAdminProcedure
+    .input(z.object({ tenantId: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = await getDb();
+      const result = await db
+        .select({ count: count() })
+        .from(users)
+        .where(eq(users.tenantId, input.tenantId));
+      const userCount = result[0]?.count || 0;
+
+      if (userCount > 0) {
+        await db.delete(users).where(eq(users.tenantId, input.tenantId));
+      }
+      return { success: true, deletedCount: userCount };
+    }),
+
+  /**
+   * 테넌트 삭제 (2단계 삭제 2단계 — 사용자 없어야 가능)
    */
   delete: localSuperAdminProcedure
     .input(z.object({ tenantId: z.number() }))
     .mutation(async ({ input }) => {
       const db = await getDb();
-      // 테넌트에 속한 사용자 확인
       const userCountResult = await db
         .select({ count: count() })
         .from(users)
@@ -199,7 +230,7 @@ export const tenantsRouter = router({
       if (userCount > 0) {
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: "테넌트에 속한 사용자가 있어 삭제할 수 없습니다. 먼저 사용자를 삭제하거나 다른 테넌트로 이동하세요.",
+          message: `테넌트에 사용자 ${userCount}명이 있습니다. 먼저 사용자를 삭제해주세요.`,
         });
       }
 

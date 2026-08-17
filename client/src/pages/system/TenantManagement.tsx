@@ -253,21 +253,19 @@ export default function TenantManagement() {
     },
   });
 
-  // 테넌트 삭제 mutation
+  // 테넌트 삭제 mutations (2단계)
+  const deleteUsersMutation = trpc.tenants.deleteUsers.useMutation({
+    onError: (error: { message: string }) => {
+      toast({ title: "오류", description: error.message, variant: "destructive" });
+    },
+  });
   const deleteMutation = trpc.tenants.delete.useMutation({
     onSuccess: () => {
-      toast({
-        title: "성공",
-        description: "테넌트가 삭제되었습니다.",
-      });
+      toast({ title: "성공", description: "테넌트가 삭제되었습니다." });
       refetch();
     },
     onError: (error: { message: string }) => {
-      toast({
-        title: "오류",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
 
@@ -293,9 +291,19 @@ export default function TenantManagement() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm("정말 이 테넌트를 삭제하시겠습니까?")) {
+  const handleDelete = async (id: number) => {
+    try {
+      // 1단계: 소속 사용자 삭제 확인
+      if (!confirm("이 테넌트를 삭제하시겠습니까?\n소속 사용자가 있으면 먼저 삭제됩니다.")) return;
+      const result = await deleteUsersMutation.mutateAsync({ tenantId: id });
+      if (result.deletedCount > 0) {
+        toast({ title: "완료", description: `소속 사용자 ${result.deletedCount}명이 삭제되었습니다.` });
+      }
+      // 2단계: 테넌트 삭제 최종 확인
+      if (!confirm("테넌트를 최종 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.")) return;
       deleteMutation.mutate({ tenantId: id });
+    } catch (e: any) {
+      toast({ title: "오류", description: e.message || "삭제 실패", variant: "destructive" });
     }
   };
 
