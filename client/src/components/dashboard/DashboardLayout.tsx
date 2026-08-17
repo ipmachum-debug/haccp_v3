@@ -22,7 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Crown, Building, LayoutDashboard, LogIn, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, FlaskConical, Tag, Truck, Thermometer, Upload, Scan, DollarSign, Receipt, Layers } from "lucide-react";
+import { Crown, Building, LayoutDashboard, LogIn, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, FlaskConical, Tag, Truck, Thermometer, Upload, Scan, DollarSign, Receipt, Layers, Bot } from "lucide-react";
 import { MillioMark } from "@/components/brand/MillioMark";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Badge } from "@/components/ui/badge";
@@ -1310,6 +1310,22 @@ function DashboardLayoutContent({
                     <span className="ml-auto text-[8px] bg-violet-500 text-white px-1 py-px rounded font-bold">N</span>
                   </>
                 )}
+              </button>
+            )}
+
+            {/* 생산 자동화 에이전트 — 허용된 이메일만 표시 */}
+            {user && ["ipmachum@gmail.com", "sokoorymall@naver.com", "dduckdanji@naver.com"].includes(user.email) && (
+              <button
+                onClick={() => setLocation("/dashboard/agent")}
+                title="생산 자동화 에이전트"
+                className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium transition-all ${
+                  location === "/dashboard/agent"
+                    ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300"
+                    : "text-sidebar-foreground/50 hover:bg-indigo-500/10 hover:text-indigo-500"
+                }`}
+              >
+                <Bot className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                {!isCollapsed && <span className="text-[11px]">자동화 에이전트</span>}
               </button>
             )}
 
