@@ -1314,7 +1314,7 @@ function DashboardLayoutContent({
             )}
 
             {/* 생산 자동화 에이전트 — 허용된 이메일만 표시 */}
-            {user && ["ipmachum@gmail.com", "sokoorymall@naver.com", "dduckdanji@naver.com"].includes(user.email) && (
+            {user && ["ipmachum@gmail.com", "sokoorymall@naver.com", "dduckdanji@naver.com", "danjimall@naver.com", "sokoorymall1@naver.com"].includes(user.email) && (
               <button
                 onClick={() => setLocation("/dashboard/agent")}
                 title="생산 자동화 에이전트"
