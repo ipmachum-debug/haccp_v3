@@ -7,7 +7,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { router, protectedProcedure, superAdminProcedure } from "../../_core/trpc";
 import { tenants, users } from "../../../drizzle/schema/schema_main";
-import { getDb } from "../../db";
+import { getDb, getRawConnection } from "../../db";
 import { eq, desc, and, like, or, count } from "drizzle-orm";
 
 /**
@@ -195,48 +195,60 @@ export const tenantsRouter = router({
     }),
 
   /**
-   * 테넌트 소속 사용자 전체 삭제 (2단계 삭제 1단계)
+   * 테넌트 소속 사용자 전체 삭제 (하위 호환용 — delete에서 내부 처리)
    */
   deleteUsers: localSuperAdminProcedure
     .input(z.object({ tenantId: z.number() }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      const result = await db
-        .select({ count: count() })
-        .from(users)
-        .where(eq(users.tenantId, input.tenantId));
-      const userCount = result[0]?.count || 0;
-
-      if (userCount > 0) {
-        await db.delete(users).where(eq(users.tenantId, input.tenantId));
-      }
-      return { success: true, deletedCount: userCount };
+      return { success: true, deletedCount: 0 };
     }),
 
   /**
-   * 테넌트 삭제 (2단계 삭제 2단계 — 사용자 없어야 가능)
+   * 테넌트 삭제 (트랜잭션 기반 종속 삭제)
+   *
+   * 종속 테이블을 먼저 삭제한 후 tenants를 삭제합니다.
+   * 트랜잭션이므로 실패 시 전체 롤백 (부작용 없음).
    */
   delete: localSuperAdminProcedure
     .input(z.object({ tenantId: z.number() }))
     .mutation(async ({ input }) => {
-      const db = await getDb();
-      const userCountResult = await db
-        .select({ count: count() })
-        .from(users)
-        .where(eq(users.tenantId, input.tenantId));
+      const pool = await getRawConnection();
+      const conn = await pool.getConnection();
+      try {
+        await conn.beginTransaction();
 
-      const userCount = userCountResult[0]?.count || 0;
+        const tid = input.tenantId;
+        const tables = [
+          "h_user_favorites",
+          "h_user_widget_settings",
+          "h_approval_requests",
+          "h_notifications",
+          "h_stock_alerts",
+          "package_features",
+          "ai_alerts",
+          "ai_rule_evaluations",
+          "h_user_roles",
+          "users",
+        ];
+        for (const table of tables) {
+          await conn.execute(`DELETE FROM \`${table}\` WHERE tenant_id = ?`, [tid]);
+        }
 
-      if (userCount > 0) {
+        await conn.execute("DELETE FROM tenants WHERE id = ?", [tid]);
+        await conn.commit();
+
+        return { success: true };
+      } catch (e: any) {
+        await conn.rollback();
+        const fkMatch = e.message?.match(/CONSTRAINT `([^`]+)`/);
+        const detail = fkMatch ? ` (${fkMatch[1]})` : "";
         throw new TRPCError({
           code: "PRECONDITION_FAILED",
-          message: `테넌트에 사용자 ${userCount}명이 있습니다. 먼저 사용자를 삭제해주세요.`,
+          message: `테넌트 삭제 실패${detail}: ${e.sqlMessage || e.message}`,
         });
+      } finally {
+        conn.release();
       }
-
-      await db.delete(tenants).where(eq(tenants.id, input.tenantId));
-
-      return { success: true };
     }),
 
   /**

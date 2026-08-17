@@ -292,19 +292,8 @@ export default function TenantManagement() {
   };
 
   const handleDelete = async (id: number) => {
-    try {
-      // 1단계: 소속 사용자 삭제 확인
-      if (!confirm("이 테넌트를 삭제하시겠습니까?\n소속 사용자가 있으면 먼저 삭제됩니다.")) return;
-      const result = await deleteUsersMutation.mutateAsync({ tenantId: id });
-      if (result.deletedCount > 0) {
-        toast({ title: "완료", description: `소속 사용자 ${result.deletedCount}명이 삭제되었습니다.` });
-      }
-      // 2단계: 테넌트 삭제 최종 확인
-      if (!confirm("테넌트를 최종 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.")) return;
-      deleteMutation.mutate({ tenantId: id });
-    } catch (e: any) {
-      toast({ title: "오류", description: e.message || "삭제 실패", variant: "destructive" });
-    }
+    if (!confirm("이 테넌트를 삭제하시겠습니까?\n\n소속 사용자, 즐겨찾기, 승인요청 등 모든 데이터가 함께 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.")) return;
+    deleteMutation.mutate({ tenantId: id });
   };
 
   const handleUpdateSubscription = () => {
