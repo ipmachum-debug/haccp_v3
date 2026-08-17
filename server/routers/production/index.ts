@@ -18,6 +18,7 @@ export { recipeApprovalRouter } from "./recipeApproval.router";
 export { recipeManagementRouter } from "./recipeManagement.router";
 export { scheduleOptimizationRouter } from "./scheduleOptimization.router";
 export { aiProductionParserRouter } from "./aiProductionParser.router";
+export { autoAgentRouter } from "./autoAgent.router";
 
 // v2-rebuild: 개별 파일에서 이동
 export { dailyLogRouter } from "./dailyLog.router";

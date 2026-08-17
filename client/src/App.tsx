@@ -685,6 +685,9 @@ function Router() {
       {/* AI HACCP Assistant */}
       <Route path="/dashboard/ai-assistant" component={lazy(() => import("@/pages/ai/AIDashboard"))} />
 
+      {/* 생산 자동화 에이전트 (시크릿 — 메뉴에 없음) */}
+      <Route path="/dashboard/agent" component={lazy(() => import("@/pages/agent/ProductionAgent"))} />
+
       {/* 통합 데이터 임포트 (기존 엑셀 + 단순 + AI 검증) */}
       <Route path="/dashboard/data-import" component={lazy(() => import("@/pages/system/DataImport"))} />
       {/* 하위 호환: 기존 경로 리다이렉트 */}
