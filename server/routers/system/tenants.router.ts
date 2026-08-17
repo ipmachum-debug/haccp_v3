@@ -226,11 +226,15 @@ export const tenantsRouter = router({
           "h_stock_alerts",
           "package_features",
           "ai_alerts",
-          "ai_rule_evaluations",
           "h_user_roles",
           "users",
         ];
         for (const table of tables) {
+          const [exists]: any = await conn.execute(
+            `SELECT 1 FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? LIMIT 1`,
+            [table]
+          );
+          if ((exists as any[]).length === 0) continue;
           await conn.execute(`DELETE FROM \`${table}\` WHERE tenant_id = ?`, [tid]);
         }
 
