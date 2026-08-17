@@ -9,9 +9,11 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
+import { useTenantModules } from "@/hooks/useTenantModules";
 
-// 사용 가능한 위젯 목록 정의
-const AVAILABLE_WIDGETS = [
+const HACCP_WIDGET_IDS = ["ccp_completion_rate", "ccp_deviations", "ccp_deviation_trend", "monthly_deviation_rate"];
+
+const ALL_WIDGETS = [
   { id: "today_batches", label: "오늘 생성 배치", description: "오늘 생성된 배치 수" },
   { id: "in_progress_batches", label: "진행 중 배치", description: "현재 진행 중인 배치 수" },
   { id: "ccp_completion_rate", label: "CCP 점검 완료율", description: "CCP 점검 완료 통계" },
@@ -25,6 +27,8 @@ const AVAILABLE_WIDGETS = [
 ];
 
 export default function WidgetSettingsPanel() {
+  const { hasHACCP } = useTenantModules();
+  const AVAILABLE_WIDGETS = hasHACCP ? ALL_WIDGETS : ALL_WIDGETS.filter(w => !HACCP_WIDGET_IDS.includes(w.id));
   const [widgetSettings, setWidgetSettings] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(true);
 
