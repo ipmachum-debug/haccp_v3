@@ -598,17 +598,22 @@ function DashboardLayoutContent({
     } catch {}
   }, [superAdminShowAllMenus]);
 
-  // 구독 기반 모듈 활성화 (DB 동적 + 환경변수 폴백)
-  const [dynamicModules, setDynamicModules] = useState<{ erp: boolean; haccp: boolean }>({
-    erp: MODULES.ERP, haccp: MODULES.HACCP,
-  });
+  // 구독 기반 모듈 활성화 (DB 동적 + sessionStorage 캐시 + 환경변수 폴백)
+  const MODULES_CACHE_KEY = "tenant-modules-cache";
+  const cachedModules = (() => {
+    try { const r = sessionStorage.getItem(MODULES_CACHE_KEY); return r ? JSON.parse(r) : null; } catch { return null; }
+  })();
+  const [dynamicModules, setDynamicModules] = useState<{ erp: boolean; haccp: boolean }>(
+    cachedModules || { erp: MODULES.ERP, haccp: MODULES.HACCP }
+  );
   const checkSubMut = trpc.subscriptionPublic.checkSubscriptionStatus.useMutation();
   useEffect(() => {
     checkSubMut.mutateAsync().then((info: { expired?: boolean; package?: string; modules?: { erp?: boolean; haccp?: boolean } }) => {
-      if (info?.modules) setDynamicModules({
-        erp: !!info.modules.erp,
-        haccp: !!info.modules.haccp,
-      });
+      if (info?.modules) {
+        const m = { erp: !!info.modules.erp, haccp: !!info.modules.haccp };
+        setDynamicModules(m);
+        try { sessionStorage.setItem(MODULES_CACHE_KEY, JSON.stringify(m)); } catch {}
+      }
     }).catch(() => {});
   }, []);
   const moduleERP = dynamicModules.erp;
