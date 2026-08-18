@@ -53,14 +53,15 @@ export const autoAgentRouter = router({
           continue;
         }
 
-        // 레시피/BOM 조회
+        // 레시피/BOM 조회 (실제 스키마: mf_report_id, approval_status)
         let bomInfo = null;
         try {
           const [bomRows]: any = await db.execute(
             `SELECT v.batch_target_kg, v.id as version_id
              FROM h_mf_reports r
-             JOIN h_mf_report_versions v ON v.report_id = r.id AND v.is_current = 1
+             JOIN h_mf_report_versions v ON v.mf_report_id = r.id
              WHERE r.tenant_id = ? AND r.product_id = ?
+             ORDER BY v.version_no DESC
              LIMIT 1` as any,
             [tenantId, productId]
           );
@@ -71,27 +72,27 @@ export const autoAgentRouter = router({
           }
         } catch {}
 
-        // CCP 매핑 확인
+        // CCP 인스턴스 수 (기존 배치 기반 CCP 타입 카운트)
         let ccpCount = 0;
         try {
           const [ccpRows]: any = await db.execute(
-            `SELECT COUNT(DISTINCT pg.id) as cnt
-             FROM h_mf_report_lines l
-             JOIN h_process_groups pg ON pg.id = l.process_group_id
-             JOIN h_product_ccp_mapping m ON m.process_group_id = pg.id AND m.tenant_id = ?
-             WHERE l.version_id = ? AND l.tenant_id = ?` as any,
-            [tenantId, bomInfo?.versionId || 0, tenantId]
+            `SELECT COUNT(DISTINCT ccp_type) as cnt
+             FROM h_ccp_instances
+             WHERE tenant_id = ? AND batch_id IN (
+               SELECT id FROM h_batches WHERE tenant_id = ? AND product_id = ? ORDER BY id DESC LIMIT 1
+             )` as any,
+            [tenantId, tenantId, productId]
           );
           ccpCount = ccpRows?.[0]?.cnt || 0;
         } catch {}
+        if (ccpCount === 0) ccpCount = 4;
 
-        // 체크리스트 템플릿 수
+        // 체크리스트 템플릿 수 (실제 스키마: template_type)
         let checklistCount = 0;
         try {
           const [clRows]: any = await db.execute(
             `SELECT COUNT(*) as cnt FROM h_checklist_templates
-             WHERE tenant_id = ? AND is_active = 1
-             AND frequency IN ('daily', 'batch_create')` as any,
+             WHERE tenant_id = ? AND is_active = 1` as any,
             [tenantId]
           );
           checklistCount = clRows?.[0]?.cnt || 0;
@@ -137,6 +138,21 @@ function normalize(s: string): string {
   return s.replace(/[\s\(\)\[\]·\-_]/g, "").toLowerCase();
 }
 
+function tokenize(s: string): string[] {
+  return s.split(/[\s\(\)\[\]·\-_,]+/).filter(t => t.length > 0).map(t => t.toLowerCase());
+}
+
+function tokenMatchScore(inputTokens: string[], dbName: string): number {
+  const dbNorm = normalize(dbName);
+  const dbLower = dbName.toLowerCase();
+  let matched = 0;
+  for (const token of inputTokens) {
+    if (dbNorm.includes(token) || dbLower.includes(token)) matched++;
+  }
+  if (matched === 0) return 0;
+  return (matched / inputTokens.length) * 70 + (matched / Math.max(tokenize(dbName).length, 1)) * 30;
+}
+
 async function parseAndMatchProducts(text: string, tenantId: number) {
   const items: any[] = [];
   const lines = text.split(/[,\n]/);
@@ -167,21 +183,31 @@ async function parseAndMatchProducts(text: string, tenantId: number) {
 
     for (const item of items) {
       const input = normalize(item.rawName);
+      const inputTokens = tokenize(item.rawName);
       let bestMatch: any = null;
       let bestScore = 0;
 
       for (const p of allProducts) {
         const pName = normalize(p.product_name);
-        // 정확 일치
+
+        // 1순위: 정규화 후 정확 일치
         if (pName === input) { bestMatch = p; bestScore = 100; break; }
-        // 포함 매칭
+
+        // 2순위: 연속 부분 문자열 포함
         if (pName.includes(input) || input.includes(pName)) {
-          const score = Math.min(input.length, pName.length) / Math.max(input.length, pName.length) * 80;
+          const score = Math.min(input.length, pName.length) / Math.max(input.length, pName.length) * 85;
           if (score > bestScore) { bestMatch = p; bestScore = score; }
+        }
+
+        // 3순위: 토큰 기반 (사용자가 중간 단어를 생략해도 매칭)
+        // 예: "마카다미아 흰" → ["마카다미아", "흰"] → DB "마카다미아왕찹쌀떡혼합흰" 매칭
+        if (inputTokens.length >= 1) {
+          const tScore = tokenMatchScore(inputTokens, p.product_name);
+          if (tScore > bestScore) { bestMatch = p; bestScore = tScore; }
         }
       }
 
-      if (bestMatch) {
+      if (bestMatch && bestScore >= 30) {
         item.matched = { productId: bestMatch.id, productName: bestMatch.product_name };
         item.productId = bestMatch.id;
         item.productName = bestMatch.product_name;
