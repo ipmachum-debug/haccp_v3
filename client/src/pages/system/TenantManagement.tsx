@@ -253,21 +253,19 @@ export default function TenantManagement() {
     },
   });
 
-  // 테넌트 삭제 mutation
+  // 테넌트 삭제 mutations (2단계)
+  const deleteUsersMutation = trpc.tenants.deleteUsers.useMutation({
+    onError: (error: { message: string }) => {
+      toast({ title: "오류", description: error.message, variant: "destructive" });
+    },
+  });
   const deleteMutation = trpc.tenants.delete.useMutation({
     onSuccess: () => {
-      toast({
-        title: "성공",
-        description: "테넌트가 삭제되었습니다.",
-      });
+      toast({ title: "성공", description: "테넌트가 삭제되었습니다." });
       refetch();
     },
     onError: (error: { message: string }) => {
-      toast({
-        title: "오류",
-        description: error.message,
-        variant: "destructive",
-      });
+      toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
 
@@ -293,10 +291,9 @@ export default function TenantManagement() {
     }
   };
 
-  const handleDelete = (id: number) => {
-    if (confirm("정말 이 테넌트를 삭제하시겠습니까?")) {
-      deleteMutation.mutate({ tenantId: id });
-    }
+  const handleDelete = async (id: number) => {
+    if (!confirm("이 테넌트를 삭제하시겠습니까?\n\n소속 사용자, 즐겨찾기, 승인요청 등 모든 데이터가 함께 삭제됩니다.\n이 작업은 되돌릴 수 없습니다.")) return;
+    deleteMutation.mutate({ tenantId: id });
   };
 
   const handleUpdateSubscription = () => {

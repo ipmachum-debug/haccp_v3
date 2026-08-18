@@ -11,10 +11,13 @@ import { IntermediatesContent } from "@/pages/manufacturing/IntermediatesPage";
 
 import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
+import { useTenantModules } from "@/hooks/useTenantModules";
 
 export default function MasterDataManagement() {
   const L = useIndustryLabel();
+  const { hasHACCP } = useTenantModules();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'products');
+  const tabCount = hasHACCP ? 6 : 4;
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -27,7 +30,7 @@ export default function MasterDataManagement() {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-6">
+          <TabsList className={`grid w-full grid-cols-${tabCount}`}>
             <TabsTrigger value="products" className="flex items-center gap-2">
               <Package className="h-4 w-4" />
               <span>{`${L("product")}`}</span>
@@ -36,18 +39,22 @@ export default function MasterDataManagement() {
               <Leaf className="h-4 w-4" />
               <span>{`${L("material")}`}</span>
             </TabsTrigger>
+            {hasHACCP && (
             <TabsTrigger value="intermediates" className="flex items-center gap-2">
               <Layers className="h-4 w-4" />
               <span>중간재</span>
             </TabsTrigger>
+            )}
             <TabsTrigger value="suppliers" className="flex items-center gap-2">
               <Building2 className="h-4 w-4" />
               <span>거래처</span>
             </TabsTrigger>
+            {hasHACCP && (
             <TabsTrigger value="mapping" className="flex items-center gap-2">
               <GitBranch className="h-4 w-4" />
               <span>{`${L("product")}-CCP 매핑`}</span>
             </TabsTrigger>
+            )}
             <TabsTrigger value="categories" className="flex items-center gap-2">
               <Database className="h-4 w-4" />
               <span>카테고리</span>
@@ -64,20 +71,24 @@ export default function MasterDataManagement() {
             <MaterialsTab />
           </TabsContent>
 
-          {/* 중간재 관리 탭 (PR #250) — 통팥앙금 / 콩고물 / 카스테라가루 등 BOM 사용 중간재 */}
+          {/* 중간재 관리 탭 (PR #250) — HACCP 모드에서만 */}
+          {hasHACCP && (
           <TabsContent value="intermediates" className="space-y-4">
             <IntermediatesContent embedded />
           </TabsContent>
+          )}
 
           {/* 거래처 관리 탭 */}
           <TabsContent value="suppliers" className="space-y-4">
             <SuppliersTab />
           </TabsContent>
 
-          {/* 제품-CCP 매핑 탭 */}
+          {/* 제품-CCP 매핑 탭 — HACCP 모드에서만 */}
+          {hasHACCP && (
           <TabsContent value="mapping" className="space-y-4">
             <ProductCcpMapping embedded />
           </TabsContent>
+          )}
 
           {/* 카테고리 관리 탭 */}
           <TabsContent value="categories" className="space-y-4">

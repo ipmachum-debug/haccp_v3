@@ -22,7 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Crown, Building, LayoutDashboard, LogIn, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, FlaskConical, Tag, Truck, Thermometer, Upload, Scan, DollarSign, Receipt, Layers } from "lucide-react";
+import { Crown, Building, LayoutDashboard, LogIn, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, FlaskConical, Tag, Truck, Thermometer, Upload, Scan, DollarSign, Receipt, Layers, Bot } from "lucide-react";
 import { MillioMark } from "@/components/brand/MillioMark";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Badge } from "@/components/ui/badge";
@@ -598,21 +598,27 @@ function DashboardLayoutContent({
     } catch {}
   }, [superAdminShowAllMenus]);
 
-  // 구독 기반 모듈 활성화 (DB 동적 + 환경변수 폴백)
-  const [dynamicModules, setDynamicModules] = useState<{ erp: boolean; haccp: boolean }>({
-    erp: MODULES.ERP, haccp: MODULES.HACCP,
-  });
+  // 구독 기반 모듈 활성화 (DB 동적 + sessionStorage 캐시 + 환경변수 폴백)
+  const MODULES_CACHE_KEY = "tenant-modules-cache";
+  const cachedModules = (() => {
+    try { const r = sessionStorage.getItem(MODULES_CACHE_KEY); return r ? JSON.parse(r) : null; } catch { return null; }
+  })();
+  const [dynamicModules, setDynamicModules] = useState<{ erp: boolean; haccp: boolean }>(
+    cachedModules || { erp: MODULES.ERP, haccp: MODULES.HACCP }
+  );
   const checkSubMut = trpc.subscriptionPublic.checkSubscriptionStatus.useMutation();
   useEffect(() => {
     checkSubMut.mutateAsync().then((info: { expired?: boolean; package?: string; modules?: { erp?: boolean; haccp?: boolean } }) => {
-      if (info?.modules) setDynamicModules({
-        erp: !!info.modules.erp,
-        haccp: !!info.modules.haccp,
-      });
+      if (info?.modules) {
+        const m = { erp: !!info.modules.erp, haccp: !!info.modules.haccp };
+        setDynamicModules(m);
+        try { sessionStorage.setItem(MODULES_CACHE_KEY, JSON.stringify(m)); } catch {}
+      }
     }).catch(() => {});
   }, []);
   const moduleERP = dynamicModules.erp;
   const moduleHACCP = dynamicModules.haccp;
+  const isErpOnly = moduleERP && !moduleHACCP;
   
   // location 변경 시 탭 자동 전환
   useEffect(() => {
@@ -636,13 +642,22 @@ function DashboardLayoutContent({
   }, [location]);
 
   // localStorage에서 탭 상태 불러오기 (최초 로그인 시에만)
+  // ERP 전용 모드: 기본 탭을 "회계"로 자동 전환
   useEffect(() => {
-    const saved = localStorage.getItem("dashboard-active-tab");
-    if (saved === "finance" || saved === "haccp" || saved === "compliance") {
-      // compliance는 haccp으로 변환
-      setActiveTab(saved === "compliance" ? "haccp" : saved as "work" | "finance" | "haccp");
+    if (isErpOnly) {
+      const saved = localStorage.getItem("dashboard-active-tab");
+      if (!saved || saved === "haccp" || saved === "compliance") {
+        setActiveTab("finance");
+      } else {
+        setActiveTab(saved as "work" | "finance" | "haccp");
+      }
+    } else {
+      const saved = localStorage.getItem("dashboard-active-tab");
+      if (saved === "finance" || saved === "haccp" || saved === "compliance") {
+        setActiveTab(saved === "compliance" ? "haccp" : saved as "work" | "finance" | "haccp");
+      }
     }
-  }, []);
+  }, [isErpOnly]);
 
   useEffect(() => {
     localStorage.setItem("dashboard-active-tab", activeTab);
@@ -763,10 +778,15 @@ function DashboardLayoutContent({
   };
   
   // WORK 탭 메뉴 정의 (activeMenuItem보다 먼저 정의해야 함)
-  const workMenuItems = [
+  // ERP 전용 모드: HACCP 관련 메뉴 숨기고 회계 관련만 표시
+  const workMenuItems = isErpOnly ? [
+    { icon: LayoutDashboard, label: "대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
+    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
+    { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
+    { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "worker"] },
+  ] : [
     { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
     { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
-    // AI 어시스턴트: 하단 고정 버튼으로 탭 무관 접근 가능 → 사이드바에서 제거
     { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
     { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"] },
     { icon: Bell, label: "사내공지관리", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
@@ -793,6 +813,13 @@ function DashboardLayoutContent({
     { icon: Receipt, label: "세금계산서", path: "/dashboard/accounting/tax-invoices", roles: ["super_admin", "admin"], group: "매출·판매" },
     // ★ 2026-04-22 Phase 2: B2C 플랫폼 정산 모듈 (Millio 킬러 피처)
     { icon: Receipt, label: "B2C 플랫폼 정산", path: "/dashboard/accounting/b2c-platform", roles: ["super_admin", "admin"], group: "매출·판매" },
+
+    // 📦 품목·재고 (ERP 전용 모드에서만 표시 — HACCP 모드는 HACCP 탭에서 관리)
+    ...(isErpOnly ? [
+      { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin"], group: "품목·재고" },
+      { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin"], group: "품목·재고" },
+      { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin"], group: "품목·재고" },
+    ] : []),
 
     // 💳 자금·비용
     { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"], group: "자금·비용" },
@@ -827,6 +854,11 @@ function DashboardLayoutContent({
     { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"], group: "마감" },
     { icon: FileText, label: "변경이력", path: "/dashboard/accounting/change-log", roles: ["super_admin", "admin"], group: "마감" },
     { icon: FolderOpen, label: "문서함", path: "/accounting/documents", roles: ["super_admin", "admin"], group: "마감" },
+
+    // ⚙️ 설정 (ERP 전용 모드에서 회계 탭 안에서 바로 접근)
+    ...(isErpOnly ? [
+      { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"], group: "설정" },
+    ] : []),
   ];
   
   // 슈퍼관리자 전용 메뉴 정의 (Work 탭에는 일반 메뉴만 표시)
@@ -1055,7 +1087,7 @@ function DashboardLayoutContent({
                 <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "work" | "finance" | "haccp")} className="w-full">
                   <TabsList className={`grid w-full grid-cols-${1 + (moduleERP && !isDemo ? 1 : 0) + (moduleHACCP ? 1 : 0)} text-[11px] h-8 bg-sidebar-accent/60`}>
                     <TabsTrigger value="work" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
-                      WORK
+                      {isErpOnly ? "일반" : "WORK"}
                     </TabsTrigger>
                     {moduleERP && !isDemo && (
                       <TabsTrigger value="finance" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">회계</TabsTrigger>
@@ -1278,6 +1310,22 @@ function DashboardLayoutContent({
                     <span className="ml-auto text-[8px] bg-violet-500 text-white px-1 py-px rounded font-bold">N</span>
                   </>
                 )}
+              </button>
+            )}
+
+            {/* 생산 자동화 에이전트 — 허용된 이메일만 표시 */}
+            {user && ["ipmachum@gmail.com", "sokoorymall@naver.com", "dduckdanji@naver.com", "danjimall@naver.com", "sokoorymall1@naver.com"].includes(user.email) && (
+              <button
+                onClick={() => setLocation("/dashboard/agent")}
+                title="생산 자동화 에이전트"
+                className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium transition-all ${
+                  location === "/dashboard/agent"
+                    ? "bg-indigo-500/15 text-indigo-700 dark:text-indigo-300"
+                    : "text-sidebar-foreground/50 hover:bg-indigo-500/10 hover:text-indigo-500"
+                }`}
+              >
+                <Bot className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+                {!isCollapsed && <span className="text-[11px]">자동화 에이전트</span>}
               </button>
             )}
 

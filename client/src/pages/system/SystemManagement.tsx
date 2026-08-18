@@ -10,9 +10,13 @@ import PositionManagement from "./PositionManagement";
 import EmployeeManagement from "./EmployeeManagement";
 import DocumentApprovalSettingsPage from "./DocumentApprovalSettingsPage";
 import SubscriptionManagement from "./SubscriptionManagement";
+import { useTenantModules } from "@/hooks/useTenantModules";
 
 export default function SystemManagement() {
   const [activeTab, setActiveTab] = useState<"users" | "settings" | "organization" | "approval" | "subscription">("users");
+
+  const { hasHACCP } = useTenantModules();
+  const tabCount = hasHACCP ? 5 : 4;
 
   return (
     <DashboardLayout>
@@ -25,7 +29,7 @@ export default function SystemManagement() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-        <TabsList className="grid w-full max-w-4xl grid-cols-5">
+        <TabsList className={`grid w-full max-w-4xl grid-cols-${tabCount}`}>
           <TabsTrigger value="users" className="flex items-center gap-2">
             <Users className="h-4 w-4" />
             사용자 관리
@@ -42,10 +46,12 @@ export default function SystemManagement() {
             <Building2 className="h-4 w-4" />
             조직·책임
           </TabsTrigger>
+          {hasHACCP && (
           <TabsTrigger value="approval" className="flex items-center gap-2">
             <FileCheck className="h-4 w-4" />
             문서 결재
           </TabsTrigger>
+          )}
         </TabsList>
 
         <TabsContent value="users" className="space-y-4">
@@ -95,9 +101,11 @@ export default function SystemManagement() {
           </div>
         </TabsContent>
 
+        {hasHACCP && (
         <TabsContent value="approval" className="space-y-4">
           <DocumentApprovalSettingsPage />
         </TabsContent>
+        )}
       </Tabs>
     </div>
     </DashboardLayout>

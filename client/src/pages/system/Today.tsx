@@ -20,8 +20,10 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { ko } from "date-fns/locale";
+import { useTenantModules } from "@/hooks/useTenantModules";
 
 export default function Today() {
+  const { hasHACCP } = useTenantModules();
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'batches');
   const today = new Date();
   const todayStr = format(today, "yyyy-MM-dd");
@@ -37,10 +39,10 @@ export default function Today() {
   // 오늘 교육 미완료 수
   const { data: trainingIncomplete } = trpc.dailyTraining.getIncompleteCount.useQuery();
 
-  // 오늘 미완료 CCP 조회
+  // 오늘 미완료 CCP 조회 (HACCP 모드에서만)
   const { data: pendingCcps, isLoading: ccpsLoading } = trpc.ccp.getAllRecords.useQuery({
     status: "draft",
-  });
+  }, { enabled: hasHACCP });
 
   // 통계 계산
   const stats = {
@@ -76,6 +78,7 @@ export default function Today() {
             </CardContent>
           </Card>
 
+          {hasHACCP && (<>
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">미완료 CCP</CardTitle>
@@ -83,12 +86,9 @@ export default function Today() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.pendingCcps}</div>
-              <p className="text-xs text-muted-foreground">
-                점검 필요
-              </p>
+              <p className="text-xs text-muted-foreground">점검 필요</p>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">미완료 검사</CardTitle>
@@ -96,12 +96,9 @@ export default function Today() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">0</div>
-              <p className="text-xs text-muted-foreground">
-                검사 대기 중
-              </p>
+              <p className="text-xs text-muted-foreground">검사 대기 중</p>
             </CardContent>
           </Card>
-
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">이탈/실패</CardTitle>
@@ -109,11 +106,10 @@ export default function Today() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-destructive">{stats.failedItems}</div>
-              <p className="text-xs text-muted-foreground">
-                시정 조치 필요
-              </p>
+              <p className="text-xs text-muted-foreground">시정 조치 필요</p>
             </CardContent>
           </Card>
+          </>)}
 
           <Card className={trainingIncomplete?.count ? "border-violet-200 bg-violet-50/30" : ""}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -138,6 +134,7 @@ export default function Today() {
               <Package className="h-4 w-4 mr-2" />
               배치 ({stats.totalBatches})
             </TabsTrigger>
+            {hasHACCP && (<>
             <TabsTrigger value="ccps">
               <ClipboardCheck className="h-4 w-4 mr-2" />
               CCP ({stats.pendingCcps})
@@ -150,6 +147,7 @@ export default function Today() {
               <AlertTriangle className="h-4 w-4 mr-2" />
               이탈/실패 (0)
             </TabsTrigger>
+            </>)}
           </TabsList>
 
           {/* 오늘 배치 */}
