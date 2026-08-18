@@ -1,6 +1,7 @@
 // checklist 라우터 - routers.ts에서 분리됨
 import { tenantRequiredProcedure, router, workerProcedure } from "../../_core/trpc";
 import { z } from "zod";
+import { requireTenantId } from "../../helpers/tenantGuards";
 
 export const checklistRouter = router({
     // 템플릿 관리
@@ -48,11 +49,22 @@ export const checklistRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
-          const tenantId = ctx.tenantId;
-          const { createChecklistTemplate } = await import("../../db");
-          return await createChecklistTemplate({
-            ...input,
-            category: input.category as any
+          const tenantId = requireTenantId(ctx as any);
+          // ★ 2026-08-18: createChecklistTemplate 는 items 를 무시한다 (항목 0개 템플릿 생성 버그).
+          //   tenantId 도 넘기지 않아 항상 테넌트 1로 새던 문제 함께 수정.
+          const { createChecklistTemplateWithItems } = await import("../../db");
+          return await createChecklistTemplateWithItems({
+            name: input.name,
+            description: input.description,
+            category: input.category as any,
+            tenantId,
+            createdBy: ctx.user.id,
+            items: input.items.map((item) => ({
+              sortOrder: item.sortOrder,
+              itemName: item.itemName,
+              itemType: item.itemType as any,
+              required: item.required,
+            })),
           });
         }),
       // 템플릿 수정
@@ -77,13 +89,21 @@ export const checklistRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
-          const tenantId = ctx.tenantId;
+          const tenantId = requireTenantId(ctx as any);
           const { updateChecklistTemplate } = await import("../../db");
-          const { id, ...data } = input;
-          return await updateChecklistTemplate(id, {
-            ...data,
-            category: data.category as any
-          });
+          const { id, items, ...data } = input;
+          return await updateChecklistTemplate(
+            id,
+            { ...data, category: data.category as any },
+            items?.map((item) => ({
+              id: item.id,
+              sortOrder: item.sortOrder,
+              itemName: item.itemName,
+              itemType: item.itemType as any,
+              required: item.required,
+            })),
+            tenantId,
+          );
         }),
       // 템플릿 삭제
       delete: workerProcedure
@@ -144,14 +164,16 @@ export const checklistRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
-          const tenantId = ctx.tenantId;
+          const tenantId = requireTenantId(ctx as any);
           const { createChecklistInstanceFromTemplate } = await import("../../db");
           return await createChecklistInstanceFromTemplate({
             templateId: input.templateId,
+            tenantId,
             batchId: undefined,
             ccpRecordId: undefined,
+            targetDate: input.checkDate,
             scheduledDate: input.checkDate,
-            createdBy: 0, // 사용자 ID는 추후 ctx.user.id로 대체
+            createdBy: ctx.user.id,
           });
         }),
       // 인스턴스 항목 업데이트

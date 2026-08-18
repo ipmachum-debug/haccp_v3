@@ -12,8 +12,14 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
   Shield, Search, AlertTriangle, CheckCircle, Clock, Users,
-  ArrowDownLeft, ArrowUpRight, Loader2,
+  ArrowDownLeft, ArrowUpRight, Loader2, BellRing,
 } from "lucide-react";
+
+const stagePriorityColor: Record<string, string> = {
+  medium: "bg-amber-100 text-amber-700",
+  high: "bg-orange-100 text-orange-700",
+  urgent: "bg-red-100 text-red-700",
+};
 
 const fmt = (n: number) => `₩${n.toLocaleString()}`;
 
@@ -33,6 +39,20 @@ export default function PartnerCreditManagement() {
   });
   const { data: summary } = trpc.partnerCredit.summary.useQuery();
   const { data: aging } = trpc.partnerCredit.agingAnalysis.useQuery();
+  // 미수금 결제주기 초과 현황 (스케줄러 receivableOverdue 와 동일 기준)
+  const { data: overdueAR, refetch: refetchOverdue } = trpc.partnerCredit.overdueReceivables.useQuery();
+
+  const runOverdueAlertsMut = trpc.partnerCredit.runOverdueAlerts.useMutation({
+    onSuccess: (r: any) => {
+      toast.success(
+        r.alertCount > 0
+          ? `연체 거래처 ${r.partnerCount}곳 중 ${r.alertCount}건 알림을 생성했습니다.`
+          : `연체 거래처 ${r.partnerCount}곳 — 이미 알림이 발송되어 추가 생성 없음`,
+      );
+      refetchOverdue();
+    },
+    onError: (e: { message: string }) => toast.error(e.message),
+  });
 
   const setLimitMut = trpc.partnerCredit.setCreditLimit.useMutation({
     onSuccess: (r: any) => { toast.success(r.message); refetch(); },
@@ -133,6 +153,67 @@ export default function PartnerCreditManagement() {
               </Card>
             ))}
           </div>
+        )}
+
+        {/* 미수금 결제주기 초과 (알림 스케줄러 대상) */}
+        {overdueAR && overdueAR.length > 0 && (
+          <Card className="border-l-4 border-l-red-500">
+            <CardHeader className="py-2.5 px-4 border-b flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-xs flex items-center gap-1.5">
+                <AlertTriangle className="h-3.5 w-3.5 text-red-600" />
+                미수금 결제주기 초과 ({overdueAR.length}곳)
+              </CardTitle>
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-7 text-xs"
+                onClick={() => runOverdueAlertsMut.mutate()}
+                disabled={runOverdueAlertsMut.isPending}
+              >
+                {runOverdueAlertsMut.isPending ? (
+                  <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                ) : (
+                  <BellRing className="h-3 w-3 mr-1" />
+                )}
+                지금 알림 보내기
+              </Button>
+            </CardHeader>
+            <CardContent className="p-0">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="px-3 py-2 text-left font-medium">거래처</th>
+                    <th className="px-3 py-2 text-center font-medium">결제주기</th>
+                    <th className="px-3 py-2 text-center font-medium">초과일수</th>
+                    <th className="px-3 py-2 text-right font-medium">미수금</th>
+                    <th className="px-3 py-2 text-center font-medium">건수</th>
+                    <th className="px-3 py-2 text-center font-medium">단계</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {overdueAR.map((r: any) => (
+                    <tr key={r.partnerId} className="border-t">
+                      <td className="px-3 py-2 font-medium">{r.partnerName}</td>
+                      <td className="px-3 py-2 text-center text-muted-foreground">{r.paymentTermsDays}일</td>
+                      <td className="px-3 py-2 text-center font-semibold text-red-600">{r.maxOverdueDays}일</td>
+                      <td className="px-3 py-2 text-right font-semibold">{fmt(Math.round(r.totalAmount))}</td>
+                      <td className="px-3 py-2 text-center text-muted-foreground">{r.invoiceCount}</td>
+                      <td className="px-3 py-2 text-center">
+                        {r.stageLabel ? (
+                          <Badge className={stagePriorityColor[r.priority] || ""}>{r.stageLabel}</Badge>
+                        ) : (
+                          <span className="text-muted-foreground">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="px-3 py-2 text-[11px] text-muted-foreground border-t">
+                매일 오전 8시 30분 자동 점검 · 같은 거래처·같은 단계는 7일 이내 재알림하지 않습니다.
+              </p>
+            </CardContent>
+          </Card>
         )}
 
         {/* 테이블 */}

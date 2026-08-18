@@ -3,6 +3,7 @@ import { adminProcedure, tenantRequiredProcedure, router } from "../../_core/trp
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { lt, or } from "drizzle-orm";
+import { requireTenantId } from "../../helpers/tenantGuards";
 
 export const checklistTemplateRouter = router({
     // 템플릿 목록 조회
@@ -42,12 +43,18 @@ export const checklistTemplateRouter = router({
         category: z.enum(["CCP", "SANITATION", "QUALITY", "SAFETY", "TRAINING", "MAINTENANCE"]),
         ccpType: z.string().optional(),
         priority: z.number().default(0),
+        // ★ 2026-08-18: 자동 생성 주기 — batch_create 이면 배치 생성 파이프라인(STEP 10)이
+        //   해당 템플릿으로 체크리스트 인스턴스를 자동 생성한다.
+        frequency: z.enum(["daily", "weekly", "monthly", "batch_create", "batch_complete"]).nullish(),
+        generationMode: z.enum(["manual", "auto"]).optional(),
+        requiresApproval: z.boolean().optional(),
+        requiresAttachment: z.boolean().optional(),
         autoTriggerRules: z.any().optional(),
         items: z.array(
           z.object({
             sortOrder: z.number(),
             itemName: z.string().min(1, "항목 텍스트는 필수입니다"),
-            itemType: z.enum(["checkbox", "number", "text", "select", "time", "date", "temperature", "pressure"]).default("checkbox"),
+            itemType: z.enum(["checkbox", "number", "text", "textarea", "select", "time", "date", "temperature", "pressure"]).default("checkbox"),
             required: z.boolean().default(true),
             validationRules: z.any().optional(),
             defaultValue: z.string().optional(),
@@ -56,10 +63,11 @@ export const checklistTemplateRouter = router({
         )
       }))
       .mutation(async ({ input, ctx }) => {
-        const tenantId = ctx.tenantId;
+        const tenantId = requireTenantId(ctx as any);
         const { createChecklistTemplateWithItems, createAuditLog } = await import("../../db");
         const template = await createChecklistTemplateWithItems({
           ...input,
+          tenantId,
           createdBy: ctx.user.id
         });
 
@@ -86,6 +94,10 @@ export const checklistTemplateRouter = router({
         category: z.enum(["CCP", "SANITATION", "QUALITY", "SAFETY", "TRAINING", "MAINTENANCE"]).optional(),
         ccpType: z.string().optional(),
         priority: z.number().optional(),
+        frequency: z.enum(["daily", "weekly", "monthly", "batch_create", "batch_complete"]).nullish(),
+        generationMode: z.enum(["manual", "auto"]).optional(),
+        requiresApproval: z.boolean().optional(),
+        requiresAttachment: z.boolean().optional(),
         autoTriggerRules: z.any().optional(),
         isActive: z.boolean().optional(),
         items: z.array(
@@ -93,7 +105,7 @@ export const checklistTemplateRouter = router({
             id: z.number().optional(),
             sortOrder: z.number(),
             itemName: z.string().min(1),
-            itemType: z.enum(["checkbox", "number", "text", "select", "time", "date", "temperature", "pressure"]),
+            itemType: z.enum(["checkbox", "number", "text", "textarea", "select", "time", "date", "temperature", "pressure"]),
             required: z.boolean(),
             description: z.string().optional(),
             validationRules: z.any().optional(),
@@ -151,7 +163,7 @@ export const checklistTemplateRouter = router({
         newName: z.string().min(1)
       }))
       .mutation(async ({ input, ctx }) => {
-        const tenantId = ctx.tenantId;
+        const tenantId = requireTenantId(ctx as any);
         const { getChecklistTemplateById, createChecklistTemplateWithItems, createAuditLog } = await import("../../db");
         const template = await getChecklistTemplateById(input.id, tenantId);
         if (!template) {
@@ -167,7 +179,12 @@ export const checklistTemplateRouter = router({
           category: template.category as any,
           ccpType: template.ccpType || undefined,
           priority: template.priority,
+          frequency: (template as any).frequency ?? undefined,
+          generationMode: (template as any).generationMode ?? undefined,
+          requiresApproval: Boolean((template as any).requiresApproval),
+          requiresAttachment: Boolean((template as any).requiresAttachment),
           autoTriggerRules: template.autoTriggerRules,
+          tenantId,
           createdBy: ctx.user.id,
           items: template.items.map((item: any) => ({
             sortOrder: item.sortOrder,
@@ -192,5 +209,33 @@ export const checklistTemplateRouter = router({
         });
         
         return newTemplate;
+      }),
+
+    /**
+     * 배치 생성 시 자동 생성될 기본 체크리스트 템플릿 시드 (관리자)
+     *
+     * 배경: checklist_templates.frequency 를 지정할 수 있는 경로가 없어
+     *   배치 파이프라인 STEP 10 (autoCreateChecklistsForBatch) 이 항상 0건을 생성했다.
+     *   이 엔드포인트는 표준 양식(위생점검표/공정점검표/작업 전 준비)을 frequency='batch_create'
+     *   로 1회 시드한다. 같은 이름의 활성 템플릿이 이미 있으면 건너뛴다 (재실행 안전).
+     */
+    seedBatchDefaults: adminProcedure
+      .mutation(async ({ ctx }) => {
+        const tenantId = requireTenantId(ctx as any);
+        const { seedBatchCreateChecklistTemplates, createAuditLog } = await import("../../db");
+        const result = await seedBatchCreateChecklistTemplates(tenantId, ctx.user.id);
+
+        if (result.created.length > 0) {
+          await createAuditLog({
+            userId: ctx.user.id,
+            action: "checklist_template.seed_batch_defaults",
+            entityType: "checklist_template",
+            userEmail: ctx.user.email,
+            userRole: ctx.user.role,
+            description: `배치 자동생성 기본 템플릿 시드: ${result.created.join(", ")}`,
+          });
+        }
+
+        return result;
       })
 });

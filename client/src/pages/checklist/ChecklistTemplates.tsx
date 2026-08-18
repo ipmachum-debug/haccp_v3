@@ -26,7 +26,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Plus, Edit, Copy, Trash2, FileText } from "lucide-react";
+import { Plus, Edit, Copy, Trash2, FileText, Sparkles } from "lucide-react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -36,6 +36,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   SAFETY: "안전 관리",
   TRAINING: "교육 훈련",
   MAINTENANCE: "보정 관리",
+};
+
+const FREQUENCY_LABELS: Record<string, string> = {
+  batch_create: "배치 생성 시",
+  batch_complete: "배치 완료 시",
+  daily: "매일",
+  weekly: "매주",
+  monthly: "매월",
 };
 
 const CATEGORY_COLORS: Record<string, string> = {
@@ -76,6 +84,33 @@ export default function ChecklistTemplates() {
       alert(`복사 실패: ${error.message}`);
     },
   });
+
+  const seedMutation = trpc.checklistTemplate.seedBatchDefaults.useMutation({
+    onSuccess: (res: any) => {
+      const created = res?.created ?? [];
+      const skipped = res?.skipped ?? [];
+      alert(
+        created.length > 0
+          ? `기본 템플릿 ${created.length}건이 추가되었습니다.\n- ${created.join("\n- ")}` +
+            (skipped.length > 0 ? `\n\n이미 존재하여 건너뜀: ${skipped.join(", ")}` : "")
+          : "이미 모든 기본 템플릿이 등록되어 있습니다.",
+      );
+      refetch();
+    },
+    onError: (error: { message: string }) => {
+      alert(`기본 템플릿 생성 실패: ${error.message}`);
+    },
+  });
+
+  const handleSeed = () => {
+    if (
+      confirm(
+        "배치 생성 시 자동 생성될 기본 체크리스트 템플릿(작업 전 준비/생산 중 위생/완제품 포장)을 추가할까요?\n이미 있는 템플릿은 건너뜁니다.",
+      )
+    ) {
+      seedMutation.mutate();
+    }
+  };
 
   const handleDelete = (id: number, name: string) => {
     if (confirm(`"${name}" 템플릿을 삭제하시겠습니까?`)) {
@@ -119,10 +154,16 @@ export default function ChecklistTemplates() {
             배치 생산 및 품질 관리를 위한 체크리스트 템플릿을 생성하고 관리합니다.
           </p>
         </div>
-        <Button onClick={() => setLocation("/checklist-templates/new")}>
-          <Plus className="w-4 h-4 mr-2" />
-          새 템플릿 생성
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleSeed} disabled={seedMutation.isPending}>
+            <Sparkles className="w-4 h-4 mr-2" />
+            배치 자동생성 기본 템플릿
+          </Button>
+          <Button onClick={() => setLocation("/checklist-templates/new")}>
+            <Plus className="w-4 h-4 mr-2" />
+            새 템플릿 생성
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -168,6 +209,7 @@ export default function ChecklistTemplates() {
                   <TableHead>템플릿 이름</TableHead>
                   <TableHead>카테고리</TableHead>
                   <TableHead>CCP 타입</TableHead>
+                  <TableHead>자동 생성</TableHead>
                   <TableHead className="text-center">항목 수</TableHead>
                   <TableHead className="text-center">우선순위</TableHead>
                   <TableHead className="text-right">작업</TableHead>
@@ -194,6 +236,21 @@ export default function ChecklistTemplates() {
                         <Badge variant="outline">{template.ccpType}</Badge>
                       ) : (
                         <span className="text-muted-foreground text-sm">-</span>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      {template.frequency ? (
+                        <Badge
+                          className={
+                            template.frequency === "batch_create" || template.frequency === "batch_complete"
+                              ? "bg-violet-100 text-violet-800"
+                              : "bg-slate-100 text-slate-800"
+                          }
+                        >
+                          {FREQUENCY_LABELS[template.frequency] || template.frequency}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">수동</span>
                       )}
                     </TableCell>
                     <TableCell className="text-center">
