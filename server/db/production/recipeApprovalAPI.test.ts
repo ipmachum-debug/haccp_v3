@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getPendingRecipes, getRecipeWithApprovalInfo } from "./recipeApproval";
+import { getPendingRecipes, getRecipeWithApprovalInfo } from "./recipeApprovalAPI";
 
 describe("Recipe Approval API", () => {
   it("should get pending recipes", async () => {
