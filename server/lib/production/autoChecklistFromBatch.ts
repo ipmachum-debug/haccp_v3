@@ -12,7 +12,11 @@ import {
   checklistInstanceItems,
 } from "../../../drizzle/schema/checklist";
 import { eq, and, sql } from "drizzle-orm";
-import { buildPeriodKey } from "../../db/haccp/checklistAndInspection";
+import {
+  buildPeriodKey,
+  getChecklistTemplateAutoGenColumns,
+  checklistInstancesHasPeriodKey,
+} from "../../db/haccp/checklistAndInspection";
 
 import { todayKST } from "../../utils/timezone";
 
@@ -59,6 +63,19 @@ async function autoCreateChecklists(
 
   const dateStr = targetDate || todayKST();
 
+  // ★ frequency 컬럼이 실제 DB 에 없으면 조회 자체가 에러 → 명확한 사유와 함께 조기 반환
+  //   (sql/step18_checklist_frequency_migration_commit.sql 미적용 환경)
+  const autoGenCols = await getChecklistTemplateAutoGenColumns();
+  if (!autoGenCols.has("frequency")) {
+    return {
+      created: 0,
+      templateNames: [],
+      skippedReason:
+        "checklist_templates.frequency 컬럼이 DB 에 없어 자동 생성을 건너뜁니다. " +
+        "sql/step18_checklist_frequency_migration_commit.sql 을 실행하세요.",
+    };
+  }
+
   // frequency가 일치하고 활성인 템플릿 조회
   const templates = await db
     .select({
@@ -87,6 +104,8 @@ async function autoCreateChecklists(
   }
 
   const templateNames: string[] = [];
+  // checklist_instances.period_key 도 마이그레이션 미적용 환경에서는 없을 수 있다
+  const hasPeriodKey = await checklistInstancesHasPeriodKey();
 
   for (const tmpl of templates) {
     // 이미 동일 날짜+템플릿 조합의 인스턴스가 있으면 스킵 (일일 문서 중복 방지)
@@ -113,7 +132,7 @@ async function autoCreateChecklists(
       batchId,
       targetDate: dateStr,
       scheduledDate: dateStr,
-      periodKey: buildPeriodKey(tmpl.frequency as any, dateStr),
+      ...(hasPeriodKey ? { periodKey: buildPeriodKey(tmpl.frequency as any, dateStr) } : {}),
       status: "pending",
       createdBy: userId,
       createdAt: new Date().toISOString(),

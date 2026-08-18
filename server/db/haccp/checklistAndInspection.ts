@@ -25,6 +25,90 @@ import {
  * batch_create / batch_complete 는 배치 파이프라인(STEP 10, autoCreateChecklistsForBatch)이
  * 인스턴스를 자동 생성하는 트리거로 사용된다.
  */
+/**
+ * checklist_templates 의 자동생성 컬럼(frequency 등)이 실제 DB 에 존재하는지 1회 확인 후 캐시.
+ *
+ * 배경: 저장소 마이그레이션 어디에도 이 컬럼을 만드는 SQL 이 없어(0001~0008 은 placeholder,
+ *   0042 는 tenant_id 만 추가) drizzle 스키마와 실제 DB 가 어긋나 있을 수 있다.
+ *   컬럼이 없는 환경에서 INSERT/UPDATE 에 이 필드를 넣으면 ER_BAD_FIELD_ERROR 로
+ *   **템플릿 저장 화면 자체가 깨진다.**
+ *
+ * → 컬럼이 없으면 해당 필드를 조용히 빼고 저장한다 (자동 생성 기능만 비활성, 저장은 정상).
+ *   컬럼을 추가하려면 sql/step18_checklist_frequency_migration_commit.sql 을 실행할 것.
+ */
+let autoGenColumnsCache: Set<string> | null = null;
+
+export async function getChecklistTemplateAutoGenColumns(): Promise<Set<string>> {
+  if (autoGenColumnsCache) return autoGenColumnsCache;
+  const db = await getDb();
+  if (!db) return new Set();
+  try {
+    const rows: any = await db.execute(sql`
+      SELECT COLUMN_NAME AS name
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'checklist_templates'
+        AND COLUMN_NAME IN ('frequency','generation_mode','requires_approval','requires_attachment','auto_trigger_rules')
+    `);
+    const list = ((rows as any)?.[0] ?? rows ?? []) as any[];
+    autoGenColumnsCache = new Set(list.map((r: any) => String(r.name)));
+  } catch {
+    // information_schema 조회 실패 시에는 보수적으로 "없음" 취급 (저장은 살린다)
+    autoGenColumnsCache = new Set();
+  }
+  return autoGenColumnsCache;
+}
+
+/** checklist_instances.period_key 존재 여부 (동일 사유로 1회 확인 후 캐시) */
+let periodKeyColumnCache: boolean | null = null;
+
+export async function checklistInstancesHasPeriodKey(): Promise<boolean> {
+  if (periodKeyColumnCache !== null) return periodKeyColumnCache;
+  const db = await getDb();
+  if (!db) return false;
+  try {
+    const rows: any = await db.execute(sql`
+      SELECT COUNT(*) AS cnt
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'checklist_instances'
+        AND COLUMN_NAME = 'period_key'
+    `);
+    const list = ((rows as any)?.[0] ?? rows ?? []) as any[];
+    periodKeyColumnCache = Number(list?.[0]?.cnt ?? 0) > 0;
+  } catch {
+    periodKeyColumnCache = false;
+  }
+  return periodKeyColumnCache;
+}
+
+/** 테스트/마이그레이션 직후 캐시 무효화 */
+export function resetChecklistTemplateColumnCache(): void {
+  autoGenColumnsCache = null;
+  periodKeyColumnCache = null;
+}
+
+/** 실제 존재하는 컬럼만 남기고 나머지는 제거 */
+async function pickExistingAutoGenFields(
+  values: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const cols = await getChecklistTemplateAutoGenColumns();
+  const camelToSnake: Record<string, string> = {
+    frequency: "frequency",
+    generationMode: "generation_mode",
+    requiresApproval: "requires_approval",
+    requiresAttachment: "requires_attachment",
+    autoTriggerRules: "auto_trigger_rules",
+  };
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(values)) {
+    const snake = camelToSnake[k];
+    if (snake && !cols.has(snake)) continue; // DB 에 없는 컬럼은 건너뜀
+    out[k] = v;
+  }
+  return out;
+}
+
 export type ChecklistFrequency =
   | "daily"
   | "weekly"
@@ -123,17 +207,22 @@ export async function createChecklistTemplate(data: {
   // ★ 2026-08-18: tenantId 폴백(|| 1) 제거 — 다른 테넌트로 템플릿이 새는 사고 방지
   if (!data.tenantId) throw new Error("tenantId 는 필수입니다 (체크리스트 템플릿 생성)");
 
+  // ★ DB 에 실제로 존재하는 자동생성 컬럼만 포함 (마이그레이션 미적용 환경 보호)
+  const autoGen = await pickExistingAutoGenFields({
+    frequency: data.frequency ?? null,
+    generationMode: data.generationMode ?? (data.frequency ? "auto" : "manual"),
+    requiresApproval: data.requiresApproval ? 1 : 0,
+    requiresAttachment: data.requiresAttachment ? 1 : 0,
+    autoTriggerRules: data.autoTriggerRules,
+  });
+
   const [result] = await db.insert(checklistTemplates).values({
     name: data.name,
     description: data.description,
     category: data.category,
     ccpType: data.ccpType,
     priority: data.priority || 0,
-    frequency: data.frequency ?? null,
-    generationMode: data.generationMode ?? (data.frequency ? "auto" : "manual"),
-    requiresApproval: data.requiresApproval ? 1 : 0,
-    requiresAttachment: data.requiresAttachment ? 1 : 0,
-    autoTriggerRules: data.autoTriggerRules,
+    ...autoGen,
     createdBy: data.createdBy,
     tenantId: data.tenantId,
     isActive: 1
@@ -246,6 +335,15 @@ export async function seedBatchCreateChecklistTemplates(
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
   if (!tenantId) throw new Error("tenantId 는 필수입니다 (기본 체크리스트 템플릿 시드)");
+
+  // ★ frequency 컬럼이 없으면 시드해도 STEP 10 이 못 읽는다 → 마이그레이션 안내 후 중단
+  const autoGenCols = await getChecklistTemplateAutoGenColumns();
+  if (!autoGenCols.has("frequency")) {
+    throw new Error(
+      "checklist_templates.frequency 컬럼이 DB 에 없습니다. " +
+      "sql/step18_checklist_frequency_migration_commit.sql 을 먼저 실행하세요.",
+    );
+  }
 
   const created: string[] = [];
   const skipped: string[] = [];
@@ -389,11 +487,14 @@ export async function updateChecklistTemplate(
   if (data.category !== undefined) updateData.category = data.category;
   if (data.ccpType !== undefined) updateData.ccpType = data.ccpType;
   if (data.priority !== undefined) updateData.priority = data.priority;
-  if (data.frequency !== undefined) updateData.frequency = data.frequency ?? null;
-  if (data.generationMode !== undefined) updateData.generationMode = data.generationMode;
-  if (data.requiresApproval !== undefined) updateData.requiresApproval = data.requiresApproval ? 1 : 0;
-  if (data.requiresAttachment !== undefined) updateData.requiresAttachment = data.requiresAttachment ? 1 : 0;
-  if (data.autoTriggerRules !== undefined) updateData.autoTriggerRules = data.autoTriggerRules;
+  // ★ 자동생성 컬럼은 DB 에 존재할 때만 UPDATE 대상에 넣는다
+  const autoGenUpdate: Record<string, unknown> = {};
+  if (data.frequency !== undefined) autoGenUpdate.frequency = data.frequency ?? null;
+  if (data.generationMode !== undefined) autoGenUpdate.generationMode = data.generationMode;
+  if (data.requiresApproval !== undefined) autoGenUpdate.requiresApproval = data.requiresApproval ? 1 : 0;
+  if (data.requiresAttachment !== undefined) autoGenUpdate.requiresAttachment = data.requiresAttachment ? 1 : 0;
+  if (data.autoTriggerRules !== undefined) autoGenUpdate.autoTriggerRules = data.autoTriggerRules;
+  Object.assign(updateData, await pickExistingAutoGenFields(autoGenUpdate));
   if (data.isActive !== undefined) updateData.isActive = data.isActive ? 1 : 0;
 
   if (Object.keys(updateData).length > 0) {
