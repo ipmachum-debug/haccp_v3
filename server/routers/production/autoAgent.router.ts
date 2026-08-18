@@ -133,6 +133,10 @@ export const autoAgentRouter = router({
     }),
 });
 
+function normalize(s: string): string {
+  return s.replace(/[\s\(\)\[\]·\-_]/g, "").toLowerCase();
+}
+
 async function parseAndMatchProducts(text: string, tenantId: number) {
   const items: any[] = [];
   const lines = text.split(/[,\n]/);
@@ -151,24 +155,37 @@ async function parseAndMatchProducts(text: string, tenantId: number) {
   if (items.length > 0) {
     const { getDb } = await import("../../db");
     const db = await getDb();
+    // 전체 제품 목록을 한 번만 조회 (N+1 방지)
+    let allProducts: any[] = [];
+    try {
+      const [productRows]: any = await db.execute(
+        `SELECT id, product_name FROM h_products_v2 WHERE tenant_id = ?` as any,
+        [tenantId]
+      );
+      allProducts = productRows || [];
+    } catch {}
+
     for (const item of items) {
-      try {
-        const [rows]: any = await db.execute(
-          `SELECT id, product_name FROM h_products_v2
-           WHERE tenant_id = ? AND product_name LIKE ?
-           ORDER BY
-             CASE WHEN product_name = ? THEN 0
-                  WHEN product_name LIKE ? THEN 1
-                  ELSE 2 END
-           LIMIT 1` as any,
-          [tenantId, `%${item.rawName}%`, item.rawName, `${item.rawName}%`]
-        );
-        if (rows?.[0]) {
-          item.matched = { productId: rows[0].id, productName: rows[0].product_name };
-          item.productId = rows[0].id;
-          item.productName = rows[0].product_name;
+      const input = normalize(item.rawName);
+      let bestMatch: any = null;
+      let bestScore = 0;
+
+      for (const p of allProducts) {
+        const pName = normalize(p.product_name);
+        // 정확 일치
+        if (pName === input) { bestMatch = p; bestScore = 100; break; }
+        // 포함 매칭
+        if (pName.includes(input) || input.includes(pName)) {
+          const score = Math.min(input.length, pName.length) / Math.max(input.length, pName.length) * 80;
+          if (score > bestScore) { bestMatch = p; bestScore = score; }
         }
-      } catch {}
+      }
+
+      if (bestMatch) {
+        item.matched = { productId: bestMatch.id, productName: bestMatch.product_name };
+        item.productId = bestMatch.id;
+        item.productName = bestMatch.product_name;
+      }
     }
   }
 
