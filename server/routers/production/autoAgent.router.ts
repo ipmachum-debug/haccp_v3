@@ -3,16 +3,16 @@
  *
  * 자연어 입력 → 파싱 → 검증(preview) → 실행(execute)
  * "오늘 초코크림 케이크 3,200kg 생산, 시작 08:00" → 배치+CCP+체크리스트 자동 생성
+ *
+ * ★ DB 접근: getRawConnection() + pool.execute(sql, [params]) 패턴 사용
+ *   (getDb()는 drizzle 인스턴스라 위치 파라미터 쿼리 미지원)
  */
 import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { TRPCError } from "@trpc/server";
+import { getRawConnection } from "../../db";
 
 export const autoAgentRouter = router({
-  /**
-   * 1단계: 자연어 파싱 + 검증 미리보기
-   * 실제 DB에 아무것도 쓰지 않고 실행 계획만 반환
-   */
   preview: tenantRequiredProcedure
     .input(z.object({
       text: z.string().min(1).max(5000),
@@ -21,9 +21,6 @@ export const autoAgentRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       const tenantId = ctx.tenantId!;
-      const userId = ctx.user!.id;
-
-      // 1) 자연어 파싱 (정규식 + DB 제품 매칭)
       const parsed = await parseAndMatchProducts(input.text, tenantId);
 
       if (!parsed?.items?.length) {
@@ -33,9 +30,7 @@ export const autoAgentRouter = router({
         });
       }
 
-      // 2) 각 항목별 검증
-      const { getDb } = await import("../../db");
-      const db = await getDb();
+      const pool = await getRawConnection();
       const plans = [];
 
       for (const item of parsed.items) {
@@ -53,16 +48,15 @@ export const autoAgentRouter = router({
           continue;
         }
 
-        // 레시피/BOM 조회 (실제 스키마: mf_report_id, approval_status)
+        // BOM 조회
         let bomInfo = null;
         try {
-          const [bomRows]: any = await db.execute(
+          const [bomRows]: any = await pool.execute(
             `SELECT v.batch_target_kg, v.id as version_id
              FROM h_mf_reports r
              JOIN h_mf_report_versions v ON v.mf_report_id = r.id
              WHERE r.tenant_id = ? AND r.product_id = ?
-             ORDER BY v.version_no DESC
-             LIMIT 1` as any,
+             ORDER BY v.version_no DESC LIMIT 1`,
             [tenantId, productId]
           );
           if (bomRows?.[0]) {
@@ -72,27 +66,25 @@ export const autoAgentRouter = router({
           }
         } catch {}
 
-        // CCP 인스턴스 수 (기존 배치 기반 CCP 타입 카운트)
+        // CCP 수
         let ccpCount = 0;
         try {
-          const [ccpRows]: any = await db.execute(
-            `SELECT COUNT(DISTINCT ccp_type) as cnt
-             FROM h_ccp_instances
+          const [ccpRows]: any = await pool.execute(
+            `SELECT COUNT(DISTINCT ccp_type) as cnt FROM h_ccp_instances
              WHERE tenant_id = ? AND batch_id IN (
                SELECT id FROM h_batches WHERE tenant_id = ? AND product_id = ? ORDER BY id DESC LIMIT 1
-             )` as any,
+             )`,
             [tenantId, tenantId, productId]
           );
           ccpCount = ccpRows?.[0]?.cnt || 0;
         } catch {}
         if (ccpCount === 0) ccpCount = 4;
 
-        // 체크리스트 템플릿 수 (실제 스키마: template_type)
+        // 체크리스트 수
         let checklistCount = 0;
         try {
-          const [clRows]: any = await db.execute(
-            `SELECT COUNT(*) as cnt FROM h_checklist_templates
-             WHERE tenant_id = ? AND is_active = 1` as any,
+          const [clRows]: any = await pool.execute(
+            `SELECT COUNT(*) as cnt FROM h_checklist_templates WHERE tenant_id = ? AND is_active = 1`,
             [tenantId]
           );
           checklistCount = clRows?.[0]?.cnt || 0;
@@ -119,20 +111,18 @@ export const autoAgentRouter = router({
       };
     }),
 
-  /**
-   * 2단계: 사이트 ID 조회 (프론트에서 batch.bulkCreateForDay 호출 시 필요)
-   */
   getSiteId: tenantRequiredProcedure
     .query(async ({ ctx }) => {
-      const { getDb } = await import("../../db");
-      const db = await getDb();
-      const [rows]: any = await db.execute(
-        `SELECT id FROM h_sites WHERE tenant_id = ? LIMIT 1` as any,
+      const pool = await getRawConnection();
+      const [rows]: any = await pool.execute(
+        `SELECT id FROM h_sites WHERE tenant_id = ? LIMIT 1`,
         [ctx.tenantId]
       );
       return { siteId: rows?.[0]?.id || 1 };
     }),
 });
+
+// ─── 유틸 함수 ───
 
 function normalize(s: string): string {
   return s.replace(/[\s\(\)\[\]·\-_]/g, "").toLowerCase();
@@ -167,15 +157,12 @@ async function parseAndMatchProducts(text: string, tenantId: number) {
   }
   const timeMatch = text.match(/(\d{1,2}):(\d{2})/);
 
-  // DB에서 제품명 매칭
   if (items.length > 0) {
-    const { getDb } = await import("../../db");
-    const db = await getDb();
-    // 전체 제품 목록을 한 번만 조회 (N+1 방지)
+    const pool = await getRawConnection();
     let allProducts: any[] = [];
     try {
-      const [productRows]: any = await db.execute(
-        `SELECT id, product_name FROM h_products_v2 WHERE tenant_id = ?` as any,
+      const [productRows]: any = await pool.execute(
+        `SELECT id, product_name FROM h_products_v2 WHERE tenant_id = ?`,
         [tenantId]
       );
       allProducts = productRows || [];
@@ -189,18 +176,11 @@ async function parseAndMatchProducts(text: string, tenantId: number) {
 
       for (const p of allProducts) {
         const pName = normalize(p.product_name);
-
-        // 1순위: 정규화 후 정확 일치
         if (pName === input) { bestMatch = p; bestScore = 100; break; }
-
-        // 2순위: 연속 부분 문자열 포함
         if (pName.includes(input) || input.includes(pName)) {
           const score = Math.min(input.length, pName.length) / Math.max(input.length, pName.length) * 85;
           if (score > bestScore) { bestMatch = p; bestScore = score; }
         }
-
-        // 3순위: 토큰 기반 (사용자가 중간 단어를 생략해도 매칭)
-        // 예: "마카다미아 흰" → ["마카다미아", "흰"] → DB "마카다미아왕찹쌀떡혼합흰" 매칭
         if (inputTokens.length >= 1) {
           const tScore = tokenMatchScore(inputTokens, p.product_name);
           if (tScore > bestScore) { bestMatch = p; bestScore = tScore; }
