@@ -79,9 +79,26 @@ LEFT JOIN information_schema.COLUMNS c
  AND c.COLUMN_NAME  = need.col
 ORDER BY need.tbl, need.col;
 
--- [4] 현재 템플릿 실태 (frequency 가 있을 때만 의미 있음 — 없으면 에러 대신 0건)
+-- [4] 현재 템플릿 실태
+--   ★ 테이블이 없으면 ER_NO_SUCH_TABLE 로 스크립트가 중단되므로
+--     PREPARE 가드로 감싼다 (없으면 안내 메시지만 출력하고 계속 진행).
 SELECT '[4] 테넌트별 템플릿 수' AS section;
-SELECT tenant_id, COUNT(*) AS template_count, SUM(is_active = 1) AS active_count
-FROM checklist_templates
-GROUP BY tenant_id
-ORDER BY tenant_id;
+SET @s = (SELECT IF(COUNT(*) = 0,
+  'SELECT ''checklist_templates 테이블 없음 — Case 3'' AS msg',
+  'SELECT tenant_id, COUNT(*) AS template_count, SUM(is_active = 1) AS active_count
+     FROM checklist_templates GROUP BY tenant_id ORDER BY tenant_id')
+  FROM information_schema.TABLES
+  WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'checklist_templates');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
+
+-- [5] frequency 값 분포 (컬럼이 있을 때만 — STEP 10 이 실제로 잡을 템플릿 수)
+SELECT '[5] frequency 분포' AS section;
+SET @s = (SELECT IF(COUNT(*) = 0,
+  'SELECT ''checklist_templates.frequency 컬럼 없음 — Case 2'' AS msg',
+  'SELECT COALESCE(frequency, ''(NULL=수동)'') AS frequency, COUNT(*) AS cnt,
+          SUM(is_active = 1) AS active_cnt
+     FROM checklist_templates GROUP BY frequency ORDER BY cnt DESC')
+  FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA = DATABASE()
+    AND TABLE_NAME = 'checklist_templates' AND COLUMN_NAME = 'frequency');
+PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
