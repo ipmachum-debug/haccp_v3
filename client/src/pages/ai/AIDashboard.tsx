@@ -23,6 +23,7 @@ import {
   InlineChatbot,
 } from "./index";
 import type { Section } from "./index";
+import { useTenantModules } from "@/hooks/useTenantModules";
 
 // ============================================================================
 // 섹션 정의
@@ -73,14 +74,21 @@ const SECTION_GREETING: Record<Section, string> = {
 // 메인 컴포넌트
 // ============================================================================
 export default function AIDashboard() {
-  const [section, setSection] = useState<Section>("haccp");
-  const [activeTab, setActiveTab] = useState("overview");
+  const { hasHACCP } = useTenantModules();
+  const defaultSection: Section = hasHACCP ? "haccp" : "erp";
+  const [section, setSection] = useState<Section>(defaultSection);
+  const [activeTab, setActiveTab] = useState(DEFAULT_TABS[defaultSection]);
   const [chatExpanded, setChatExpanded] = useState(false);
 
   const handleSectionChange = (s: Section) => {
     setSection(s);
     setActiveTab(DEFAULT_TABS[s]);
   };
+
+  // ERP 전용: HACCP 섹션과 관리(기준서) 섹션 숨김
+  const visibleSections = hasHACCP
+    ? Object.entries(SECTION_CONFIG) as [Section, typeof SECTION_CONFIG[Section]][]
+    : (Object.entries(SECTION_CONFIG) as [Section, typeof SECTION_CONFIG[Section]][]).filter(([key]) => key === "erp");
 
   return (
     <DashboardLayout>
@@ -93,14 +101,14 @@ export default function AIDashboard() {
             </div>
             <div>
               <h1 className="text-base font-bold leading-tight">AI 관제 센터</h1>
-              <p className="text-[11px] text-muted-foreground">HACCP + ERP 통합 AI 분석</p>
+              <p className="text-[11px] text-muted-foreground">{hasHACCP ? "HACCP + ERP 통합 AI 분석" : "ERP 회계 AI 분석"}</p>
             </div>
           </div>
         </div>
 
         {/* 섹션 선택 */}
         <div className="flex gap-1.5">
-          {(Object.entries(SECTION_CONFIG) as [Section, typeof SECTION_CONFIG[Section]][]).map(([key, cfg]) => {
+          {visibleSections.map(([key, cfg]) => {
             const Icon = cfg.icon;
             const isActive = section === key;
             return (

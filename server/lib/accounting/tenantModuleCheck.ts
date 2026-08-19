@@ -1,5 +1,5 @@
 import { getDb } from "../../db/connection";
-import { tenants } from "../../../drizzle/schema_main";
+import { tenants } from "../../../drizzle/schema";
 import { eq } from "drizzle-orm";
 
 const PACKAGE_MODULES: Record<string, { erp: boolean; haccp: boolean }> = {
