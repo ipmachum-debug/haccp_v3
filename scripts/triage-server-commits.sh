@@ -178,19 +178,20 @@ fi
 # ─────────────────────────────────────────────────────────────
 sec "[H] 배포 경로 및 PM2"
 
-echo "  ── 배포 스크립트 후보 ──"
-for f in "$R/deploy.sh" "$R/scripts/deploy.sh" "$R/scripts/deploy-to-server.sh" \
-         "/root/haccp_v3/scripts/deploy.sh"; do
+echo "  ── 정규 배포 스크립트 ──"
+for f in "$R/scripts/deploy.sh" "/root/haccp_v3/scripts/deploy.sh"; do
   [ -f "$f" ] && echo "    ✅ $f" || echo "    ❌ $f (없음)"
 done
 
 echo
-echo "  ── deploy.sh 가 기대하는 경로 ──"
+echo "  ── 폐기된 루트 deploy.sh ──"
 if [ -f "$R/deploy.sh" ]; then
-  grep -E '^(WEBAPP_DIR|DEPLOY_DIR|BUILD_DIR)=' "$R/deploy.sh" 2>/dev/null | sed 's/^/    /'
-  for v in $(grep -E '^(WEBAPP_DIR|DEPLOY_DIR)=' "$R/deploy.sh" 2>/dev/null | cut -d'"' -f2); do
-    [ -d "$v" ] && echo "    ✅ 존재: $v" || echo "    ❌ 없음: $v  ← deploy.sh 그대로 못 씀"
-  done
+  echo "    🚨 $R/deploy.sh 가 아직 있습니다 — 실행하지 마십시오."
+  echo "       PR-D1(2026-04-27)로 scripts/deploy.sh 에 대체됐고,"
+  echo "       WEBAPP_DIR 이 방치된 저장소를 가리켜 옛 코드를 배포합니다."
+  grep -E '^(WEBAPP_DIR|DEPLOY_DIR|BUILD_DIR)=' "$R/deploy.sh" 2>/dev/null | sed 's/^/       /'
+else
+  echo "    ✅ 없음 (정상 — 삭제 완료)"
 fi
 
 echo
