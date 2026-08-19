@@ -21,6 +21,102 @@ import {
 // ============================================================================
 
 /**
+ * checklist_templates.frequency ENUM 값.
+ * batch_create / batch_complete 는 배치 파이프라인(STEP 10, autoCreateChecklistsForBatch)이
+ * 인스턴스를 자동 생성하는 트리거로 사용된다.
+ */
+/**
+ * checklist_templates 의 자동생성 컬럼(frequency 등)이 실제 DB 에 존재하는지 1회 확인 후 캐시.
+ *
+ * 배경: 저장소 마이그레이션 어디에도 이 컬럼을 만드는 SQL 이 없어(0001~0008 은 placeholder,
+ *   0042 는 tenant_id 만 추가) drizzle 스키마와 실제 DB 가 어긋나 있을 수 있다.
+ *   컬럼이 없는 환경에서 INSERT/UPDATE 에 이 필드를 넣으면 ER_BAD_FIELD_ERROR 로
+ *   **템플릿 저장 화면 자체가 깨진다.**
+ *
+ * → 컬럼이 없으면 해당 필드를 조용히 빼고 저장한다 (자동 생성 기능만 비활성, 저장은 정상).
+ *   컬럼을 추가하려면 sql/step18_checklist_frequency_migration_commit.sql 을 실행할 것.
+ */
+let autoGenColumnsCache: Set<string> | null = null;
+
+export async function getChecklistTemplateAutoGenColumns(): Promise<Set<string>> {
+  if (autoGenColumnsCache) return autoGenColumnsCache;
+  const db = await getDb();
+  if (!db) return new Set();
+  try {
+    const rows: any = await db.execute(sql`
+      SELECT COLUMN_NAME AS name
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'checklist_templates'
+        AND COLUMN_NAME IN ('frequency','generation_mode','requires_approval','requires_attachment','auto_trigger_rules')
+    `);
+    const list = ((rows as any)?.[0] ?? rows ?? []) as any[];
+    autoGenColumnsCache = new Set(list.map((r: any) => String(r.name)));
+  } catch {
+    // information_schema 조회 실패 시에는 보수적으로 "없음" 취급 (저장은 살린다)
+    autoGenColumnsCache = new Set();
+  }
+  return autoGenColumnsCache;
+}
+
+/** checklist_instances.period_key 존재 여부 (동일 사유로 1회 확인 후 캐시) */
+let periodKeyColumnCache: boolean | null = null;
+
+export async function checklistInstancesHasPeriodKey(): Promise<boolean> {
+  if (periodKeyColumnCache !== null) return periodKeyColumnCache;
+  const db = await getDb();
+  if (!db) return false;
+  try {
+    const rows: any = await db.execute(sql`
+      SELECT COUNT(*) AS cnt
+      FROM information_schema.COLUMNS
+      WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'checklist_instances'
+        AND COLUMN_NAME = 'period_key'
+    `);
+    const list = ((rows as any)?.[0] ?? rows ?? []) as any[];
+    periodKeyColumnCache = Number(list?.[0]?.cnt ?? 0) > 0;
+  } catch {
+    periodKeyColumnCache = false;
+  }
+  return periodKeyColumnCache;
+}
+
+/** 테스트/마이그레이션 직후 캐시 무효화 */
+export function resetChecklistTemplateColumnCache(): void {
+  autoGenColumnsCache = null;
+  periodKeyColumnCache = null;
+}
+
+/** 실제 존재하는 컬럼만 남기고 나머지는 제거 */
+async function pickExistingAutoGenFields(
+  values: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const cols = await getChecklistTemplateAutoGenColumns();
+  const camelToSnake: Record<string, string> = {
+    frequency: "frequency",
+    generationMode: "generation_mode",
+    requiresApproval: "requires_approval",
+    requiresAttachment: "requires_attachment",
+    autoTriggerRules: "auto_trigger_rules",
+  };
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(values)) {
+    const snake = camelToSnake[k];
+    if (snake && !cols.has(snake)) continue; // DB 에 없는 컬럼은 건너뜀
+    out[k] = v;
+  }
+  return out;
+}
+
+export type ChecklistFrequency =
+  | "daily"
+  | "weekly"
+  | "monthly"
+  | "batch_create"
+  | "batch_complete";
+
+/**
  * 체크리스트 템플릿 목록 조회
  */
 export async function getChecklistTemplates(filters: {
@@ -96,12 +192,29 @@ export async function createChecklistTemplate(data: {
   category: "CCP" | "SANITATION" | "QUALITY" | "SAFETY" | "TRAINING" | "MAINTENANCE";
   ccpType?: string;
   priority?: number;
+  /** 자동 생성 주기 — batch_create/batch_complete 이면 배치 파이프라인 STEP 10 이 인스턴스를 생성 */
+  frequency?: ChecklistFrequency | null;
+  generationMode?: "manual" | "auto";
+  requiresApproval?: boolean;
+  requiresAttachment?: boolean;
   autoTriggerRules?: any;
   createdBy?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
+
+  // ★ 2026-08-18: tenantId 폴백(|| 1) 제거 — 다른 테넌트로 템플릿이 새는 사고 방지
+  if (!data.tenantId) throw new Error("tenantId 는 필수입니다 (체크리스트 템플릿 생성)");
+
+  // ★ DB 에 실제로 존재하는 자동생성 컬럼만 포함 (마이그레이션 미적용 환경 보호)
+  const autoGen = await pickExistingAutoGenFields({
+    frequency: data.frequency ?? null,
+    generationMode: data.generationMode ?? (data.frequency ? "auto" : "manual"),
+    requiresApproval: data.requiresApproval ? 1 : 0,
+    requiresAttachment: data.requiresAttachment ? 1 : 0,
+    autoTriggerRules: data.autoTriggerRules,
+  });
 
   const [result] = await db.insert(checklistTemplates).values({
     name: data.name,
@@ -109,9 +222,9 @@ export async function createChecklistTemplate(data: {
     category: data.category,
     ccpType: data.ccpType,
     priority: data.priority || 0,
-    autoTriggerRules: data.autoTriggerRules,
+    ...autoGen,
     createdBy: data.createdBy,
-    tenantId: data.tenantId || 1,
+    tenantId: data.tenantId,
     isActive: 1
   } as any);
 
@@ -123,6 +236,8 @@ export async function createChecklistTemplate(data: {
  */
 export async function createChecklistTemplateItem(data: {
   templateId: number;
+  /** ★ checklist_template_items.tenant_id 는 NOT NULL — 누락 시 INSERT 자체가 실패한다 */
+  tenantId: number;
   sortOrder: number;
   itemName: string;
   itemType: "checkbox" | "number" | "text" | "select" | "time" | "date" | "temperature" | "pressure" | "textarea";
@@ -134,6 +249,8 @@ export async function createChecklistTemplateItem(data: {
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
+
+  if (!data.tenantId) throw new Error("tenantId 는 필수입니다 (체크리스트 템플릿 항목 생성)");
 
   const [result] = await db.insert(checklistTemplateItems).values({
     ...data,
@@ -152,8 +269,13 @@ export async function createChecklistTemplateWithItems(data: {
   category: "CCP" | "SANITATION" | "QUALITY" | "SAFETY" | "TRAINING" | "MAINTENANCE";
   ccpType?: string;
   priority?: number;
+  frequency?: ChecklistFrequency | null;
+  generationMode?: "manual" | "auto";
+  requiresApproval?: boolean;
+  requiresAttachment?: boolean;
   autoTriggerRules?: any;
   createdBy?: number;
+  tenantId: number;
   items: Array<{
     sortOrder: number;
     itemName: string;
@@ -175,20 +297,154 @@ export async function createChecklistTemplateWithItems(data: {
     category: data.category,
     ccpType: data.ccpType,
     priority: data.priority,
+    frequency: data.frequency,
+    generationMode: data.generationMode,
+    requiresApproval: data.requiresApproval,
+    requiresAttachment: data.requiresAttachment,
     autoTriggerRules: data.autoTriggerRules,
-    createdBy: data.createdBy
+    createdBy: data.createdBy,
+    tenantId: data.tenantId,
   });
 
   // 항목 생성
   for (const item of data.items) {
     await createChecklistTemplateItem({
       templateId,
+      tenantId: data.tenantId,
       ...item
     });
   }
 
-  return await getChecklistTemplateById(templateId);
+  return await getChecklistTemplateById(templateId, data.tenantId);
 }
+
+/**
+ * 배치 생성 시 자동 생성될 기본 체크리스트 템플릿 시드.
+ *
+ * 배치 파이프라인 STEP 10 (autoCreateChecklistsForBatch) 은
+ * `frequency='batch_create'` 인 활성 템플릿만 인스턴스화한다.
+ * 지금까지 frequency 를 설정할 경로가 없어 항상 0건이 생성됐으므로,
+ * 표준 양식 3종을 시드해 파이프라인을 실제로 동작시킨다.
+ *
+ * 재실행 안전: 같은 이름의 활성 템플릿이 있으면 건너뛴다.
+ */
+export async function seedBatchCreateChecklistTemplates(
+  tenantId: number,
+  createdBy?: number,
+): Promise<{ created: string[]; skipped: string[] }> {
+  const db = await getDb();
+  if (!db) throw new Error("Database connection failed");
+  if (!tenantId) throw new Error("tenantId 는 필수입니다 (기본 체크리스트 템플릿 시드)");
+
+  // ★ frequency 컬럼이 없으면 시드해도 STEP 10 이 못 읽는다 → 마이그레이션 안내 후 중단
+  const autoGenCols = await getChecklistTemplateAutoGenColumns();
+  if (!autoGenCols.has("frequency")) {
+    throw new Error(
+      "checklist_templates.frequency 컬럼이 DB 에 없습니다. " +
+      "sql/step18_checklist_frequency_migration_commit.sql 을 먼저 실행하세요.",
+    );
+  }
+
+  const created: string[] = [];
+  const skipped: string[] = [];
+
+  for (const def of BATCH_CREATE_TEMPLATE_DEFS) {
+    const [existing] = await db
+      .select({ id: checklistTemplates.id })
+      .from(checklistTemplates)
+      .where(and(
+        eq(checklistTemplates.tenantId, tenantId),
+        eq(checklistTemplates.name, def.name),
+        eq(checklistTemplates.isActive, 1),
+      ))
+      .limit(1);
+
+    if (existing) {
+      skipped.push(def.name);
+      continue;
+    }
+
+    await createChecklistTemplateWithItems({
+      name: def.name,
+      description: def.description,
+      category: def.category,
+      priority: def.priority,
+      frequency: "batch_create",
+      generationMode: "auto",
+      requiresApproval: def.requiresApproval,
+      tenantId,
+      createdBy,
+      items: def.items.map((itemName, idx) => ({
+        sortOrder: idx + 1,
+        itemName,
+        itemType: "checkbox" as const,
+        required: true,
+      })),
+    });
+    created.push(def.name);
+  }
+
+  return { created, skipped };
+}
+
+/** 시드용 표준 양식 정의 (HACCP 일반위생관리 기준) */
+const BATCH_CREATE_TEMPLATE_DEFS: Array<{
+  name: string;
+  description: string;
+  category: "CCP" | "SANITATION" | "QUALITY" | "SAFETY" | "TRAINING" | "MAINTENANCE";
+  priority: number;
+  requiresApproval: boolean;
+  items: string[];
+}> = [
+  {
+    name: "작업 전 준비 점검표",
+    description: "배치 생산 시작 전 작업장·설비·인원 준비 상태 점검 (배치 생성 시 자동 생성)",
+    category: "SANITATION",
+    priority: 10,
+    requiresApproval: true,
+    items: [
+      "작업장 바닥·배수로 청소 상태 양호",
+      "제조설비 세척·소독 완료",
+      "작업자 위생복장(모자·마스크·장갑) 착용 확인",
+      "작업자 건강상태 이상 없음 (설사·발열·화농성 질환)",
+      "손 세척·소독 실시",
+      "계량기·온도계 정상 작동 확인",
+      "원·부재료 유통기한 및 표시사항 확인",
+      "청결구역/일반구역 구분 관리 상태 확인",
+    ],
+  },
+  {
+    name: "생산 중 위생점검표",
+    description: "배치 생산 중 교차오염·이물·온도 관리 점검 (배치 생성 시 자동 생성)",
+    category: "SANITATION",
+    priority: 9,
+    requiresApproval: true,
+    items: [
+      "원·부재료 교차오염 방지 관리",
+      "작업 중 이물 혼입 방지 조치 실시",
+      "냉장·냉동 보관창고 온도 정상 범위 유지",
+      "가열 후 식힘 공정 관리 적정",
+      "제조설비 파손·고장 없음",
+      "방충·방서 시설 이상 없음",
+      "폐기물 즉시 처리 및 분리 보관",
+    ],
+  },
+  {
+    name: "완제품 포장·출고 점검표",
+    description: "배치 완제품 포장 상태 및 표시사항 점검 (배치 생성 시 자동 생성)",
+    category: "QUALITY",
+    priority: 8,
+    requiresApproval: true,
+    items: [
+      "완제품 포장 상태 양호 (밀봉·파손 없음)",
+      "표시사항(제품명·중량·제조일자·소비기한) 정확",
+      "금속검출기 통과 확인",
+      "LOT 번호 부여 및 기록 완료",
+      "완제품 보관 온도 적정",
+      "운송차량 청결·온도 준수",
+    ],
+  },
+];
 
 /**
  * 체크리스트 템플릿 수정
@@ -201,6 +457,10 @@ export async function updateChecklistTemplate(
     category?: "CCP" | "SANITATION" | "QUALITY" | "SAFETY" | "TRAINING" | "MAINTENANCE";
     ccpType?: string;
     priority?: number;
+    frequency?: ChecklistFrequency | null;
+    generationMode?: "manual" | "auto";
+    requiresApproval?: boolean;
+    requiresAttachment?: boolean;
     autoTriggerRules?: any;
     isActive?: boolean;
   },
@@ -227,7 +487,14 @@ export async function updateChecklistTemplate(
   if (data.category !== undefined) updateData.category = data.category;
   if (data.ccpType !== undefined) updateData.ccpType = data.ccpType;
   if (data.priority !== undefined) updateData.priority = data.priority;
-  if (data.autoTriggerRules !== undefined) updateData.autoTriggerRules = data.autoTriggerRules;
+  // ★ 자동생성 컬럼은 DB 에 존재할 때만 UPDATE 대상에 넣는다
+  const autoGenUpdate: Record<string, unknown> = {};
+  if (data.frequency !== undefined) autoGenUpdate.frequency = data.frequency ?? null;
+  if (data.generationMode !== undefined) autoGenUpdate.generationMode = data.generationMode;
+  if (data.requiresApproval !== undefined) autoGenUpdate.requiresApproval = data.requiresApproval ? 1 : 0;
+  if (data.requiresAttachment !== undefined) autoGenUpdate.requiresAttachment = data.requiresAttachment ? 1 : 0;
+  if (data.autoTriggerRules !== undefined) autoGenUpdate.autoTriggerRules = data.autoTriggerRules;
+  Object.assign(updateData, await pickExistingAutoGenFields(autoGenUpdate));
   if (data.isActive !== undefined) updateData.isActive = data.isActive ? 1 : 0;
 
   if (Object.keys(updateData).length > 0) {
@@ -241,19 +508,36 @@ export async function updateChecklistTemplate(
 
   // 항목 업데이트 (제공된 경우)
   if (items) {
-    // 기존 항목 삭제
+    // ★ tenantId 를 알 수 없으면 템플릿에서 역조회 (checklist_template_items.tenant_id NOT NULL)
+    let itemTenantId = tenantId;
+    if (!itemTenantId) {
+      const [tpl] = await db
+        .select({ tenantId: checklistTemplates.tenantId })
+        .from(checklistTemplates)
+        .where(eq(checklistTemplates.id, templateId))
+        .limit(1);
+      itemTenantId = tpl?.tenantId;
+    }
+    if (!itemTenantId) throw new Error("tenantId 를 확인할 수 없습니다 (체크리스트 템플릿 항목 갱신)");
+
+    // 기존 항목 삭제 (테넌트 격리)
     await db
       .delete(checklistTemplateItems)
-      .where(eq(checklistTemplateItems.templateId, templateId));
+      .where(and(
+        eq(checklistTemplateItems.templateId, templateId),
+        eq(checklistTemplateItems.tenantId, itemTenantId),
+      ));
 
     // 새 항목 추가
     for (const item of items) {
       await createChecklistTemplateItem({
         templateId,
+        tenantId: itemTenantId,
         sortOrder: item.sortOrder,
         itemName: item.itemName,
         itemType: item.itemType,
         required: item.required,
+        description: item.description,
         validationRules: item.validationRules,
         defaultValue: item.defaultValue,
         helpText: item.helpText
@@ -261,7 +545,7 @@ export async function updateChecklistTemplate(
     }
   }
 
-  return await getChecklistTemplateById(templateId);
+  return await getChecklistTemplateById(templateId, tenantId);
 }
 
 /**
@@ -309,26 +593,37 @@ export async function deleteChecklistInstance(instanceId: number, tenantId?: num
  */
 export async function createChecklistInstanceFromTemplate(data: {
   templateId: number;
+  /** ★ checklist_instances / checklist_instance_items 의 tenant_id 는 NOT NULL */
+  tenantId: number;
   batchId?: number;
   ccpRecordId?: number;
+  /** YYYY-MM-DD — 목록/중복검사 기준일 */
+  targetDate?: string;
   scheduledDate?: string;
   dueDate?: string;
   createdBy?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database connection failed");
+  if (!data.tenantId) throw new Error("tenantId 는 필수입니다 (체크리스트 인스턴스 생성)");
 
-  // 템플릿 조회
-  const template = await getChecklistTemplateById(data.templateId);
+  // 템플릿 조회 (테넌트 격리)
+  const template = await getChecklistTemplateById(data.templateId, data.tenantId);
   if (!template) throw new Error("Template not found");
+
+  const targetDate = data.targetDate || data.scheduledDate || null;
 
   // 인스턴스 생성
   const [instanceResult] = await db.insert(checklistInstances).values({
+    tenantId: data.tenantId,
     templateId: data.templateId,
     batchId: data.batchId,
     ccpRecordId: data.ccpRecordId,
     status: "pending",
-    scheduledDate: data.scheduledDate,
+    targetDate,
+    // ★ periodKey 미설정 시 기간 필터 목록에서 인스턴스가 사라진다 (list 가 periodKey 로 조회)
+    periodKey: buildPeriodKey((template as any).frequency, targetDate),
+    scheduledDate: data.scheduledDate ?? targetDate,
     dueDate: data.dueDate,
     createdBy: data.createdBy
   } as any);
@@ -338,17 +633,50 @@ export async function createChecklistInstanceFromTemplate(data: {
   // 인스턴스 항목 생성 (템플릿 항목 복사)
   for (const item of template.items) {
     await db.insert(checklistInstanceItems).values({
+      tenantId: data.tenantId,
       instanceId,
       templateItemId: item.id,
       sortOrder: item.sortOrder,
       itemName: item.itemName,
       itemType: item.itemType,
+      description: item.description,
       value: item.defaultValue || null,
       isCompleted: 0
     } as any);
   }
 
   return instanceId;
+}
+
+/**
+ * 인스턴스의 period_key 계산.
+ *   daily / batch_* → YYYY-MM-DD
+ *   weekly          → YYYY-Www (ISO 주차)
+ *   monthly         → YYYY-MM
+ * 기준일이 없으면 null.
+ */
+export function buildPeriodKey(
+  frequency: ChecklistFrequency | null | undefined,
+  targetDate: string | null | undefined,
+): string | null {
+  if (!targetDate) return null;
+  const date = String(targetDate).slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+
+  if (frequency === "monthly") return date.slice(0, 7);
+  if (frequency === "weekly") {
+    // ISO-8601 주차 (목요일 기준)
+    const d = new Date(`${date}T00:00:00Z`);
+    const day = (d.getUTCDay() + 6) % 7; // 월=0
+    d.setUTCDate(d.getUTCDate() - day + 3);
+    const isoYear = d.getUTCFullYear();
+    const firstThursday = new Date(Date.UTC(isoYear, 0, 4));
+    const firstDay = (firstThursday.getUTCDay() + 6) % 7;
+    firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDay + 3);
+    const week = Math.round((d.getTime() - firstThursday.getTime()) / (7 * 86400000)) + 1;
+    return `${isoYear}-W${String(week).padStart(2, "0")}`;
+  }
+  return date;
 }
 
 /**

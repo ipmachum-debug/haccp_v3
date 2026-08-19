@@ -126,6 +126,21 @@ export function initScheduler() {
     }
   }));
 
+  // ★ 2026-08-18: 매일 오전 8시 30분 미수금(AR) 결제주기 초과 알림
+  cron.schedule("30 8 * * *", () => withSchedulerLock("receivable_overdue", async () => {
+    const timestamp = new Date().toISOString();
+    console.log(`[Scheduler] ${timestamp} - 미수금 연체 알림 체크 시작`);
+    try {
+      const { checkOverdueReceivables } = await import("./schedulers/receivableOverdue");
+      const result = await checkOverdueReceivables();
+      console.log(
+        `[Scheduler] ${timestamp} - 미수금 연체 알림: 테넌트 ${result.tenantCount} / 연체 거래처 ${result.partnerCount} / 알림 ${result.alertCount}건 / 에러 ${result.errors}`,
+      );
+    } catch (error) {
+      console.error(`[Scheduler] ${timestamp} - 미수금 연체 알림 실패:`, error);
+    }
+  }));
+
   // ★ Phase 4 (CRM): 매일 오전 9시 5분 거래처 신용점수 산정
   cron.schedule("5 9 * * *", () => withSchedulerLock("partner_credit_score", async () => {
     const timestamp = new Date().toISOString();

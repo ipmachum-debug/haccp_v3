@@ -12,12 +12,19 @@ import {
   checklistInstanceItems,
 } from "../../../drizzle/schema/checklist";
 import { eq, and, sql } from "drizzle-orm";
+import {
+  buildPeriodKey,
+  getChecklistTemplateAutoGenColumns,
+  checklistInstancesHasPeriodKey,
+} from "../../db/haccp/checklistAndInspection";
 
 import { todayKST } from "../../utils/timezone";
 
 export interface AutoChecklistResult {
   created: number;
   templateNames: string[];
+  /** 조건에 맞는 템플릿이 하나도 없을 때의 안내 (운영 진단용) */
+  skippedReason?: string;
 }
 
 /**
@@ -56,11 +63,26 @@ async function autoCreateChecklists(
 
   const dateStr = targetDate || todayKST();
 
+  // ★ frequency 컬럼이 실제 DB 에 없으면 조회 자체가 에러 → 명확한 사유와 함께 조기 반환
+  //   (sql/step18_checklist_frequency_migration_commit.sql 미적용 환경)
+  const autoGenCols = await getChecklistTemplateAutoGenColumns();
+  if (!autoGenCols.has("frequency")) {
+    return {
+      created: 0,
+      templateNames: [],
+      skippedReason:
+        "checklist_templates.frequency 컬럼이 DB 에 없어 자동 생성을 건너뜁니다. " +
+        "sql/step18_checklist_frequency_migration_commit.sql 을 실행하세요.",
+    };
+  }
+
   // frequency가 일치하고 활성인 템플릿 조회
   const templates = await db
     .select({
       id: checklistTemplates.id,
       name: checklistTemplates.name,
+      frequency: checklistTemplates.frequency,
+      requiresApproval: checklistTemplates.requiresApproval,
     })
     .from(checklistTemplates)
     .where(
@@ -72,10 +94,18 @@ async function autoCreateChecklists(
     );
 
   if (templates.length === 0) {
-    return { created: 0, templateNames: [] };
+    return {
+      created: 0,
+      templateNames: [],
+      skippedReason:
+        `frequency='${frequency}' 인 활성 체크리스트 템플릿이 없습니다. ` +
+        `체크리스트 템플릿 관리에서 '자동 생성 주기'를 지정하세요.`,
+    };
   }
 
   const templateNames: string[] = [];
+  // checklist_instances.period_key 도 마이그레이션 미적용 환경에서는 없을 수 있다
+  const hasPeriodKey = await checklistInstancesHasPeriodKey();
 
   for (const tmpl of templates) {
     // 이미 동일 날짜+템플릿 조합의 인스턴스가 있으면 스킵 (일일 문서 중복 방지)
@@ -95,20 +125,24 @@ async function autoCreateChecklists(
     if (existing.length > 0) continue;
 
     // 인스턴스 생성
+    // ★ periodKey 를 채우지 않으면 checklistInstance.list 의 기간 필터에서 누락된다
     const result = await db.insert(checklistInstances).values({
       tenantId,
       templateId: tmpl.id,
       batchId,
       targetDate: dateStr,
+      scheduledDate: dateStr,
+      ...(hasPeriodKey ? { periodKey: buildPeriodKey(tmpl.frequency as any, dateStr) } : {}),
       status: "pending",
       createdBy: userId,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    });
+    } as any);
 
     const instanceId = Number(result[0].insertId);
 
     // 이전 완료된 인스턴스에서 저장값 조회 (auto-fill)
+    // ★ 방금 만든 인스턴스를 자기 자신에서 복사하지 않도록 id != instanceId 조건 필수
     let prevValues = new Map<number, string>();
     try {
       const prevInstances = await db
@@ -118,6 +152,7 @@ async function autoCreateChecklists(
           and(
             eq(checklistInstances.tenantId, tenantId),
             eq(checklistInstances.templateId, tmpl.id),
+            sql`${checklistInstances.id} <> ${instanceId}`,
           ),
         )
         .orderBy(sql`${checklistInstances.createdAt} DESC`)
@@ -144,7 +179,10 @@ async function autoCreateChecklists(
     const items = await db
       .select()
       .from(checklistTemplateItems)
-      .where(eq(checklistTemplateItems.templateId, tmpl.id))
+      .where(and(
+        eq(checklistTemplateItems.templateId, tmpl.id),
+        eq(checklistTemplateItems.tenantId, tenantId),
+      ))
       .orderBy(checklistTemplateItems.sortOrder);
 
     if (items.length > 0) {
@@ -153,7 +191,10 @@ async function autoCreateChecklists(
           instanceId,
           templateItemId: item.id,
           itemName: item.itemName,
+          // 레거시 호환 컬럼 (item_text / input_type) 도 함께 채워 구버전 화면과 호환
+          itemText: item.itemName,
           itemType: item.itemType,
+          inputType: item.itemType,
           description: item.description,
           sortOrder: item.sortOrder,
           tenantId,

@@ -25,7 +25,13 @@
  *   1 — baseline 외 신규 중복 발견 (CI 차단)
  */
 
-/** 2026-05-01 baseline — 도입 시점에 이미 존재했던 pre-existing 중복 13건 (점진적 정리 대상) */
+/**
+ * 2026-05-01 baseline — 도입 시점에 이미 존재했던 pre-existing 중복 (점진적 정리 대상)
+ *
+ * ★ 2026-08-18: stripComments() 도입으로 주석 오탐이 사라지면서 13건 → 12건.
+ *   "h_ccp_records" 는 실제 중복이 아니라 주석 오탐이었으므로 제거했다.
+ *   (화이트리스트에 남겨두면 향후 진짜 중복이 생겨도 CI 가 놓친다)
+ */
 const BASELINE_DUPLICATES: ReadonlySet<string> = new Set([
   // auth ↔ schema_main_core RBAC/조직 분리 정의 (6건)
   "h_rbac_roles",
@@ -34,8 +40,7 @@ const BASELINE_DUPLICATES: ReadonlySet<string> = new Set([
   "h_organization",
   "h_employees",
   "h_user_roles",
-  // 도메인별 분리 정의 (7건)
-  "h_ccp_records",
+  // 도메인별 분리 정의 (6건)
   "tenants",
   "support_tickets",
   "accounting_transactions",
@@ -80,8 +85,63 @@ function* walkTsFiles(dir: string): Generator<string> {
   }
 }
 
+/**
+ * 주석(`//`, `/* *\/`)을 같은 길이의 공백으로 치환한다.
+ *
+ * ★ 2026-08-18: 주석을 걸러내지 않아 오탐이 발생하던 문제 수정.
+ *   예) schema_main_accounting.ts 의
+ *       `// export const partnerContacts = mysqlTable("partner_contacts", ...) — REMOVED`
+ *       주석 줄이 실제 정의로 잡혀 "partner_contacts 중복" 이 보고됐다.
+ *
+ * 길이와 개행을 그대로 보존하므로 매칭 offset → 줄 번호 계산이 어긋나지 않는다.
+ * 문자열/템플릿 리터럴 안의 `//` (예: "https://...") 는 주석으로 오인하지 않는다.
+ */
+function stripComments(src: string): string {
+  const out = src.split("");
+  type State = "code" | "sq" | "dq" | "tpl" | "line" | "block";
+  let state: State = "code";
+
+  for (let i = 0; i < src.length; i++) {
+    const c = src[i];
+    const next = src[i + 1];
+
+    switch (state) {
+      case "code":
+        if (c === "/" && next === "/") { state = "line"; out[i] = " "; out[i + 1] = " "; i++; }
+        else if (c === "/" && next === "*") { state = "block"; out[i] = " "; out[i + 1] = " "; i++; }
+        else if (c === "'") state = "sq";
+        else if (c === '"') state = "dq";
+        else if (c === "`") state = "tpl";
+        break;
+
+      case "sq":
+      case "dq":
+      case "tpl": {
+        if (c === "\\") { i++; break; } // 이스케이프 문자 건너뛰기
+        const closer = state === "sq" ? "'" : state === "dq" ? '"' : "`";
+        if (c === closer) state = "code";
+        break;
+      }
+
+      case "line":
+        if (c === "\n") state = "code";
+        else out[i] = " ";
+        break;
+
+      case "block":
+        if (c === "*" && next === "/") { state = "code"; out[i] = " "; out[i + 1] = " "; i++; }
+        else if (c !== "\n") out[i] = " ";
+        break;
+    }
+  }
+
+  return out.join("");
+}
+
 function extractTables(filePath: string): TableOccurrence[] {
-  const content = readFileSync(filePath, "utf8");
+  const raw = readFileSync(filePath, "utf8");
+  // 주석 제거 후 매칭 (줄 번호 보존을 위해 길이/개행은 유지)
+  const content = stripComments(raw);
   const occurrences: TableOccurrence[] = [];
 
   // 전체 content 단위로 매칭 (multi-line 패턴 지원)

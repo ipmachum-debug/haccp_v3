@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { calculateRecipeCost, calculateProductCostStats } from "./costAnalysis";
+import { calculateRecipeCost, calculateProductCostStats } from "./costAnalysisAPI";
 
 describe("Cost Analysis API", () => {
   it("should calculate recipe cost without errors", async () => {

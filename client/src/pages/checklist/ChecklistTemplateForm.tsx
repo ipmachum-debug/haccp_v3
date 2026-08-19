@@ -46,6 +46,9 @@ export default function ChecklistTemplateForm() {
   const [category, setCategory] = useState<string>("CCP");
   const [ccpType, setCcpType] = useState("");
   const [priority, setPriority] = useState(0);
+  // ★ 2026-08-18: 자동 생성 주기. batch_create 를 지정해야 배치 생성 파이프라인(STEP 10)이
+  //   이 템플릿으로 체크리스트를 자동 생성한다. "none" = 수동 생성.
+  const [frequency, setFrequency] = useState<string>("none");
   const [items, setItems] = useState<TemplateItem[]>([
     {
       sortOrder: 1,
@@ -87,6 +90,7 @@ export default function ChecklistTemplateForm() {
       setCategory(template.category);
       setCcpType(template.ccpType || "");
       setPriority(template.priority);
+      setFrequency((template as any).frequency || "none");
       setItems(
         template.items.map((item: any) => ({
           id: item.id,
@@ -153,6 +157,8 @@ export default function ChecklistTemplateForm() {
       category: category as any,
       ccpType: ccpType || undefined,
       priority,
+      frequency: frequency === "none" ? null : (frequency as any),
+      generationMode: frequency === "none" ? ("manual" as const) : ("auto" as const),
       items: items.map((item) => ({
         ...item,
         defaultValue: item.defaultValue || undefined,
@@ -279,6 +285,27 @@ export default function ChecklistTemplateForm() {
                   placeholder="0"
                 />
               </div>
+            </div>
+
+            <div>
+              <Label htmlFor="frequency">자동 생성 주기</Label>
+              <Select value={frequency} onValueChange={setFrequency}>
+                <SelectTrigger id="frequency">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">수동 생성 (자동 없음)</SelectItem>
+                  <SelectItem value="batch_create">배치 생성 시 자동 생성</SelectItem>
+                  <SelectItem value="batch_complete">배치 완료 시 자동 생성</SelectItem>
+                  <SelectItem value="daily">매일</SelectItem>
+                  <SelectItem value="weekly">매주</SelectItem>
+                  <SelectItem value="monthly">매월</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="mt-1 text-xs text-muted-foreground">
+                "배치 생성 시 자동 생성" 을 선택하면 배치를 만들 때 이 템플릿의 체크리스트가
+                당일 1건 자동으로 만들어집니다 (일일일지·위생점검표 등).
+              </p>
             </div>
           </CardContent>
         </Card>

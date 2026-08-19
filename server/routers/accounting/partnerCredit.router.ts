@@ -202,6 +202,34 @@ export const partnerCreditRouter = router({
     return { ap: apBuckets, ar: arBuckets };
   }),
 
+  /**
+   * 미수금 연체 현황 (결제주기 초과 거래처)
+   * 스케줄러(receivableOverdue)와 동일한 기준으로 집계한다.
+   */
+  overdueReceivables: tenantRequiredProcedure.query(async ({ ctx }) => {
+    try {
+      const { getOverdueReceivables, resolveOverdueStage } = await import("../../schedulers/receivableOverdue");
+      const rows = await getOverdueReceivables(ctx.tenantId!);
+      return rows.map((r) => {
+        const stage = resolveOverdueStage(r.maxOverdueDays);
+        return { ...r, stage: stage?.key ?? null, stageLabel: stage?.label ?? null, priority: stage?.priority ?? null };
+      });
+    } catch (err: any) {
+      logWarn("미수금 연체 현황 조회 실패", {
+        tenantId: ctx.tenantId ?? undefined,
+        operation: "partnerCredit.overdueReceivables",
+        error: String(err?.message ?? err),
+      });
+      return [];
+    }
+  }),
+
+  /** 미수금 연체 알림 즉시 생성 (관리자 수동 실행 — cron 대기 없이 확인용) */
+  runOverdueAlerts: adminProcedure.mutation(async ({ ctx }) => {
+    const { checkOverdueReceivablesForTenant } = await import("../../schedulers/receivableOverdue");
+    return await checkOverdueReceivablesForTenant(ctx.tenantId!);
+  }),
+
   summary: tenantRequiredProcedure.query(async ({ ctx }) => {
     try {
     const pool = getPool();
