@@ -84,6 +84,32 @@ jobs:
           echo "📌 배포 대상 tag: $TAG"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+      # ★ 2026-08-19 추가 — workflow_dispatch 로 실행될 때 checkout 이 "실행 ref"
+      #   (기본 브랜치)를 받는 문제 수정.
+      #   이 저장소의 기본 브랜치는 main 이 아니라 genspark_ai_developer 이므로,
+      #   dispatch 배포가 두 달 전 코드를 빌드해 운영에 올릴 뻔했다.
+      #   release 이벤트일 때는 이미 태그가 checkout 되지만, 어느 경로로 들어와도
+      #   "배포 대상 tag 의 코드"를 빌드하도록 여기서 명시적으로 다시 받는다.
+      - name: 배포 대상 tag 로 소스 재확인 (checkout)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.resolve_tag.outputs.tag }}
+          fetch-depth: 0
+
+      - name: 빌드 소스 검증
+        run: |
+          set -eu
+          TAG="${{ steps.resolve_tag.outputs.tag }}"
+          echo "체크아웃 커밋 : $(git rev-parse HEAD)"
+          echo "대상 tag      : $TAG"
+          TAG_SHA="$(git rev-list -n1 "$TAG")"
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "$TAG_SHA" != "$HEAD_SHA" ]; then
+            echo "::error::체크아웃 커밋($HEAD_SHA)이 배포 대상 tag($TAG_SHA)와 다릅니다. 중단합니다."
+            exit 1
+          fi
+          echo "✅ 빌드 소스 = $TAG"
+
       - name: npm install
         run: npm install
 

@@ -143,13 +143,17 @@ jobs:
           else
             echo "→ GITHUB_TOKEN 으로 만든 release 는 다른 워크플로를 트리거하지 못합니다."
             echo "→ deploy.yml 을 workflow_dispatch 로 직접 호출합니다."
+            # ★ --ref 필수: 생략하면 저장소 "기본 브랜치" 에서 워크플로가 실행된다.
+            #   이 저장소의 기본 브랜치는 main 이 아니라 genspark_ai_developer 이므로
+            #   생략 시 옛 워크플로/옛 코드가 돈다 (2026-08-19 실제 발생).
             if gh workflow run deploy.yml \
                  --repo "$REPO" \
+                 --ref main \
                  -f confirm=DEPLOY \
                  -f target_tag="$NEXT"; then
               echo "✅ deploy.yml 트리거 완료 (tag=$NEXT)"
             else
-              echo "::error::deploy.yml 자동 트리거 실패. Actions 탭에서 'Deploy to Production' 을 수동 실행하세요 (confirm=DEPLOY, target_tag=$NEXT)."
+              echo "::error::deploy.yml 자동 트리거 실패. Actions 탭에서 'Deploy to Production' 을 수동 실행하세요 (Use workflow from: main, confirm=DEPLOY, target_tag=$NEXT)."
               exit 1
             fi
           fi
