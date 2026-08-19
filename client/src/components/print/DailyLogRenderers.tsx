@@ -645,21 +645,200 @@ export function renderAirborneBacteriaTest(data: FormData) {
 }
 
 // ============================================================================
-// 교육훈련 기록
+// 교육훈련 기록 (교육훈련일지)
 // ============================================================================
-export function renderTrainingLog(data: FormData) {
-  const formData = data || {};
+const EDUCATION_TYPE_LABELS: Record<string, string> = {
+  internal: "사내교육",
+  external: "외부교육",
+  online: "온라인교육",
+  other: "기타",
+};
+
+// 결재란/제목을 제외한 문서 본문 (승인 인쇄와 작성폼 인쇄가 동일 양식을 공유하도록 분리)
+export function renderTrainingLogBody(data: FormData) {
+  const f = data || {};
+  // 저장 스키마는 snake_case (education_date, educator, education_content …).
+  // 구버전 카멜케이스(date/instructor/content) 도 폴백으로 함께 처리.
+  const educationDate = f.education_date || f.date || f.formDate || "";
+  const title = f.title || "";
+  const educator = f.educator || f.instructor || "";
+  const startTime = f.start_time || "";
+  const endTime = f.end_time || "";
+  const timeRange = startTime && endTime ? `${startTime} ~ ${endTime}` : startTime || endTime || "";
+  const location = f.location || "";
+  const educationType = EDUCATION_TYPE_LABELS[f.education_type as string] || f.education_type || "";
+  const targetAudience = f.target_audience || "";
+  const educationContent = f.education_content || f.content || "";
+  const textbookName = f.textbook_name || "";
+  const contentSummary = f.content_summary || "";
+  const evidenceDescription = f.evidence_description || "";
+  // 인쇄 시 PrintPreviewPage 에서 storage key → presigned URL 로 미리 해석해 주입
+  const evidencePhotoUrls: string[] = Array.isArray(f.evidence_photo_urls) ? f.evidence_photo_urls : [];
+  const attendees: Array<Record<string, string>> = Array.isArray(f.attendees) ? f.attendees : [];
+  const concentration = f.concentration_level || "";
+  const understanding = f.understanding_level || "";
+  const reflection = f.reflection_level || "";
+  const improvement = f.improvement_action || "";
+
+  const label = "border border-gray-400 px-3 py-2 bg-gray-50 font-medium whitespace-nowrap";
+  // break-words: 긴 한글 문단이 셀 폭을 넘겨 테이블이 오버플로우되지 않도록 줄바꿈 강제
+  const cell = "border border-gray-400 px-3 py-2 break-words";
+  const fixed = { tableLayout: "fixed" as const, width: "100%" };
+  // 인라인 보증: Tailwind 클래스가 purge 되거나 외부 CSS 가 개입해도 줄바꿈이 반드시 적용되도록
+  const wrapStyle: React.CSSProperties = { overflowWrap: "anywhere", wordBreak: "break-word", whiteSpace: "pre-wrap", verticalAlign: "top" };
+  // 긴 본문 행: 전역 print CSS 의 `tr { break-inside: avoid }` 로 인해 한 페이지보다 긴 행이
+  // 잘리는 것을 방지 — 여러 페이지에 걸쳐 나뉘도록 허용
+  const rowSplit: React.CSSProperties = { breakInside: "auto", pageBreakInside: "auto" };
+
   return (
     <div>
-      <div className="text-center mb-4"><h2 className="text-xl font-bold">교육훈련 기록</h2></div>
-      <table className="w-full border-collapse border border-gray-400 text-sm mb-4">
+      {/* 기본 정보 */}
+      <table className="w-full border-collapse border border-gray-400 text-sm mt-2 mb-4" style={fixed}>
+        <colgroup>
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "35%" }} />
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "35%" }} />
+        </colgroup>
         <tbody>
-          {formData.date && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium w-1/4">교육일</td><td className="border border-gray-400 px-3 py-2">{formData.date}</td></tr>}
-          {formData.title && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">교육명</td><td className="border border-gray-400 px-3 py-2">{formData.title}</td></tr>}
-          {formData.instructor && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">교육자</td><td className="border border-gray-400 px-3 py-2">{formData.instructor}</td></tr>}
-          {formData.content && <tr><td className="border border-gray-400 px-3 py-2 bg-gray-50 font-medium">교육내용</td><td className="border border-gray-400 px-3 py-2 whitespace-pre-wrap">{formData.content}</td></tr>}
+          <tr>
+            <td className={label}>교육명</td>
+            <td className={cell} colSpan={3}>{title || "-"}</td>
+          </tr>
+          <tr>
+            <td className={label}>교육일</td>
+            <td className={cell}>{educationDate || "-"}</td>
+            <td className={label}>교육시간</td>
+            <td className={cell}>{timeRange || "-"}</td>
+          </tr>
+          <tr>
+            <td className={label}>교육구분</td>
+            <td className={cell}>{educationType || "-"}</td>
+            <td className={label}>교육장소</td>
+            <td className={cell}>{location || "-"}</td>
+          </tr>
+          <tr>
+            <td className={label}>교육자</td>
+            <td className={cell}>{educator || "-"}</td>
+            <td className={label}>교육대상</td>
+            <td className={cell}>{targetAudience || "-"}</td>
+          </tr>
+          {textbookName && (
+            <tr>
+              <td className={label}>교재명</td>
+              <td className={cell} colSpan={3}>{textbookName}</td>
+            </tr>
+          )}
         </tbody>
       </table>
+
+      {/* 교육 내용 */}
+      <table className="w-full border-collapse border border-gray-400 text-sm mb-4" style={fixed}>
+        <colgroup>
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "85%" }} />
+        </colgroup>
+        <tbody>
+          <tr style={rowSplit}>
+            <td className={label}>교육내용</td>
+            <td className={`${cell} whitespace-pre-wrap`} style={wrapStyle}>{educationContent || "-"}</td>
+          </tr>
+          {contentSummary && (
+            <tr style={rowSplit}>
+              <td className={label}>내용요약</td>
+              <td className={`${cell} whitespace-pre-wrap`} style={wrapStyle}>{contentSummary}</td>
+            </tr>
+          )}
+          {evidenceDescription && (
+            <tr style={rowSplit}>
+              <td className={label}>증빙설명</td>
+              <td className={`${cell} whitespace-pre-wrap`} style={wrapStyle}>{evidenceDescription}</td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+
+      {/* 교육 사진 (증빙자료) */}
+      {evidencePhotoUrls.length > 0 && (
+        <div className="mb-4 border border-gray-400">
+          <div className="font-medium text-sm px-3 py-2 bg-gray-50 border-b border-gray-400">교육 사진 (증빙자료)</div>
+          <div className="grid grid-cols-2 gap-2 p-2">
+            {evidencePhotoUrls.map((url, i) => (
+              <img
+                key={i}
+                src={url}
+                alt={`교육사진 ${i + 1}`}
+                className="w-full max-h-64 object-contain border border-gray-300"
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 참석자 목록 */}
+      <div className="mb-4">
+        <div className="font-medium text-sm mb-1">참석자 목록</div>
+        <table className="w-full border-collapse border border-gray-400 text-sm">
+          <thead>
+            <tr className="bg-gray-50">
+              <th className="border border-gray-400 px-2 py-1 w-12">번호</th>
+              <th className="border border-gray-400 px-2 py-1">이름</th>
+              <th className="border border-gray-400 px-2 py-1">직책</th>
+              <th className="border border-gray-400 px-2 py-1">부서</th>
+              <th className="border border-gray-400 px-2 py-1 w-28">서명</th>
+            </tr>
+          </thead>
+          <tbody>
+            {attendees.length > 0 ? attendees.map((a, idx) => (
+              <tr key={idx}>
+                <td className="border border-gray-400 px-2 py-1 text-center">{idx + 1}</td>
+                <td className="border border-gray-400 px-2 py-1">{a.name || "-"}</td>
+                <td className="border border-gray-400 px-2 py-1">{a.position || "-"}</td>
+                <td className="border border-gray-400 px-2 py-1">{a.department || "-"}</td>
+                <td className="border border-gray-400 px-2 py-1 text-center">{a.signature || ""}</td>
+              </tr>
+            )) : (
+              <tr><td colSpan={5} className="border border-gray-400 px-2 py-4 text-center text-gray-400">참석자 없음</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+
+      {/* 교육 후 결과 */}
+      <table className="w-full border-collapse border border-gray-400 text-sm" style={fixed}>
+        <colgroup>
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "18%" }} />
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "18%" }} />
+          <col style={{ width: "15%" }} />
+          <col style={{ width: "19%" }} />
+        </colgroup>
+        <tbody>
+          <tr>
+            <td className={`${label} text-center`}>집중도</td>
+            <td className={`${cell} text-center`}>{concentration || "-"}</td>
+            <td className={`${label} text-center`}>이해도</td>
+            <td className={`${cell} text-center`}>{understanding || "-"}</td>
+            <td className={`${label} text-center`}>반영도</td>
+            <td className={`${cell} text-center`}>{reflection || "-"}</td>
+          </tr>
+          <tr style={rowSplit}>
+            <td className={label}>개선 및 조치사항</td>
+            <td className={`${cell} whitespace-pre-wrap`} colSpan={5} style={wrapStyle}>{improvement || "-"}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// 승인 인쇄용: 결재란/제목 + 본문
+export function renderTrainingLog(data: FormData, doc?: DocInfo) {
+  return (
+    <div>
+      <TitleWithApproval title="교육훈련일지" doc={doc} />
+      {renderTrainingLogBody(data || {})}
     </div>
   );
 }

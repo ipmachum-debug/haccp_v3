@@ -558,4 +558,126 @@ export const genericChecklistRouter = router({
         return { success: false, message: err.message || "재생성 실패" };
       }
     }),
+
+  // ── 승인 완료/대기 문서 재작성 (재수정) ──
+  //    승인된(또는 대기중) 문서를 다시 편집 가능한 draft 상태로 되돌린다.
+  //    · 레코드 status → draft, form_data.approval 의 검토/승인 직인 제거(작성자 유지)
+  //    · 연결된 승인요청(h_approval_requests) supersede → cancelled
+  //    편집 후 저장하면 다시 승인요청 → 재검토/재승인 흐름을 탄다.
+  reopenForEdit: tenantRequiredProcedure
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = getEffectiveTenantId(ctx);
+
+      // 1. 레코드 조회 (테넌트 격리)
+      const rows = await db
+        .select()
+        .from(hGenericChecklistRecords)
+        .where(and(
+          eq(hGenericChecklistRecords.id, input.id),
+          eq((hGenericChecklistRecords as any).tenantId, tenantId),
+        ))
+        .limit(1);
+      const rec = rows[0];
+      if (!rec) throw new Error("문서를 찾을 수 없습니다.");
+
+      // 2. form_data.approval 검토/승인 직인 제거 (작성자 직인은 유지)
+      const fd: any = (rec as any).formData || {};
+      if (fd && fd.approval) {
+        fd.approval.reviewerApproved = false;
+        fd.approval.approverApproved = false;
+        fd.approval.reviewerDate = null;
+        fd.approval.approverDate = null;
+      }
+
+      // 3. 레코드 → draft
+      await db.update(hGenericChecklistRecords).set({
+        status: "draft",
+        formData: fd,
+        updatedBy: ctx.user.id,
+        updatedAt: new Date(),
+      } as any).where(and(
+        eq(hGenericChecklistRecords.id, input.id),
+        eq((hGenericChecklistRecords as any).tenantId, tenantId),
+      ));
+
+      // 4. 연결된 승인요청 supersede → cancelled (checklist / generic_checklist 양쪽 reference_type)
+      await db.execute(sql`
+        UPDATE h_approval_requests
+        SET status = 'cancelled',
+            notes = CONCAT(COALESCE(notes, ''), ' [재작성으로 승인취소]')
+        WHERE reference_id = ${input.id}
+          AND reference_type IN ('checklist', 'generic_checklist')
+          AND tenant_id = ${tenantId}
+          AND status IN ('pending_writer', 'pending_review', 'pending_approval', 'pending', 'approved')
+      `);
+
+      return { success: true, message: "재작성 가능 상태로 전환되었습니다." };
+    }),
+
+  // ── 증빙 사진/파일 업로드 (S3) ──
+  //    form_data 에는 stable 한 storage key 만 저장하고, 표시/인쇄 시
+  //    resolvePhotoUrls 로 fresh presigned URL 을 재발급한다 (presigned 는 1시간 만료).
+  uploadPhoto: tenantRequiredProcedure
+    .input(z.object({
+      formType: z.string(),
+      file: z.object({
+        name: z.string(),
+        type: z.string(),
+        data: z.string(), // base64 (data: prefix 제외)
+      }),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { storagePut, StorageNotConfiguredError } = await import("../../storage");
+      const { TRPCError } = await import("@trpc/server");
+      const tenantId = getEffectiveTenantId(ctx);
+      const buffer = Buffer.from(input.file.data, "base64");
+      // 한글/영숫자/._- 외 문자는 언더스코어로 치환 (경로 안전)
+      const safeName = (input.file.name || "photo").replace(/[^\w.\-가-힣]/g, "_");
+      const safeType = (input.formType || "generic").replace(/[^\w\-]/g, "_");
+      const fileKey = `tenant-${tenantId}/${safeType}-photos/${Date.now()}-${safeName}`;
+      try {
+        const { key } = await storagePut(fileKey, buffer, input.file.type || "application/octet-stream");
+        // 표시는 클라이언트 로컬 미리보기(object URL) / 재조회 시 resolvePhotoUrls(data URI) 사용
+        return { key, name: input.file.name };
+      } catch (err: any) {
+        if (err instanceof StorageNotConfiguredError) {
+          throw new TRPCError({ code: "SERVICE_UNAVAILABLE", message: err.userMessage, cause: err });
+        }
+        throw err;
+      }
+    }),
+
+  // ── 저장된 storage key 들을 표시/인쇄용 이미지로 해석 (data URI) ──
+  //    presigned URL 을 그대로 브라우저 <img> 에 쓰면, 스토리지 엔드포인트가
+  //    브라우저에서 직접 접근 불가(내부 엔드포인트/버킷 정책/CORS)일 때 깨진다.
+  //    → 서버가 바이트를 읽어 data URI 로 내려주면 어떤 환경에서도 안정적으로 표시/인쇄됨.
+  resolvePhotoUrls: tenantRequiredProcedure
+    .input(z.object({ keys: z.array(z.string()).max(50) }))
+    .query(async ({ input, ctx }) => {
+      const { storageGet } = await import("../../storage");
+      const tenantId = getEffectiveTenantId(ctx);
+      const results: Array<{ key: string; url: string | null }> = [];
+      for (const key of input.keys) {
+        // 테넌트 격리: 자기 테넌트 prefix 의 key 만 허용
+        if (!key || !key.startsWith(`tenant-${tenantId}/`)) {
+          results.push({ key, url: null });
+          continue;
+        }
+        try {
+          const { url } = await storageGet(key);
+          // 서버 → 스토리지 fetch (presigned) → data URI 변환
+          const resp = await fetch(url);
+          if (!resp.ok) { results.push({ key, url: null }); continue; }
+          const buf = Buffer.from(await resp.arrayBuffer());
+          const ct = resp.headers.get("content-type") || "image/jpeg";
+          results.push({ key, url: `data:${ct};base64,${buf.toString("base64")}` });
+        } catch {
+          results.push({ key, url: null });
+        }
+      }
+      return results;
+    }),
 });

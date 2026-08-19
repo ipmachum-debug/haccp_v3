@@ -243,7 +243,7 @@ export function renderFormContent(data: any, formType: string, doc?: any) {
     case "equipment_inspection": return renderEquipmentInspection(data);
     case "temperature_humidity_check": return renderTemperatureHumidityCheck(data);
     case "airborne_bacteria_test": return renderAirborneBacteriaTest(data);
-    case "training_log": return renderTrainingLog(data);
+    case "training_log": return renderTrainingLog(data, doc);
     case "workplace_hygiene_check": return renderChecklistItems(data, "작업장 위생 점검표", doc);
     case "hygiene_facility_check": return renderChecklistItems(data, "위생시설 점검표", doc);
     case "personal_hygiene_check": return renderPersonalHygieneCheck(data, doc);

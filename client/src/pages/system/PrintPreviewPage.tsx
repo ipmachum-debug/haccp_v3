@@ -175,6 +175,21 @@ export default function PrintPreviewPage() {
           } catch (e) { console.error("폼 데이터 조회 오류:", e); }
         }
 
+        // ── 증빙 사진(교육훈련일지 등): 저장된 storage key → fresh presigned URL 재발급 ──
+        if (formData && Array.isArray((formData as any).evidence_photos) && (formData as any).evidence_photos.length > 0) {
+          try {
+            const keys = (formData as any).evidence_photos
+              .map((p: any) => (typeof p === "string" ? p : p?.key))
+              .filter(Boolean);
+            if (keys.length > 0) {
+              const resolved = await trpcUtils.genericChecklist.resolvePhotoUrls.fetch({ keys });
+              (formData as any).evidence_photo_urls = resolved
+                .filter((r: any) => r.url)
+                .map((r: any) => r.url);
+            }
+          } catch (e) { console.error("증빙 사진 URL 발급 오류:", e); }
+        }
+
         docs.push({ ...request, formData, formType });
       }
       setDocuments(docs);

@@ -52,6 +52,13 @@ export function renderCcpFormRecord(fr: any, doc: any) {
 
   const ccpType = s(fr.ccpType || fr.ccp_type);
   const processGroupName = s(fr.processGroupName || fr.process_group_name);
+  // 공정그룹별 모니터링 방법/개선조치 텍스트 (교반 vs 증숙 등 양식 차이) — 있으면 우선 사용
+  const monitoringMethodText = s(fr.monitoringMethod || fr.monitoring_method).trim();
+  const correctiveActionText = s(fr.correctiveAction || fr.corrective_action).trim();
+  // 저장된 텍스트를 그대로(줄바꿈 보존) 렌더 — 사용자가 기준서 문구를 직접 관리
+  const renderMultiline = (text: string) => (
+    <div className="whitespace-pre-wrap leading-relaxed">{text}</div>
+  );
   const productName = s(fr.productName || fr.product_name);
   const workDate = s(fr.workDate || fr.work_date);
   const status = s(fr.status) || "draft";
@@ -79,6 +86,10 @@ export function renderCcpFormRecord(fr: any, doc: any) {
     "CCP-2B": "[가열(굽기)공정]",
     "CCP-4P": "[금속검출공정]",
   };
+  // 문서 부제: 실제 공정그룹명을 우선 사용 (하드코딩 라벨은 공정그룹명이 없을 때만 폴백).
+  //  동일 CCP 유형이라도 공정그룹은 여러 개(교반-가열/증숙(설기류)/증숙(약식류) 등)이므로
+  //  ccpType 만으로 라벨을 고정하면 모든 CCP-1B 가 "가열(증숙)"으로 잘못 표기됨.
+  const ccpSubtitle = processGroupName ? `[${processGroupName}]` : (ccpSubLabels[ccpType] || "");
 
   // 날짜 포맷
   const formatWorkDate = (d: string) => {
@@ -129,7 +140,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
       <div className="text-xs">
         <TitleWithApproval
           title={ccpTypeLabels[ccpType]}
-          subtitle={ccpSubLabels[ccpType]}
+          subtitle={ccpSubtitle}
           doc={doc}
           infoLeft={<><span className="font-medium">작성일자:</span> {formatWorkDate(workDate)} &nbsp;&nbsp; <span className="font-medium">요일:</span> {getDayOfWeek(workDate)}</>}
         />
@@ -178,6 +189,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 모니터링<br />방 법
               </td>
               <td className={`${bCls} px-2 py-1 leading-relaxed`}>
+                {monitoringMethodText ? renderMultiline(monitoringMethodText) : (
                 <div className="space-y-0.5">
                   <p>○ 가열시간 : 모니터링 담당자는 검교정된 타이머를 이용하여 시간을 확인일지에 기록</p>
                   <p>○ 품명 및 해당 품목 가열(증숙) 압력확인 - 압력계 수치 확인</p>
@@ -188,6 +200,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                   <p>&nbsp;&nbsp;(스팀공급관에서 제일 끝시루) 상단시루에서 모서리 1곳과 중심부 1곳을 측정</p>
                   <p>○ 타이머로 설정된 시간 종료후 탐침온도계로 품온측정 및 측정시간 확인, 기록</p>
                 </div>
+                )}
               </td>
             </tr>
           </tbody>
@@ -258,6 +271,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 개선조치<br />방법
               </td>
               <td className={`${bCls} px-2 py-1 leading-relaxed`}>
+                {correctiveActionText ? renderMultiline(correctiveActionText) : (
                 <div className="space-y-0.5">
                   <p>○ 가열온도 또는 가열시간 미달 시</p>
                   <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
@@ -277,6 +291,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                   <p>&nbsp;- 문제 발생 시 HACCP팀장에게 보고 후 조치하며, 개선조치 후 모니터링 일지에</p>
                   <p>&nbsp;&nbsp;&nbsp;기록후 HACCP팀장에게 승인을 받는다.</p>
                 </div>
+                )}
               </td>
             </tr>
           </tbody>
@@ -332,7 +347,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
       <div className="text-xs">
         <TitleWithApproval
           title={ccpTypeLabels[ccpType]}
-          subtitle={ccpSubLabels[ccpType]}
+          subtitle={ccpSubtitle}
           doc={doc}
           infoLeft={<><span className="font-medium">작성일자:</span> {formatWorkDate(workDate)} &nbsp;&nbsp; <span className="font-medium">요일:</span> {getDayOfWeek(workDate)}</>}
         />
@@ -365,17 +380,36 @@ export function renderCcpFormRecord(fr: any, doc: any) {
           </tbody>
         </table>
 
+        {/* 모니터링 방법 (공정그룹 텍스트 우선, 없으면 굽기 기본 문구) */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50 text-center align-top`} style={{ width: "12%" }}>
+                모니터링<br />방 법
+              </td>
+              <td className={`${bCls} px-2 py-1 leading-relaxed`}>
+                {monitoringMethodText ? renderMultiline(monitoringMethodText) : (
+                <div className="space-y-0.5">
+                  <p>○ 가열온도 : 모니터링 담당자는 가열기에 부착된 판넬에 표시되는 온도를 확인하여 일지에 기록한다.</p>
+                  <p>○ 가열시간 : 모니터링 담당자는 가열기에 부착된 판넬에 표시되는 시간을 확인하여 일지에 기록한다.</p>
+                  <p>※ 가열기는 연 1회 검·교정을 실시한다.</p>
+                </div>
+                )}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+
         {/* 모니터링 기록 */}
         <table className="w-full border-collapse border border-gray-600 mb-0 ccp-print-table">
           <thead>
             <tr>
-              <th className={thCls} style={{ width: "14%" }}>품 명</th>
-              <th className={thCls} style={{ width: "10%" }}>측정시각</th>
-              <th className={thCls} style={{ width: "14%" }}>오븐기</th>
-              <th className={thCls} style={{ width: "12%" }}>가열시간(분)</th>
-              <th className={thCls} style={{ width: "14%" }}>가열온도(℃)</th>
-              <th className={thCls} style={{ width: "10%" }}>투입량(kg)</th>
-              <th className={thCls} style={{ width: "12%" }}>
+              <th className={thCls} style={{ width: "18%" }}>품 명</th>
+              <th className={thCls} style={{ width: "12%" }}>측정시각</th>
+              <th className={thCls} style={{ width: "16%" }}>가열시간(분)</th>
+              <th className={thCls} style={{ width: "20%" }}>가열온도(판넬온도)</th>
+              <th className={thCls} style={{ width: "14%" }}>투입량(kg)</th>
+              <th className={thCls} style={{ width: "20%" }}>
                 판 정<br />(적합/부적합)
               </th>
             </tr>
@@ -384,7 +418,6 @@ export function renderCcpFormRecord(fr: any, doc: any) {
             {displayRows.map((row: any, idx: number) => {
               const rowProductName = s(row.productName || row.product_name) || productName;
               const measureTime = s(row.measurementTime || row.measurement_time);
-              const equipName = s(row.equipmentName || row.equipment_name);
               const heatTime = row.heatTimeMin ?? row.heat_time_min;
               const heatTemp = row.heatTempC ?? row.heat_temp_c;
               const inputQty = row.inputQtyKg ?? row.input_qty_kg;
@@ -394,7 +427,6 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 <tr key={idx}>
                   <td className={tdCls}>{rowProductName || ""}</td>
                   <td className={tdCls}>{measureTime || ":"}</td>
-                  <td className={tdCls}>{equipName || ""}</td>
                   <td className={tdCls}>{heatTime != null ? `${heatTime}분` : ""}</td>
                   <td className={tdCls}>{heatTemp != null ? `${heatTemp}℃` : ""}</td>
                   <td className={tdCls}>{inputQty != null ? `${inputQty}kg` : ""}</td>
@@ -408,6 +440,40 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 </tr>
               );
             })}
+          </tbody>
+        </table>
+
+        {/* 개선조치 방법 (공정그룹 텍스트 우선, 없으면 표준 문구) */}
+        <table className="w-full border-collapse border border-gray-600 mb-0">
+          <tbody>
+            <tr>
+              <td className={`${bCls} px-2 py-1 font-medium bg-gray-50 text-center align-top`} style={{ width: "12%" }}>
+                개선조치<br />방법
+              </td>
+              <td className={`${bCls} px-2 py-1 leading-relaxed`}>
+                {correctiveActionText ? renderMultiline(correctiveActionText) : (
+                <div className="space-y-0.5">
+                  <p>○ 가열온도 또는 가열시간 미달 시</p>
+                  <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
+                  <p>&nbsp;- 가열온도와 가열시간을 재조정한 후 미달된 제품에 대해 재가열을 실시하고</p>
+                  <p>&nbsp;&nbsp;&nbsp;제품검사(관능)를 실시하여 이상이 없는 경우 다음 공정을 진행한다.</p>
+                  <p>&nbsp;- 한계기준 이탈내용과 개선조치 내용을 모니터링 일지에 기록한다.</p>
+                  <p>○ 가열온도 또는 가열시간 초과 시</p>
+                  <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
+                  <p>&nbsp;- 제품검사(관능 등)를 실시하여 이상이 없는 경우 다음공정을 진행한다.</p>
+                  <p>&nbsp;- 한계기준 이탈내용과 개선조치 내용을 모니터링 일지에 기록한다.</p>
+                  <p>○ 기계고장 시</p>
+                  <p>&nbsp;- 모니터링 담당자는 가열기 등 기계고장 시 즉시 작업을 중지한다.</p>
+                  <p>&nbsp;- 수리 후 정상적으로 작동 시 재가동한다.</p>
+                  <p>&nbsp;&nbsp;※ 즉각적인 수리가 불가능할 경우 교차오염이 되지 않도록 보호조치하여</p>
+                  <p>&nbsp;&nbsp;&nbsp;&nbsp;냉장창고에 보관한후, 수리가 끝나면 제품 생산을 계속한다.</p>
+                  <p>○ 공통 : 개선조치 시</p>
+                  <p>&nbsp;- 문제 발생 시 HACCP팀장에게 보고 후 조치하며, 개선조치 후 모니터링 일지에</p>
+                  <p>&nbsp;&nbsp;&nbsp;기록후 HACCP팀장에게 승인을 받는다.</p>
+                </div>
+                )}
+              </td>
+            </tr>
           </tbody>
         </table>
 
@@ -501,7 +567,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
       <div className="text-xs" style={{ breakInside: 'avoid', pageBreakInside: 'avoid' }}>
         <TitleWithApproval
           title={ccpTypeLabels[ccpType]}
-          subtitle={ccpSubLabels[ccpType]}
+          subtitle={ccpSubtitle}
           doc={doc}
           infoLeft={<><span className="font-medium">점검일자:</span> {formatWorkDate(workDate)} &nbsp;&nbsp; <span className="font-medium">요일:</span> {getDayOfWeek(workDate)}</>}
         />

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useLocation } from "wouter";
-import { Plus, Search, FileText, Trash2, Edit , Send} from "lucide-react";
+import { Plus, Search, FileText, Trash2, Edit , Send, RotateCcw} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function TrainingLogList() {
@@ -55,6 +55,23 @@ export default function TrainingLogList() {
     e.stopPropagation();
     if (window.confirm("정말 삭제하시겠습니까?")) {
       deleteMutation.mutate({ id });
+    }
+  };
+
+  const reopenMutation = trpc.genericChecklist.reopenForEdit.useMutation({
+    onSuccess: () => {
+      toast({ title: "재작성 전환 완료", description: "승인이 취소되고 작성중 상태로 전환되었습니다. 수정 후 다시 승인 요청하세요." });
+      refetch();
+    },
+    onError: (error: { message: string }) => {
+      toast({ title: "재작성 전환 실패", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const handleReopen = (record: any, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (window.confirm("이 문서의 승인을 취소하고 재작성(수정 가능) 상태로 전환합니다.\n계속하시겠습니까?")) {
+      reopenMutation.mutate({ id: record.id });
     }
   };
 
@@ -129,6 +146,9 @@ export default function TrainingLogList() {
                           <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-wrap gap-1 justify-center">
                               {record.status === "draft" && <Button variant="default" size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" onClick={(e) => handleApprovalRequest(record, e)}><Send className="h-3 w-3 mr-1" />승인요청</Button>}
+                              {(record.status === "submitted" || record.status === "approved" || record.status === "rejected") && (
+                                <Button variant="outline" size="sm" className="h-7 text-xs border-amber-400 text-amber-700 hover:bg-amber-50" onClick={(e) => handleReopen(record, e)}><RotateCcw className="h-3 w-3 mr-1" />재작성</Button>
+                              )}
                               <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => navigate(`/training-log/${record.id}`)}><Edit className="h-3 w-3 mr-1" />수정</Button>
                               <Button variant="destructive" size="sm" className="h-7 text-xs" onClick={(e) => handleDelete(record.id, e)}><Trash2 className="h-3 w-3 mr-1" />삭제</Button>
                             </div>
