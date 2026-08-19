@@ -59,3 +59,6 @@ tmp/
 screenshot_ccp.png
 __pycache__/
 downloads/
+
+# Issue #421 — 스냅샷에서 재생성되는 baseline SQL (스크립트가 source, CI 가 재생성)
+drizzle/baseline/*.sql
