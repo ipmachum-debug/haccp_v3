@@ -1,0 +1,250 @@
+name: Schema Reproducibility
+
+# Issue #421 — "저장소만으로 신규 환경을 세울 수 있는가" 를 측정한다.
+#
+# 두 단계로 나뉜다.
+#   [정적] 저널 무결성  — DB 없이. drizzle-kit migrate 가 애초에 완주 가능한지.
+#   [동적] 빈 DB 재현    — MySQL 서비스 컨테이너에 마이그레이션을 돌리고 스냅샷과 대조.
+#
+# 정책: 기존 부채는 baseline 으로 통과시키고 **악화만** 차단한다.
+#       (지금 다 갚는 게 목적이 아니라, 더 쌓이지 않게 하는 것이 목적)
+
+on:
+  pull_request:
+    paths:
+      - 'drizzle/**'
+      - 'server/db/startupMigrations.ts'
+      - 'scripts/_lib/schemaSnapshot.ts'
+      - 'scripts/_lint/verify-migration-journal.ts'
+      - 'scripts/verify-schema-reproducibility.ts'
+      - 'scripts/run-startup-migrations-cli.ts'
+      - 'scripts/generate-baseline-migration.ts'
+      - '.github/workflows/schema-reproducibility.yml'
+  workflow_dispatch:
+
+jobs:
+  journal-integrity:
+    name: 저널 무결성 (정적)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: npm install
+        run: npm install
+      - name: 저널 ↔ 파일 무결성 검사
+        run: npm run lint:migration-journal
+
+  empty-db-reproduce:
+    name: 빈 DB 재현 (동적)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci_root_pw
+          MYSQL_DATABASE: haccp_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -pci_root_pw"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    env:
+      # 일회용 컨테이너 전용 자격정보. 운영과 무관하며 외부에서 접근할 수 없다.
+      DATABASE_URL: mysql://root:ci_root_pw@127.0.0.1:3306/haccp_ci
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: npm install
+        run: npm install
+
+      - name: MySQL 준비 대기
+        run: |
+          for i in $(seq 1 30); do
+            if mysqladmin ping -h 127.0.0.1 -P 3306 -u root -pci_root_pw --silent 2>/dev/null; then
+              echo "MySQL 준비 완료 (${i}회 시도)"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::MySQL 이 시간 내에 준비되지 않았습니다."; exit 1
+
+      - name: 빈 DB 확인
+        run: |
+          COUNT=$(mysql -h 127.0.0.1 -u root -pci_root_pw -N -B -e \
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='haccp_ci'")
+          echo "시작 시점 테이블 수: $COUNT"
+          if [ "$COUNT" != "0" ]; then
+            echo "::error::빈 DB 가 아닙니다 ($COUNT 개). 측정을 신뢰할 수 없습니다."; exit 1
+          fi
+
+      - name: ① drizzle-kit migrate (실패해도 계속 — 그 자체가 측정 대상)
+        id: drizzle
+        continue-on-error: true
+        run: npx drizzle-kit migrate
+
+      - name: ① 결과 기록
+        run: |
+          COUNT=$(mysql -h 127.0.0.1 -u root -pci_root_pw -N -B -e \
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='haccp_ci'")
+          echo "drizzle-kit migrate 결과: ${{ steps.drizzle.outcome }}"
+          echo "적용 후 테이블 수: $COUNT"
+          {
+            echo "### ① drizzle-kit migrate"
+            echo ""
+            echo "- 결과: \`${{ steps.drizzle.outcome }}\`"
+            echo "- 생성된 테이블: **$COUNT**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.drizzle.outcome }}" != "success" ]; then
+            echo "::warning::drizzle-kit migrate 가 완주하지 못했습니다 (Issue #421 의 알려진 상태)."
+          fi
+
+      - name: ② startupMigrations (앱이 실제로 쓰는 보조 경로)
+        id: startup
+        continue-on-error: true
+        env:
+          ALLOW_STARTUP_MIGRATIONS_CLI: '1'
+        run: npx tsx scripts/run-startup-migrations-cli.ts
+
+      - name: ② 결과 기록
+        run: |
+          COUNT=$(mysql -h 127.0.0.1 -u root -pci_root_pw -N -B -e \
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='haccp_ci'")
+          echo "startupMigrations 결과: ${{ steps.startup.outcome }}"
+          echo "적용 후 테이블 수: $COUNT"
+          {
+            echo ""
+            echo "### ② startupMigrations"
+            echo ""
+            echo "- 결과: \`${{ steps.startup.outcome }}\`"
+            echo "- 누적 테이블: **$COUNT**"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: ③ 스냅샷 대조 + 기준선 비교
+        run: |
+          mkdir -p ci-out
+          npm run schema:repro -- --json ci-out/reproducibility.json | tee ci-out/repro.log
+          {
+            echo ""
+            echo "### ③ 스냅샷 대조"
+            echo ""
+            echo '```'
+            sed -n '1,24p' ci-out/repro.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 측정 결과 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: schema-reproducibility
+          path: ci-out/
+          if-no-files-found: warn
+
+  baseline-reconstruct:
+    name: 스냅샷 재구성 검증 (2단계 후보)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # 유실된 CREATE TABLE 을 drizzle/meta 스냅샷으로부터 재구성할 수 있는지 검증한다.
+    # 여기서 283/283 이 나오면 Issue #421 2단계의 실행 가능성이 증명된다.
+    # 생성물은 저장소에 커밋하지 않는다 (스크립트가 source, 여기서 재생성).
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci_root_pw
+          MYSQL_DATABASE: haccp_baseline_ci
+        ports:
+          - 3307:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -pci_root_pw"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    env:
+      DATABASE_URL: mysql://root:ci_root_pw@127.0.0.1:3307/haccp_baseline_ci
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: npm install
+        run: npm install
+
+      - name: MySQL 준비 대기
+        run: |
+          for i in $(seq 1 30); do
+            if mysqladmin ping -h 127.0.0.1 -P 3307 -u root -pci_root_pw --silent 2>/dev/null; then
+              echo "MySQL 준비 완료 (${i}회 시도)"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::MySQL 이 시간 내에 준비되지 않았습니다."; exit 1
+
+      - name: baseline SQL 생성 (스냅샷 → SQL)
+        run: npx tsx scripts/generate-baseline-migration.ts
+
+      - name: 빈 DB 확인
+        run: |
+          COUNT=$(mysql -h 127.0.0.1 -P 3307 -u root -pci_root_pw -N -B -e \
+            "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA='haccp_baseline_ci'")
+          if [ "$COUNT" != "0" ]; then
+            echo "::error::빈 DB 가 아닙니다 ($COUNT 개)."; exit 1
+          fi
+
+      - name: ① 테이블 생성
+        run: |
+          mysql -h 127.0.0.1 -P 3307 -u root -pci_root_pw haccp_baseline_ci \
+            < drizzle/baseline/baseline_tables.sql
+
+      - name: ② 외래키 부착
+        run: |
+          mysql -h 127.0.0.1 -P 3307 -u root -pci_root_pw haccp_baseline_ci \
+            < drizzle/baseline/baseline_fks.sql
+
+      - name: ③ 스냅샷 대조 — 여기서 미재현 0 이어야 재구성이 성립한다
+        run: |
+          mkdir -p ci-out
+          npm run schema:repro -- --json ci-out/baseline-reconstruct.json | tee ci-out/reconstruct.log
+
+      - name: 재구성 결과 판정
+        run: |
+          MISSING_T=$(python3 -c "import json;print(len(json.load(open('ci-out/baseline-reconstruct.json'))['missingTables']))")
+          MISSING_C=$(python3 -c "import json;print(len(json.load(open('ci-out/baseline-reconstruct.json'))['missingColumns']))")
+          {
+            echo "### 스냅샷 재구성 검증"
+            echo ""
+            echo "- 미재현 테이블: **$MISSING_T**"
+            echo "- 미재현 컬럼: **$MISSING_C**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$MISSING_T" != "0" ] || [ "$MISSING_C" != "0" ]; then
+            echo "::error::스냅샷 재구성이 완전하지 않습니다 (테이블 $MISSING_T / 컬럼 $MISSING_C)."
+            exit 1
+          fi
+          echo "✅ 283개 테이블 전부 스냅샷으로부터 재구성됨 — 2단계 실행 가능성 확인"
+
+      - name: 측정 결과 업로드
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-reconstruct
+          path: |
+            ci-out/
+            drizzle/baseline/*.sql
+          if-no-files-found: warn
