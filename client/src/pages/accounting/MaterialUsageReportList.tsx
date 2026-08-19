@@ -455,9 +455,10 @@ export default function MaterialUsageReportList(props: MaterialUsageReportListPr
                 <p className="text-xs mt-1">
                   보고서 저장/검토/승인 기능은 서버 재배포 + DB 마이그레이션 후 활성화됩니다.
                   <br />
+                  {"① DB 마이그레이션: "}
                   <code className="bg-amber-100 px-1 rounded">npx tsx scripts/migrate-material-usage-reports.ts</code>
-                  {" → "}
-                  <code className="bg-amber-100 px-1 rounded">./deploy.sh</code>
+                  <br />
+                  {"② 배포: main 에 머지하면 자동 배포됩니다 (GitHub Actions → Release 자산)"}
                   <br />
                   단, 미리보기/인쇄/데이터 조회는 즉시 가능합니다.
                 </p>

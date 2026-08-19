@@ -147,7 +147,11 @@ Before / After 표
 ### 인프라 영역
 1. 워크플로 변경 시: `workflow` scope 토큰 필수 (Claude 토큰 OK, Genspark 토큰 X)
 2. `PAT_TOKEN` 의존: `auto-release.yml` 의 release 생성에 필수 (release.published 트리거용)
-3. **`deploy.sh` 수정 — 서버 빌드 절대 금지** (OOM 재발 — [docs/deploy-flow.md](../deploy-flow.md))
+3. **서버 빌드 절대 금지** (OOM 재발 — [docs/deploy-flow.md](../deploy-flow.md))
+   - 정규 배포 스크립트는 `scripts/deploy.sh` 하나뿐. 서버에서 빌드하지 않고
+     GitHub Actions 가 만든 Release 자산을 받아 `dist` 를 atomic swap 한다.
+   - 루트 `deploy.sh` 는 PR-D1(2026-04-27)에 대체되어 **2026-08-19 삭제됨**.
+     서버에 남아 있다면 실행하지 말 것 (방치된 저장소에서 빌드 → 옛 코드 배포).
 
 ---
 
