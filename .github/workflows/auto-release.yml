@@ -24,6 +24,7 @@ on:
 
 permissions:
   contents: write   # gh release create 가 tag + release 생성
+  actions: write    # PAT 실패 시 deploy.yml 을 workflow_dispatch 로 직접 트리거
 
 jobs:
   release:
@@ -78,37 +79,86 @@ jobs:
             echo "- **커밋**: \`${{ github.sha }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Release 생성 (PAT 사용 — release.published 트리거 가능)
+      - name: Release 생성 + 배포 트리거
         env:
-          # PR-D2 (2026-04-27): GITHUB_TOKEN 으로 만든 release 는 보안 정책상
-          #   다른 워크플로(release.published) 를 트리거하지 못함.
-          #   PAT_TOKEN (Personal Access Token, contents:write 권한) 을 사용해야
-          #   deploy.yml 이 자동으로 실행됨.
-          # PAT_TOKEN 이 secrets 에 없으면 빌트인 GITHUB_TOKEN 으로 fallback —
-          #   release 는 생성되지만 deploy.yml 은 수동 트리거가 필요해짐.
-          GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          FALLBACK_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
         run: |
           set -eu
           NEXT="${{ steps.ver.outputs.next }}"
 
+          # ═══════════════════════════════════════════════════════════
+          # 토큰 선택
+          #
+          # ★ 2026-08-19 수정 — 8/12 배포 실패 원인:
+          #   기존 코드는  GH_TOKEN: ${{ secrets.PAT_TOKEN || secrets.GITHUB_TOKEN }}
+          #   `||` 는 secret 이 "비어있을 때"만 폴백한다. PAT 이 존재하지만
+          #   만료/무효면 그대로 사용되어 `gh release create` 가 401 로 죽고,
+          #   release 자체가 안 만들어져 deploy.yml 도 안 돈다.
+          #   실제로 8/12 #418 머지가 이 경로로 실패했고, 이후 7주간 배포가
+          #   수동 cherry-pick + 서버 빌드로 우회되며 서버 divergence 가 쌓였다.
+          #
+          #   → PAT 을 "실제로 호출해" 유효성을 확인하고, 무효면 GITHUB_TOKEN 으로
+          #     폴백한다. 폴백 시엔 release.published 가 다른 워크플로를 트리거하지
+          #     못하므로 deploy.yml 을 workflow_dispatch 로 직접 호출한다.
+          # ═══════════════════════════════════════════════════════════
+          USE_PAT=0
+          if [ -n "${PAT_TOKEN:-}" ]; then
+            if GH_TOKEN="$PAT_TOKEN" gh api "repos/$REPO" --silent 2>/dev/null; then
+              USE_PAT=1
+              echo "::notice::PAT_TOKEN 유효 — release.published 로 deploy.yml 자동 트리거"
+            else
+              echo "::warning::PAT_TOKEN 이 설정돼 있으나 인증 실패(만료/권한부족). GITHUB_TOKEN 으로 폴백합니다. PAT 재발급을 권장합니다."
+            fi
+          else
+            echo "::warning::PAT_TOKEN 미설정 — GITHUB_TOKEN 으로 진행합니다."
+          fi
+
+          if [ "$USE_PAT" = "1" ]; then
+            export GH_TOKEN="$PAT_TOKEN"
+          else
+            export GH_TOKEN="$FALLBACK_TOKEN"
+          fi
+
           # 동일 태그가 이미 있으면 (수동 생성됐던 경우) 그냥 종료
-          if gh release view "$NEXT" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+          if gh release view "$NEXT" --repo "$REPO" >/dev/null 2>&1; then
             echo "::notice::Release $NEXT 가 이미 존재. 스킵."
             exit 0
           fi
 
-          # PAT_TOKEN 사용 여부 로깅 (보안: 토큰 값은 노출하지 않음)
-          if [ -n "${{ secrets.PAT_TOKEN }}" ]; then
-            echo "::notice::PAT_TOKEN 사용 — deploy.yml 자동 트리거 활성화"
-          else
-            echo "::warning::PAT_TOKEN 미설정 — GITHUB_TOKEN fallback. deploy.yml 은 수동 트리거 필요"
-          fi
-
           gh release create "$NEXT" \
-            --repo "${{ github.repository }}" \
-            --target "${{ github.sha }}" \
+            --repo "$REPO" \
+            --target "$SHA" \
             --title "$NEXT" \
             --generate-notes \
-            --notes "_자동 생성됨 — \`auto-release.yml\` (커밋 \`${{ github.sha }}\`)_"
+            --notes "_자동 생성됨 — \`auto-release.yml\` (커밋 \`$SHA\`)_"
 
-          echo "✅ Release $NEXT 생성 — deploy.yml 자동 트리거됨"
+          echo "✅ Release $NEXT 생성"
+
+          # ── 배포 트리거 ──
+          if [ "$USE_PAT" = "1" ]; then
+            echo "→ release.published 이벤트로 deploy.yml 자동 실행됩니다."
+          else
+            echo "→ GITHUB_TOKEN 으로 만든 release 는 다른 워크플로를 트리거하지 못합니다."
+            echo "→ deploy.yml 을 workflow_dispatch 로 직접 호출합니다."
+            if gh workflow run deploy.yml \
+                 --repo "$REPO" \
+                 -f confirm=DEPLOY \
+                 -f target_tag="$NEXT"; then
+              echo "✅ deploy.yml 트리거 완료 (tag=$NEXT)"
+            else
+              echo "::error::deploy.yml 자동 트리거 실패. Actions 탭에서 'Deploy to Production' 을 수동 실행하세요 (confirm=DEPLOY, target_tag=$NEXT)."
+              exit 1
+            fi
+          fi
+
+          {
+            echo ""
+            echo "## 🚀 배포"
+            echo ""
+            echo "- **tag**: \`$NEXT\`"
+            echo "- **토큰**: $([ "$USE_PAT" = "1" ] && echo 'PAT_TOKEN' || echo 'GITHUB_TOKEN (폴백)')"
+            echo "- **트리거**: $([ "$USE_PAT" = "1" ] && echo 'release.published (자동)' || echo 'workflow_dispatch (명시적 호출)')"
+          } >> "$GITHUB_STEP_SUMMARY"
