@@ -27,9 +27,10 @@
     "lint:client-imports": "tsx scripts/_lint/verify-client-imports.ts",
     "lint:raw-sql-columns": "tsx scripts/_lint/verify-raw-sql-columns.ts",
     "lint:tenant-isolation": "tsx scripts/_lint/verify-tenant-isolation.ts",
-    "lint:deploy-safety": "npm run lint:drizzle-tables && npm run lint:client-imports && npm run lint:root-spreads && npm run lint:esbuild-dryrun && npm run lint:raw-sql-columns && npm run lint:tenant-isolation",
+    "lint:deploy-safety": "npm run lint:drizzle-tables && npm run lint:client-imports && npm run lint:root-spreads && npm run lint:esbuild-dryrun && npm run lint:raw-sql-columns && npm run lint:tenant-isolation && npm run lint:schema-coverage",
     "lint:root-spreads": "tsx scripts/_lint/verify-root-router-spreads.ts",
-    "lint:esbuild-dryrun": "tsx scripts/_lint/verify-esbuild-dryrun.ts"
+    "lint:esbuild-dryrun": "tsx scripts/_lint/verify-esbuild-dryrun.ts",
+    "lint:schema-coverage": "tsx scripts/_lint/verify-schema-migration-coverage.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",
