@@ -19,6 +19,7 @@ on:
       - 'scripts/verify-schema-reproducibility.ts'
       - 'scripts/run-startup-migrations-cli.ts'
       - 'scripts/generate-baseline-migration.ts'
+      - 'drizzle/baseline/actual-schema.json'
       - '.github/workflows/schema-reproducibility.yml'
   workflow_dispatch:
 
@@ -244,6 +245,113 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: baseline-reconstruct
+          path: |
+            ci-out/
+            drizzle/baseline/*.sql
+          if-no-files-found: warn
+
+  actual-bootstrap:
+    name: 실측 부트스트랩 검증 (운영 덤프 기준)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    # "신규 환경을 운영과 같은 스키마로 세울 수 있는가" 를 검증한다.
+    # 스냅샷 기준(baseline-reconstruct)과 다른 질문이다 — 스냅샷은 운영보다
+    # 뒤처져 있다 (2026-08-19 실측: 운영 442 테이블, 스냅샷에 없는 컬럼 423건).
+    #
+    # drizzle/baseline/actual-schema.json 이 커밋되면 자동으로 활성화된다.
+    # 없으면 잡은 안내만 남기고 통과한다 (측정할 대상이 없는 것은 실패가 아니다).
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ci_root_pw
+          MYSQL_DATABASE: haccp_actual_ci
+        ports:
+          - 3308:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -u root -pci_root_pw"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=12
+
+    env:
+      DATABASE_URL: mysql://root:ci_root_pw@127.0.0.1:3308/haccp_actual_ci
+      ACTUAL_PATH: drizzle/baseline/actual-schema.json
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: 실측 덤프 존재 확인
+        id: probe
+        run: |
+          if [ -f "$ACTUAL_PATH" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "실측 덤프 발견: $ACTUAL_PATH"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::$ACTUAL_PATH 이 없어 건너뜁니다. 서버에서 'npm run schema:baseline -- --write' 후 커밋하면 자동 활성화됩니다."
+          fi
+
+      - name: npm install
+        if: steps.probe.outputs.present == 'true'
+        run: npm install
+
+      - name: MySQL 준비 대기
+        if: steps.probe.outputs.present == 'true'
+        run: |
+          for i in $(seq 1 30); do
+            if mysqladmin ping -h 127.0.0.1 -P 3308 -u root -pci_root_pw --silent 2>/dev/null; then
+              echo "MySQL 준비 완료 (${i}회 시도)"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::MySQL 이 시간 내에 준비되지 않았습니다."; exit 1
+
+      - name: 실측 기준 baseline SQL 생성
+        if: steps.probe.outputs.present == 'true'
+        run: npx tsx scripts/generate-baseline-migration.ts --from-actual "$ACTUAL_PATH"
+
+      - name: 빈 DB 에 적용
+        if: steps.probe.outputs.present == 'true'
+        run: |
+          mysql -h 127.0.0.1 -P 3308 -u root -pci_root_pw haccp_actual_ci \
+            < drizzle/baseline/baseline_tables.sql
+
+      - name: 실측 덤프와 대조 — 여기서 미재현 0 이어야 성립한다
+        if: steps.probe.outputs.present == 'true'
+        run: |
+          mkdir -p ci-out
+          npm run schema:repro -- --against-actual "$ACTUAL_PATH" \
+            --json ci-out/actual-bootstrap.json | tee ci-out/actual-bootstrap.log
+
+      - name: 판정
+        if: steps.probe.outputs.present == 'true'
+        run: |
+          MT=$(python3 -c "import json;print(len(json.load(open('ci-out/actual-bootstrap.json'))['missingTables']))")
+          MC=$(python3 -c "import json;print(len(json.load(open('ci-out/actual-bootstrap.json'))['missingColumns']))")
+          {
+            echo "### 실측 부트스트랩 검증"
+            echo ""
+            echo "- 미재현 테이블: **$MT**"
+            echo "- 미재현 컬럼: **$MC**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$MT" != "0" ] || [ "$MC" != "0" ]; then
+            echo "::error::운영 실측 스키마를 신규 환경에 재현하지 못했습니다 (테이블 $MT / 컬럼 $MC)."
+            exit 1
+          fi
+          echo "✅ 신규 환경이 운영과 동일한 테이블·컬럼으로 세워짐"
+
+      - name: 측정 결과 업로드
+        if: always() && steps.probe.outputs.present == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: actual-bootstrap
           path: |
             ci-out/
             drizzle/baseline/*.sql

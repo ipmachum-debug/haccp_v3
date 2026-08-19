@@ -13,6 +13,12 @@
  *   그럼에도 --allow-remote 없이는 localhost/127.0.0.1 이외 호스트 접속을 거부한다.
  *   (운영 DB 를 CI 용 빈 DB 로 착각해 지표를 오염시키는 일을 막기 위함)
  *
+ * 기준(무엇과 대조할 것인가):
+ *   기본            drizzle 스냅샷 — "코드가 주장하는 스키마"
+ *   --against-actual <path>
+ *                   운영 실측 덤프 — "운영이 실제로 가진 스키마".
+ *                   신규 환경을 운영과 같게 세웠는지 보려면 이쪽이다.
+ *
  * 사용법:
  *   DATABASE_URL=mysql://root:pw@127.0.0.1:3306/haccp_ci \
  *     npx tsx scripts/verify-schema-reproducibility.ts --json out/repro.json
@@ -83,12 +89,37 @@ async function main() {
     );
   }
 
-  const snapPath = latestSnapshotPath();
-  if (!snapPath) fail("drizzle/meta 에 스냅샷이 없습니다.");
-  const snap = parseSnapshot(snapPath);
+  const againstActual = argValue("--against-actual");
+
+  let snapPath: string;
+  let snap: { tables: Map<string, Map<string, { type: string }>> };
+
+  if (againstActual) {
+    // 실측 덤프를 스냅샷과 같은 형태로 읽는다 (타입 문자열만 필요하다)
+    let raw: any;
+    try {
+      raw = JSON.parse(readFileSync(againstActual, "utf8"));
+    } catch (e: any) {
+      fail(`실측 덤프 파싱 실패 (${againstActual}): ${e?.message ?? e}`);
+    }
+    if (!raw?.tables) fail(`${againstActual} 에 tables 가 없습니다.`);
+    const tables = new Map<string, Map<string, { type: string }>>();
+    for (const [t, cols] of Object.entries<any>(raw.tables)) {
+      const m = new Map<string, { type: string }>();
+      for (const [c, def] of Object.entries<any>(cols)) m.set(c, { type: String(def.type ?? "") });
+      tables.set(t, m);
+    }
+    snapPath = againstActual;
+    snap = { tables };
+  } else {
+    const p = latestSnapshotPath();
+    if (!p) fail("drizzle/meta 에 스냅샷이 없습니다.");
+    snapPath = p;
+    snap = parseSnapshot(p);
+  }
 
   console.log("=== 신규 환경 재현성 검증 (Issue #421 3단계) ===\n");
-  console.log(`기준 스냅샷 : ${snapPath}`);
+  console.log(`기준        : ${againstActual ? "운영 실측 덤프" : "drizzle 스냅샷"} — ${snapPath}`);
   console.log(`대상 DB     : ${host}\n`);
 
   let conn: mysql.Connection;

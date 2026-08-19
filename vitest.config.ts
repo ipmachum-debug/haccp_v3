@@ -5,7 +5,8 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
-    include: ["server/**/*.test.ts"],
+    // scripts/ 도 포함 — 마이그레이션/스키마 도구에도 회귀 테스트가 필요하다 (Issue #421)
+    include: ["server/**/*.test.ts", "scripts/**/*.test.ts"],
     exclude: ["node_modules", "dist"],
   },
   resolve: {

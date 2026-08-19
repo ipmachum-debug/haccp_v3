@@ -21,9 +21,20 @@
  *   운영 DB 의 실측 스키마(1단계, PR #429)를 확인한 뒤에 결정한다.
  *   MySQL 의 ADD CONSTRAINT 에는 IF NOT EXISTS 가 없어 FK 파일은 재실행이 안 된다.
  *
+ * ★ 소스 선택 — 이게 중요하다
+ *   --snapshot (기본): drizzle 스냅샷 기준. 283 테이블.
+ *                      운영과 어긋나 있다 (2026-08-19 실측: 운영 442 테이블,
+ *                      스냅샷에 없는 컬럼 423건, enum 값 차이 30건).
+ *   --from-actual    : 운영 실측 덤프(actual-schema.json) 기준.
+ *                      **신규 환경을 운영과 같은 상태로 세우려면 이쪽이다.**
+ *
+ *   어느 쪽이든 기존 운영 DB 에 적용하지 않는다. 운영에는 실측이 곧 truth 다.
+ *
  * 사용법:
  *   npx tsx scripts/generate-baseline-migration.ts
  *   npx tsx scripts/generate-baseline-migration.ts --snapshot drizzle/meta/0043_snapshot.json
+ *   npx tsx scripts/generate-baseline-migration.ts --from-actual drizzle/baseline/actual-schema.json
+ *   npx tsx scripts/generate-baseline-migration.ts --out-dir /tmp/x     (기본: drizzle/baseline)
  *
  * 종료 코드:
  *   0 = 생성 완료 / 2 = 오류
@@ -32,7 +43,8 @@
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { latestSnapshotPath } from "./_lib/schemaSnapshot";
 
-const OUT_DIR = "drizzle/baseline";
+const DEFAULT_OUT_DIR = "drizzle/baseline";
+const DEFAULT_ACTUAL_PATH = "drizzle/baseline/actual-schema.json";
 
 interface SnapColumn {
   name: string;
@@ -71,20 +83,107 @@ function columnSql(c: SnapColumn): string {
   return "  " + parts.join(" ");
 }
 
+/**
+ * 실측 덤프(actual-schema.json) → 스냅샷과 같은 형태로 변환.
+ *
+ * information_schema 의 표기를 DDL 로 되돌리는 규칙:
+ *   · EXTRA 에 auto_increment 가 있으면 AUTO_INCREMENT
+ *   · EXTRA 에 DEFAULT_GENERATED 가 있으면 COLUMN_DEFAULT 는 **식**이므로 그대로 쓴다
+ *     (없으면 리터럴이므로 숫자가 아닌 한 따옴표를 씌운다)
+ *   · EXTRA 의 "on update CURRENT_TIMESTAMP(n)" 은 그대로 옮긴다
+ *   · PRIMARY / UNIQUE / 일반 인덱스는 indexes 섹션에서 복원한다
+ *   · FK 는 information_schema.COLUMNS 에 없으므로 복원 대상이 아니다
+ *     (신규 환경 부트스트랩에는 테이블·컬럼·키가 우선이다)
+ */
+function fromActual(path: string): { tables: any[]; note: string } {
+  let raw: any;
+  try {
+    raw = JSON.parse(readFileSync(path, "utf8"));
+  } catch (e: any) {
+    fail(`실측 덤프 파싱 실패 (${path}): ${e?.message ?? e}`);
+  }
+  const tablesObj = raw?.tables;
+  if (!tablesObj || typeof tablesObj !== "object") {
+    fail(`${path} 에 tables 가 없습니다. npm run schema:baseline -- --write 로 생성하십시오.`);
+  }
+  const indexesObj = raw?.indexes ?? {};
+
+  const NUMERIC = /^(tinyint|smallint|mediumint|int|integer|bigint|decimal|numeric|float|double|bit)/i;
+
+  const tables = Object.entries<any>(tablesObj).map(([tableName, cols]) => {
+    const columns: Record<string, any> = {};
+    for (const [colName, c] of Object.entries<any>(cols)) {
+      const extra = String(c.extra ?? "").toLowerCase();
+      let def: string | number | undefined;
+      if (c.default !== null && c.default !== undefined) {
+        if (extra.includes("default_generated")) {
+          def = String(c.default);                    // 식 — 그대로
+        } else if (NUMERIC.test(String(c.type))) {
+          def = String(c.default);                    // 숫자 리터럴
+        } else {
+          def = `'${String(c.default).replace(/'/g, "''")}'`;
+        }
+      }
+      const onUpdateMatch = /on update current_timestamp(\((\d+)\))?/.exec(extra);
+      columns[colName] = {
+        name: colName,
+        type: c.type,
+        notNull: c.nullable === false,
+        autoincrement: extra.includes("auto_increment"),
+        ...(def !== undefined ? { default: def } : {}),
+        ...(onUpdateMatch ? { onUpdate: true } : {}),
+      };
+    }
+
+    // 인덱스 복원 — PRIMARY 는 compositePrimaryKeys, 나머지는 unique/일반으로 나눈다
+    const compositePrimaryKeys: Record<string, any> = {};
+    const uniqueConstraints: Record<string, any> = {};
+    const indexes: Record<string, any> = {};
+    for (const [ixName, ix] of Object.entries<any>(indexesObj[tableName] ?? {})) {
+      if (ixName === "PRIMARY") {
+        compositePrimaryKeys[`${tableName}_pk`] = { name: `${tableName}_pk`, columns: ix.columns };
+      } else if (ix.unique) {
+        uniqueConstraints[ixName] = { name: ixName, columns: ix.columns };
+      } else {
+        indexes[ixName] = { name: ixName, columns: ix.columns, isUnique: false };
+      }
+    }
+
+    return { name: tableName, columns, compositePrimaryKeys, uniqueConstraints, indexes, foreignKeys: {} };
+  });
+
+  const note = `실측 덤프 ${path}` + (raw.database ? ` (DB: ${raw.database}, ${raw.generatedAt ?? "시각 미상"})` : "");
+  return { tables, note };
+}
+
 function main() {
   const i = process.argv.indexOf("--snapshot");
   const snapPath = i >= 0 ? process.argv[i + 1] : latestSnapshotPath();
-  if (!snapPath) fail("스냅샷을 찾을 수 없습니다.");
+  const od = process.argv.indexOf("--out-dir");
+  const OUT_DIR = od >= 0 ? (process.argv[od + 1] ?? DEFAULT_OUT_DIR) : DEFAULT_OUT_DIR;
 
-  let snap: any;
-  try {
-    snap = JSON.parse(readFileSync(snapPath, "utf8"));
-  } catch (e: any) {
-    fail(`스냅샷 파싱 실패 (${snapPath}): ${e?.message ?? e}`);
+  const fa = process.argv.indexOf("--from-actual");
+  const actualPath = fa >= 0 ? (process.argv[fa + 1] ?? DEFAULT_ACTUAL_PATH) : undefined;
+
+  let tables: any[];
+  let sourceNote: string;
+
+  if (actualPath) {
+    const r = fromActual(actualPath);
+    tables = r.tables;
+    sourceNote = r.note;
+  } else {
+    if (!snapPath) fail("스냅샷을 찾을 수 없습니다.");
+    let snap: any;
+    try {
+      snap = JSON.parse(readFileSync(snapPath, "utf8"));
+    } catch (e: any) {
+      fail(`스냅샷 파싱 실패 (${snapPath}): ${e?.message ?? e}`);
+    }
+    tables = Object.values<any>(snap.tables ?? {});
+    sourceNote = `drizzle 스냅샷 ${snapPath}`;
   }
-
-  const tables = Object.values<any>(snap.tables ?? {});
-  if (!tables.length) fail(`${snapPath} 에 테이블이 없습니다.`);
+  if (!tables.length) fail(`${sourceNote} 에 테이블이 없습니다.`);
 
   const tableStmts: string[] = [];
   const fkStmts: string[] = [];
@@ -131,7 +230,7 @@ function main() {
     [
       `-- ${title}`,
       `-- 생성: scripts/generate-baseline-migration.ts (수정하지 마십시오 — 재생성됩니다)`,
-      `-- 출처 스냅샷: ${snapPath}`,
+      `-- 출처: ${sourceNote}`,
       `-- 배경: Issue #421 — drizzle/0001~0026 의 원본 SQL 이 유실되어`,
       `--       283개 중 271개 테이블에 CREATE TABLE 이력이 없습니다.`,
       `--       이 파일은 히스토리 복원이 아니라 스냅샷의 최종 상태를 재구성한 것입니다.`,
@@ -166,7 +265,7 @@ function main() {
   );
 
   console.log("=== baseline 마이그레이션 생성 (Issue #421 2단계 준비) ===\n");
-  console.log(`출처 스냅샷 : ${snapPath}`);
+  console.log(`출처        : ${sourceNote}`);
   console.log(`테이블      : ${tableStmts.length}`);
   console.log(`외래키      : ${fkStmts.length}`);
   console.log(`UNIQUE      : ${uniqCount}`);

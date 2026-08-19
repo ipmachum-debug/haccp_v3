@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-08-19T00:00:00.000Z",
+  "database": "haccp_tenant_db",
+  "tableCount": 2,
+  "tables": {
+    "widgets": {
+      "id":        {"type":"bigint","nullable":false,"default":null,"position":1,"extra":"auto_increment","collation":null},
+      "tenant_id": {"type":"int","nullable":false,"default":null,"position":2,"extra":"","collation":null},
+      "code":      {"type":"varchar(50)","nullable":false,"default":null,"position":3,"extra":"","collation":"utf8mb4_unicode_ci"},
+      "status":    {"type":"enum('draft','under_review')","nullable":false,"default":"draft","position":4,"extra":"","collation":"utf8mb4_unicode_ci"},
+      "qty":       {"type":"int","nullable":true,"default":"0","position":5,"extra":"","collation":null},
+      "note":      {"type":"varchar(20)","nullable":true,"default":"it's fine","position":6,"extra":"","collation":"utf8mb4_unicode_ci"},
+      "created_at":{"type":"timestamp","nullable":false,"default":"CURRENT_TIMESTAMP","position":7,"extra":"DEFAULT_GENERATED","collation":null},
+      "updated_at":{"type":"timestamp","nullable":false,"default":"CURRENT_TIMESTAMP","position":8,"extra":"DEFAULT_GENERATED on update CURRENT_TIMESTAMP","collation":null}
+    },
+    "gadgets": {
+      "id":   {"type":"int","nullable":false,"default":null,"position":1,"extra":"auto_increment","collation":null},
+      "name": {"type":"text","nullable":true,"default":null,"position":2,"extra":"","collation":"utf8mb4_unicode_ci"}
+    }
+  },
+  "indexes": {
+    "widgets": {
+      "PRIMARY": {"unique": true, "columns": ["id"]},
+      "uq_widgets_tenant_code": {"unique": true, "columns": ["tenant_id","code"]},
+      "idx_widgets_status": {"unique": false, "columns": ["status"]}
+    },
+    "gadgets": { "PRIMARY": {"unique": true, "columns": ["id"]} }
+  }
+}
