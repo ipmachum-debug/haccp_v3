@@ -10,11 +10,16 @@
  *   drizzle-kit migrate 는 신규 환경에서 테이블을 0개 만든다 (PR #430 에서 실측).
  *   따라서 "실제로 무엇이 있는가" 는 DB 에 물어보는 수밖에 없다.
  *
- * 2026-08-19 첫 실측 (v0.8.304):
- *   실측 442 테이블 vs 스냅샷 283. 테이블 단위 누락은 0건이지만
- *   **스냅샷에 있는데 DB 에 없는 컬럼이 46건** 있었다. 코드가 존재를 가정하는
- *   컬럼이므로 런타임 에러의 직접 원인이 된다. 그래서 이 스크립트는
- *   그 46건이 **실제 코드에서 몇 번 참조되는지**까지 세어 우선순위를 매긴다.
+ * ★ 기준은 "현행 스키마 파일" 이다 (2026-08-21 변경)
+ *   이전에는 drizzle 스냅샷을 기준으로 삼았는데, 저널이 idx=1 에서 깨져 있어
+ *   (Issue #421) generate 가 오래 돌지 않은 탓에 스냅샷이 스키마 파일보다
+ *   뒤처져 있었다. 그래서 "DB 에 없는 컬럼 46건" 이라는 오탐이 나왔고,
+ *   전수 확인 결과 **전부 리네임 이전 이름**이었다 (실제 결함 0건, Issue #431).
+ *
+ *   실측 비교: 스냅샷 283 테이블 / 현행 스키마 357 / 운영 DB 442.
+ *
+ *   --vs-snapshot 으로 스냅샷 대조도 할 수 있다. 그건 "DB 와의 차이" 가 아니라
+ *   **"스냅샷이 얼마나 낡았는가"** 를 재는 용도다.
  *
  * ★ 안전성
  *   information_schema 에 대한 SELECT 만 수행한다.
@@ -34,8 +39,8 @@
  *   # ④ 백업 테이블(_backup_*, _bak_*)까지 포함 (기본은 제외)
  *   npx tsx scripts/dump-schema-baseline.ts --include-backups
  *
- *   # ⑤ 코드 참조 조사 생략 (파일 스캔 1,500여개를 건너뜀)
- *   npx tsx scripts/dump-schema-baseline.ts --no-code-scan
+ *   # ⑤ 스냅샷과 대조 (스냅샷 낡음 정도 측정)
+ *   npx tsx scripts/dump-schema-baseline.ts --vs-snapshot
  *
  * 환경변수:
  *   DATABASE_URL  (필수) — 앱과 동일한 접속 문자열
@@ -50,7 +55,8 @@ import mysql from "mysql2/promise";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { latestSnapshotPath, parseSnapshot, normType } from "./_lib/schemaSnapshot";
-import { BACKUP_TABLE_RE, countColumnReferences } from "./_lib/schemaScan";
+import { BACKUP_TABLE_RE } from "./_lib/schemaScan";
+import { readCurrentSchema } from "./_lib/currentSchema";
 
 config();
 
@@ -131,7 +137,7 @@ async function main() {
   const args = process.argv.slice(2);
   const write = args.includes("--write");
   const includeBackups = args.includes("--include-backups");
-  const noCodeScan = args.includes("--no-code-scan");
+  const vsSnapshot = args.includes("--vs-snapshot");
   const tableIdx = args.indexOf("--table");
   const only = tableIdx >= 0 ? args[tableIdx + 1] : undefined;
 
@@ -141,16 +147,31 @@ async function main() {
     process.exit(2);
   }
 
-  const snapPath = latestSnapshotPath();
-  if (!snapPath) {
-    console.error("❌ drizzle/meta 에 스냅샷이 없습니다.");
-    process.exit(2);
-  }
-  const snap = parseSnapshot(snapPath);
+  // ── 기준 스키마 결정 ──
+  // 기본은 현행 스키마 파일. 스냅샷은 낡을 수 있으므로 명시할 때만 쓴다.
+  let refLabel: string;
+  let ref: Map<string, Map<string, { type: string }>>;
+  let duplicateTables: Array<{ table: string; exports: string[] }> = [];
 
-  console.log("=== 실측 스키마 baseline (Issue #421 1단계) ===\n");
+  if (vsSnapshot) {
+    const snapPath = latestSnapshotPath();
+    if (!snapPath) {
+      console.error("❌ drizzle/meta 에 스냅샷이 없습니다.");
+      process.exit(2);
+    }
+    const snap = parseSnapshot(snapPath);
+    refLabel = `drizzle 스냅샷 ${snapPath}`;
+    ref = new Map([...snap.tables].map(([t, cols]) => [t, new Map([...cols].map(([c, d]) => [c, { type: d.type }]))]));
+  } else {
+    const cur = readCurrentSchema();
+    duplicateTables = cur.duplicates;
+    refLabel = "현행 스키마 파일 (drizzle/schema)";
+    ref = new Map([...cur.tables].map(([t, cols]) => [t, new Map([...cols].map(([c, d]) => [c, { type: d.sqlType }]))]));
+  }
+
+  console.log("=== 실측 스키마 대조 (Issue #421 / #431) ===\n");
   console.log(`모드        : ${write ? "덤프 + 대조 (--write)" : "대조만 (읽기 전용)"}`);
-  console.log(`기준 스냅샷 : ${snapPath}`);
+  console.log(`기준        : ${refLabel}`);
   console.log(`백업 테이블 : ${includeBackups ? "포함" : "제외 (--include-backups 로 포함)"}`);
   if (only) console.log(`대상 테이블 : ${only}`);
   console.log();
@@ -184,12 +205,12 @@ async function main() {
     }
     const actualTables = Object.keys(actual);
 
-    // ── 대조 ──
-    const missingInDb: string[] = [];       // 스냅샷에 있고 DB 에 없음 (위험)
-    const missingInSnapshot: string[] = []; // DB 에 있고 스냅샷에 없음
+    // ── 대조 (전부 컬럼명 축. 속성명과 섞지 않는다) ──
+    const missingInDb: string[] = [];  // 기준에 있고 DB 에 없음 — 런타임 에러 후보
+    const missingInRef: string[] = []; // DB 에 있고 기준에 없음 — 정의가 실제를 못 따라감
     const typeMismatch: string[] = [];
 
-    for (const [t, cols] of snap.tables) {
+    for (const [t, cols] of ref) {
       if (only && t !== only) continue;
       const a = actual[t];
       if (!a) { missingInDb.push(`${t} (테이블 전체)`); continue; }
@@ -197,20 +218,26 @@ async function main() {
         const ac = a[c];
         if (!ac) { missingInDb.push(`${t}.${c}`); continue; }
         if (normType(def.type) !== normType(ac.type)) {
-          typeMismatch.push(`${t}.${c}  스냅샷=${def.type}  실제=${ac.type}`);
+          typeMismatch.push(`${t}.${c}  기준=${def.type}  실제=${ac.type}`);
         }
       }
     }
     for (const t of actualTables) {
-      const s = snap.tables.get(t);
-      if (!s) { missingInSnapshot.push(`${t} (테이블 전체)`); continue; }
+      const r = ref.get(t);
+      if (!r) { missingInRef.push(`${t} (테이블 전체)`); continue; }
       for (const c of Object.keys(actual[t])) {
-        if (!s.has(c)) missingInSnapshot.push(`${t}.${c}`);
+        if (!r.has(c)) missingInRef.push(`${t}.${c}`);
       }
     }
 
     console.log(`실측 테이블 : ${actualTables.length}${backupTables.length && !includeBackups ? `  (백업 ${backupTables.length}개 제외)` : ""}`);
-    console.log(`스냅샷 테이블: ${only ? 1 : snap.tables.size}\n`);
+    console.log(`기준 테이블 : ${only ? 1 : ref.size}\n`);
+
+    if (duplicateTables.length) {
+      console.log(`⚠️ 같은 테이블을 두 번 정의한 export ${duplicateTables.length}건 — 먼저 만난 쪽을 기준으로 삼았습니다:`);
+      for (const d of duplicateTables.slice(0, 10)) console.log(`   ${d.table} ← ${d.exports.join(", ")}`);
+      console.log();
+    }
 
     const section = (title: string, items: string[], note: string, limit = 40) => {
       console.log(`── ${title}: ${items.length}건 ──`);
@@ -220,50 +247,19 @@ async function main() {
       console.log();
     };
 
-    // 🔴 를 "실제로 쓰이는가" 로 정렬한다.
-    // ★ 테이블 스코프가 핵심 — 컬럼명만 세면 동명 컬럼이 전부 합산돼
-    //   무관한 테이블끼리 같은 숫자가 나온다 (2026-08-21 수정 전 결함).
-    let redLines = missingInDb;
-    if (!noCodeScan && missingInDb.length) {
-      const pairs = missingInDb
-        .filter((x) => !x.endsWith("(테이블 전체)"))
-        .map((x) => {
-          const i = x.indexOf(".");
-          return { table: x.slice(0, i), column: x.slice(i + 1) };
-        });
-      process.stdout.write(`   (코드 참조 조사 중… ${pairs.length}개)\r`);
-      const refs = countColumnReferences(pairs);
-      redLines = missingInDb
-        .map((x) => {
-          if (x.endsWith("(테이블 전체)")) return { x, label: x, n: Number.MAX_SAFE_INTEGER };
-          const r = refs.get(x);
-          if (!r) return { x, label: x, n: 0 };
-          // 확실한 사문: 이름이 코드베이스에 아예 없음
-          if (r.global === 0) return { x, label: `${x}  [코드에 이름 없음] ← 사문(死文) 확실`, n: -1 };
-          // 테이블 스코프 0: 이름은 있으나 그 테이블 문맥에는 없음
-          if (r.scoped === 0) {
-            return { x, label: `${x}  [테이블 문맥 참조 0 · 전체 ${r.global}회] ← 사문 가능성`, n: 0 };
-          }
-          return {
-            x,
-            label: `${x}  [테이블 문맥 ${r.scoped}회 / 파일 ${r.tableFiles}개 · 전체 ${r.global}회]`,
-            n: r.scoped,
-          };
-        })
-        .sort((a, b) => b.n - a.n)
-        .map((e) => e.label);
-      process.stdout.write("                                        \r");
-    }
+    section("🔴 기준에 있으나 DB 에 없음", missingInDb,
+      "코드가 존재를 가정하지만 실제로 없습니다. 런타임 에러의 직접 원인이 됩니다.\n" +
+      "   기준이 현행 스키마이므로 여기 뜨는 항목은 drizzle 접근 시 곧바로 실패합니다.", 60);
 
-    section("🔴 스냅샷에 있으나 DB 에 없음", redLines,
-      "코드가 존재를 가정하지만 실제로 없습니다. 런타임 에러의 직접 원인이 됩니다." +
-      (noCodeScan ? "" : "\n   해당 테이블을 언급하는 파일 안에서 센 횟수 순입니다. 0 은 판정에, N>0 은 정렬에만 쓰십시오."), 60);
-
-    section("🟡 DB 에 있으나 스냅샷에 없음", missingInSnapshot,
+    section("🟡 DB 에 있으나 기준에 없음", missingInRef,
       "스키마 정의가 실제를 따라가지 못한 부분입니다. 신규 환경은 이것들 없이 출발합니다.");
 
     section("🔵 타입 불일치", typeMismatch,
       "표기 차이로 인한 잡음이 섞일 수 있습니다. enum 값 차이는 실제 문제인 경우가 많습니다.");
+
+    if (!vsSnapshot) {
+      console.log("ℹ️  기준은 현행 스키마 파일입니다. 스냅샷이 얼마나 낡았는지 보려면 --vs-snapshot 을 쓰십시오.\n");
+    }
 
     if (backupTables.length) {
       section("⚪ 백업 테이블 (baseline 제외)", backupTables,
@@ -280,7 +276,7 @@ async function main() {
       const payload = {
         generatedAt: new Date().toISOString(),
         database: dbName,
-        snapshot: snapPath,
+        reference: refLabel,
         includeBackups,
         excludedBackupTables: includeBackups ? [] : backupTables,
         tableCount: actualTables.length,
