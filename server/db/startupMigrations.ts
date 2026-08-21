@@ -1984,6 +1984,103 @@ async function ensureCriticalSchemaInvariants(conn: any) {
   );
 }
 
+
+/**
+ * platform 레이어 테이블 — event-bus / capability
+ *
+ * ★ 2026-08-21 추가 (Issue #431 조사 중 발견)
+ *   drizzle/schema 가 정의하고 코드가 실제로 쓰는데, 이들을 만드는 SQL 이
+ *   저장소 어디에도 없었다. 운영 DB 에도 4개 전부 없었다.
+ *
+ *   그래서 아래 두 경로가 실패한다:
+ *     · 입고 처리   postPurchase → publishEvent → INSERT INTO domain_events
+ *     · 재무보고서  requireCapability → checkCapability → SELECT FROM capabilities
+ *   둘 다 호출부에 try/catch 가 없다.
+ *
+ *   정식 적용은 sql/create_platform_tables.sql 로 하고, 여기 둔 것은
+ *   신규 환경이 이 테이블 없이 출발하지 않게 하기 위함이다.
+ */
+async function ensurePlatformTables(conn: any) {
+  const tables: Array<{ name: string; sql: string }> = [
+    {
+      name: "domain_events",
+      sql: `CREATE TABLE IF NOT EXISTS domain_events (
+        id BIGINT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        event_type VARCHAR(100) NOT NULL,
+        aggregate_type VARCHAR(50) NOT NULL,
+        aggregate_id BIGINT NOT NULL,
+        payload JSON NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        created_by BIGINT NULL,
+        processed_at TIMESTAMP NULL,
+        processing_attempts INT NOT NULL DEFAULT 0,
+        last_error TEXT,
+        KEY idx_domain_events_unprocessed (processed_at, processing_attempts, id),
+        KEY idx_domain_events_tenant (tenant_id, created_at),
+        KEY idx_domain_events_aggregate (aggregate_type, aggregate_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "capabilities",
+      sql: `CREATE TABLE IF NOT EXISTS capabilities (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        code VARCHAR(100) NOT NULL,
+        feature_code VARCHAR(50) NOT NULL,
+        action VARCHAR(20) NOT NULL,
+        description VARCHAR(255) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_capabilities_code (code),
+        UNIQUE KEY uniq_capabilities_feature_action (feature_code, action)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "role_capabilities",
+      sql: `CREATE TABLE IF NOT EXISTS role_capabilities (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        role_id BIGINT NOT NULL,
+        capability_id INT NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uniq_role_capabilities (tenant_id, role_id, capability_id),
+        KEY idx_role_capabilities_cap (capability_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+    {
+      name: "user_capability_grants",
+      sql: `CREATE TABLE IF NOT EXISTS user_capability_grants (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        tenant_id INT NOT NULL,
+        user_id BIGINT NOT NULL,
+        capability_id INT NOT NULL,
+        granted_by BIGINT NULL,
+        reason VARCHAR(255) NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP NULL,
+        UNIQUE KEY uniq_user_capability_grants (tenant_id, user_id, capability_id),
+        KEY idx_user_capability_grants_user (user_id, capability_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+    },
+  ];
+
+  let created = 0;
+  for (const t of tables) {
+    try {
+      const [before] = await conn.query(
+        `SELECT COUNT(*) AS c FROM information_schema.TABLES
+          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`,
+        [t.name],
+      );
+      const existed = Number((before as any)[0]?.c ?? 0) > 0;
+      await conn.query(t.sql);
+      if (!existed) { created++; console.log(`[Migration] Created table: ${t.name}`); }
+    } catch (err: any) {
+      console.warn(`[Migration] platform table '${t.name}' 생성 실패:`, err.message);
+    }
+  }
+  console.log(`[Migration] Platform tables verified: ${tables.length}/${tables.length} (${created} created)`);
+}
+
 export async function runStartupMigrations() {
   try {
     const conn = await getRawConnection();
@@ -2002,6 +2099,7 @@ export async function runStartupMigrations() {
     await ensureBudgetTable(conn);
     await ensurePayrollTable(conn);
     await ensureHRTables(conn);
+    await ensurePlatformTables(conn);
     await ensurePerformanceIndexes(conn);
 
     // ★ PR #275: Critical schema invariants — UNIQUE/ENUM 핵심 불변식 보장.
