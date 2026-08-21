@@ -62,3 +62,16 @@ downloads/
 
 # Issue #421 — 스냅샷에서 재생성되는 baseline SQL (스크립트가 source, CI 가 재생성)
 drizzle/baseline/*.sql
+
+# 일회성 진단/백필 스크립트 (Issue #421 후속, 2026-08-21)
+# ------------------------------------------------------------------
+# CLAUDE.md 삼각 분업상 데이터 작업 스크립트는 서버에서 만들어도 되지만
+# 커밋 대상은 아니다. 서버 작업트리에 43개가 untracked 로 쌓여 있어
+# 다음 사람이 `git add .` 로 통째로 커밋할 위험이 있었다.
+#
+# ⚠️ 접두사를 넓히지 말 것.
+#    scripts/_lib, scripts/_lint, scripts/__tests__ 는 정식 코드다.
+#    `scripts/_*` 로 쓰면 lint/테스트 인프라가 통째로 무시된다.
+_diag_*
+_backfill_temp_*
+
