@@ -180,25 +180,69 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
       throw new Error(`취소된 전표는 확정할 수 없습니다. (ID: ${purchaseId})`);
     }
 
+    // (0-2) 이 매입에 대한 입고 재고가 이미 기록됐는지 확인 — 이중 생성 방지
+    // ★ 2026-08-21 추가
+    //   진입부 가드는 status === 'paid' 만 봤다. 그래서 approved/pending 상태에서
+    //   다시 호출되면 LOT·재고가 한 벌 더 생겼다. 승인 버튼 두 번 클릭이 곧 재고 2배였다.
+    //
+    //   두 생성 경로가 서로 다른 참조 규약을 쓰는 점을 이용해 출처를 구분한다:
+    //     createPurchase : reference_type='accounting_purchase', reference_id=매입ID
+    //     postPurchase   : source_type='accounting_purchases',   source_id=매입ID
+    //
+    //   · postPurchase 가 이미 돌았으면  → 전체 멱등 반환 (중복 클릭 차단)
+    //   · createPurchase 가 만든 재고면  → 재고 단계만 건너뛰고 그 LOT 을 재사용.
+    //     입고전표·수불부·분개는 아직 없으므로 계속 진행해야 장부가 온전해진다.
+    const [priorRows] = await conn.execute(
+      `SELECT lot_id,
+              (source_type = 'accounting_purchases' AND source_id = ?) AS from_post
+         FROM h_inventory_transactions
+        WHERE tenant_id = ?
+          AND transaction_type = 'receipt'
+          AND ( (reference_type = 'accounting_purchase' AND reference_id = ?)
+             OR (source_type = 'accounting_purchases'  AND source_id = ?) )
+        ORDER BY id ASC
+        LIMIT 1`,
+      [purchaseId, tenantId, purchaseId, purchaseId]
+    );
+    const prior = (priorRows as any[])[0];
+    if (prior && Number(prior.from_post) === 1) {
+      // 이미 확정 처리된 매입 — 재고/분개가 모두 있다
+      return { alreadyProcessed: true };
+    }
+    const reuseLotId: number | null = prior?.lot_id != null ? Number(prior.lot_id) : null;
+    const skipInventory = reuseLotId !== null;
+    if (skipInventory) {
+      console.log(
+        `[purchasePost] 매입 ${purchaseId}: 등록 시 생성된 재고 발견 (lot_id=${reuseLotId}) — ` +
+        `LOT/재고 단계 건너뛰고 입고전표·수불부·분개만 생성합니다.`
+      );
+    }
+
     // (A) LOT 생성
     // ★ 2026-04-13 수정:
     //   - material_id 포함 → 재고관리 입고내역 INNER JOIN 에서 정상 표시
     //   - supplier_name 포함 → 공급업체 표시
-    const [lotResult] = await conn.execute(
-      `INSERT INTO h_inventory_lots
-         (tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity,
-          unit, unit_price, receipt_date, supplier_name, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`,
-      [
-        tenantId, resolvedMaterialId, lotNumber,
-        qty, qty, qty,
-        purchase.unit || "EA",
-        purchase.unitPrice?.toString() || "0",
-        purchase.transactionDate,
-        supplierName,
-      ]
-    );
-    const lotId = (lotResult as any).insertId;
+    let lotId: number;
+    if (skipInventory) {
+      // 등록 시 이미 만들어진 LOT 을 재사용한다 (새로 만들면 재고가 두 배가 된다)
+      lotId = reuseLotId as number;
+    } else {
+      const [lotResult] = await conn.execute(
+        `INSERT INTO h_inventory_lots
+           (tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity,
+            unit, unit_price, receipt_date, supplier_name, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`,
+        [
+          tenantId, resolvedMaterialId, lotNumber,
+          qty, qty, qty,
+          purchase.unit || "EA",
+          purchase.unitPrice?.toString() || "0",
+          purchase.transactionDate,
+          supplierName,
+        ]
+      );
+      lotId = (lotResult as any).insertId;
+    }
 
     // (A-2) h_inventory 마스터 동시 UPSERT (PR-K2)
     // ★ 2026-04-26 추가:
@@ -208,7 +252,7 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     //   - 전제: 운영 DB 에 ALTER TABLE h_inventory ADD UNIQUE KEY uk_inv_material
     //     (tenant_id, material_id) + 96자재 1회 백필 적용 완료 후 머지.
     //     (수동 SQL 기록: scripts/migrations-manual/2026-04-26-k2-h-inventory.sql)
-    if (resolvedMaterialId) {
+    if (resolvedMaterialId && !skipInventory) {
       try {
         await conn.execute(
           `INSERT INTO h_inventory
@@ -237,14 +281,16 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     //   기존: source_type 컬럼을 INSERT 안 함 → NULL 저장 → 14건 NULL 누적
     //   수정: 'accounting_purchases' 명시 (기존 매입승인 트랜잭션과 동일 표기)
     // ★ PR-§5.2-2 (2026-04-27): material_id 직접 작성 (resolvedMaterialId)
-    await conn.execute(
-      `INSERT INTO h_inventory_transactions
-         (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date,
-          reference_type, source_type, source_id, unit_cost, amount, created_by)
-       VALUES (?, ?, ?, 'receipt', ?, ?, ?, 'PURCHASE', 'accounting_purchases', ?, ?, ?, ?)`,
-      [tenantId, lotId, resolvedMaterialId ?? null, qty, purchase.unit || "EA", purchase.transactionDate,
-       purchaseId, purchase.unitPrice?.toString() || "0", purchase.totalAmount?.toString() || "0", userId]
-    );
+    if (!skipInventory) {
+      await conn.execute(
+        `INSERT INTO h_inventory_transactions
+           (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date,
+            reference_type, source_type, source_id, unit_cost, amount, created_by)
+         VALUES (?, ?, ?, 'receipt', ?, ?, ?, 'PURCHASE', 'accounting_purchases', ?, ?, ?, ?)`,
+        [tenantId, lotId, resolvedMaterialId ?? null, qty, purchase.unit || "EA", purchase.transactionDate,
+         purchaseId, purchase.unitPrice?.toString() || "0", purchase.totalAmount?.toString() || "0", userId]
+      );
+    }
 
     // (B-2) 입고전표 생성 (visual inspection / h_inbound_headers 쿼리 호환)
     // ★ 2026-04-13 추가: 육안검사일지 sync 가 h_inbound_headers 를 조회하므로
