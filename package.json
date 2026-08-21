@@ -33,8 +33,8 @@
     "lint:schema-coverage": "tsx scripts/_lint/verify-schema-migration-coverage.ts",
     "lint:migration-journal": "tsx scripts/_lint/verify-migration-journal.ts",
     "schema:baseline": "tsx scripts/dump-schema-baseline.ts",
-    "schema:repro": "tsx scripts/verify-schema-reproducibility.ts",
-    "schema:baseline-sql": "tsx scripts/generate-baseline-migration.ts"
+    "schema:baseline-sql": "tsx scripts/generate-baseline-migration.ts",
+    "schema:repro": "tsx scripts/verify-schema-reproducibility.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.693.0",

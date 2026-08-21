@@ -3,7 +3,8 @@
  * (DB 질의 경로는 운영 접속이 필요하므로 여기서 다루지 않는다.)
  */
 import { describe, it, expect } from "vitest";
-import { BACKUP_TABLE_RE, countColumnReferences, toCamel } from "../_lib/schemaScan";
+import { BACKUP_TABLE_RE, toCamel } from "../_lib/schemaScan";
+import { readCurrentSchema } from "../_lib/currentSchema";
 
 describe("BACKUP_TABLE_RE — 수동 백업 테이블 판별", () => {
   it("백업 테이블을 걸러낸다", () => {
@@ -14,6 +15,10 @@ describe("BACKUP_TABLE_RE — 수동 백업 테이블 판별", () => {
       "partners_bak",
       "h_batches_backup_20260419",
       "accounting_purchases_20260422",
+      // 2026-08-21 추가 — 선행 언더스코어 없이 타임스탬프만 붙는 형태를 놓치고 있었다
+      "backup_accounting_purchases_154_20260630_100739",
+      "backup_h_inventory_20260630_095410_v5apply",
+      "backup_tx_9931_20260630_101404",
     ]) {
       expect(BACKUP_TABLE_RE.test(t), t).toBe(true);
     }
@@ -26,7 +31,9 @@ describe("BACKUP_TABLE_RE — 수동 백업 테이블 판별", () => {
       "accounting_accounts",
       "checklist_templates",
       "ai_knowledge_chunks",
-      "backup_policies",       // backup 으로 '시작'하지만 접두 언더스코어 규칙에 안 걸림
+      "backup_policies",       // 타임스탬프가 없으므로 정상 테이블
+      "h_backups",             // 백업 관리 기능의 정식 테이블 — 걸러내면 안 된다
+      "h_backup_logs",
       "bank_accounts",
       "material_ledger_daily",
     ]) {
@@ -44,54 +51,37 @@ describe("toCamel", () => {
   });
 });
 
-describe("countColumnReferences — 테이블 스코프 집계", () => {
-  it("빈 입력에 안전하다", () => {
-    expect(countColumnReferences([]).size).toBe(0);
+describe("readCurrentSchema — 현행 스키마 introspection", () => {
+  const cur = readCurrentSchema();
+
+  it("스냅샷보다 많은 테이블을 본다 (스냅샷은 낡았다)", () => {
+    // 2026-08-21 기준 현행 357 / 스냅샷 283. 최소한 300 은 넘어야 한다.
+    expect(cur.tables.size).toBeGreaterThan(300);
   });
 
-  it("코드에 아예 없는 이름은 global 0 (사문 판정 근거)", () => {
-    const r = countColumnReferences([
-      { table: "zzz_no_such_table_xyz", column: "zzz_no_such_column_xyz" },
-    ]);
-    const rec = r.get("zzz_no_such_table_xyz.zzz_no_such_column_xyz")!;
-    expect(rec.global).toBe(0);
-    expect(rec.scoped).toBe(0);
+  it("같은 테이블을 두 번 정의한 export 가 없다", () => {
+    expect(cur.duplicates).toEqual([]);
   });
 
-  it("★ 회귀: 동명 컬럼이 무관한 테이블끼리 같은 값을 갖지 않는다", () => {
-    // 2026-08-21 결함 — 컬럼명만 세던 시절엔 아래 둘이 정확히 같은 수가 나왔다
-    // (h_capa_records.updated_at = h_water_quality_tests.updated_at = 186).
-    // 테이블 스코프를 넣은 뒤로는 각 테이블 문맥에서만 세므로 갈라져야 한다.
-    const r = countColumnReferences([
-      { table: "h_batches", column: "updated_at" },
-      { table: "zzz_no_such_table_xyz", column: "updated_at" },
-    ]);
-    const real = r.get("h_batches.updated_at")!;
-    const fake = r.get("zzz_no_such_table_xyz.updated_at")!;
-
-    // global 은 같아도 된다 — 같은 이름을 세는 상한값이므로
-    expect(real.global).toBe(fake.global);
-    // 하지만 scoped 는 갈라져야 한다. 존재하지 않는 테이블은 어떤 파일도 언급하지 않는다
-    expect(fake.scoped).toBe(0);
-    expect(fake.tableFiles).toBe(0);
-    // 실존 테이블은 자기 문맥에서 잡혀야 한다
-    expect(real.scoped).toBeGreaterThan(0);
-    expect(real.scoped).toBeLessThanOrEqual(real.global);
+  it("★ 속성명이 아니라 컬럼명으로 색인한다", () => {
+    // 이 구분을 놓쳐서 #431 오탐이 났다.
+    // bank_transactions 는 속성 memo 를 컬럼 notes 에 매핑한다.
+    const bt = cur.tables.get("bank_transactions");
+    expect(bt).toBeDefined();
+    expect(bt!.has("notes")).toBe(true);   // 컬럼명으로 찾힌다
+    expect(bt!.has("memo")).toBe(false);   // 속성명으로는 찾히지 않는다
+    expect(bt!.get("notes")!.property).toBe("memo"); // 속성명은 따로 보존한다
   });
 
-  it("scoped 는 global 을 넘지 않는다", () => {
-    const r = countColumnReferences([
-      { table: "h_batches", column: "tenant_id" },
-      { table: "partners", column: "tenant_id" },
-    ]);
-    for (const rec of r.values()) {
-      expect(rec.scoped).toBeLessThanOrEqual(rec.global);
-    }
+  it("sqlType 을 information_schema 와 비교 가능한 형태로 준다", () => {
+    const bt = cur.tables.get("bank_transactions")!;
+    expect(bt.get("notes")!.sqlType).toMatch(/^varchar\(\d+\)$/);
+    expect(bt.get("amount")!.sqlType).toMatch(/^decimal\(\d+,\d+\)$/);
   });
 
-  it("camelCase 표기도 센다 (drizzle 스키마는 TS 쪽에서 camel 을 쓴다)", () => {
-    const r = countColumnReferences([{ table: "h_batches", column: "tenant_id" }]);
-    // tenant_id / tenantId 양쪽을 세므로 어느 한쪽만 셀 때보다 크다
-    expect(r.get("h_batches.tenant_id")!.global).toBeGreaterThan(0);
+  it("notNull 을 읽는다", () => {
+    const bt = cur.tables.get("bank_transactions")!;
+    expect(bt.get("tenant_id")!.notNull).toBe(true);
+    expect(bt.get("balance")!.notNull).toBe(false);
   });
 });
