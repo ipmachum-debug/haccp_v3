@@ -50,7 +50,7 @@ import mysql from "mysql2/promise";
 import { writeFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { latestSnapshotPath, parseSnapshot, normType } from "./_lib/schemaSnapshot";
-import { BACKUP_TABLE_RE, countCodeReferences } from "./_lib/schemaScan";
+import { BACKUP_TABLE_RE, countColumnReferences } from "./_lib/schemaScan";
 
 config();
 
@@ -220,29 +220,44 @@ async function main() {
       console.log();
     };
 
-    // 🔴 는 코드 참조 횟수로 정렬해서 "먼저 고칠 것"을 위로 올린다
+    // 🔴 를 "실제로 쓰이는가" 로 정렬한다.
+    // ★ 테이블 스코프가 핵심 — 컬럼명만 세면 동명 컬럼이 전부 합산돼
+    //   무관한 테이블끼리 같은 숫자가 나온다 (2026-08-21 수정 전 결함).
     let redLines = missingInDb;
     if (!noCodeScan && missingInDb.length) {
-      const colNames = [...new Set(
-        missingInDb.filter((x) => !x.endsWith("(테이블 전체)")).map((x) => x.split(".")[1]),
-      )];
-      process.stdout.write(`   (코드 참조 조사 중… 컬럼 ${colNames.length}개)\r`);
-      const refs = countCodeReferences(colNames);
+      const pairs = missingInDb
+        .filter((x) => !x.endsWith("(테이블 전체)"))
+        .map((x) => {
+          const i = x.indexOf(".");
+          return { table: x.slice(0, i), column: x.slice(i + 1) };
+        });
+      process.stdout.write(`   (코드 참조 조사 중… ${pairs.length}개)\r`);
+      const refs = countColumnReferences(pairs);
       redLines = missingInDb
         .map((x) => {
-          if (x.endsWith("(테이블 전체)")) return { x, n: Number.MAX_SAFE_INTEGER };
-          return { x, n: refs.get(x.split(".")[1]) ?? 0 };
+          if (x.endsWith("(테이블 전체)")) return { x, label: x, n: Number.MAX_SAFE_INTEGER };
+          const r = refs.get(x);
+          if (!r) return { x, label: x, n: 0 };
+          // 확실한 사문: 이름이 코드베이스에 아예 없음
+          if (r.global === 0) return { x, label: `${x}  [코드에 이름 없음] ← 사문(死文) 확실`, n: -1 };
+          // 테이블 스코프 0: 이름은 있으나 그 테이블 문맥에는 없음
+          if (r.scoped === 0) {
+            return { x, label: `${x}  [테이블 문맥 참조 0 · 전체 ${r.global}회] ← 사문 가능성`, n: 0 };
+          }
+          return {
+            x,
+            label: `${x}  [테이블 문맥 ${r.scoped}회 / 파일 ${r.tableFiles}개 · 전체 ${r.global}회]`,
+            n: r.scoped,
+          };
         })
         .sort((a, b) => b.n - a.n)
-        .map(({ x, n }) =>
-          n === Number.MAX_SAFE_INTEGER ? x : `${x}  [코드 참조 ${n}회]${n === 0 ? " ← 사문(死文) 가능성" : ""}`,
-        );
+        .map((e) => e.label);
       process.stdout.write("                                        \r");
     }
 
     section("🔴 스냅샷에 있으나 DB 에 없음", redLines,
       "코드가 존재를 가정하지만 실제로 없습니다. 런타임 에러의 직접 원인이 됩니다." +
-      (noCodeScan ? "" : " 코드 참조가 많은 순으로 정렬했습니다."), 60);
+      (noCodeScan ? "" : "\n   해당 테이블을 언급하는 파일 안에서 센 횟수 순입니다. 0 은 판정에, N>0 은 정렬에만 쓰십시오."), 60);
 
     section("🟡 DB 에 있으나 스냅샷에 없음", missingInSnapshot,
       "스키마 정의가 실제를 따라가지 못한 부분입니다. 신규 환경은 이것들 없이 출발합니다.");
