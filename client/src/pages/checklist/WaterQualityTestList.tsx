@@ -17,12 +17,13 @@ export default function WaterQualityTestList() {
   const { toast } = useToast();
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
-  const [testResult, setTestResult] = useState<string>("");
+  const [result, setResult] = useState<string>("");
 
   const { data: records, isLoading, refetch } = trpc.waterQualityTest.list.useQuery({
     startDate: startDate || undefined,
     endDate: endDate || undefined,
-    testResult: testResult as any || undefined,
+    // "all" 은 필터 해제를 뜻하므로 서버로 보내지 않는다 (예전엔 문자열 "all" 이 그대로 갔다)
+    result: result === "all" || !result ? undefined : (result as "pass" | "fail"),
   });
 
   const deleteMutation = trpc.waterQualityTest.delete.useMutation({
@@ -47,8 +48,6 @@ export default function WaterQualityTestList() {
         return <Badge className="bg-green-500">적합</Badge>;
       case "fail":
         return <Badge className="bg-red-500">부적합</Badge>;
-      case "pending":
-        return <Badge className="bg-yellow-500">대기</Badge>;
       default:
         return <Badge>{result}</Badge>;
     }
@@ -85,7 +84,7 @@ export default function WaterQualityTestList() {
               onChange={(e) => setEndDate(e.target.value)}
               className="w-48"
             />
-            <Select value={testResult} onValueChange={setTestResult}>
+            <Select value={result} onValueChange={setResult}>
               <SelectTrigger className="w-48">
                 <SelectValue placeholder="검사 결과" />
               </SelectTrigger>
@@ -93,7 +92,6 @@ export default function WaterQualityTestList() {
                 <SelectItem value="all">전체</SelectItem>
                 <SelectItem value="pass">적합</SelectItem>
                 <SelectItem value="fail">부적합</SelectItem>
-                <SelectItem value="pending">대기</SelectItem>
               </SelectContent>
             </Select>
             <Button variant="outline" onClick={() => refetch()}>
@@ -125,13 +123,13 @@ export default function WaterQualityTestList() {
                   records.map((record: any) => (
                     <TableRow key={record.id}>
                       <TableCell>{new Date(record.testDate).toLocaleDateString()}</TableCell>
-                      <TableCell>{record.testLocation}</TableCell>
+                      <TableCell>{record.sampleLocation}</TableCell>
                       <TableCell>{record.ph || "-"}</TableCell>
                       <TableCell>{record.turbidity || "-"}</TableCell>
-                      <TableCell>{record.residualChlorine || "-"}</TableCell>
+                      <TableCell>{record.chlorine || "-"}</TableCell>
                       <TableCell>{record.coliformBacteria || "-"}</TableCell>
-                      <TableCell>{getResultBadge(record.testResult)}</TableCell>
-                      <TableCell>{record.inspectorId}</TableCell>
+                      <TableCell>{getResultBadge(record.result)}</TableCell>
+                      <TableCell>{record.testedBy}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
                           <Button
