@@ -149,6 +149,21 @@ function PurchasesManagementContent() {
   // ★ 2026-05-16 (PR-R): createPurchase onSuccess 에서 자동 폼 초기화 제거.
   //   handleSave 가 모든 행을 일괄 처리한 뒤 한 번에 success/fail 카운팅 + purchaseId 수집 → 거래명세표 인쇄 흐름 활성.
   const createMutation = trpc.haccpIntegration.createPurchase.useMutation({
+    // ★ 2026-08-21: 회계 확정(postPurchase) 실패를 조용히 넘기지 않는다.
+    //   예전에는 등록만 되면 "승인됨" 으로 보였고 분개·입고전표·수불부가 없어도
+    //   아무도 몰랐다. 이제 전표는 pending 으로 남고 사용자에게 알린다.
+    onSuccess: (result: unknown) => {
+      const r = result as { posted?: boolean; postError?: string | null } | undefined;
+      if (r && r.posted === false) {
+        toast({
+          title: "회계 확정 실패 — 전표는 저장됐습니다",
+          description:
+            `매입 전표는 '대기' 상태로 저장됐습니다. 목록에서 승인을 다시 시도해 주세요.` +
+            (r.postError ? ` (원인: ${r.postError})` : ""),
+          variant: "destructive",
+        });
+      }
+    },
     onError: (error: { message: string }) => {
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },

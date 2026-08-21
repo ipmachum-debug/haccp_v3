@@ -61,7 +61,11 @@ export async function createPurchase(params: {
     taxRate: (params.taxRate ?? 10).toFixed(2),
     sourceType: "manual",
     notes: params.memo ?? null,
-    status: "approved",
+    // ★ 2026-08-21: 'approved' 직접 지정 → 'pending' 으로 변경
+    //   아래에서 postPurchase 를 호출해 정식 경로로 approved 로 전환한다.
+    //   예전에는 여기서 바로 approved 로 넣고 postPurchase 를 부르지 않아
+    //   화면상 "승인됨" 인데 분개·입고전표·수불부가 하나도 없는 유령 상태가 됐다.
+    status: "pending",
     createdBy: params.createdBy,
   };
   // 선택 컬럼 (컬럼 부재 시 fallback 가능)
@@ -283,7 +287,34 @@ export async function createPurchase(params: {
       console.error("[원료수불부] 입고 연동 실패:", e);
     }
   }
-  return purchase;
+
+  // ── 회계 확정 (postPurchase) ──
+  // ★ 2026-08-21 추가
+  //   이 함수는 오랫동안 status='approved' 로 직접 INSERT 하면서 postPurchase 를
+  //   부르지 않았다. 그래서 매입 등록 화면에서 만든 전표는 "승인됨" 으로 보이지만
+  //   회계 분개 · 입고전표 · 수불부가 전혀 없었다 (2026-08-21 실측: approved 211건 중
+  //   posting 을 거친 것 120건).
+  //
+  //   위에서 이미 LOT·재고를 만들었으므로 postPurchase 는 그 재고를 감지해
+  //   재고 단계를 건너뛰고 입고전표·수불부·분개만 생성한다 (purchasePost.ts (0-2) 가드).
+  //
+  //   실패해도 전표 자체는 pending 으로 남는다. 목록의 승인 버튼으로 다시 시도할 수 있다.
+  //   여기서 throw 하면 이미 만들어진 전표를 두고 사용자가 재등록해 중복이 생긴다.
+  const purchaseId = Number((purchase as any)?.insertId ?? 0);
+  let posted = false;
+  let postError: string | null = null;
+  if (purchaseId > 0) {
+    try {
+      const { postPurchase } = await import("../../lib/accounting/purchasePost");
+      await postPurchase(purchaseId, params.createdBy);
+      posted = true;
+    } catch (e: any) {
+      postError = e?.message ?? String(e);
+      console.error(`[createPurchase] postPurchase 실패 (전표 ${purchaseId} 은 pending 유지):`, postError);
+    }
+  }
+
+  return Object.assign(purchase as object, { posted, postError });
 }
 
 /**
