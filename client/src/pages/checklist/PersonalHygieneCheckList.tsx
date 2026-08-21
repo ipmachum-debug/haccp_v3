@@ -10,6 +10,26 @@ import { useLocation } from "wouter";
 import { Plus, FileText, Search, ArrowLeft, UserCheck, Calendar } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
+/**
+ * 점검 결과 판정.
+ *
+ * h_personal_hygiene_checks 에는 check_result 컬럼이 없다 (과거 리네임 때 사라졌다).
+ * 이전 구현은 record.checkResult 를 읽었는데 항상 undefined 라서
+ * **모든 행이 "부적합" 으로 표시되고 있었다.** 위생 점검 화면에서 이건 위험하다.
+ *
+ * 실제 컬럼으로 판정한다: 네 개 체크가 모두 통과하고 건강상태가 healthy 여야 적합.
+ * (no_jewelry 는 "미착용=1" 이므로 1 이 통과다)
+ */
+function isHygienePass(r: any): boolean {
+  return (
+    r?.uniformClean === 1 &&
+    r?.hairCovered === 1 &&
+    r?.handsClean === 1 &&
+    r?.noJewelry === 1 &&
+    r?.healthStatus === "healthy"
+  );
+}
+
 export default function PersonalHygieneCheckList() {
   const [, setLocation] = useLocation();
   const navigate = (path: string) => setLocation(path);
@@ -104,11 +124,11 @@ export default function PersonalHygieneCheckList() {
                         <TableRow key={record.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => navigate(`/personal-hygiene-check/${record.id}`)}>
                           <TableCell className="text-center text-muted-foreground">{index + 1}</TableCell>
                           <TableCell className="font-medium">{new Date(record.checkDate).toLocaleDateString("ko-KR")}</TableCell>
-                          <TableCell>{record.inspectorId || "-"}</TableCell>
+                          <TableCell>{record.checkedBy || "-"}</TableCell>
                           <TableCell className="text-center">-</TableCell>
                           <TableCell className="text-center">
-                            <Badge variant={record.checkResult === "pass" ? "default" : "destructive"} className="text-xs">
-                              {record.checkResult === "pass" ? "적합" : "부적합"}
+                            <Badge variant={isHygienePass(record) ? "default" : "destructive"} className="text-xs">
+                              {isHygienePass(record) ? "적합" : "부적합"}
                             </Badge>
                           </TableCell>
                           <TableCell className="text-center">

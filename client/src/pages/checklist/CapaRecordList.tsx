@@ -54,6 +54,7 @@ export default function CapaRecordList() {
                   <TableHead>발생일</TableHead>
                   <TableHead>문제 설명</TableHead>
                   <TableHead>시정 조치</TableHead>
+                  <TableHead>예방 조치</TableHead>
                   <TableHead>상태</TableHead>
                   <TableHead>우선순위</TableHead>
                   <TableHead>작업</TableHead>
@@ -64,11 +65,12 @@ export default function CapaRecordList() {
                   records.map((record: any) => (
                     <TableRow key={record.id}>
                       <TableCell>{record.capaNumber || "-"}</TableCell>
-                      <TableCell>{new Date(record.issueDate).toLocaleDateString()}</TableCell>
+                      <TableCell>{record.capaDate ? new Date(record.capaDate).toLocaleDateString() : "-"}</TableCell>
                       <TableCell>{record.problemDescription || "-"}</TableCell>
                       <TableCell>{record.correctiveAction || "-"}</TableCell>
                       <TableCell>{record.preventiveAction || "-"}</TableCell>
                       <TableCell>{record.status || "-"}</TableCell>
+                      <TableCell>{record.priority || "-"}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
                           <Button variant="outline" size="sm" onClick={() => navigate(`/capa-record/${record.id}`)}>수정</Button>
