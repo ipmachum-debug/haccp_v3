@@ -197,22 +197,22 @@ export const materialRouter = router({
         } as any);
         const newMaterialId = Number(result[0].insertId);
         
-        // item_master 테이블에도 동기화 생성
+        // item_master 테이블에도 동기화 생성 (canonical-sync helper)
+        // PR #269 follow-up: inline upsert → syncMaterialToItemMaster 통일
         try {
-          const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
-          await db.insert(itemMaster).values({
+          const { syncMaterialToItemMaster } = await import("../../db/production/itemMasterSync.js");
+          await syncMaterialToItemMaster(db as any, {
             tenantId: ctx.tenantId,
-            itemCode: input.materialCode,
-            itemName: input.materialName,
-            itemType: 'raw_material',
-            category: input.category || null,
-            baseUnit: input.unit || 'kg',
-            supplierId: input.supplierId || null,
-            purchaseUnit: input.purchaseUnit || null,
-            purchaseConversionRate: input.conversionRate ? String(input.conversionRate) : '1.0000',
-            shelfLifeDays: input.shelfLifeDays || null,
-            description: input.description || null,
-            legacyMaterialId: newMaterialId,
+            materialId: newMaterialId,
+            materialCode: input.materialCode,
+            materialName: input.materialName,
+            category: input.category ?? null,
+            unit: input.unit ?? null,
+            supplierId: input.supplierId ?? null,
+            purchaseUnit: input.purchaseUnit ?? null,
+            purchaseConversionRate: input.conversionRate ? String(input.conversionRate) : null,
+            shelfLifeDays: input.shelfLifeDays ?? null,
+            description: input.description ?? null,
             isActive: input.isActive ?? 1,
           });
         } catch (syncErr) {
@@ -264,20 +264,40 @@ export const materialRouter = router({
             )
           );
         
-        // item_master 테이블 동기화 (legacyMaterialId로 연결)
+        // item_master 테이블 동기화 (canonical-sync helper)
+        // PR #269 follow-up: inline upsert → syncMaterialToItemMaster 통일.
+        // helper 는 항상 'updated' 케이스로 진입(legacyMaterialId 매칭).
+        // - 기존 inline 코드는 partial update (변경된 필드만) 였으나, helper 는
+        //   현재 상태로 전체 sync (idempotent). canonical 시점 일관성은 helper 가
+        //   보존하므로 안전.
         try {
-          const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
-          const syncData: any = {};
-          if (data.materialName) syncData.itemName = data.materialName;
-          if (data.materialCode) syncData.itemCode = data.materialCode;
-          if (data.category) syncData.category = data.category;
-          if (data.unit) syncData.baseUnit = data.unit;
-          if (data.shelfLifeDays !== undefined) syncData.shelfLifeDays = data.shelfLifeDays;
-          if (data.description) syncData.description = data.description;
-          if (Object.keys(syncData).length > 0) {
-            await db.update(itemMaster).set(syncData).where(
-              and(eq(itemMaster.legacyMaterialId, id) as any, eq(itemMaster.tenantId, ctx.tenantId as any) )
-            );
+          // 현재 상태 재조회 (UPDATE 직후 스냅샷) — partial update 누락 방지
+          const [current] = await db
+            .select()
+            .from(hMaterials)
+            .where(
+              and(
+                eq(hMaterials.id, id),
+                eq(hMaterials.tenantId, ctx.tenantId as any),
+              ),
+            )
+            .limit(1);
+          if (current) {
+            const { syncMaterialToItemMaster } = await import("../../db/production/itemMasterSync.js");
+            await syncMaterialToItemMaster(db as any, {
+              tenantId: ctx.tenantId,
+              materialId: id,
+              materialCode: current.materialCode,
+              materialName: current.materialName,
+              category: current.category ?? null,
+              unit: current.unit ?? null,
+              supplierId: current.supplierId ?? null,
+              purchaseUnit: current.purchaseUnit ?? null,
+              purchaseConversionRate: current.conversionRate ?? null,
+              shelfLifeDays: current.shelfLifeDays ?? null,
+              description: current.description ?? null,
+              isActive: current.isActive ?? 1,
+            });
           }
         } catch (syncErr) {
           console.error('item_master 동기화 실패 (material):', syncErr);
@@ -423,19 +443,19 @@ export const materialRouter = router({
                 tenantId: ctx.tenantId,
               });
               
-              // item_master 동기화
+              // item_master 동기화 (canonical-sync helper)
+              // PR #269 follow-up: inline INSERT → syncMaterialToItemMaster 통일
               try {
-                const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
-                await db.insert(itemMaster).values({
+                const { syncMaterialToItemMaster } = await import("../../db/production/itemMasterSync.js");
+                await syncMaterialToItemMaster(db as any, {
                   tenantId: ctx.tenantId,
-                  itemCode: materialCode,
-                  itemName: trimmedName,
-                  itemType: 'raw_material',
+                  materialId: Number(matInsertResult[0].insertId),
+                  materialCode,
+                  materialName: trimmedName,
                   category: mat.category || null,
-                  baseUnit: mat.unit || 'kg',
+                  unit: mat.unit || null,
                   shelfLifeDays: mat.expiryWarningDays || null,
                   description: [mat.storageMethod, mat.notes].filter(Boolean).join(" / ") || null,
-                  legacyMaterialId: Number(matInsertResult[0].insertId),
                   isActive: 1,
                 });
               } catch (syncErr) {
