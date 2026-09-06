@@ -253,6 +253,20 @@ export interface ParsedSupplier {
 
 /**
  * 거래처 엑셀 파일 파싱
+ *
+ * 컬럼 순서 (1행은 헤더):
+ *   A: 거래처명 (필수)
+ *   B: 사업자번호 (optional, 2026-08 완화)
+ *   C: 대표자명 (optional)
+ *   D: 연락처   (optional)
+ *   E: 주소     (optional)
+ *   F: 거래처 유형 (optional)
+ *   G: 이메일   (optional)
+ *   H: 비고     (미사용)
+ *
+ * 상한: 500행 (2026-08 완화, 이전 100행).
+ *   서버 supplier.bulkCreate 는 UPSERT (같은 supplierName 이면 update)이므로
+ *   중복 재업로드 안전.
  */
 export function parseSupplierExcel(file: File): Promise<ParseResult<ParsedSupplier>> {
   return new Promise((resolve, reject) => {
@@ -280,20 +294,24 @@ export function parseSupplierExcel(file: File): Promise<ParseResult<ParsedSuppli
           });
           return;
         }
+        // 최대 500개 행까지 처리 (1행은 헤더이므로 2-501행)
+        //   2026-08 완화: 서비스 시작 시 다수 거래처를 한 번에 등록하는 케이스 대응 (100→500)
+        const maxRow = Math.min(jsonData.length, 501);
 
-        // 최대 100개 행까지만 처리 (1행은 헤더이므로 2-101행)
-        const maxRow = Math.min(jsonData.length, 101);
         for (let i = 1; i < maxRow; i++) {
           const row = jsonData[i];
           if (!row || row.length === 0) continue;
-          // 거래처명(row[0])과 사업자번호(row[1])가 모두 비어있으면 스킵
+
+          // 거래처명(row[0])이 비어있으면 스킵 (전체 빈 행 안전 처리)
+          //   2026-08 완화: 사업자번호(row[1])는 optional (스키마·서버 모두 nullable).
+          //   개인사업자·간이과세자·미신고 등 사업자번호 없는 거래처도 등록 가능하도록 함.
           const hasSupplierName = row[0] && String(row[0]).trim() !== "";
-          const hasBusinessNumber = row[1] && String(row[1]).trim() !== "";
-          if (!hasSupplierName || !hasBusinessNumber) continue;
+          if (!hasSupplierName) continue;
 
           const supplier: Partial<ParsedSupplier> = {};
 
-          // 새로운 컴럼 순서: 거래처명*, 사업자번호*, 대표자명, 연락처, 주소, 거래처 유형*, 이메일, 비고
+          // 새로운 컴럼 순서: 거래처명*, 사업자번호, 대표자명, 연락처, 주소, 거래처 유형, 이메일, 비고
+          //   * = 필수. 그 외는 모두 optional.
           const supplierName = normalizeString(row[0]);
           if (!supplierName) {
             result.errors.push({
@@ -303,8 +321,8 @@ export function parseSupplierExcel(file: File): Promise<ParseResult<ParsedSuppli
             });
             continue;
           }
-          supplier.supplierName = supplierName;
 
+          supplier.supplierName = supplierName;
           supplier.businessNumber = normalizeString(row[1]) || undefined;
           supplier.contactPerson = normalizeString(row[2]) || undefined;
           supplier.phone = normalizeString(row[3]) || undefined;
@@ -316,7 +334,6 @@ export function parseSupplierExcel(file: File): Promise<ParseResult<ParsedSuppli
 
           result.data.push(supplier as ParsedSupplier);
         }
-
         result.success = result.errors.length === 0;
         resolve(result);
       } catch (error: any) {
