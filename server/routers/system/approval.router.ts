@@ -41,11 +41,19 @@ export const approvalRouter = router({
       }),
 
     // 승인 요청 목록 조회
+    // 2026-09-10: 서버-사이드 title 검색 / 날짜 필터 / 페이지네이션 파라미터 추가.
+    //             기존 caller (검토/승인/작성자 대기 탭) 는 새 파라미터 미전달 시
+    //             기존 동작 유지 (전체 배열 반환).
     list: tenantRequiredProcedure
       .input(
         z.object({
           status: z.string().optional(),
-          requestType: z.string().optional()
+          requestType: z.string().optional(),
+          search: z.string().optional(),
+          dateFrom: z.string().optional(),
+          dateTo: z.string().optional(),
+          limit: z.number().int().min(1).max(500).optional(),
+          offset: z.number().int().min(0).optional(),
         })
       )
       .query(async ({ input, ctx }) => {
@@ -54,6 +62,37 @@ export const approvalRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "tenantId is required" });
         }
         return await getApprovalRequests({ ...input, tenantId: ctx.tenantId });
+      }),
+
+    // 처리이력 페이지네이션용 — items + total 을 함께 반환
+    // (기존 list 는 배열 반환이므로 시그니처 유지, 총건수가 필요한 화면은 이걸 호출)
+    listPaged: tenantRequiredProcedure
+      .input(
+        z.object({
+          status: z.string().optional(),
+          requestType: z.string().optional(),
+          search: z.string().optional(),
+          dateFrom: z.string().optional(),
+          dateTo: z.string().optional(),
+          limit: z.number().int().min(1).max(500).default(100),
+          offset: z.number().int().min(0).default(0),
+        })
+      )
+      .query(async ({ input, ctx }) => {
+        if (!ctx.tenantId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "tenantId is required" });
+        }
+        const { getApprovalRequests, getApprovalRequestsCount } = await import("../../db");
+        const filters = { ...input, tenantId: ctx.tenantId };
+        const [items, total] = await Promise.all([
+          getApprovalRequests(filters),
+          getApprovalRequestsCount(filters),
+        ]);
+        return {
+          items,
+          total,
+          hasMore: (input.offset + (items?.length ?? 0)) < total,
+        };
       }),
 
     // 여러 ID로 일괄 조회 (인쇄 미리보기 최적화)
