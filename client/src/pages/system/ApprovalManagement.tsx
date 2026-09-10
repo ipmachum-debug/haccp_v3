@@ -3,7 +3,7 @@
 // 3단계 승인 워크플로 (작성 → 검토 → 승인)
 // 검토 대기, 승인 대기, 처리 이력, 품목제조보고 승인 탭
 // ═══════════════════════════════════════════════════════════════
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 // Phase Plugin-6: Approval Engine — Plugin 기반 승인 entity / 탭 동적화
@@ -53,7 +53,6 @@ import { useLocation } from "wouter";
 import { ApprovalSealRow } from "@/components/SealGenerator";
 import { CcpInspectionCard } from "@/components/ccp/CcpInspectionCard";
 
-import { formatLocalDate } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 export default function ApprovalManagement() {
@@ -84,6 +83,20 @@ export default function ApprovalManagement() {
   // 처리이력 날짜 필터
   const [historyDateFrom, setHistoryDateFrom] = useState("");
   const [historyDateTo, setHistoryDateTo] = useState("");
+  // 처리이력 문서제목 검색 (2026-09-10) — 서버 side LIKE 검색용, 300ms debounce
+  const [historySearchInput, setHistorySearchInput] = useState("");
+  const [historySearchDebounced, setHistorySearchDebounced] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setHistorySearchDebounced(historySearchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [historySearchInput]);
+  // 처리이력 페이지네이션 (2026-09-10) — 서버 side limit/offset
+  const HISTORY_PAGE_SIZE = 100;
+  const [historyOffset, setHistoryOffset] = useState(0);
+  // 검색어 / 필터 변경 시 offset 초기화
+  useEffect(() => {
+    setHistoryOffset(0);
+  }, [historySearchDebounced, statusFilter, typeFilter, historyDateFrom, historyDateTo]);
   // 일괄승인 확인 다이얼로그
   const [batchConfirmDialogOpen, setBatchConfirmDialogOpen] = useState(false);
   const [batchConfirmAction, setBatchConfirmAction] = useState<"review" | "approve">("review");
@@ -112,14 +125,25 @@ export default function ApprovalManagement() {
     { status: "pending_approval" }
   );
 
-  // 승인 이력 조회
-  const { data: historyAll, refetch: refetchHistory } = trpc.approval.list.useQuery(
+  // 승인 이력 조회 (2026-09-10 리팩토링)
+  // - 서버 side: status / requestType / search(title LIKE) / dateFrom / dateTo / limit / offset
+  // - listPaged 는 { items, total, hasMore } 반환. 클라이언트 사이드 후처리 최소화.
+  // - "전체" 상태 필터는 서버 미전달 (전체) + 클라이언트에서 approved/rejected/cancelled 만 남김.
+  const { data: historyPage, refetch: refetchHistory } = trpc.approval.listPaged.useQuery(
     {
       status: statusFilter === "all" ? undefined : statusFilter as "pending_review" | "pending_approval" | "approved" | "rejected" | "cancelled",
       requestType: typeFilter === "all" ? undefined : typeFilter as string,
+      search: historySearchDebounced || undefined,
+      dateFrom: historyDateFrom || undefined,
+      dateTo: historyDateTo || undefined,
+      limit: HISTORY_PAGE_SIZE,
+      offset: historyOffset,
     },
     { enabled: activeTab === "history" }
   );
+  const historyAll = (historyPage?.items ?? []) as ApprovalRequest[];
+  const historyTotal = historyPage?.total ?? 0;
+  const historyHasMore = historyPage?.hasMore ?? false;
   // 문서 결재 설정 + 직원 목록 조회 (직인 표시용)
   const { data: allApprovalSettings = [] } = trpc.organization.approvalSettings.list.useQuery();
   const { data: allEmployees = [] } = trpc.organization.employees.list.useQuery();
@@ -149,26 +173,11 @@ export default function ApprovalManagement() {
       approverName: findName(setting.approverEmployeeId),
     };
   };
-  // 처리이력: approved, rejected만 표시 (statusFilter가 all일 때) + 날짜 필터
-  const historyRequests = (() => {
-    let list: ApprovalRequest[] = statusFilter === "all"
-      ? ((historyAll as ApprovalRequest[] | undefined) || []).filter((r) => r.status === "approved" || r.status === "rejected" || r.status === "cancelled")
-      : ((historyAll as ApprovalRequest[] | undefined) || []);
-    // 날짜 필터 적용
-    if (historyDateFrom) {
-      list = list.filter((r) => {
-        const d = r.approvedAt || r.rejectedAt || r.requestedAt || r.createdAt;
-        return d && formatLocalDate(new Date(d as string | Date)) >= historyDateFrom;
-      });
-    }
-    if (historyDateTo) {
-      list = list.filter((r) => {
-        const d = r.approvedAt || r.rejectedAt || r.requestedAt || r.createdAt;
-        return d && formatLocalDate(new Date(d as string | Date)) <= historyDateTo;
-      });
-    }
-    return list;
-  })();
+  // 처리이력: 서버가 search / dateFrom / dateTo / status / requestType 필터 적용 완료.
+  // 여기서는 "전체" 선택 시 approved / rejected / cancelled 만 남기는 화면-only 규칙만 적용.
+  const historyRequests: ApprovalRequest[] = statusFilter === "all"
+    ? historyAll.filter((r) => r.status === "approved" || r.status === "rejected" || r.status === "cancelled")
+    : historyAll;
 
   // 품목제조보고 승인 대기 목록 조회
   const { data: pendingRecipes, refetch: refetchPendingRecipes } = trpc.recipeApproval.getPending.useQuery(
@@ -492,7 +501,7 @@ export default function ApprovalManagement() {
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground leading-tight">처리 이력</p>
-                <p className="text-xl font-bold text-green-600">{(historyRequests || []).length}</p>
+                <p className="text-xl font-bold text-green-600">{historyTotal}</p>
               </div>
             </CardContent>
           </Card>
@@ -671,6 +680,17 @@ export default function ApprovalManagement() {
           <TabsContent value="history" className="space-y-2 mt-2">
             <Card className="p-3">
               <div className="flex gap-2 flex-wrap items-end">
+                {/* 2026-09-10: 문서 제목 검색 (서버 side LIKE, 300ms debounce) */}
+                <div className="flex flex-col gap-0.5 flex-1 min-w-[200px]">
+                  <label className="text-[10px] text-muted-foreground font-medium">문서 제목 검색</label>
+                  <Input
+                    type="text"
+                    placeholder="제목 또는 설명 검색..."
+                    value={historySearchInput}
+                    onChange={(e) => setHistorySearchInput(e.target.value)}
+                    className="h-8 text-xs"
+                  />
+                </div>
                 <div className="flex flex-col gap-0.5">
                   <label className="text-[10px] text-muted-foreground font-medium">상태</label>
                   <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -712,9 +732,43 @@ export default function ApprovalManagement() {
                 </div>
                 <Button variant="outline" size="sm" className="h-8 text-xs" onClick={() => {
                   setStatusFilter("all"); setTypeFilter("all"); setHistoryDateFrom(""); setHistoryDateTo("");
+                  setHistorySearchInput(""); setHistorySearchDebounced("");
                 }}>
                   초기화
                 </Button>
+              </div>
+              {/* 2026-09-10: 페이지네이션 상태 표시 */}
+              <div className="mt-2 flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>
+                  총 <span className="font-semibold text-foreground">{historyTotal.toLocaleString()}</span>건
+                  {historyTotal > 0 && (
+                    <span className="ml-1">
+                      · {historyOffset + 1}~{Math.min(historyOffset + HISTORY_PAGE_SIZE, historyTotal)} 표시
+                    </span>
+                  )}
+                </span>
+                {historyTotal > HISTORY_PAGE_SIZE && (
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-[11px] px-2"
+                      disabled={historyOffset === 0}
+                      onClick={() => setHistoryOffset(Math.max(0, historyOffset - HISTORY_PAGE_SIZE))}
+                    >
+                      이전
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 text-[11px] px-2"
+                      disabled={!historyHasMore}
+                      onClick={() => setHistoryOffset(historyOffset + HISTORY_PAGE_SIZE)}
+                    >
+                      다음
+                    </Button>
+                  </div>
+                )}
               </div>
             </Card>
 

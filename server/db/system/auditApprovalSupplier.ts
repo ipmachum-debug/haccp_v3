@@ -1,4 +1,4 @@
-import { eq, and, or, desc, sql, aliasedTable, inArray } from "drizzle-orm";
+import { eq, and, or, desc, sql, aliasedTable, inArray, like, gte, lte } from "drizzle-orm";
 import { getDb, getRawConnection } from "../connection";
 import {
   auditLogs,
@@ -201,12 +201,23 @@ export async function createApprovalRequest(data: {
 
 /**
  * 승인 요청 목록 조회
+ *
+ * 페이지네이션 / 서버-사이드 검색 지원 (2026-09-10 추가):
+ * - `search`: title / description LIKE 검색 (부분일치)
+ * - `dateFrom` / `dateTo`: requested_at 기간 필터 (YYYY-MM-DD, KST 기준)
+ * - `limit` / `offset`: 페이지네이션. 지정 시 items 만 잘라서 반환.
+ * - 반환은 배열 형태 유지 (기존 caller 호환). 총 건수는 `getApprovalRequestsCount` 별도 조회.
  */
 export async function getApprovalRequests(filters?: {
   tenantId: number;
   status?: string;
   requestType?: string;
   requestedBy?: number;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+  offset?: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
@@ -222,6 +233,23 @@ export async function getApprovalRequests(filters?: {
   }
   if (filters?.requestedBy) {
     conditions.push(eq(hApprovalRequests.requestedBy, filters.requestedBy));
+  }
+  // 문서 제목 / 설명 부분일치 검색
+  if (filters?.search && filters.search.trim() !== "") {
+    const q = `%${filters.search.trim()}%`;
+    conditions.push(
+      or(
+        like(hApprovalRequests.title, q),
+        like(hApprovalRequests.description, q),
+      )
+    );
+  }
+  // 날짜 범위 (requested_at 기준). dateTo 는 해당일 23:59:59.999 까지 포함.
+  if (filters?.dateFrom) {
+    conditions.push(gte(hApprovalRequests.requestedAt, new Date(`${filters.dateFrom}T00:00:00`)));
+  }
+  if (filters?.dateTo) {
+    conditions.push(lte(hApprovalRequests.requestedAt, new Date(`${filters.dateTo}T23:59:59.999`)));
   }
 
   // users 테이블 alias로 requester/reviewer/approver 이름 조인
@@ -287,14 +315,53 @@ export async function getApprovalRequests(filters?: {
       or(eq(hApprovalRequests.referenceType, 'generic_checklist'), eq(hApprovalRequests.referenceType, 'checklist'))
     ));
 
-  if (conditions.length > 0) {
-    return await baseQuery
-      .where(and(...conditions))
-      .orderBy(desc(hApprovalRequests.requestedAt));
+  const hasLimit = typeof filters?.limit === "number" && filters.limit > 0;
+  const limitVal = hasLimit ? (filters!.limit as number) : 0;
+  const offsetVal = typeof filters?.offset === "number" && filters.offset > 0 ? filters.offset : 0;
+
+  let q = conditions.length > 0
+    ? baseQuery.where(and(...conditions)).orderBy(desc(hApprovalRequests.requestedAt))
+    : baseQuery.orderBy(desc(hApprovalRequests.requestedAt));
+  if (hasLimit) {
+    q = (q as any).limit(limitVal).offset(offsetVal);
   }
-  return await baseQuery
-    .orderBy(desc(hApprovalRequests.requestedAt));
+  return await q;
 }
+
+/**
+ * 승인 요청 총 건수 조회 (페이지네이션 total)
+ * getApprovalRequests 와 동일 필터를 받되 COUNT(*) 만 반환.
+ */
+export async function getApprovalRequestsCount(filters?: {
+  tenantId: number;
+  status?: string;
+  requestType?: string;
+  requestedBy?: number;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}): Promise<number> {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+  const conditions: any[] = [];
+  if (filters?.tenantId) conditions.push(eq(hApprovalRequests.tenantId, filters.tenantId));
+  if (filters?.status) conditions.push(eq(hApprovalRequests.status, filters.status as any));
+  if (filters?.requestType) conditions.push(eq(hApprovalRequests.requestType, filters.requestType));
+  if (filters?.requestedBy) conditions.push(eq(hApprovalRequests.requestedBy, filters.requestedBy));
+  if (filters?.search && filters.search.trim() !== "") {
+    const s = `%${filters.search.trim()}%`;
+    conditions.push(or(like(hApprovalRequests.title, s), like(hApprovalRequests.description, s)));
+  }
+  if (filters?.dateFrom) conditions.push(gte(hApprovalRequests.requestedAt, new Date(`${filters.dateFrom}T00:00:00`)));
+  if (filters?.dateTo)   conditions.push(lte(hApprovalRequests.requestedAt, new Date(`${filters.dateTo}T23:59:59.999`)));
+
+  const rows = await db
+    .select({ n: sql<number>`COUNT(*)` })
+    .from(hApprovalRequests)
+    .where(conditions.length > 0 ? and(...conditions) : undefined);
+  return Number(rows?.[0]?.n ?? 0);
+}
+
 /**
  * 승인 요청 여러 ID 일괄 조회 (인쇄 미리보기 최적화)
  * - IN 절 사용 + tenant 격리

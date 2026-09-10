@@ -2,7 +2,7 @@
  * part2 분할: 승인/워크플로우 + 문서/매뉴얼
  */
 import {
-  bigint, boolean, date, decimal, int, json,
+  bigint, boolean, date, decimal, index, int, json,
   mysqlEnum, mysqlTable, text, timestamp, tinyint, varchar
 } from "drizzle-orm/mysql-core";
 import { tenants } from "./schema_main_core";
@@ -36,7 +36,16 @@ export const hApprovalRequests = mysqlTable("h_approval_requests", {
   rejectionReason: text("rejection_reason"),
   notes: text("notes"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (table) => ({
+  // 2026-09-10: 처리이력 페이지네이션 쿼리 (tenant + status 필터 + requested_at 정렬)
+  // 를 커버하는 복합 인덱스. Genspark 측정 기준 filesort 제거 + 3.2배 latency 개선.
+  // 참고: sql/inspect_approval_indexes.sql (V3~V6)
+  approvalTenantStatusReqatIdx: index("idx_approval_tenant_status_reqat").on(
+    table.tenantId,
+    table.status,
+    table.requestedAt,
+  ),
+}));
 
 /**
  * h_approval_workflows - 승인 워크플로우
