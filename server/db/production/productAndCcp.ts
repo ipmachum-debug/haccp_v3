@@ -173,81 +173,6 @@ export async function findMatchingCcpTemplates(productName: string, tenantId?: n
   return matched;
 }
 
-export async function getRecipeCcpsByRecipeId(recipeId: number) {
-  const db = await getDb();
-  if (!db) return [];
-
-  const { hRecipeCcp } = await import("../../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
-
-  return await db.select().from(hRecipeCcp).where(eq(hRecipeCcp.recipeId, recipeId));
-}
-
-// ==================== 레시피 관리 ====================
-export async function getRecipeByProductId(productId: number, tenantId?: number) {
-  const db = await getDb();
-  if (!db) return undefined;
-
-  const { hRecipeHeaders } = await import("../../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
-
-  const result = await db.select().from(hRecipeHeaders).where(eq(hRecipeHeaders.productId, productId)).limit(1);
-  return result.length > 0 ? result[0] : undefined;
-}
-
-// ==================== CCP 자동 생성 ====================
-export async function generateCcpForBatch(batchId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  // 1. 배치 정보 조회
-  const { getBatchById } = await import("./batchCRUD");
-  const batch = await getBatchById(batchId);
-  if (!batch) throw new Error("Batch not found");
-
-  // 2. 제품의 레시피 조회
-  const recipe = await getRecipeByProductId(batch.productId);
-  if (!recipe) {
-    throw new Error("No recipe found for this product");
-  }
-
-  // 3. 레시피의 CCP 정보 조회
-  const recipeCcps = await getRecipeCcpsByRecipeId(recipe.id);
-  if (recipeCcps.length === 0) {
-    throw new Error("No CCP information found in recipe");
-  }
-
-  // 4. 각 CCP 정보에 대해 CCP 인스턴스 생성
-  const { hCcpInstances } = await import("../../../drizzle/schema.js");
-  const createdCcps = [];
-
-  for (const recipeCcp of recipeCcps) {
-    // CCP 인스턴스 생성 — workDate는 배치의 planned_date 사용
-    const batchPlannedDate = batch.plannedDate
-      ? new Date(batch.plannedDate)
-      : new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
-    const instanceResult = await db.insert(hCcpInstances).values({
-      siteId: batch.siteId,
-      workDate: batchPlannedDate,
-      batchId,
-      productId: batch.productId,
-      ccpType: recipeCcp.ccpType,
-      status: "draft",
-      createdBy: batch.createdBy
-    } as any);
-
-    const instanceId = Number(instanceResult[0].insertId);
-
-    createdCcps.push({
-      instanceId,
-      ccpType: recipeCcp.ccpType,
-      // criticalLimitMin, criticalLimitMax, unit 필드는 CCP 템플릿에서 관리
-    });
-  }
-
-  return createdCcps;
-}
-
 // ==================== 제품 생성 (테스트용) ====================
 export async function createProduct(data: {
   productCode: string;
@@ -277,45 +202,6 @@ export async function createProduct(data: {
   if (data.tenantId) values.tenantId = data.tenantId;
   const result = await db.insert(hProductsV2).values(values as any);
   return { id: Number(result[0].insertId) };
-}
-
-// ==================== 레시피 생성 (테스트용) ====================
-export async function createRecipe(data: {
-  productId: number;
-  recipeCode: string;
-  recipeName: string;
-  version?: number;
-  isActive: number;
-  createdBy: number;
-}) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  const { hRecipeHeaders } = await import("../../../drizzle/schema.js");
-  const result = await db.insert(hRecipeHeaders).values({
-    ...data,
-    version: data.version || 1
-  } as any);
-  return Number(result[0].insertId);
-}
-
-// ==================== 레시피 CCP 추가 (테스트용) ====================
-export async function addRecipeCcp(data: {
-  recipeId: number;
-  ccpType: string;
-  stepNumber: number | null;
-  criticalLimitMin: string | null;
-  criticalLimitMax: string | null;
-  unit: string | null;
-  monitoringFrequency: string | null;
-  correctiveAction: string | null;
-}) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  const { hRecipeCcp } = await import("../../../drizzle/schema.js");
-  const result = await db.insert(hRecipeCcp).values(data as any);
-  return Number(result[0].insertId);
 }
 
 // ==================== CCP 인스턴스 조회 ====================
