@@ -13,7 +13,6 @@ export { productionRouter } from "./production.router";
 export { productionDashboardRouter } from "./productionDashboard.router";
 export { productionPredictionRouter } from "./productionPrediction.router";
 export { productionScheduleRouter } from "./productionSchedule.router";
-export { recipeRouter } from "./recipe.router";
 export { recipeApprovalRouter } from "./recipeApproval.router";
 export { recipeManagementRouter } from "./recipeManagement.router";
 export { scheduleOptimizationRouter } from "./scheduleOptimization.router";

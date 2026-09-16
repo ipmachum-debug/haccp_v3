@@ -155,7 +155,7 @@ export async function bridgeSensorDataToCcp(params: {
       const [rows]: any = await conn.execute(
         `SELECT p.product_name AS product_name
          FROM h_batches b
-         LEFT JOIN h_products p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+         LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
          WHERE b.id = ? AND b.tenant_id = ?
          LIMIT 1`,
         [batchId, tenantId],

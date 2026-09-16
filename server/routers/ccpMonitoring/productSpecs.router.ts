@@ -210,11 +210,10 @@ export const productSpecsRouter = router({
             GROUP_CONCAT(DISTINCT pg.ccp_type ORDER BY pg.ccp_type) as mapped_ccp_types,
             GROUP_CONCAT(DISTINCT CONCAT(pg.name, '(', pg.ccp_type, ')') ORDER BY pg.ccp_type SEPARATOR ', ') as process_group_names,
             COUNT(DISTINCT pgp.process_group_id) as process_group_count,
-            (SELECT rh.recipe_name FROM h_recipe_headers rh
-             JOIN item_master im ON rh.product_id = im.id AND im.tenant_id = ${tenantId}
-             WHERE im.legacy_product_id = p.id AND rh.tenant_id = ${tenantId}
-             AND rh.is_active = 1
-             ORDER BY rh.version DESC LIMIT 1
+            (SELECT mr.report_no FROM h_mf_reports mr
+             WHERE mr.product_id = p.id AND mr.tenant_id = ${tenantId}
+               AND mr.status = 'ACTIVE'
+             ORDER BY mr.id DESC LIMIT 1
             ) as recipe_name
           FROM h_products_v2 p
           LEFT JOIN ccp_process_group_products pgp ON pgp.product_id = p.id AND pgp.tenant_id = ${tenantId}
