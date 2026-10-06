@@ -1,9 +1,42 @@
 # PR 지시서 — `autoDailyReport.ts` 온도/습도 blind copy 제거 & 계절 자연화 헬퍼 도입
 
-**작성일**: 2026-09-22
+**작성일**: 2026-09-22 (최초), 2026-10-06 (CEO 피드백 반영 개정)
 **대상 브랜치**: `main` 기반 신규 브랜치 (예: `fix/auto-daily-report-temp-humidity`)
 **우선순위**: P1 (자동 생성되는 daily_log가 매일 완전히 동일한 온도/습도를 갖게 되어 감사 리스크 발생)
 **작업자**: Claude Code (또는 담당 엔지니어)
+
+---
+
+## 0. 설계 원칙 (★ CEO 확정)
+
+> **"재고 차감은 매일 생산 등록이 원칙이지만, 불가피하게 밀린 걸 한 번에 적용하는 경우가 있다.
+> 이럴 때를 대비해 생산 작업 입력일(= 배치일자, `batch.planned_date`) 기준으로 모든 자동 생성값을 맞춰야 한다."**
+> — 한상갑 CEO, 2026-10-06
+
+### 0.1 원칙
+**모든 자동 생성/보정 로직의 "기준 날짜"는 `batch.planned_date` (= `reportDate`) 이며, 생성 시각/오늘 날짜가 아니다.**
+
+- ✅ `reportDate` = `batch.planned_date` (KST, 코드에서 이미 올바르게 세팅되고 있음, line 174-184)
+- ✅ 온도/습도 계절 스펙 lookup → `getSeasonSpec(reportDate)` (배치일자의 월 기준)
+- ✅ 결정론적 RNG 시드 → `(reportDate, slot, tenantId)` (배치일자 기준이라 소급 등록해도 일관성)
+- ❌ `new Date()` 로 "오늘" 날짜 쓰면 안 됨
+- ❌ "전일 daily_log 복사"로 온도/습도 가져오면 안 됨 (blind copy 금지)
+
+### 0.2 왜 중요한가 — 실제 운영 시나리오
+2026-10-06 KST 13시경, CEO가 9/21 ~ 10/1 작업분 11일치를 한 번에 소급 등록. 결과:
+- 배치 12건 생성 시각: 10/6 KST 13:01~13:20 (몇 초 간격)
+- **반면** 각 배치의 `batch.planned_date`: 9/21, 9/29, 9/30, 10/1 (정상)
+- **그런데** daily_log 4건 모두 온도/습도가 10/5 (등록일 전일)이 아니라 **9/19** (가장 최근 과거 daily_log, id=852)의 값 100% complete copy
+  - → "전일 복사" 로직이 "`form_date < reportDate` LIMIT 1" 쿼리라 가장 최근 과거를 가져옴
+  - → 9/19 값이 9/21, 9/29, 9/30, 10/1 네 날짜에 전부 복사됨
+  - → 서버 cron (매일 03:00) 은 해당 날짜 daily_log 가 존재하지 않을 때 돌아서 매번 "0건 스킵"
+
+**이것이 본 PR이 해결해야 할 핵심 시나리오.**
+
+### 0.3 기대 효과
+- 당일 등록 / 소급 등록 / 미래 예약 등록 **구분 없이**, daily_log 의 온도/습도는 **항상 batch.planned_date 의 계절값**으로 생성됨.
+- 사후 cron 보정 불필요 (근본에서 해결).
+- 10월 배치는 10월 가을 스펙(21~26°C), 7월 배치는 여름 스펙(26.5~31.5°C) → **감사 시 100% 설명 가능**.
 
 ---
 
@@ -344,8 +377,13 @@ const copyKeys = [
   }
 
   // ── 온도/습도 계절 자연화 (blind copy 대체) ─────────────────
-  // reportDate 기준 계절 스펙으로 결정론적 랜덤값 생성.
+  // ★ 중요: 기준 날짜는 반드시 reportDate (= batch.planned_date).
+  //   오늘 날짜(new Date())를 쓰면 소급 등록 케이스에서 계절이 어긋남.
+  //   reportDate 는 line 174-184 에서 이미 batch.plannedDate 기준 KST 로 세팅됨.
+  //
   // 시드 = (reportDate, slot, tenantId) → 재현 가능.
+  // 효과: 10월 배치면 10월 가을 스펙, 7월 배치면 여름 스펙,
+  //       당일 등록이든 소급 등록이든 결과 동일.
   try {
     const seasonal = generateSeasonalDefaults(reportDate, tenantId);
     (formData as any).temperatureHumidity = seasonal.temperatureHumidity;
@@ -413,6 +451,26 @@ describe('generateSeasonalDefaults', () => {
       }
     }
   });
+
+  /**
+   * ★ CEO 요구사항 검증: 소급 등록 시에도 "배치일자" 기준으로 계절값이 나와야 함.
+   * autoDailyReport.ts 가 반드시 reportDate (=batch.planned_date) 를 전달해야 통과.
+   */
+  it('backfill scenario: respects batch date not generation date', () => {
+    // 2026-10-06 (오늘) 에 9/21 배치를 소급 등록한 상황 시뮬레이션
+    const sepRes = generateSeasonalDefaults('2026-09-21', 2);  // 9월 초가을
+    const octRes = generateSeasonalDefaults('2026-10-06', 2);  // 10월 가을
+
+    const sepTemp = parseFloat(sepRes.temperatureHumidity[0].temperature);
+    const octTemp = parseFloat(octRes.temperatureHumidity[0].temperature);
+
+    // 9월 스펙: 원재료실 AM 26.0~28.0°C, 10월: 21.0~24.0°C → 겹치지 않음
+    expect(sepTemp).toBeGreaterThanOrEqual(26.0);
+    expect(sepTemp).toBeLessThanOrEqual(28.0);
+    expect(octTemp).toBeGreaterThanOrEqual(21.0);
+    expect(octTemp).toBeLessThanOrEqual(24.0);
+    // → 소급 등록해도 9월은 9월 값, 10월은 10월 값으로 나옴
+  });
 });
 ```
 
@@ -429,6 +487,29 @@ describe('generateSeasonalDefaults', () => {
 4. `form_data._tempSource === 'auto_daily_report:seasonal_rng'` 확인.
 5. 같은 날에 배치 하나 더 생성해도 온도/습도가 **변하지 않아야** 함 (배치 추가는 form_data.batches만 append; 신규 생성이 아니므로).
 6. 다음날 새 배치 생성 시 온도/습도는 **다른 값**이어야 함.
+
+### 4.3 ★ 소급 등록 시나리오 테스트 (CEO 요구사항)
+**매우 중요** — 이 테스트가 통과해야 PR 머지 가능.
+
+**시나리오**: 오늘 10/6, 과거 9/21 작업을 소급으로 배치 등록.
+
+1. 배치 1개 생성 — **반드시** `planned_date='2026-09-21'` 로 지정 (등록 시각은 오늘).
+2. DB 조회:
+   ```sql
+   SELECT form_date, 
+          JSON_EXTRACT(form_data,'$._tempSource') AS src,
+          JSON_EXTRACT(form_data,'$.temperatureHumidity[0]') AS th_am1
+   FROM h_generic_checklist_records
+   WHERE form_type='daily_log' AND tenant_id=2
+     AND form_date='2026-09-21';
+   ```
+3. 기대 결과:
+   - `form_date = '2026-09-21'` (오늘이 아닌 **배치일자**)
+   - `_tempSource = 'auto_daily_report:seasonal_rng'`
+   - 원재료실1 오전 온도 ∈ [26.0, 28.0]°C (**9월 스펙**, 10월 스펙 아님)
+4. 추가로 10월 배치도 생성 후 비교:
+   - 9/21 배치의 온도 ≠ 10/15 배치의 온도
+   - 두 배치가 같은 시각(10/6)에 등록됐어도 결과가 다름 → **"기준은 배치일자"가 체크됨**
 
 ---
 
