@@ -318,6 +318,19 @@ export async function receiveNewLot(
   // (3) 집계 재계산(자가 치유)
   await recomputeAggregateFromLots(conn, { tenantId: p.tenantId, subject: p.subject, unit: p.unit });
 
+  // (4) 음수 LOT 자동 상쇄 (negativeStockPolicy, 2026-10-08) — 원재료만
+  if (s.materialId) {
+    try {
+      const { reconcileNegativeLots } = await import("./negativeLotReconcile");
+      await reconcileNegativeLots(conn, {
+        materialId: s.materialId, tenantId: p.tenantId, userId: p.createdBy,
+        transactionDate: receipt, source: "receiveNewLot",
+      });
+    } catch (recErr) {
+      console.warn(`[applyInventoryDelta] 음수 LOT 상쇄 실패 (계속):`, recErr);
+    }
+  }
+
   return { lotId, lotNumber: p.lotNumber };
 }
 

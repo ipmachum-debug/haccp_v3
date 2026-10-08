@@ -274,6 +274,18 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
       } catch (invErr) {
         console.error(`[purchasePost] h_inventory UPSERT 실패 (계속):`, invErr);
       }
+
+      // (A-3) 음수 LOT 자동 상쇄 (negativeStockPolicy, 2026-10-08)
+      //   입고 전에 생산 투입돼 음수로 내려간 LOT 가 있으면 방금 들어온 LOT 로 메꾼다.
+      try {
+        const { reconcileNegativeLots } = await import("../inventory/negativeLotReconcile");
+        await reconcileNegativeLots(conn, {
+          materialId: resolvedMaterialId, tenantId, userId,
+          transactionDate: purchase.transactionDate, source: "purchasePost",
+        });
+      } catch (recErr) {
+        console.warn(`[purchasePost] 음수 LOT 상쇄 실패 (계속):`, recErr);
+      }
     }
 
     // (B) 재고 원장 생성

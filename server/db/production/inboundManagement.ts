@@ -213,6 +213,19 @@ export async function createInboundReceipt(params: {
       );
     }
 
+    // (D) 음수 LOT 자동 상쇄 (negativeStockPolicy, 2026-10-08)
+    if (tenantId) {
+      try {
+        const { reconcileNegativeLots } = await import("../../lib/inventory/negativeLotReconcile");
+        await reconcileNegativeLots(conn, {
+          materialId: params.materialId, tenantId, userId: params.createdBy ?? null,
+          transactionDate: receiptDate.toISOString().slice(0, 10), source: "inboundReceipt",
+        });
+      } catch (recErr) {
+        console.warn(`[inboundManagement] 음수 LOT 상쇄 실패 (계속):`, recErr);
+      }
+    }
+
     return { lotId, lotNumber };
   }, `createInboundReceipt:${params.materialId}`);
 
