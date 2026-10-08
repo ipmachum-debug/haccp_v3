@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { getDb } from "../../db";
 
 import { hInventoryLots } from "../../../drizzle/schema/part2";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, sql, desc } from "drizzle-orm";
 
 /**
  * Drizzle 인스턴스 해석 — 같은 트랜잭션에서 사용하려면 conn 전달.
@@ -38,6 +38,89 @@ async function resolveDrizzle(conn?: PoolConnection) {
  *             F-2 단일 트랜잭션 엔진 (PR #124) 통합용.
  * @returns 할당된 LOT 목록 [{ lotId, quantity, unitCost }]
  */
+export interface FefoLotRow {
+  id: number;
+  availableQuantity: number | string | null;
+  unitPrice?: number | string | null;
+  expiryDate?: Date | string | null;
+}
+
+export interface FefoAllocation {
+  lotId: number;
+  quantity: number;
+  unitCost: number;
+  expiryDate: string | null;
+  /** 음수 허용 모드에서 부족분을 떠안은 LOT (가용량을 넘겨 차감됨) */
+  negative?: boolean;
+}
+
+export interface FefoOptions {
+  /**
+   * 음수 재고 허용 (2026-10-08, negativeStockPolicy).
+   * 가용 LOT 를 FEFO 로 다 쓰고도 모자라면 throw 하지 않고, 부족분을 `sinkLot`
+   * (기본: 해당 자재의 가장 최근 LOT) 에 몰아서 음수로 차감한다.
+   */
+  allowNegative?: boolean;
+}
+
+/** 음수 허용 모드인데 자재에 LOT 가 하나도 없을 때 — 호출측이 자리표시 LOT 를 만들어야 한다 */
+export class NoLotsForNegativeError extends Error {
+  constructor(public readonly inventoryId: number, public readonly materialId: number | undefined, public readonly requested: number) {
+    super(`재고 ID ${inventoryId}에 LOT 가 없어 음수 차감할 LOT 를 정할 수 없습니다.`);
+    this.name = "NoLotsForNegativeError";
+  }
+}
+
+/**
+ * 순수 FEFO 배분 계산 (DB 접근 없음, 단위 테스트 대상).
+ *
+ * @param lots      FEFO 순으로 정렬된 가용 LOT (availableQuantity > 0)
+ * @param requested 요청 수량
+ * @param sinkLot   allowNegative 일 때 부족분을 떠안을 LOT (없으면 null)
+ */
+export function planFefoAllocation(
+  lots: FefoLotRow[],
+  requested: number,
+  opts: FefoOptions & { sinkLot?: FefoLotRow | null } = {},
+): { allocations: FefoAllocation[]; remaining: number } {
+  const allocations: FefoAllocation[] = [];
+  let remaining = requested;
+
+  for (const lot of lots) {
+    if (remaining <= 0.001) break;
+    const avail = Number(lot.availableQuantity || 0);
+    if (avail <= 0) continue;
+    const allocateQty = Math.min(remaining, avail);
+    allocations.push({
+      lotId: lot.id,
+      quantity: allocateQty,
+      unitCost: Number(lot.unitPrice || 0),
+      expiryDate: lot.expiryDate ? lot.expiryDate.toString() : null,
+    });
+    remaining -= allocateQty;
+  }
+
+  if (remaining > 0.001 && opts.allowNegative && opts.sinkLot) {
+    const sink = opts.sinkLot;
+    const existing = allocations.find((a) => a.lotId === sink.id);
+    if (existing) {
+      existing.quantity += remaining;
+      existing.negative = true;
+    } else {
+      allocations.push({
+        lotId: sink.id,
+        quantity: remaining,
+        unitCost: Number(sink.unitPrice || 0),
+        expiryDate: sink.expiryDate ? sink.expiryDate.toString() : null,
+        negative: true,
+      });
+    }
+    remaining = 0;
+  }
+
+  return { allocations, remaining };
+}
+
 export async function allocateLotsFEFO(
   inventoryId: number,
   requestedQuantity: number,
@@ -45,7 +128,8 @@ export async function allocateLotsFEFO(
   tenantId: number,
   materialId?: number,
   conn?: PoolConnection,
-): Promise<Array<{ lotId: number; quantity: number; unitCost: number; expiryDate: string | null }>> {
+  options: FefoOptions = {},
+): Promise<FefoAllocation[]> {
   const db = await resolveDrizzle(conn);
 
   // 1. 유통기한 순으로 사용 가능한 LOT 조회 (tenant_id 필터 적용)
@@ -118,7 +202,35 @@ export async function allocateLotsFEFO(
     }
   }
 
-  if (availableLots.length === 0) {
+  // 음수 허용 모드: 부족분을 떠안을 sink LOT = 해당 자재의 가장 최근 LOT (수량 무관, 음수 LOT 포함).
+  //   같은 LOT 에 계속 쌓이게 해서 음수가 여러 LOT 로 흩어지지 않게 한다.
+  let sinkLot: FefoLotRow | null = null;
+  if (options.allowNegative) {
+    const totalNow = (availableLots as any[]).reduce((s: number, l: any) => s + Number(l.availableQuantity || 0), 0);
+    if (totalNow + 0.001 < requestedQuantity) {
+      const sinkRows = await db
+        .select({
+          id: hInventoryLots.id,
+          availableQuantity: hInventoryLots.availableQuantity,
+          unitPrice: hInventoryLots.unitPrice,
+          expiryDate: hInventoryLots.expiryDate
+        })
+        .from(hInventoryLots)
+        .where(
+          materialId
+            ? and(eq(hInventoryLots.materialId, materialId), eq(hInventoryLots.tenantId, tenantId))
+            : and(eq(hInventoryLots.inventoryId, inventoryId), eq(hInventoryLots.tenantId, tenantId))
+        )
+        .orderBy(sql`(${hInventoryLots.availableQuantity} < 0) DESC`, desc(hInventoryLots.id))
+        .limit(1);
+      sinkLot = (sinkRows as any[])[0] ?? null;
+      if (!sinkLot) {
+        throw new NoLotsForNegativeError(inventoryId, materialId, requestedQuantity);
+      }
+    }
+  }
+
+  if (availableLots.length === 0 && !sinkLot) {
     console.warn(
       `[lot0-trace] fefo_no_lots inventory=${inventoryId} material=${materialId ?? "n/a"} ` +
       `tenant=${tenantId} requested=${requestedQuantity}${unit}`
@@ -126,27 +238,23 @@ export async function allocateLotsFEFO(
     throw new Error(`재고 ID ${inventoryId}에 사용 가능한 LOT가 없습니다.`);
   }
 
-  // 2. FEFO 할당
-  const allocations: Array<{ lotId: number; quantity: number; unitCost: number; expiryDate: string | null }> = [];
-  let remaining = requestedQuantity;
+  // 2. FEFO 할당 (+ 음수 허용 시 부족분 sink)
+  const { allocations, remaining } = planFefoAllocation(availableLots as FefoLotRow[], requestedQuantity, {
+    allowNegative: options.allowNegative,
+    sinkLot,
+  });
 
-  for (const lot of availableLots) {
-    if (remaining <= 0) break;
-
-    const allocateQty = Math.min(remaining, Number(lot.availableQuantity));
-    allocations.push({
-      lotId: lot.id,
-      quantity: allocateQty,
-      unitCost: Number(lot.unitPrice || 0),
-      expiryDate: lot.expiryDate ? lot.expiryDate.toString() : null
-    });
-
-    remaining -= allocateQty;
+  if (sinkLot && allocations.some((a) => a.negative)) {
+    const neg = allocations.find((a) => a.negative)!;
+    console.warn(
+      `[negative-stock] fefo_sink inventory=${inventoryId} material=${materialId ?? "n/a"} ` +
+      `tenant=${tenantId} requested=${requestedQuantity}${unit} sink_lot=${neg.lotId} short=${neg.quantity.toFixed(3)}${unit}`
+    );
   }
 
-  // 3. 재고 부족 체크
+  // 3. 재고 부족 체크 (음수 비허용 모드)
   if (remaining > 0.001) {
-    const totalAvailable = availableLots.reduce((sum, lot) => sum + Number(lot.availableQuantity), 0);
+    const totalAvailable = (availableLots as any[]).reduce((sum: number, lot: any) => sum + Number(lot.availableQuantity), 0);
     console.warn(
       `[lot0-trace] fefo_short inventory=${inventoryId} material=${materialId ?? "n/a"} ` +
       `tenant=${tenantId} requested=${requestedQuantity}${unit} lot_total=${totalAvailable.toFixed(3)}${unit} ` +

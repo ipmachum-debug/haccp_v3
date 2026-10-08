@@ -25,6 +25,9 @@
 
 import { getDb } from "../../db";
 import { getRawConnection } from "../../db/connection";
+import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
+import { reconcileNegativeLots, createNegativePlaceholderLot } from "../inventory/negativeLotReconcile";
+import { NoLotsForNegativeError, type FefoAllocation } from "../inventory/fefoLotAllocation";
 import { eq, and, sql } from "drizzle-orm";
 import { resolveMaterialIds, resolvePriceFallback } from "./materialIdResolver";
 import {
@@ -167,6 +170,10 @@ export async function autoIssueMaterialsForBatch(
     // PR-W3: 배치 일자 우선 (completed_at → planned_date → 오늘 폴백)
     const transactionDate = resolveBatchTransactionDate(batch);
 
+    // 2026-10-08 음수 재고 허용 정책 (negativeStockPolicy): 재고가 모자라도 투입은 사실대로
+    // 기록하고 부족분은 최근 LOT 에 음수로 차감 → inventory_deducted=1 항상 보장.
+    const allowNegative = isNegativeStockAllowed(tenantId);
+
     // ★ 2026-05-10 (PR #299 F5-4): h_inventory_deduction_log INSERT 를 위한
     //   production_log_id 사전 보장 (배치당 1회). 실패해도 차감 main flow 는
     //   계속 — deduction_log 는 best-effort 보고용 이력일 뿐.
@@ -262,13 +269,40 @@ export async function autoIssueMaterialsForBatch(
         let lotAllocations: Array<{ lotId: number; quantity: number; unitCost: number }> = [];
         
         try {
+          // 음수 허용 모드: 입고 훅을 안 탄 경로의 안전망 — 이전 음수 LOT 를 먼저 상쇄
+          if (allowNegative) {
+            try {
+              const rc = await getRawConnection();
+              await reconcileNegativeLots(rc, { materialId: canonicalId, tenantId, userId, transactionDate, source: "autoIssue" });
+            } catch (recErr: any) {
+              console.warn(`[negative-stock] reconcile_failed material=${canonicalId} batch=${batchId}: ${recErr?.message || recErr}`);
+            }
+          }
+
           // h_inventory에서 해당 원재료의 재고 확인 (canonicalId 사용)
-          const [invRows]: any = await db.execute(sql`
+          let [invRows]: any = await db.execute(sql`
             SELECT id, total_quantity, available_quantity
             FROM h_inventory
             WHERE material_id = ${canonicalId} AND tenant_id = ${tenantId}
             LIMIT 1
           `);
+
+          // 음수 허용 모드: 마스터 행이 없으면(입고 이력 전무) 0 으로 만들고 진행 → 음수로 내려간다
+          if (!(invRows as any[])?.[0] && allowNegative) {
+            await db.execute(sql`
+              INSERT INTO h_inventory
+                (tenant_id, material_id, item_name, unit, total_quantity, available_quantity, reserved_quantity, created_at, updated_at)
+              VALUES (${tenantId}, ${canonicalId}, ${materialName}, ${unit}, 0, 0, 0, NOW(), NOW())
+              ON DUPLICATE KEY UPDATE updated_at = NOW()
+            `);
+            [invRows] = await db.execute(sql`
+              SELECT id, total_quantity, available_quantity
+              FROM h_inventory
+              WHERE material_id = ${canonicalId} AND tenant_id = ${tenantId}
+              LIMIT 1
+            `) as any;
+            console.warn(`[negative-stock] master_created material=${canonicalId}/${materialName} batch=${batchId}`);
+          }
 
           const inventory = (invRows as any[])?.[0];
 
@@ -285,7 +319,6 @@ export async function autoIssueMaterialsForBatch(
                 FROM h_inventory_lots
                 WHERE material_id = ${canonicalId} AND tenant_id = ${tenantId}
                   AND COALESCE(status, 'available') = 'available'
-                  AND available_quantity > 0
               `);
               const lotTotalQty = parseFloat(
                 (lotSumRows as any[])?.[0]?.total_lot_qty?.toString() || "0"
@@ -308,35 +341,64 @@ export async function autoIssueMaterialsForBatch(
               }
             }
 
-            if (availableQty >= requiredQuantity) {
-              // FEFO 로트 할당 시도
+            if (allowNegative || availableQty >= requiredQuantity) {
+              // FEFO 로트 할당 시도 (음수 허용 시 부족분은 최근 LOT 에 음수로)
               try {
                 const { allocateLotsFEFO } = await import("../inventory/fefoLotAllocation");
-                const allocations = await allocateLotsFEFO(inventoryId, requiredQuantity, unit, tenantId, canonicalId);
+                let allocations: FefoAllocation[];
+                try {
+                  allocations = await allocateLotsFEFO(inventoryId, requiredQuantity, unit, tenantId, canonicalId, undefined, { allowNegative });
+                } catch (fefoInner: any) {
+                  if (allowNegative && fefoInner instanceof NoLotsForNegativeError) {
+                    // LOT 가 하나도 없음 → 자리표시 LOT 를 만들어 전량 음수 차감
+                    const rc = await getRawConnection();
+                    const ph = await createNegativePlaceholderLot(rc, {
+                      materialId: canonicalId, tenantId, inventoryId, unit, unitPrice, receiptDate: transactionDate,
+                    });
+                    allocations = [{ lotId: ph.lotId, quantity: requiredQuantity, unitCost: unitPrice, expiryDate: null, negative: true }];
+                  } else {
+                    throw fefoInner;
+                  }
+                }
                 
                 let totalAllocated = 0;
                 for (const alloc of allocations) {
                   const amount = alloc.quantity * alloc.unitCost;
                   
                   // h_inventory_transactions에 출고 기록 (canonicalId 사용)
+                  const negNote = alloc.negative
+                    ? `${materialName} 자동출고 — 재고 부족분 음수 차감 (입고 전 투입, 다음 입고 시 자동 상쇄)`
+                    : null;
                   await db.execute(sql`
                     INSERT INTO h_inventory_transactions
                     (inventory_id, lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
                      transaction_date, source_type, source_id, source_line_id,
-                     action_type, purpose, performed_by, created_by, tenant_id)
+                     action_type, purpose, performed_by, created_by, tenant_id,
+                     reference_type, reference_id, notes)
                     VALUES
                     (${inventoryId}, ${alloc.lotId}, ${canonicalId}, 'usage', ${alloc.quantity.toString()}, ${unit},
                      ${alloc.unitCost.toString()}, ${amount.toString()},
                      ${transactionDate}, 'BATCH', ${batchId}, ${input.id},
-                     'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId})
+                     'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId},
+                     'batch', ${batchId}, ${negNote})
                   `);
 
-                  // h_inventory_lots 가용 재고 차감
-                  await db.execute(sql`
-                    UPDATE h_inventory_lots
-                    SET available_quantity = GREATEST(available_quantity - ${alloc.quantity}, 0)
-                    WHERE id = ${alloc.lotId} AND tenant_id = ${tenantId}
-                  `);
+                  // h_inventory_lots 가용 재고 차감 (음수 허용 시 0 클램프 없음)
+                  if (allowNegative) {
+                    await db.execute(sql`
+                      UPDATE h_inventory_lots
+                      SET available_quantity = available_quantity - ${alloc.quantity},
+                          current_quantity = COALESCE(current_quantity, quantity) - ${alloc.quantity},
+                          updated_at = NOW()
+                      WHERE id = ${alloc.lotId} AND tenant_id = ${tenantId}
+                    `);
+                  } else {
+                    await db.execute(sql`
+                      UPDATE h_inventory_lots
+                      SET available_quantity = GREATEST(available_quantity - ${alloc.quantity}, 0)
+                      WHERE id = ${alloc.lotId} AND tenant_id = ${tenantId}
+                    `);
+                  }
 
                   totalAllocated += alloc.quantity;
                   lotAllocations.push({
@@ -352,14 +414,24 @@ export async function autoIssueMaterialsForBatch(
                   actuallyDeducted = true; // ★ 실제 차감 성공
                 }
 
-                // h_inventory 총 재고 차감
-                await db.execute(sql`
-                  UPDATE h_inventory
-                  SET total_quantity = GREATEST(total_quantity - ${issuedQuantity}, 0),
-                      available_quantity = GREATEST(available_quantity - ${issuedQuantity}, 0),
-                      last_updated = NOW()
-                  WHERE id = ${inventoryId} AND tenant_id = ${tenantId}
-                `);
+                // h_inventory 총 재고 차감 (음수 허용 시 0 클램프 없음 — 음수 = 입고 누락 신호)
+                if (allowNegative) {
+                  await db.execute(sql`
+                    UPDATE h_inventory
+                    SET total_quantity = total_quantity - ${issuedQuantity},
+                        available_quantity = available_quantity - ${issuedQuantity},
+                        last_updated = NOW()
+                    WHERE id = ${inventoryId} AND tenant_id = ${tenantId}
+                  `);
+                } else {
+                  await db.execute(sql`
+                    UPDATE h_inventory
+                    SET total_quantity = GREATEST(total_quantity - ${issuedQuantity}, 0),
+                        available_quantity = GREATEST(available_quantity - ${issuedQuantity}, 0),
+                        last_updated = NOW()
+                    WHERE id = ${inventoryId} AND tenant_id = ${tenantId}
+                  `);
+                }
               } catch (fefoErr: any) {
                 console.warn(
                   `[lot0-trace] fefo_throw material=${canonicalId}/${materialName} ` +
