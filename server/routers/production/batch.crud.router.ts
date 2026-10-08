@@ -143,13 +143,16 @@ export const batchCrudRouter = router({
             // BOM에서 batch_target_kg (1배치 기준 중량) 조회
             let bomBatchKg: number | null = null;
             try {
+              // 2026-10-07: product_id 네임스페이스 이중화 (v2 / item_master) — bomProductResolver
+              const { resolveBomProductIds, inPlaceholders } = await import("../../lib/production/bomProductResolver");
+              const bomPids = await resolveBomProductIds(input.productId, tenantId, _pool3);
               const [bomRows] = await _pool3.execute(
                 `SELECT v.batch_target_kg
                  FROM h_mf_reports r
                  JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
-                 WHERE r.product_id = ? AND r.tenant_id = ?
-                 ORDER BY v.id DESC LIMIT 1`,
-                [input.productId, tenantId]
+                 WHERE r.product_id IN (${inPlaceholders(bomPids)}) AND r.tenant_id = ?
+                 ORDER BY (r.product_id = ?) DESC, v.id DESC LIMIT 1`,
+                [...bomPids, tenantId, input.productId]
               );
               if ((bomRows as any[]).length > 0 && (bomRows as any[])[0]?.batch_target_kg) {
                 bomBatchKg = parseFloat((bomRows as any[])[0].batch_target_kg);

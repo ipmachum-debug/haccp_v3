@@ -1,5 +1,6 @@
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { getDb, getRawConnection } from "../connection";
+import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
 import {
   hBatches,
   hBatchInputs,
@@ -55,13 +56,15 @@ export async function createBatch(data: {
   // 2. 품목제조보고의 배합비를 기준으로 원재료 투입 계획 자동 생성
   try {
     // 2-1. 제품의 품목제조보고 조회
+    const bomProductIds = await resolveBomProductIds(data.productId, data.tenantId);
     const mfReport = await db
       .select({ id: hMfReports.id })
       .from(hMfReports)
       .where(and(
-        eq(hMfReports.productId, data.productId),
+        inArray(hMfReports.productId, bomProductIds),
         eq(hMfReports.tenantId, data.tenantId)
       ))
+      .orderBy(sql`(${hMfReports.productId} = ${data.productId}) DESC`)
       .limit(1);
     
     if (mfReport.length > 0) {

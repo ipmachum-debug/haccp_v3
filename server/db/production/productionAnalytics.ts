@@ -4,6 +4,7 @@
 // 재고 부족 예측, 발주 제안, 대시보드 통합 데이터
 // ═══════════════════════════════════════════════════════════════
 import { getDb } from "../connection";
+import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
 import { eq, and, or, lte, gte, gt, desc, asc, sql, lt, inArray, count, isNotNull, sum } from "drizzle-orm";
 import {
   hBatches,
@@ -46,9 +47,10 @@ async function calculateMaterialRequirements(batchId: number, tenantId?: number)
 
   if (!batch) throw new Error("배치를 찾을 수 없습니다");
 
-  // 2. 제품의 BOM(품목제조보고) 조회
+  // 2. 제품의 BOM(품목제조보고) 조회 — product_id 는 v2 id 또는 item_master id (bomProductResolver)
+  const bomProductIds = await resolveBomProductIds(batch.productId, tenantId ?? batch.tenantId);
   const bomConditions: any[] = [
-    eq(hMfReports.productId, batch.productId),
+    inArray(hMfReports.productId, bomProductIds),
     eq(hMfReports.status, "ACTIVE"),
   ];
   if (tenantId) {
@@ -58,7 +60,7 @@ async function calculateMaterialRequirements(batchId: number, tenantId?: number)
     .select()
     .from(hMfReports)
     .where(and(...bomConditions))
-    .orderBy(desc(hMfReports.createdAt))
+    .orderBy(sql`(${hMfReports.productId} = ${batch.productId}) DESC`, desc(hMfReports.createdAt))
     .limit(1);
 
   if (!bomReport) {

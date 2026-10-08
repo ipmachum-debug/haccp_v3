@@ -191,14 +191,16 @@ export async function hydrateBatches(
               const conn = await getRawConnection();
               // BOM batch_target_kg 조회
               let bomBatchKg: number | undefined;
+              const { resolveBomProductIds, inPlaceholders } = await import("../lib/production/bomProductResolver");
+              const bomPids = await resolveBomProductIds(batch.productId, tenantId, conn);
               const [bomRows] = await conn.execute<any[]>(
                 `SELECT rv.batch_target_kg
                  FROM h_mf_report_versions rv
                  JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
-                 WHERE mr.product_id = ? AND mr.tenant_id = ?
+                 WHERE mr.product_id IN (${inPlaceholders(bomPids)}) AND mr.tenant_id = ?
                    AND rv.approval_status = 'APPROVED'
-                 ORDER BY rv.id DESC LIMIT 1`,
-                [batch.productId, tenantId]
+                 ORDER BY (mr.product_id = ?) DESC, rv.id DESC LIMIT 1`,
+                [...bomPids, tenantId, batch.productId]
               );
               const btkVal = (bomRows as any[])[0]?.batch_target_kg;
               if (btkVal) bomBatchKg = parseFloat(btkVal);
@@ -393,7 +395,8 @@ async function hydrateBatchInputs(
 
   const { hMfReports, hMfReportVersions, hMfIngredients, hBatchInputs, hBatches } =
     await import("../../drizzle/schema");
-  const { eq, and, desc } = await import("drizzle-orm");
+  const { eq, and, desc, inArray, sql } = await import("drizzle-orm");
+  const { resolveBomProductIds } = await import("../lib/production/bomProductResolver");
 
   // 배치의 생산량 조회
   const [batch] = await db.select({ plannedQuantity: hBatches.plannedQuantity })
@@ -401,11 +404,13 @@ async function hydrateBatchInputs(
   if (!batch) return 0;
   const plannedQty = parseFloat(batch.plannedQuantity);
 
-  // 품목제조보고 조회
+  // 품목제조보고 조회 — product_id 가 v2 id 또는 item_master id 일 수 있음 (bomProductResolver)
+  const bomProductIds = await resolveBomProductIds(productId, tenantId);
   const mfReport = await db
     .select({ id: hMfReports.id })
     .from(hMfReports)
-    .where(and(eq(hMfReports.productId, productId), eq(hMfReports.tenantId, tenantId)))
+    .where(and(inArray(hMfReports.productId, bomProductIds), eq(hMfReports.tenantId, tenantId)))
+    .orderBy(sql`(${hMfReports.productId} = ${productId}) DESC`)
     .limit(1);
   if (mfReport.length === 0) return 0;
 

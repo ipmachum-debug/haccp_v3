@@ -18,6 +18,7 @@ import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getRawConnection } from "../../db";
+import { resolveBomProductIds, inPlaceholders } from "../../lib/production/bomProductResolver";
 
 /** 제품 매칭 후보 (프론트엔드 교체 UI 용) */
 export interface ProductCandidate {
@@ -286,14 +287,15 @@ async function buildPlanDetail(tenantId: number, productId: number, quantity: nu
   // BOM 조회 (APPROVED 버전 우선 — 배치 생성이 사용하는 기준과 동일)
   let bomInfo: { batchKg: number; batchCount: number; versionId: number } | null = null;
   try {
+    const bomPids = await resolveBomProductIds(productId, tenantId, pool);
     const [bomRows]: any = await pool.execute(
       `SELECT v.batch_target_kg, v.id AS version_id
        FROM h_mf_reports r
        JOIN h_mf_report_versions v ON v.mf_report_id = r.id
-       WHERE r.tenant_id = ? AND r.product_id = ?
-       ORDER BY (v.approval_status = 'APPROVED') DESC, v.version_no DESC
+       WHERE r.tenant_id = ? AND r.product_id IN (${inPlaceholders(bomPids)})
+       ORDER BY (r.product_id = ?) DESC, (v.approval_status = 'APPROVED') DESC, v.version_no DESC
        LIMIT 1`,
-      [tenantId, productId],
+      [tenantId, ...bomPids, productId],
     );
     if (bomRows?.[0]) {
       const batchKg = Number(bomRows[0].batch_target_kg) || 0;

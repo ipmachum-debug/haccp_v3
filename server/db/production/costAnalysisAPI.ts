@@ -5,13 +5,14 @@
  * API 시그니처는 기존과 동일하게 유지 (recipeId = mfReportId).
  */
 import { getDb } from "../connection";
+import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
 import {
   hMfReports,
   hMfReportVersions,
   hMfIngredients,
   itemMaster,
 } from "../../../drizzle/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 
 /** 정제수(purified water) 여부 판별 - 가격 계산에서 제외 대상 */
 function isWaterMaterial(materialName: string | null | undefined): boolean {
@@ -115,7 +116,7 @@ export async function calculateProductCostStats(productId?: number, tenantId?: n
     conditions.push(eq(hMfReports.tenantId, tenantId));
   }
   if (productId) {
-    conditions.push(eq(hMfReports.productId, productId));
+    conditions.push(inArray(hMfReports.productId, await resolveBomProductIds(productId, tenantId ?? 0)));
   }
 
   const reportList = await db

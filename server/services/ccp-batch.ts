@@ -26,6 +26,7 @@
  */
 
 import { getRawConnection } from "../db";
+import { resolveBomProductIds, inPlaceholders } from "../lib/production/bomProductResolver";
 
 export interface ProcessGroupInfo {
   id: number;
@@ -146,6 +147,9 @@ export async function getProcessGroupsForProduct(args: {
     ? `g.equip_group_mode, g.equip_interval_min, g.equip_batch_size,`
     : `'sequential' AS equip_group_mode, 10 AS equip_interval_min, 1 AS equip_batch_size,`;
 
+  // 2026-10-07: BOM product_id 가 v2 id 또는 item_master id (bomProductResolver)
+  const bomPids = await resolveBomProductIds(productId, tenantId, conn);
+
   // ── 1. BOM 기반 (CCP-4P 제외: 별도로 항상 추가)
   const [bomRows] = await conn.execute<any[]>(
     `SELECT DISTINCT
@@ -167,11 +171,11 @@ export async function getProcessGroupsForProduct(args: {
       AND g.tenant_id = ?
       AND g.status = 'active'
       AND g.ccp_type != 'CCP-4P'
-     WHERE r.product_id = ?
+     WHERE r.product_id IN (${inPlaceholders(bomPids)})
        AND r.tenant_id = ?
      GROUP BY g.id
      ORDER BY g.ccp_type, g.sort_order, g.id`,
-    [tenantId, productId, tenantId],
+    [tenantId, ...bomPids, tenantId],
   );
 
   // ── 2. 수동 매핑 (ccp_process_group_products)
@@ -433,13 +437,14 @@ export async function autoCreateCcpInstancesForBatch(args: {
   // bomBatchKg 미전달 시 BOM에서 조회
   if (!_bomBatchKg && productId) {
     try {
+      const bomPids = await resolveBomProductIds(productId, tenantId, conn);
       const [vRows] = await conn.execute<any[]>(
         `SELECT v.batch_target_kg
          FROM h_mf_reports r
          JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
-         WHERE r.product_id = ? AND r.tenant_id = ?
-         ORDER BY v.id DESC LIMIT 1`,
-        [productId, tenantId],
+         WHERE r.product_id IN (${inPlaceholders(bomPids)}) AND r.tenant_id = ?
+         ORDER BY (r.product_id = ?) DESC, v.id DESC LIMIT 1`,
+        [...bomPids, tenantId, productId],
       );
       if ((vRows as any[]).length > 0 && (vRows as any[])[0]?.batch_target_kg) {
         _bomBatchKg = parseFloat((vRows as any[])[0].batch_target_kg);
