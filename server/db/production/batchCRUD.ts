@@ -2,8 +2,9 @@
  * 배치 CRUD (생성/조회/수정/삭제/코드생성)
  * batchFunctions.ts에서 분할
  */
-import { eq, and, desc, sql, like } from "drizzle-orm";
+import { eq, and, desc, sql, like, inArray } from "drizzle-orm";
 import { getDb, getRawConnection } from "../connection";
+import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import { hBatches, hBatchInputs, hCcpInstances, hCcpRecords, hProductsV2, hMaterials, hInventory, hInventoryTransactions, hApprovalRequests } from "../../../drizzle/schema";
 
@@ -33,6 +34,11 @@ export async function createBatch(batch: {
   const { hBatches, hBatchInputs } = await import("../../../drizzle/schema");
   const { hMfReports, hMfReportVersions, hMfIngredients } = await import("../../../drizzle/schema/schema_recipe_new");
 
+  // ★ 2026-10-07: h_mf_reports.product_id 가 h_products_v2.id / item_master.id 두 네임스페이스를
+  //   섞어 쓰므로 (bomProductResolver 참고) 후보 ID 전부로 조회하고 직접 일치를 우선한다.
+  const bomProductIds = await resolveBomProductIds(batch.productId, batch.tenantId);
+  const directFirst = sql`(${hMfReports.productId} = ${batch.productId}) DESC`;
+
   // ★ 2026-05-10 (PR #299): 혼합 mfReport 차단 (생산은 단품만)
   try {
     const [mfRow] = await db
@@ -40,11 +46,12 @@ export async function createBatch(batch: {
       .from(hMfReports)
       .where(
         and(
-          eq(hMfReports.productId, batch.productId),
+          inArray(hMfReports.productId, bomProductIds),
           eq(hMfReports.tenantId, batch.tenantId),
           eq(hMfReports.status, "ACTIVE"),
         ),
       )
+      .orderBy(directFirst)
       .limit(1);
     if (mfRow && mfRow.reportType === "MIXED") {
       throw new Error(
@@ -121,14 +128,15 @@ export async function createBatch(batch: {
 
   // === 원재료 투입 자동생성 (품목제조보고 배합비 기반) ===
   try {
-    // 1. 제품의 품목제조보고 조회
+    // 1. 제품의 품목제조보고 조회 (v2 id 직접 일치 → item_master 경유 id 순)
     const mfReport = await db
       .select({ id: hMfReports.id })
       .from(hMfReports)
       .where(and(
-        eq(hMfReports.productId, batch.productId),
+        inArray(hMfReports.productId, bomProductIds),
         eq(hMfReports.tenantId, tenantId)
       ))
+      .orderBy(directFirst)
       .limit(1);
 
     if (mfReport.length > 0) {
