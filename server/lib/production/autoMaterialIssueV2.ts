@@ -34,7 +34,9 @@ import { sql } from "drizzle-orm";
 import { getDb } from "../../db";
 import { postWithinTransaction } from "../_core";
 import type { TransactionContext } from "../_core";
-import { allocateLotsFEFO } from "../inventory/fefoLotAllocation";
+import { allocateLotsFEFO, NoLotsForNegativeError, type FefoAllocation } from "../inventory/fefoLotAllocation";
+import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
+import { reconcileNegativeLots, createNegativePlaceholderLot } from "../inventory/negativeLotReconcile";
 
 /** v1 과 동일 result 타입 (호환성) */
 export interface AutoIssueResultV2 {
@@ -152,8 +154,18 @@ async function processOneInput(
   const transactionDate = resolveBatchTransactionDate(batch);
   const tenantId = ctx.tenantId;
 
+  // 2026-10-08 음수 재고 허용 정책 (negativeStockPolicy) — v1 과 동일 의미
+  const allowNegative = isNegativeStockAllowed(tenantId);
+  if (allowNegative) {
+    try {
+      await reconcileNegativeLots(ctx.conn, { materialId, tenantId, userId: ctx.userId ?? null, transactionDate, source: "autoIssueV2" });
+    } catch (recErr: any) {
+      console.warn(`[negative-stock] v2 reconcile_failed material=${materialId} batch=${ctx.sourceId}: ${recErr?.message || recErr}`);
+    }
+  }
+
   // 1. h_inventory FOR UPDATE 락 — race condition 차단
-  const [invRows]: any = await ctx.conn.execute(
+  let [invRows]: any = await ctx.conn.execute(
     `SELECT id, total_quantity, available_quantity
      FROM h_inventory
      WHERE material_id = ? AND tenant_id = ?
@@ -161,6 +173,22 @@ async function processOneInput(
      FOR UPDATE`,
     [materialId, tenantId],
   );
+  // 음수 허용: 마스터 없으면 0 으로 생성하고 진행 (음수로 내려간다)
+  if (!(invRows as any[])?.[0] && allowNegative) {
+    await ctx.conn.execute(
+      `INSERT INTO h_inventory
+         (tenant_id, material_id, item_name, unit, total_quantity, available_quantity, reserved_quantity, created_at, updated_at)
+       VALUES (?, ?, ?, ?, 0, 0, 0, NOW(), NOW())
+       ON DUPLICATE KEY UPDATE updated_at = NOW()`,
+      [tenantId, materialId, materialName, unit],
+    );
+    [invRows] = await ctx.conn.execute(
+      `SELECT id, total_quantity, available_quantity FROM h_inventory
+       WHERE material_id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
+      [materialId, tenantId],
+    ) as any;
+    console.warn(`[negative-stock] v2 master_created material=${materialId}/${materialName} batch=${ctx.sourceId}`);
+  }
   const inventory = (invRows as any[])?.[0];
 
   let lotAllocations: Array<{ lotId: number; quantity: number; unitCost: number }> = [];
@@ -173,14 +201,27 @@ async function processOneInput(
 
     // 2. allocateLotsFEFO(..., ctx.conn) — 같은 트랜잭션 (F2-2-b 통합)
     try {
-      const allocations = await allocateLotsFEFO(
-        inventoryId,
-        requiredQuantity,
-        unit,
-        tenantId,
-        materialId,
-        ctx.conn,
-      );
+      let allocations: FefoAllocation[];
+      try {
+        allocations = await allocateLotsFEFO(
+          inventoryId,
+          requiredQuantity,
+          unit,
+          tenantId,
+          materialId,
+          ctx.conn,
+          { allowNegative },
+        );
+      } catch (fefoInner: any) {
+        if (allowNegative && fefoInner instanceof NoLotsForNegativeError) {
+          const ph = await createNegativePlaceholderLot(ctx.conn, {
+            materialId, tenantId, inventoryId, unit, unitPrice, receiptDate: transactionDate,
+          });
+          allocations = [{ lotId: ph.lotId, quantity: requiredQuantity, unitCost: unitPrice, expiryDate: null, negative: true }];
+        } else {
+          throw fefoInner;
+        }
+      }
 
       // 3. 각 LOT 별 차감 + tx INSERT (lot_id 정상)
       let totalAllocated = 0;
@@ -214,13 +255,24 @@ async function processOneInput(
           ],
         );
 
-        // LOT 차감 (h_inventory_lots)
-        await ctx.conn.execute(
-          `UPDATE h_inventory_lots
-           SET available_quantity = GREATEST(available_quantity - ?, 0)
-           WHERE id = ?`,
-          [alloc.quantity, alloc.lotId],
-        );
+        // LOT 차감 (h_inventory_lots) — 음수 허용 시 0 클램프 없음
+        if (allowNegative) {
+          await ctx.conn.execute(
+            `UPDATE h_inventory_lots
+             SET available_quantity = available_quantity - ?,
+                 current_quantity = COALESCE(current_quantity, quantity) - ?,
+                 updated_at = NOW()
+             WHERE id = ? AND tenant_id = ?`,
+            [alloc.quantity, alloc.quantity, alloc.lotId, tenantId],
+          );
+        } else {
+          await ctx.conn.execute(
+            `UPDATE h_inventory_lots
+             SET available_quantity = GREATEST(available_quantity - ?, 0)
+             WHERE id = ?`,
+            [alloc.quantity, alloc.lotId],
+          );
+        }
 
         totalAllocated += alloc.quantity;
         totalCost += amount;
@@ -234,13 +286,19 @@ async function processOneInput(
       issuedQuantity = totalAllocated;
       materialCost = totalCost;
 
-      // 4. h_inventory 차감 (총 재고)
+      // 4. h_inventory 차감 (총 재고) — 음수 허용 시 0 클램프 없음
       await ctx.conn.execute(
-        `UPDATE h_inventory
-         SET total_quantity = GREATEST(total_quantity - ?, 0),
-             available_quantity = GREATEST(available_quantity - ?, 0),
-             last_updated = NOW()
-         WHERE id = ?`,
+        allowNegative
+          ? `UPDATE h_inventory
+             SET total_quantity = total_quantity - ?,
+                 available_quantity = available_quantity - ?,
+                 last_updated = NOW()
+             WHERE id = ?`
+          : `UPDATE h_inventory
+             SET total_quantity = GREATEST(total_quantity - ?, 0),
+                 available_quantity = GREATEST(available_quantity - ?, 0),
+                 last_updated = NOW()
+             WHERE id = ?`,
         [issuedQuantity.toString(), issuedQuantity.toString(), inventoryId],
       );
     } catch (fefoErr: any) {

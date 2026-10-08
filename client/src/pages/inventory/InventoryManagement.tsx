@@ -243,8 +243,13 @@ export default function InventoryManagement() {
                               <div className="text-sm text-muted-foreground">{lot.materialCode}</div>
                             </div>
                           </TableCell>
-                          <TableCell>
+                          <TableCell className={parseFloat(lot.availableQuantity) < -0.001 ? "text-red-600 font-semibold" : ""}>
                             {parseFloat(lot.availableQuantity).toFixed(2)} {lot.unit}
+                            {parseFloat(lot.availableQuantity) < -0.001 && (
+                              <span className="ml-1 rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-700" title="입고 전에 생산 투입된 수량입니다. 다음 입고 시 자동 상쇄됩니다.">
+                                입고 대기 {Math.abs(parseFloat(lot.availableQuantity)).toFixed(2)}
+                              </span>
+                            )}
                           </TableCell>
                           <TableCell>
                             {lot.expiryDate ? new Date(lot.expiryDate).toLocaleDateString("ko-KR") : "-"}

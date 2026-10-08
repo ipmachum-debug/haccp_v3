@@ -290,11 +290,13 @@ export default function Inventory() {
                         const isExpiringSoon =
                           lot.expiryDate &&
                           new Date(lot.expiryDate).getTime() - Date.now() < 7 * 24 * 60 * 60 * 1000;
-                        const isLowStock =
-                          parseFloat(lot.availableQuantity) < parseFloat(lot.quantity) * 0.2;
+                        const availNum = parseFloat(lot.availableQuantity);
+                        const isNegative = availNum < -0.001;
+                        const isLowStock = !isNegative &&
+                          availNum < parseFloat(lot.quantity) * 0.2;
 
                         return (
-                          <tr key={lot.id} className="border-b hover:bg-accent/50">
+                          <tr key={lot.id} className={`border-b hover:bg-accent/50 ${isNegative ? "bg-red-50/60" : ""}`}>
                             <td className="p-3 font-medium">{lot.lotNumber}</td>
                             <td className="p-3">
                               <div>
@@ -306,8 +308,13 @@ export default function Inventory() {
                               {lot.quantity} {lot.unit}
                             </td>
                             <td className="p-3">
-                              <div className="flex items-center gap-2">
+                              <div className={`flex items-center gap-2 ${isNegative ? "text-red-600 font-semibold" : ""}`}>
                                 {lot.availableQuantity} {lot.unit}
+                                {isNegative && (
+                                  <span className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-700" title="입고 전에 생산 투입된 수량입니다. 다음 입고 시 자동 상쇄됩니다.">
+                                    입고 대기 {Math.abs(availNum).toFixed(2)}
+                                  </span>
+                                )}
                                 {isLowStock && (
                                   <AlertTriangle className="h-4 w-4 text-orange-500" />
                                 )}
@@ -356,11 +363,13 @@ export default function Inventory() {
                     const isExpiringSoon =
                       lot.expiryDate &&
                       new Date(lot.expiryDate).getTime() - Date.now() < 7 * 24 * 60 * 60 * 1000;
-                    const isLowStock =
-                      parseFloat(lot.availableQuantity) < parseFloat(lot.quantity) * 0.2;
+                    const availNum = parseFloat(lot.availableQuantity);
+                    const isNegative = availNum < -0.001;
+                    const isLowStock = !isNegative &&
+                      availNum < parseFloat(lot.quantity) * 0.2;
 
                     return (
-                      <Card key={lot.id} className="hover:bg-accent/50 transition-colors">
+                      <Card key={lot.id} className={`hover:bg-accent/50 transition-colors ${isNegative ? "border-red-300 bg-red-50/40" : ""}`}>
                         <CardContent className="p-4 space-y-3">
                           {/* LOT 번호 */}
                           <div className="flex items-center justify-between">
@@ -382,8 +391,13 @@ export default function Inventory() {
                             </div>
                             <div>
                               <div className="text-muted-foreground">가용 수량</div>
-                              <div className="font-medium flex items-center gap-1">
+                              <div className={`font-medium flex items-center gap-1 flex-wrap ${isNegative ? "text-red-600" : ""}`}>
                                 {lot.availableQuantity} {lot.unit}
+                                {isNegative && (
+                                  <span className="rounded border border-red-300 bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-700">
+                                    입고 대기 {Math.abs(availNum).toFixed(2)}
+                                  </span>
+                                )}
                                 {isLowStock && (
                                   <AlertTriangle className="h-4 w-4 text-orange-500" />
                                 )}
