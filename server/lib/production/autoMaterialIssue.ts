@@ -319,16 +319,20 @@ export async function autoIssueMaterialsForBatch(
                   const amount = alloc.quantity * alloc.unitCost;
                   
                   // h_inventory_transactions에 출고 기록 (canonicalId 사용)
+                  // reference_type/reference_id 는 아래 폴백 경로와 동일하게 기록 — 정상 FEFO 경로만
+                  // 빠져 있어서 소모량/추적 리포트가 batch 를 역참조하지 못했음 (2026-09-22 감사).
                   await db.execute(sql`
                     INSERT INTO h_inventory_transactions
                     (inventory_id, lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
                      transaction_date, source_type, source_id, source_line_id,
-                     action_type, purpose, performed_by, created_by, tenant_id)
+                     action_type, purpose, performed_by, created_by, tenant_id,
+                     reference_type, reference_id)
                     VALUES
                     (${inventoryId}, ${alloc.lotId}, ${canonicalId}, 'usage', ${alloc.quantity.toString()}, ${unit},
                      ${alloc.unitCost.toString()}, ${amount.toString()},
                      ${transactionDate}, 'BATCH', ${batchId}, ${input.id},
-                     'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId})
+                     'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId},
+                     'batch', ${batchId})
                   `);
 
                   // h_inventory_lots 가용 재고 차감
