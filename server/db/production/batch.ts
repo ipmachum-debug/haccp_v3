@@ -1,6 +1,6 @@
 import { eq, and, desc, sql, inArray } from "drizzle-orm";
 import { getDb, getRawConnection } from "../connection";
-import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
+import { resolveBomProductIds } from "../../lib/identity/itemIdentityService";
 import {
   hBatches,
   hBatchInputs,

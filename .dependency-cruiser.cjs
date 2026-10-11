@@ -25,9 +25,9 @@ module.exports = {
       name: "identity-resolvers-via-service",
       comment:
         "품목 id 변환은 server/lib/identity/itemIdentityService 한 곳만 거친다 (11-identity-policy-v3.md §2-1 4항). " +
-        "materialIdResolver / bomProductResolver 직접 import 는 전환기 동안 warn, 호출자 0 이 되면 error 로 올린다.",
-      severity: "warn",
-      from: { pathNot: "^server/lib/identity/" },
+        "materialIdResolver / bomProductResolver 는 서비스의 구현 세부 — 밖에서 직접 import 금지 (2026-10-12 호출자 0 달성, error 승격).",
+      severity: "error",
+      from: { pathNot: ["^server/lib/identity/", "\\.test\\.ts$"] },
       to: { path: "^server/lib/production/(materialIdResolver|bomProductResolver)\\.ts$" },
     },
     {

@@ -144,7 +144,7 @@ export const batchCrudRouter = router({
             let bomBatchKg: number | null = null;
             try {
               // 2026-10-07: product_id 네임스페이스 이중화 (v2 / item_master) — bomProductResolver
-              const { resolveBomProductIds, inPlaceholders } = await import("../../lib/production/bomProductResolver");
+              const { resolveBomProductIds, inPlaceholders } = await import("../../lib/identity/itemIdentityService");
               const bomPids = await resolveBomProductIds(input.productId, tenantId, _pool3);
               const [bomRows] = await _pool3.execute(
                 `SELECT v.batch_target_kg

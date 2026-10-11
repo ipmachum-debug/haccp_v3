@@ -26,7 +26,7 @@
  */
 
 import { getRawConnection } from "../db";
-import { resolveBomProductIds, inPlaceholders } from "../lib/production/bomProductResolver";
+import { resolveBomProductIds, inPlaceholders } from "../lib/identity/itemIdentityService";
 
 export interface ProcessGroupInfo {
   id: number;

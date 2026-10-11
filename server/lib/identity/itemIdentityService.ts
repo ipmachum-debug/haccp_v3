@@ -22,7 +22,7 @@
 
 import type { Pool, PoolConnection, Connection } from "mysql2/promise";
 import { getRawConnection } from "../../db/connection";
-import { resolveMaterialIds } from "../production/materialIdResolver";
+import { resolveMaterialIds, resolvePriceFallback, clearMaterialIdResolverCache } from "../production/materialIdResolver";
 import { resolveBomProductIds, bomProductV2IdExpr, inPlaceholders } from "../production/bomProductResolver";
 
 export type IdentityConn = Pick<Pool | PoolConnection | Connection, "execute">;
@@ -135,7 +135,9 @@ export async function toProductionProductIds(itemMasterIds: number[], tenantId: 
 }
 
 /** BOM(h_mf_reports) 을 찾을 때 쓸 product_id 후보 — [v2 id, item_master id ...] (bomProductResolver 위임) */
-export { resolveBomProductIds, bomProductV2IdExpr };
+export { resolveBomProductIds, bomProductV2IdExpr, inPlaceholders };
+/** 단가 4단 폴백 (마지막 입고가 → h_materials → item_master). 자재 id 변환과 같이 쓰여 여기서 함께 노출 */
+export { resolvePriceFallback, clearMaterialIdResolverCache };
 
 // ────────────────────────────────────────────────────────────────────────────
 // 원재료: item_master ↔ h_materials

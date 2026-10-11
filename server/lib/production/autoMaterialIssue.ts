@@ -29,7 +29,7 @@ import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
 import { reconcileNegativeLots, createNegativePlaceholderLot } from "../inventory/negativeLotReconcile";
 import { NoLotsForNegativeError, type FefoAllocation } from "../inventory/fefoLotAllocation";
 import { eq, and, sql } from "drizzle-orm";
-import { resolveMaterialIds, resolvePriceFallback } from "./materialIdResolver";
+import { toInventoryMaterialId, resolvePriceFallback } from "../identity/itemIdentityService";
 import {
   ensureProductionLogForBatch,
   insertInventoryDeductionLog,
@@ -216,10 +216,13 @@ export async function autoIssueMaterialsForBatch(
       let resolveSource: string = "raw";
       try {
         const rawConn = await getRawConnection();
-        const r = await resolveMaterialIds(rawMaterialId, tenantId, rawConn);
-        canonicalId = r.canonicalId;
+        const r = await toInventoryMaterialId(rawMaterialId, tenantId, rawConn);
+        canonicalId = r.id;
         itemMasterId = r.itemMasterId;
         resolveSource = r.source;
+        if (!r.trusted && r.id !== rawMaterialId) {
+          console.warn(`[id-resolve] untrusted_path batch=${batchId} input=${input.id} raw=${rawMaterialId} canonical=${r.id} src=${r.source} — legacy_material_id 백필 필요`);
+        }
         if (canonicalId !== rawMaterialId) {
           console.info(
             `[id-resolve] batch=${batchId} input=${input.id} ` +

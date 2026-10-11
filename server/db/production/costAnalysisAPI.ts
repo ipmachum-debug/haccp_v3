@@ -5,7 +5,7 @@
  * API 시그니처는 기존과 동일하게 유지 (recipeId = mfReportId).
  */
 import { getDb } from "../connection";
-import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
+import { resolveBomProductIds } from "../../lib/identity/itemIdentityService";
 import {
   hMfReports,
   hMfReportVersions,

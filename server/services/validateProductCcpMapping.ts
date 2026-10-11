@@ -17,7 +17,7 @@
  */
 
 import { getRawConnection } from "../db/connection";
-import { resolveBomProductIds, inPlaceholders } from "../lib/production/bomProductResolver";
+import { resolveBomProductIds, inPlaceholders } from "../lib/identity/itemIdentityService";
 
 export interface MappingValidation {
   /** 진행 가능 여부 */
