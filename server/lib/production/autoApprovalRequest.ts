@@ -155,6 +155,34 @@ export async function reviewApprovalRequest(
   if (!db) throw new Error("DB 연결 실패");
   if (!tenantId) throw new Error("[보안] tenantId는 필수입니다");
 
+  // 일일일지(daily_log)는 온·습도 실측값이 비어 있으면 검토 단계로 넘기지 않는다.
+  // 자동 생성된 일지는 빈 값으로 pending_review 에 들어오므로 여기가 실질적인 관문.
+  {
+    const reqRow = await db.execute(sql`
+      SELECT request_type, reference_type, reference_id FROM h_approval_requests
+      WHERE id = ${approvalRequestId} AND tenant_id = ${tenantId}
+    `);
+    const reqInfo = getFirstRow<{ request_type: string; reference_type: string; reference_id: number }>(reqRow);
+    if (reqInfo?.request_type === 'daily_log' && reqInfo?.reference_type === 'checklist' && reqInfo?.reference_id) {
+      const recRow = await db.execute(sql`
+        SELECT form_data FROM h_generic_checklist_records
+        WHERE id = ${reqInfo.reference_id} AND tenant_id = ${tenantId}
+      `);
+      const rec = getFirstRow<{ form_data: any }>(recRow);
+      let fd: any = null;
+      try { fd = typeof rec?.form_data === 'string' ? JSON.parse(rec.form_data) : rec?.form_data; } catch { fd = null; }
+      const { findMissingMeasurements, summarizeMissing } = await import("../../../shared/dailyLogMeasurements");
+      const missing = findMissingMeasurements(fd);
+      if (missing.length > 0) {
+        const { TRPCError } = await import("@trpc/server");
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `일일일지 온·습도 미측정 ${missing.length}건 (${summarizeMissing(missing)}) — 작성자가 측정값을 입력한 뒤 검토하세요.`,
+        });
+      }
+    }
+  }
+
   try {
     await db.execute(sql`
       UPDATE h_approval_requests

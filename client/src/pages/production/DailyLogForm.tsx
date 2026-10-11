@@ -21,6 +21,18 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 import { todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
+import { findMissingMeasurements, summarizeMissing, countMissingBySection, isBlankMeasurement } from "@shared/dailyLogMeasurements";
+
+/** 측정값이 비어 있는 입력칸 강조 (제출 전까지 "미측정" 상태를 눈에 보이게) */
+const unmeasuredCls = (v: unknown) => (isBlankMeasurement(v) ? "border-amber-400 bg-amber-50/40" : "");
+
+function UnmeasuredChip() {
+  return (
+    <span className="ml-1 inline-block rounded border border-amber-300 bg-amber-50 px-1 text-[10px] text-amber-700 align-middle">
+      미측정
+    </span>
+  );
+}
 
 // 기본 위생점검 항목 정의
 const DEFAULT_HYGIENE_CHECKS = [
@@ -276,8 +288,18 @@ export default function DailyLogForm() {
     refrigeratorIssues,
   });
 
+  // 온·습도 미측정 칸 — 제출 차단 + 화면 표시용
+  const missingMeasurements = findMissingMeasurements({ temperatureHumidity, freezerTemperature, refrigeratorTemperature });
+  const missingBySection = countMissingBySection(missingMeasurements);
+
   const handleSave = () => saveMutation.mutate({ logDate, formData: buildFormData(), status: 'draft' });
-  const handleSubmit = () => saveMutation.mutate({ logDate, formData: buildFormData(), status: 'submitted' });
+  const handleSubmit = () => {
+    if (missingMeasurements.length > 0) {
+      toast.error(`온·습도 미측정 ${missingMeasurements.length}건: ${summarizeMissing(missingMeasurements)} — 측정값을 입력한 뒤 제출하세요.`);
+      return;
+    }
+    saveMutation.mutate({ logDate, formData: buildFormData(), status: 'submitted' });
+  };
 
   const isLoading = loadingExisting || loadingPrev;
   const isSaving = saveMutation.isPending;
@@ -312,6 +334,11 @@ export default function DailyLogForm() {
             <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-300">
               <Copy className="h-3 w-3 mr-1" />
               {preFilledFrom} 데이터 기반
+            </Badge>
+          )}
+          {missingMeasurements.length > 0 && recordStatus !== 'approved' && (
+            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-800 border-amber-400" title={summarizeMissing(missingMeasurements, 14)}>
+              온·습도 미측정 {missingMeasurements.length}건
             </Badge>
           )}
 
@@ -399,9 +426,18 @@ export default function DailyLogForm() {
           <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="hygiene">일반위생관리</TabsTrigger>
             <TabsTrigger value="foreign">이물관리</TabsTrigger>
-            <TabsTrigger value="temperature">{`${L("material")}실 온습도`}</TabsTrigger>
-            <TabsTrigger value="freezer">냉동고 온도</TabsTrigger>
-            <TabsTrigger value="refrigerator">냉장고 온도</TabsTrigger>
+            <TabsTrigger value="temperature">
+              {`${L("material")}실 온습도`}
+              {missingBySection.temperatureHumidity > 0 && <span className="ml-1 text-[10px] text-amber-700">({missingBySection.temperatureHumidity})</span>}
+            </TabsTrigger>
+            <TabsTrigger value="freezer">
+              냉동고 온도
+              {missingBySection.freezerTemperature > 0 && <span className="ml-1 text-[10px] text-amber-700">({missingBySection.freezerTemperature})</span>}
+            </TabsTrigger>
+            <TabsTrigger value="refrigerator">
+              냉장고 온도
+              {missingBySection.refrigeratorTemperature > 0 && <span className="ml-1 text-[10px] text-amber-700">({missingBySection.refrigeratorTemperature})</span>}
+            </TabsTrigger>
           </TabsList>
 
           {/* 1. 일반위생관리 */}
@@ -508,10 +544,10 @@ export default function DailyLogForm() {
                   <tbody>
                     {temperatureHumidity.map((t, i) => (
                       <tr key={i}>
-                        <td className="border p-2 text-xs font-medium">{t.roomName} {t.timePeriod}</td>
+                        <td className="border p-2 text-xs font-medium">{t.roomName} {t.timePeriod}{(isBlankMeasurement(t.temperature) || isBlankMeasurement(t.humidity)) && <UnmeasuredChip />}</td>
                         <td className="border p-2"><Input type="time" value={t.checkTime} onChange={(e) => { const n = [...temperatureHumidity]; n[i] = {...n[i], checkTime: e.target.value}; setTemperatureHumidity(n); }} className="h-8 text-xs" /></td>
-                        <td className="border p-2"><Input type="number" step="0.1" value={t.temperature} onChange={(e) => { const n = [...temperatureHumidity]; n[i] = {...n[i], temperature: e.target.value}; setTemperatureHumidity(n); }} className="h-8 text-xs" placeholder="C" /></td>
-                        <td className="border p-2"><Input type="number" step="0.1" value={t.humidity} onChange={(e) => { const n = [...temperatureHumidity]; n[i] = {...n[i], humidity: e.target.value}; setTemperatureHumidity(n); }} className="h-8 text-xs" placeholder="%" /></td>
+                        <td className="border p-2"><Input type="number" step="0.1" value={t.temperature} onChange={(e) => { const n = [...temperatureHumidity]; n[i] = {...n[i], temperature: e.target.value}; setTemperatureHumidity(n); }} className={`h-8 text-xs ${unmeasuredCls(t.temperature)}`} placeholder="미측정" /></td>
+                        <td className="border p-2"><Input type="number" step="0.1" value={t.humidity} onChange={(e) => { const n = [...temperatureHumidity]; n[i] = {...n[i], humidity: e.target.value}; setTemperatureHumidity(n); }} className={`h-8 text-xs ${unmeasuredCls(t.humidity)}`} placeholder="미측정" /></td>
                         <td className="border p-2">
                           <select value={t.evaluation || ''} onChange={(e) => { const n = [...temperatureHumidity]; n[i] = {...n[i], evaluation: e.target.value || null}; setTemperatureHumidity(n); }} className="text-xs h-8 border rounded px-1 w-full">
                             <option value="">-</option><option value="pass">적합</option><option value="fail">부적합</option>
@@ -539,10 +575,10 @@ export default function DailyLogForm() {
                   <tbody>
                     {freezerTemperature.map((t, i) => (
                       <tr key={i}>
-                        <td className="border p-2 text-xs font-medium">{t.timePeriod}</td>
+                        <td className="border p-2 text-xs font-medium">{t.timePeriod}{(isBlankMeasurement(t.rapidFreezerTemp) || isBlankMeasurement(t.freezerTemp)) && <UnmeasuredChip />}</td>
                         <td className="border p-2"><Input type="time" value={t.checkTime} onChange={(e) => { const n = [...freezerTemperature]; n[i] = {...n[i], checkTime: e.target.value}; setFreezerTemperature(n); }} className="h-8 text-xs" /></td>
-                        <td className="border p-2"><Input type="number" step="0.1" value={t.rapidFreezerTemp} onChange={(e) => { const n = [...freezerTemperature]; n[i] = {...n[i], rapidFreezerTemp: e.target.value}; setFreezerTemperature(n); }} className="h-8 text-xs" placeholder="C" /></td>
-                        <td className="border p-2"><Input type="number" step="0.1" value={t.freezerTemp} onChange={(e) => { const n = [...freezerTemperature]; n[i] = {...n[i], freezerTemp: e.target.value}; setFreezerTemperature(n); }} className="h-8 text-xs" placeholder="C" /></td>
+                        <td className="border p-2"><Input type="number" step="0.1" value={t.rapidFreezerTemp} onChange={(e) => { const n = [...freezerTemperature]; n[i] = {...n[i], rapidFreezerTemp: e.target.value}; setFreezerTemperature(n); }} className={`h-8 text-xs ${unmeasuredCls(t.rapidFreezerTemp)}`} placeholder="미측정" /></td>
+                        <td className="border p-2"><Input type="number" step="0.1" value={t.freezerTemp} onChange={(e) => { const n = [...freezerTemperature]; n[i] = {...n[i], freezerTemp: e.target.value}; setFreezerTemperature(n); }} className={`h-8 text-xs ${unmeasuredCls(t.freezerTemp)}`} placeholder="미측정" /></td>
                         <td className="border p-2">
                           <select value={t.evaluation || ''} onChange={(e) => { const n = [...freezerTemperature]; n[i] = {...n[i], evaluation: e.target.value || null}; setFreezerTemperature(n); }} className="text-xs h-8 border rounded px-1 w-full">
                             <option value="">-</option><option value="pass">적합</option><option value="fail">부적합</option>
@@ -570,9 +606,9 @@ export default function DailyLogForm() {
                   <tbody>
                     {refrigeratorTemperature.map((t, i) => (
                       <tr key={i}>
-                        <td className="border p-2 text-xs font-medium">{t.timePeriod}</td>
+                        <td className="border p-2 text-xs font-medium">{t.timePeriod}{isBlankMeasurement(t.temperature) && <UnmeasuredChip />}</td>
                         <td className="border p-2"><Input type="time" value={t.checkTime} onChange={(e) => { const n = [...refrigeratorTemperature]; n[i] = {...n[i], checkTime: e.target.value}; setRefrigeratorTemperature(n); }} className="h-8 text-xs" /></td>
-                        <td className="border p-2"><Input type="number" step="0.1" value={t.temperature} onChange={(e) => { const n = [...refrigeratorTemperature]; n[i] = {...n[i], temperature: e.target.value}; setRefrigeratorTemperature(n); }} className="h-8 text-xs" placeholder="C" /></td>
+                        <td className="border p-2"><Input type="number" step="0.1" value={t.temperature} onChange={(e) => { const n = [...refrigeratorTemperature]; n[i] = {...n[i], temperature: e.target.value}; setRefrigeratorTemperature(n); }} className={`h-8 text-xs ${unmeasuredCls(t.temperature)}`} placeholder="미측정" /></td>
                         <td className="border p-2">
                           <select value={t.evaluation || ''} onChange={(e) => { const n = [...refrigeratorTemperature]; n[i] = {...n[i], evaluation: e.target.value || null}; setRefrigeratorTemperature(n); }} className="text-xs h-8 border rounded px-1 w-full">
                             <option value="">-</option><option value="pass">적합</option><option value="fail">부적합</option>

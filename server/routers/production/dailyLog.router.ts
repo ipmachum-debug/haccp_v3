@@ -102,6 +102,19 @@ export const dailyLogRouter = router({
         const tenantId = ctx.tenantId;
         const siteId = input.siteId || ctx.user.siteId || ctx.tenantId || 1;
 
+        // 제출(검토 요청) 시 온·습도 실측값 필수 — 임시저장(draft)은 빈 값 허용.
+        // 측정하지 않은 값이 검토·승인 단계로 넘어가는 것을 막는다.
+        if (input.status === 'submitted') {
+          const { findMissingMeasurements, summarizeMissing } = await import("../../../shared/dailyLogMeasurements");
+          const missing = findMissingMeasurements(input.formData);
+          if (missing.length > 0) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: `온·습도 미측정 ${missing.length}건 (${summarizeMissing(missing)}) — 측정값을 입력한 뒤 제출하세요.`,
+            });
+          }
+        }
+
         // 기존 레코드 확인
         const existing = await db.execute(sql`
           SELECT id, form_data FROM h_generic_checklist_records
@@ -190,6 +203,7 @@ export const dailyLogRouter = router({
 
         return { success: true, id: recordId, status: input.status };
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         console.error('[dailyLog.saveFullForm]', error);
         throw new TRPCError({
           code: 'INTERNAL_SERVER_ERROR',
