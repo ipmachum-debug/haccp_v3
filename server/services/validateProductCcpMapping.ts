@@ -17,6 +17,7 @@
  */
 
 import { getRawConnection } from "../db/connection";
+import { resolveBomProductIds, inPlaceholders } from "../lib/production/bomProductResolver";
 
 export interface MappingValidation {
   /** 진행 가능 여부 */
@@ -52,6 +53,8 @@ export async function validateProductCcpMapping(args: {
 }): Promise<MappingValidation> {
   const { productId, productName, tenantId } = args;
   const conn = await getRawConnection();
+  // 2026-10-07: BOM product_id 가 v2 id 또는 item_master id (bomProductResolver)
+  const bomPids = await resolveBomProductIds(productId, tenantId, conn);
 
   // 1. APPROVED BOM 버전 존재 여부 + ingredients 의 process_group_id ≥ 1 카운트
   const [bomRows] = await conn.execute<any[]>(
@@ -65,9 +68,9 @@ export async function validateProductCcpMapping(args: {
      LEFT JOIN h_mf_ingredients i
        ON i.mf_report_version_id = v.id
       AND i.process_group_id IS NOT NULL
-     WHERE r.product_id = ?
+     WHERE r.product_id IN (${inPlaceholders(bomPids)})
        AND r.tenant_id = ?`,
-    [productId, tenantId],
+    [...bomPids, tenantId],
   );
   const approvedVersions = Number((bomRows as any[])[0]?.approved_versions ?? 0);
   const bomMappingCount = Number((bomRows as any[])[0]?.group_mappings ?? 0);

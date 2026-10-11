@@ -17,13 +17,14 @@
  *   recipe_versions       -> h_mf_report_versions (네이티브 버전 관리)
  */
 import { getDb } from "../connection";
+import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
 import {
   hMfReports,
   hMfReportVersions,
   hMfIngredients,
   itemMaster,
 } from "../../../drizzle/schema";
-import { eq, and, desc } from "drizzle-orm";
+import { eq, and, desc, sql, inArray } from "drizzle-orm";
 
 // ─────────────────────────────────────────────────────────────
 // 내부 헬퍼: BOM 데이터를 기존 recipe 응답 형태로 변환
@@ -167,7 +168,7 @@ export async function getRecipes(filters: {
 
   const conditions: any[] = [eq(hMfReports.tenantId, filters.tenantId)];
   if (filters.productId) {
-    conditions.push(eq(hMfReports.productId, filters.productId));
+    conditions.push(inArray(hMfReports.productId, await resolveBomProductIds(filters.productId, filters.tenantId)));
   }
   if (filters.isActive !== undefined) {
     conditions.push(
@@ -237,7 +238,7 @@ export async function getRecipesByProductId(
   if (!db) throw new Error("DB 연결 실패");
 
   const conditions: any[] = [
-    eq(hMfReports.productId, productId),
+    inArray(hMfReports.productId, await resolveBomProductIds(productId, tenantId ?? 0)),
     eq(hMfReports.status, "ACTIVE"),
   ];
   if (tenantId) {
@@ -248,7 +249,7 @@ export async function getRecipesByProductId(
     .select()
     .from(hMfReports)
     .where(and(...conditions))
-    .orderBy(desc(hMfReports.createdAt));
+    .orderBy(sql`(${hMfReports.productId} = ${productId}) DESC`, desc(hMfReports.createdAt));
 
   const results: RecipeShape[] = [];
   for (const report of reports) {

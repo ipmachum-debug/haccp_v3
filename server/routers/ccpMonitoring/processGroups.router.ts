@@ -4,6 +4,7 @@ import { getDb } from "../../db";
 import { sql, SQL } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getEffectiveTenantId } from "./_helpers";
+import { bomProductV2IdExpr } from "../../lib/production/bomProductResolver";
 
 export const processGroupsRouter = router({
   // ========== 공정 그룹 관리 API ==========
@@ -210,13 +211,13 @@ export const processGroupsRouter = router({
           // ★ CCP-1B/2B: BOM 원재료의 process_group_id 기반 자동 매핑
           const [rows] = await db.execute(
             sql`SELECT DISTINCT
-                r.product_id,
+                p.id AS product_id,
                 p.product_name,
                 'BOM' as mapping_source
               FROM h_mf_reports r
               JOIN h_mf_report_versions v ON v.mf_report_id = r.id
               JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id
-              JOIN h_products_v2 p ON r.product_id = p.id AND p.tenant_id = r.tenant_id
+              JOIN h_products_v2 p ON p.id = ${sql.raw(bomProductV2IdExpr("r"))} AND p.tenant_id = r.tenant_id
               WHERE i.process_group_id = ${input.processGroupId}
                 AND r.tenant_id = ${tenantId}
               ORDER BY p.product_name`
@@ -245,7 +246,7 @@ export const processGroupsRouter = router({
           // CCP-1B/2B: BOM 기반 자동
           const [rows] = await db.execute(
             sql`SELECT DISTINCT
-                r.product_id,
+                p.id AS product_id,
                 p.product_name,
                 g.id as process_group_id,
                 g.name as group_name,
@@ -254,7 +255,7 @@ export const processGroupsRouter = router({
               FROM h_mf_reports r
               JOIN h_mf_report_versions v ON v.mf_report_id = r.id
               JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id
-              JOIN h_products_v2 p ON r.product_id = p.id AND p.tenant_id = r.tenant_id
+              JOIN h_products_v2 p ON p.id = ${sql.raw(bomProductV2IdExpr("r"))} AND p.tenant_id = r.tenant_id
               JOIN ccp_process_groups g ON i.process_group_id = g.id
               WHERE r.tenant_id = ${tenantId}
                 AND g.ccp_type = ${input.ccpType}
@@ -266,7 +267,7 @@ export const processGroupsRouter = router({
         // 전체 조회: BOM 기반(CCP-1B/2B) + 수동(CCP-4P)
         const [bomRows] = await db.execute(
           sql`SELECT DISTINCT
-              r.product_id,
+              p.id AS product_id,
               p.product_name,
               g.id as process_group_id,
               g.name as group_name,
@@ -275,7 +276,7 @@ export const processGroupsRouter = router({
             FROM h_mf_reports r
             JOIN h_mf_report_versions v ON v.mf_report_id = r.id
             JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id
-            JOIN h_products_v2 p ON r.product_id = p.id AND p.tenant_id = r.tenant_id
+            JOIN h_products_v2 p ON p.id = ${sql.raw(bomProductV2IdExpr("r"))} AND p.tenant_id = r.tenant_id
             JOIN ccp_process_groups g ON i.process_group_id = g.id
             WHERE r.tenant_id = ${tenantId}
             ORDER BY g.ccp_type, g.name, p.product_name`
