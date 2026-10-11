@@ -12,6 +12,7 @@ import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { invokeLLM } from "../../_core/llm";
 import { ENV } from "../../_core/env";
 import { getDb, getRawConnection } from "../../db";
+import { toProductionProductIds, toItemMasterIdFromProduct } from "../../lib/identity/itemIdentityService";
 import { itemMaster, productSkus } from "../../../drizzle/schema";
 import { eq, and, like, or, sql } from "drizzle-orm";
 
@@ -147,9 +148,17 @@ export const aiProductionParserRouter = router({
           )
         ));
 
-      // v1 퇴출 완료: item_master.id = h_products_v2.id이므로 매핑 불필요
-      // resolveProductId는 입력값을 그대로 반환
-      const resolveProductId = (itemId: number): number => itemId;
+      // 11-identity-policy-v3: item_master.id 와 h_products_v2.id 는 다른 네임스페이스다
+      // (덤프 실측 818/885 만 우연히 같음). 배치가 쓰는 v2 id 로 서비스 한 곳에서 변환한다.
+      const v2ByItem = await toProductionProductIds(products.map((p) => Number(p.id)), tenantId);
+      const resolveProductId = (itemId: number): number => {
+        const v2 = v2ByItem.get(itemId);
+        if (v2 == null) {
+          console.warn(`[AI Parser] item_master#${itemId} 에 연결된 h_products_v2 가 없음 (tenant=${tenantId}) — item_master id 그대로 반환`);
+          return itemId;
+        }
+        return v2;
+      };
 
       const skus = await db.select({
         id: productSkus.id,
@@ -236,6 +245,7 @@ export const aiProductionParserRouter = router({
             learnedUseCount: learned.useCount,
             matched: {
               productId: resolveProductId(learned.productId),
+              itemMasterId: learned.productId,
               productName: learned.productName,
               itemCode: product?.itemCode || "",
               matchScore: 100,
@@ -253,6 +263,7 @@ export const aiProductionParserRouter = router({
             },
             candidates: [] as Array<{
               productId: number;
+              itemMasterId?: number;
               productName: string;
               itemCode: string;
               matchScore: number;
@@ -294,6 +305,7 @@ export const aiProductionParserRouter = router({
             learnedUseCount: 0,
             matched: {
               productId: resolveProductId(bestLearned.productId),
+              itemMasterId: bestLearned.productId,
               productName: bestLearned.productName,
               itemCode: product?.itemCode || "",
               matchScore: bestLearned.score,
@@ -311,6 +323,7 @@ export const aiProductionParserRouter = router({
             },
             candidates: matches.slice(0, 5).map(m => ({
               productId: resolveProductId(Number(m.product.id)),
+              itemMasterId: Number(m.product.id),
               productName: m.product.itemName,
               itemCode: m.product.itemCode,
               matchScore: m.score,
@@ -333,6 +346,7 @@ export const aiProductionParserRouter = router({
           learnedUseCount: 0,
           matched: bestMatch ? {
             productId: resolveProductId(Number(bestMatch.product.id)),
+            itemMasterId: Number(bestMatch.product.id),
             productName: bestMatch.product.itemName,
             itemCode: bestMatch.product.itemCode,
             matchScore: bestMatch.score,
@@ -350,6 +364,7 @@ export const aiProductionParserRouter = router({
           } : null,
           candidates: matches.slice(0, 5).map(m => ({
             productId: resolveProductId(Number(m.product.id)),
+            itemMasterId: Number(m.product.id),
             productName: m.product.itemName,
             itemCode: m.product.itemCode,
             matchScore: m.score,
@@ -388,7 +403,8 @@ export const aiProductionParserRouter = router({
       corrections: z.array(z.object({
         rawName: z.string(),         // AI가 파싱한 원래 이름
         parsedName: z.string(),      // 정제된 이름
-        productId: z.number(),       // 최종 매칭 제품 ID
+        productId: z.number(),       // 최종 매칭 제품 ID (h_products_v2 — 배치 생성용)
+        itemMasterId: z.number().optional(), // 정체성 id (item_master) — 학습 사전은 이 id 로 저장
         productName: z.string(),     // 최종 매칭 제품명
         quantityKg: z.number(),      // 수량
         wasCorrected: z.boolean(),   // 사용자가 수정했는지
@@ -404,6 +420,12 @@ export const aiProductionParserRouter = router({
         // (1) 교정 사전 업데이트
         let savedCount = 0;
         for (const correction of input.corrections) {
+          // 학습 사전(ai_parse_corrections.product_id) 은 item_master 네임스페이스로 통일한다.
+          // 클라이언트가 itemMasterId 를 안 보내면 v2 id 를 역변환 (연결 없으면 그대로).
+          const learnItemId =
+            correction.itemMasterId ??
+            (await toItemMasterIdFromProduct(correction.productId, tenantId, pool)) ??
+            correction.productId;
           const aliases = new Set<string>();
           // rawName과 parsedName 모두 학습
           aliases.add(normalizeAlias(correction.rawName));
@@ -428,7 +450,7 @@ export const aiProductionParserRouter = router({
                   tenantId,
                   correction.rawName.slice(0, 300),
                   alias.slice(0, 300),
-                  correction.productId,
+                  learnItemId,
                   correction.productName,
                   correction.quantityKg > 0 ? correction.quantityKg : null,
                   userId,
@@ -588,9 +610,11 @@ export const aiProductionParserRouter = router({
         ))
         .limit(10);
 
-      // v1 퇴출 완료: item_master.id = h_products_v2.id → 매핑 불필요
+      // 11-identity-policy-v3: 배치가 쓰는 v2 id 로 변환해서 돌려주고, 정체성 id 도 같이 준다
+      const v2Map = await toProductionProductIds(results.map((r) => Number(r.id)), ctx.tenantId);
       return results.map(r => ({
-        productId: Number(r.id),
+        productId: v2Map.get(Number(r.id)) ?? Number(r.id),
+        itemMasterId: Number(r.id),
         productName: r.itemName,
         itemCode: r.itemCode,
       }));

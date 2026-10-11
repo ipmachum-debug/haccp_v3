@@ -22,6 +22,15 @@ module.exports = {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     {
+      name: "identity-resolvers-via-service",
+      comment:
+        "품목 id 변환은 server/lib/identity/itemIdentityService 한 곳만 거친다 (11-identity-policy-v3.md §2-1 4항). " +
+        "materialIdResolver / bomProductResolver 직접 import 는 전환기 동안 warn, 호출자 0 이 되면 error 로 올린다.",
+      severity: "warn",
+      from: { pathNot: "^server/lib/identity/" },
+      to: { path: "^server/lib/production/(materialIdResolver|bomProductResolver)\\.ts$" },
+    },
+    {
       name: "platform-cannot-use-core-erp",
       comment: "platform 은 업무 개념을 몰라야 함 (00-layers.md)",
       severity: "error",
