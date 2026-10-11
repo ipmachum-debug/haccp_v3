@@ -1,9 +1,14 @@
 /**
  * Canonical Tables Drift 감시 — 일일 cron 친화 요약 스크립트
  *
- * docs/architecture/07-canonical-tables.md 의 정책 위반을 감시:
- *   - 옛 테이블에 없는데 canonical(item_master / accounting_accounts) 에는 있는 row 수
- *   - 양쪽 다 있지만 이름/코드 다른 row 수
+ * docs/architecture/11-identity-policy-v3.md (07 통합) 의 정책 위반을 감시:
+ *   - 정체성(item_master) 에 있는데 상세 테이블(h_products_v2 / h_materials) 연결이 없는 row 수
+ *   - 상세 테이블에 있는데 정체성 연결이 없는 row 수
+ *   - 양쪽 다 있지만 이름 다른 row 수
+ *
+ * ★ 2026-10-12: `im.id = p.id` 로 비교하던 것을 `legacy_product_id / legacy_material_id` FK 기준으로 교정.
+ *   item_master.id 와 상세 테이블 id 는 다른 네임스페이스라 id 동일 비교는 거짓 양성/음성을 낸다
+ *   (덤프 실측: 818/885 우연 일치, id 범위 1건 겹침).
  *
  * 출력은 한 줄 요약 (cron / Slack 친화) + 임계치 초과 시 exit code 1.
  *
@@ -40,22 +45,24 @@ async function main() {
   const productOrphansCanonical: any = await db.execute(sql`
     SELECT COUNT(*) AS cnt
     FROM item_master im
-    LEFT JOIN h_products_v2 p ON p.id = im.id AND p.tenant_id = im.tenant_id
-    WHERE im.item_type = 'own_product'
+    LEFT JOIN h_products_v2 p ON p.id = im.legacy_product_id AND p.tenant_id = im.tenant_id
+    WHERE im.item_type IN ('own_product', 'external_product')
       AND im.is_active = 1
       AND p.id IS NULL
   `);
   const productOrphansLegacy: any = await db.execute(sql`
     SELECT COUNT(*) AS cnt
     FROM h_products_v2 p
-    LEFT JOIN item_master im ON im.id = p.id AND im.tenant_id = p.tenant_id AND im.item_type = 'own_product'
+    LEFT JOIN item_master im ON im.legacy_product_id = p.id AND im.tenant_id = p.tenant_id
+                             AND im.item_type IN ('own_product', 'external_product')
     WHERE p.is_active = 1
       AND im.id IS NULL
   `);
   const productNameMismatch: any = await db.execute(sql`
     SELECT COUNT(*) AS cnt
     FROM h_products_v2 p
-    JOIN item_master im ON im.id = p.id AND im.tenant_id = p.tenant_id AND im.item_type = 'own_product'
+    JOIN item_master im ON im.legacy_product_id = p.id AND im.tenant_id = p.tenant_id
+                       AND im.item_type IN ('own_product', 'external_product')
     WHERE p.is_active = 1 AND im.is_active = 1
       AND p.product_name <> im.item_name
   `);
@@ -72,16 +79,18 @@ async function main() {
   const materialOrphansCanonical: any = await db.execute(sql`
     SELECT COUNT(*) AS cnt
     FROM item_master im
-    LEFT JOIN h_materials m ON m.id = im.id AND m.tenant_id = im.tenant_id
-    WHERE im.item_type = 'raw_material'
+    LEFT JOIN h_materials m ON m.id = im.legacy_material_id AND m.tenant_id = im.tenant_id
+    WHERE im.item_type IN ('raw_material', 'subsidiary')
       AND im.is_active = 1
       AND m.id IS NULL
   `);
   const materialOrphansLegacy: any = await db.execute(sql`
     SELECT COUNT(*) AS cnt
     FROM h_materials m
-    LEFT JOIN item_master im ON im.id = m.id AND im.tenant_id = m.tenant_id AND im.item_type = 'raw_material'
-    WHERE im.id IS NULL
+    LEFT JOIN item_master im ON im.legacy_material_id = m.id AND im.tenant_id = m.tenant_id
+                             AND im.item_type IN ('raw_material', 'subsidiary')
+    WHERE m.is_active = 1
+      AND im.id IS NULL
   `);
   reports.push({
     pair: "item_master(raw_material) ↔ h_materials",
