@@ -161,7 +161,7 @@ export interface ApplyLotDeltaParams {
   };
   notes?: string | null;
   createdBy: number;
-  /** true 면 가용 부족이어도 throw 하지 않고 GREATEST(0) 로 진행(조정/실사 등). 기본 false. */
+  /** true 면 가용 부족이어도 throw 하지 않고 LOT 를 음수까지 차감(원장 양 = LOT 차감 양). 기본 false. */
   allowNegative?: boolean;
 }
 
@@ -178,15 +178,24 @@ export async function applyLotDelta(
   const s = normalizeSubject(p.subject);
   const qty = Math.abs(p.quantity);
 
-  // (1) LOT 잠금
+  // (1) LOT 잠금 — subject 소유 컬럼도 함께 읽어 "다른 품목의 LOT" 를 건드리는 것을 막는다
+  //     (2026-10-12 정밀진단 §4 지적: subject 와 LOT 소유 품목 불일치 미검증)
   const [lotRows]: any = await conn.execute(
-    `SELECT id, quantity, available_quantity, current_quantity, unit, status
+    `SELECT id, quantity, available_quantity, current_quantity, unit, status, material_id, product_id
        FROM h_inventory_lots
        WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
     [p.lotId, p.tenantId],
   );
   const lot = (lotRows as any[])[0];
   if (!lot) throw new Error(`LOT#${p.lotId} 를 찾을 수 없습니다 (tenant=${p.tenantId}).`);
+  {
+    const owner = lot[s.col] != null ? Number(lot[s.col]) : null;
+    if (owner != null && owner > 0 && owner !== s.id) {
+      throw new Error(
+        `LOT#${p.lotId} 는 ${s.col}=${owner} 소유인데 ${s.col}=${s.id} 로 이동이 요청되었습니다 (tenant=${p.tenantId}).`,
+      );
+    }
+  }
 
   const avail = parseFloat(lot.available_quantity ?? lot.quantity ?? "0") || 0;
 
@@ -194,17 +203,31 @@ export async function applyLotDelta(
     if (avail < qty - EPS && !p.allowNegative) {
       throw new InventoryShortageError(p.lotId, avail, qty);
     }
-    // (2) LOT 차감(GREATEST 방어) — 소진 시 status='used'
-    await conn.execute(
-      `UPDATE h_inventory_lots
-         SET quantity = GREATEST(0, quantity - ?),
-             available_quantity = GREATEST(0, available_quantity - ?),
-             current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
-             status = CASE WHEN GREATEST(0, available_quantity - ?) <= ? THEN 'used' ELSE status END,
-             updated_at = NOW()
+    if (p.allowNegative) {
+      // (2-a) 음수 허용 (negativeStockPolicy): 원장에 적는 양과 LOT 에서 빠지는 양을 같게 유지.
+      //       GREATEST(0) 클램프를 두면 원장은 qty, LOT 는 avail 만 줄어 둘이 어긋난다.
+      await conn.execute(
+        `UPDATE h_inventory_lots
+           SET quantity = quantity - ?,
+               available_quantity = available_quantity - ?,
+               current_quantity = COALESCE(current_quantity, quantity) - ?,
+               updated_at = NOW()
          WHERE id = ?`,
-      [qty, qty, qty, qty, EPS, p.lotId],
-    );
+        [qty, qty, qty, p.lotId],
+      );
+    } else {
+      // (2-b) LOT 차감(GREATEST 방어) — 소진 시 status='used'
+      await conn.execute(
+        `UPDATE h_inventory_lots
+           SET quantity = GREATEST(0, quantity - ?),
+               available_quantity = GREATEST(0, available_quantity - ?),
+               current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
+               status = CASE WHEN GREATEST(0, available_quantity - ?) <= ? THEN 'used' ELSE status END,
+               updated_at = NOW()
+         WHERE id = ?`,
+        [qty, qty, qty, qty, EPS, p.lotId],
+      );
+    }
   } else {
     // 증가(반품 복원/입고-기존LOT) — status 를 available 로 되돌림
     await conn.execute(
@@ -236,7 +259,7 @@ export async function applyLotDelta(
   // (4) 집계 재계산(자가 치유)
   await recomputeAggregateFromLots(conn, { tenantId: p.tenantId, subject: p.subject, unit: p.unit });
 
-  const remaining = p.direction === "decrease" ? Math.max(0, avail - qty) : avail + qty;
+  const remaining = p.direction === "decrease" ? (p.allowNegative ? avail - qty : Math.max(0, avail - qty)) : avail + qty;
   return { lotId: p.lotId, remaining };
 }
 
@@ -317,6 +340,19 @@ export async function receiveNewLot(
 
   // (3) 집계 재계산(자가 치유)
   await recomputeAggregateFromLots(conn, { tenantId: p.tenantId, subject: p.subject, unit: p.unit });
+
+  // (4) 음수 LOT 자동 상쇄 (negativeStockPolicy, 2026-10-08) — 원재료만
+  if (s.materialId) {
+    try {
+      const { reconcileNegativeLots } = await import("./negativeLotReconcile");
+      await reconcileNegativeLots(conn, {
+        materialId: s.materialId, tenantId: p.tenantId, userId: p.createdBy,
+        transactionDate: receipt, source: "receiveNewLot",
+      });
+    } catch (recErr) {
+      console.warn(`[applyInventoryDelta] 음수 LOT 상쇄 실패 (계속):`, recErr);
+    }
+  }
 
   return { lotId, lotNumber: p.lotNumber };
 }
