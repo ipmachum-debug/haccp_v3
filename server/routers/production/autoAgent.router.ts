@@ -18,7 +18,7 @@ import { z } from "zod";
 import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getRawConnection } from "../../db";
-import { resolveBomProductIds, inPlaceholders } from "../../lib/production/bomProductResolver";
+import { resolveBomProductIds, inPlaceholders } from "../../lib/identity/itemIdentityService";
 
 /** 제품 매칭 후보 (프론트엔드 교체 UI 용) */
 export interface ProductCandidate {

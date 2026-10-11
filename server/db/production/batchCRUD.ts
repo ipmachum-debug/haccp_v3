@@ -4,7 +4,7 @@
  */
 import { eq, and, desc, sql, like, inArray } from "drizzle-orm";
 import { getDb, getRawConnection } from "../connection";
-import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
+import { resolveBomProductIds } from "../../lib/identity/itemIdentityService";
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import { hBatches, hBatchInputs, hCcpInstances, hCcpRecords, hProductsV2, hMaterials, hInventory, hInventoryTransactions, hApprovalRequests } from "../../../drizzle/schema";
 

@@ -4,7 +4,7 @@
 // 재고 부족 예측, 발주 제안, 대시보드 통합 데이터
 // ═══════════════════════════════════════════════════════════════
 import { getDb } from "../connection";
-import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
+import { resolveBomProductIds } from "../../lib/identity/itemIdentityService";
 import { eq, and, or, lte, gte, gt, desc, asc, sql, lt, inArray, count, isNotNull, sum } from "drizzle-orm";
 import {
   hBatches,

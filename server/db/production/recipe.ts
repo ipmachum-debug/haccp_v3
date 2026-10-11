@@ -17,7 +17,7 @@
  *   recipe_versions       -> h_mf_report_versions (네이티브 버전 관리)
  */
 import { getDb } from "../connection";
-import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
+import { resolveBomProductIds } from "../../lib/identity/itemIdentityService";
 import {
   hMfReports,
   hMfReportVersions,

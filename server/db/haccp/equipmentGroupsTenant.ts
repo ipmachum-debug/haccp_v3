@@ -1,6 +1,6 @@
 import { eq, and, desc, sql, count, inArray } from "drizzle-orm";
 import { getDb, getRawConnection } from "../connection";
-import { resolveBomProductIds } from "../../lib/production/bomProductResolver";
+import { resolveBomProductIds } from "../../lib/identity/itemIdentityService";
 
 // ============================================================================
 // Equipment Profile Management (설비 프로필 관리)

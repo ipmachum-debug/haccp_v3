@@ -191,7 +191,7 @@ export async function hydrateBatches(
               const conn = await getRawConnection();
               // BOM batch_target_kg 조회
               let bomBatchKg: number | undefined;
-              const { resolveBomProductIds, inPlaceholders } = await import("../lib/production/bomProductResolver");
+              const { resolveBomProductIds, inPlaceholders } = await import("../lib/identity/itemIdentityService");
               const bomPids = await resolveBomProductIds(batch.productId, tenantId, conn);
               const [bomRows] = await conn.execute<any[]>(
                 `SELECT rv.batch_target_kg
@@ -396,7 +396,7 @@ async function hydrateBatchInputs(
   const { hMfReports, hMfReportVersions, hMfIngredients, hBatchInputs, hBatches } =
     await import("../../drizzle/schema");
   const { eq, and, desc, inArray, sql } = await import("drizzle-orm");
-  const { resolveBomProductIds } = await import("../lib/production/bomProductResolver");
+  const { resolveBomProductIds } = await import("../lib/identity/itemIdentityService");
 
   // 배치의 생산량 조회
   const [batch] = await db.select({ plannedQuantity: hBatches.plannedQuantity })

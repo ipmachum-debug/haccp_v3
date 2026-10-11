@@ -30,7 +30,7 @@
  *   }
  */
 
-import type { AnyConn } from "./materialIdResolver";
+import type { IdentityConn as AnyConn } from "../identity/itemIdentityService";
 
 /**
  * 배치 → 최신 APPROVED mf_report_version → h_production_log 행 보장

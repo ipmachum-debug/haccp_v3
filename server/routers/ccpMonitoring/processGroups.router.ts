@@ -4,7 +4,7 @@ import { getDb } from "../../db";
 import { sql, SQL } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getEffectiveTenantId } from "./_helpers";
-import { bomProductV2IdExpr } from "../../lib/production/bomProductResolver";
+import { bomProductV2IdExpr } from "../../lib/identity/itemIdentityService";
 
 export const processGroupsRouter = router({
   // ========== 공정 그룹 관리 API ==========
