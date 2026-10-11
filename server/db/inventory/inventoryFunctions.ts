@@ -411,46 +411,6 @@ export async function getMaterialById(id: number, tenantId?: number) {
 }
 
 /**
- * 레시피 기반 원재료 목록 조회
- */
-export async function getMaterialsByRecipeId(recipeId: number, tenantId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-  const { hRecipeLines, hMaterials } = await import("../../../drizzle/schema.js");
-  const { eq, isNotNull } = await import("drizzle-orm");
-
-  // 레시피 라인 정보 조회 (원재료만)
-  const recipeDetails = await db
-    .select()
-    .from(hRecipeLines)
-    .where(
-      eq(hRecipeLines.recipeId, recipeId)
-    );
-
-  // 원재료 정보와 함께 반환
-  const materialsWithQuantity = [];
-  for (const detail of recipeDetails) {
-    // materialId가 null이 아닌 경우만 조회
-    if (detail.materialId) {
-      const [material] = await db
-        .select()
-        .from(hMaterials)
-        .where(eq(hMaterials.id, detail.materialId));
-
-      if (material) {
-        materialsWithQuantity.push({
-          ...material,
-          requiredQuantity: detail.quantity,
-          requiredUnit: detail.unit
-        });
-      }
-    }
-  }
-
-  return materialsWithQuantity;
-}
-
-/**
  * 재고 부족 원재료 조회
  */
 export async function getLowStockMaterials(tenantId?: number) {

@@ -389,26 +389,19 @@ export const ccpFormRouter = router({
         let conn: any = null;
         try {
           conn = await getRawConnection();
-          // h_mf_report_versions -> h_mf_reports -> product_id 조인
+          // h_mf_report_versions -> h_mf_reports -> product_id 조인 (v2 단일 소스)
+          // v1 h_recipe_headers 폴백은 제거 — 같은 product_id 가 v1/v2 에서 다른 제품을 가리켜
+          // 엉뚱한 배치 목표량이 나올 수 있었음.
           const [rows] = await conn.execute(
             `SELECT rv.batch_target_kg
              FROM h_mf_report_versions rv
              JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
-             WHERE mr.product_id = ?
+             WHERE mr.product_id = ? AND mr.tenant_id = ?
              ORDER BY rv.id DESC LIMIT 1`,
-            [input.productId]
+            [input.productId, ctx.tenantId]
           );
           const bomBatchKg = (rows as any[])[0]?.batch_target_kg;
-          // fallback: h_recipe_headers
-          if (!bomBatchKg) {
-            const [rows2] = await conn.execute(
-              `SELECT target_quantity FROM h_recipe_headers WHERE product_id = ? AND unit != '%' ORDER BY id DESC LIMIT 1`,
-              [input.productId]
-            );
-            const fallback = (rows2 as any[])[0]?.target_quantity;
-            return { bomBatchKg: fallback ? parseFloat(fallback) : null };
-          }
-          return { bomBatchKg: parseFloat(bomBatchKg) };
+          return { bomBatchKg: bomBatchKg ? parseFloat(bomBatchKg) : null };
         } catch (e: any) {
           console.error("[getBomBatchKg] error:", e.message);
           return { bomBatchKg: null };
