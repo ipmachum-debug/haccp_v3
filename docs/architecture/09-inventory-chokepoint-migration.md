@@ -1,5 +1,9 @@
 # 09 — 재고 3자 불변식 단일 관문(applyInventoryDelta) 이주 대장
 
+> **2026-10-12** — "원장 `material_id` 는 `h_materials.id` 만" 규칙은 유지되며
+> [11-identity-policy-v3.md](./11-identity-policy-v3.md) §2-1 2항과 같은 말이다 (07 과 모순 아님).
+> 덤프 실측: 원장 8,455행 중 135행이 `item_master.id` 혼용 (2026-04-20~05-08) → 11 문서 3단계 변환 대상.
+
 > P2 — 병② "3자 불변식 미강제" 봉인. `08-inventory-identity-diagnosis.md` 후속.
 > 최초: 2026-07-02. 성격: **Strangler Fig 이주 추적 대장**(살아있는 체크리스트).
 

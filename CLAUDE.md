@@ -79,6 +79,9 @@
 **새 기능 / 리팩토링 / 신규 파일 작성 전 반드시 확인**:
 
 📘 **`docs/architecture/`** — CANONICAL 아키텍처 문서 (2026-04-21 확정)
+- **`11-identity-policy-v3.md` — 품목 정체성 정본 정책 (2026-10-12, v3 개편 0단계). 품목·자재·BOM id 를 다루는 코드를 쓰기 전에 반드시 읽을 것.**
+  정체성 = `item_master`, 수량 세계(배치·투입·LOT·재고·원장) 물리 키 = `h_products_v2` / `h_materials`, BOM = `item_master` id. 변환은 `ItemIdentityService` 한 곳.
+  `h_mf_reports.product_id` 를 v2 id 로 UPDATE 금지 · `item_master.id = h_products_v2.id` 전제 금지 · 재고 집계 전수 자동 재계산 금지.
 - `00-layers.md` — 5계층 + shared-kernel 구조
 - `01-dependency-rules.md` — 레이어 간 의존 금지/허용 규칙 (CI 강제)
 - `02-naming-conventions.md` — 테이블/라우터/파일 네이밍
@@ -725,7 +728,7 @@ git push -f origin genspark_ai_developer
 - **테스트 커버리지**: 3% → 13 + 26 케이스 = 39 (logger, tenant격리, banner isolation, tenantsPublic, partner JOIN)
 
 #### 아키텍처 부채 (우선순위 높음 — 아직 미해결)
-- [ ] **AppRouter 초거대 구조** (`_root.ts` 413줄, 서브라우터 318 import) — tRPC v11 proxy 타입 심층 전파 한계의 근본 원인. 도메인별 bounded context 로 분리 필요.
+- [ ] **AppRouter 초거대 구조** — `_root.ts` 는 도메인 맵 18 import 로 분할됨 (2026-10-12 실측, 이전 "318 import" 는 구 수치). 남은 과제는 라우터 268 파일 / tRPC 프로시저 1,739개 의 도메인 bounded context 분리.
 - [ ] **초대형 TSX 파일** (50~90KB) — BatchDetail (1300줄), HRManagement (850줄) 등 page/container/table/form/dialog 단위 분해 필요
 - [ ] **런타임 startup migration** — production 기본 비활성화 했으나 장기적으로 Drizzle migration 으로 완전 이관 필요
 - [ ] **구조적 any** — 남은 2,208건 중 상당수는 AppRouter 분해 없이는 불가능

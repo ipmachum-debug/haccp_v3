@@ -13,6 +13,7 @@
 3. [02-naming-conventions.md](./02-naming-conventions.md) — 테이블 / 라우터 / 파일 네이밍
 4. [03-event-catalog.md](./03-event-catalog.md) — 표준 도메인 이벤트 + outbox 패턴
 5. [04-policy-registry.md](./04-policy-registry.md) — Feature / Capability / Package / Posting / Approval 정책
+6. [11-identity-policy-v3.md](./11-identity-policy-v3.md) — **품목 정체성 정본 정책 (v3 개편 0단계)** — 품목 id 를 다루는 모든 코드의 전제. 07 · 09 를 통합
 
 ### 결정 기록 (ADR)
 - [ADR-001-shared-kernel.md](./ADR-001-shared-kernel.md) — Shared Kernel 도입
