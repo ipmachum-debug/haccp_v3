@@ -176,7 +176,6 @@ export async function postProductSale(
     // 차감 대상 식별 (제품 vs 원재료) + FEFO 쿼리용 WHERE 절
     const lotFilterColumn = isProductSale ? "product_id" : isMaterialSale ? "material_id" : null;
     const lotFilterValue = isProductSale ? resolvedProductId : resolvedMaterialId;
-    const ledgerId = resolvedProductId ?? resolvedMaterialId; // 수불부는 material_id 컬럼 공용
     const itemTypeLabel = isProductSale ? "제품" : "원재료/부자재/외부제품";
 
     // ────────────────────────────────────────────────────────────
@@ -338,24 +337,30 @@ export async function postProductSale(
         remaining -= takeQty;
       }
 
-      // (A-4) 수불부 (material_ledger_daily) 증가 — product/material 공용
-      //       이 테이블은 material_id 컬럼 하나로 제품/원재료 모두 트래킹
-      try {
-        await conn.execute(
-          `INSERT INTO material_ledger_daily
-             (tenant_id, material_id, ledger_date, usage_qty, source, notes)
-           VALUES (?, ?, ?, ?, 'auto_sale', ?)
-           ON DUPLICATE KEY UPDATE
-             usage_qty = usage_qty + VALUES(usage_qty),
-             updated_at = NOW()`,
-          [
-            tenantId, ledgerId, entryDate,
-            saleQty,
-            `매출 확정 ${docId} (${itemTypeLabel})`,
-          ],
-        );
-      } catch (mldErr) {
-        console.error(`[productSalePost] material_ledger_daily 반영 실패 (계속):`, mldErr);
+      // (A-4) 원재료 수불부 (material_ledger_daily) — 원재료/부자재/외부제품 매출만.
+      // ★ 2026-10-12 (11-identity-policy-v3, Q5-R2 결정 (a)):
+      //   기존에는 제품 매출도 product_id 를 material_id 컬럼에 넣어 "공용" 으로 썼다 → 4개월간 887행.
+      //   material_ledger_daily.material_id 는 h_materials 네임스페이스다. 제품 id(item_master / v2)를
+      //   넣으면 id 범위가 겹치는 순간 제품 판매량이 원재료 사용량으로 집계된다 (덤프 실측 1건 겹침).
+      //   제품 이동은 위 (A-3) h_inventory_transactions 의 SALE/usage 행에 LOT 단위로 이미 남는다.
+      if (isMaterialSale && resolvedMaterialId) {
+        try {
+          await conn.execute(
+            `INSERT INTO material_ledger_daily
+               (tenant_id, material_id, ledger_date, usage_qty, source, notes)
+             VALUES (?, ?, ?, ?, 'auto_sale', ?)
+             ON DUPLICATE KEY UPDATE
+               usage_qty = usage_qty + VALUES(usage_qty),
+               updated_at = NOW()`,
+            [
+              tenantId, resolvedMaterialId, entryDate,
+              saleQty,
+              `매출 확정 ${docId} (${itemTypeLabel})`,
+            ],
+          );
+        } catch (mldErr) {
+          console.error(`[productSalePost] material_ledger_daily 반영 실패 (계속):`, mldErr);
+        }
       }
     }
 

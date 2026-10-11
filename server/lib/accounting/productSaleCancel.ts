@@ -166,23 +166,33 @@ export async function cancelProductSale(
       totalRestoredQty += restoreQty;
     }
 
-    // (C) material_ledger_daily 역수행
-    if (restoredProductId && totalRestoredQty > 0) {
+    // (C) 원재료 수불부 (material_ledger_daily) 역수행 — 원재료/부자재/외부제품 매출만.
+    // ★ 2026-10-12 (Q5-R2 (a)): 기존에는 제품 매출(restoredProductId)만 되돌리고 원재료 매출은
+    //   되돌리지 않았다 (post 와 비대칭). post 가 제품을 더 이상 쓰지 않으므로 여기도 제품은 건너뛰고,
+    //   원재료 매출은 차감된 LOT 의 material_id 로 되돌린다.
+    if (!restoredProductId && totalRestoredQty > 0 && usageTxs.length > 0) {
       try {
-        await conn.execute(
-          `UPDATE material_ledger_daily
-           SET usage_qty = GREATEST(0, usage_qty - ?),
-               notes = CONCAT(COALESCE(notes, ''), ?),
-               updated_at = NOW()
-           WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
-          [
-            totalRestoredQty,
-            ` [${docId} 취소]`,
-            tenantId,
-            restoredProductId,
-            sale.transactionDate,
-          ],
-        );
+        const lotIds = usageTxs.map((t) => Number(t.lot_id)).filter((n) => Number.isFinite(n) && n > 0);
+        if (lotIds.length > 0) {
+          const [lotRows] = await conn.execute(
+            `SELECT DISTINCT material_id FROM h_inventory_lots
+              WHERE tenant_id = ? AND id IN (${lotIds.map(() => "?").join(", ")}) AND material_id IS NOT NULL`,
+            [tenantId, ...lotIds],
+          );
+          const materialIds = (lotRows as any[]).map((r) => Number(r.material_id));
+          if (materialIds.length === 1) {
+            await conn.execute(
+              `UPDATE material_ledger_daily
+               SET usage_qty = GREATEST(0, usage_qty - ?),
+                   notes = CONCAT(COALESCE(notes, ''), ?),
+                   updated_at = NOW()
+               WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
+              [totalRestoredQty, ` [${docId} 취소]`, tenantId, materialIds[0], sale.transactionDate],
+            );
+          } else if (materialIds.length > 1) {
+            console.warn(`[productSaleCancel] 매출 ${docId} 의 LOT 가 자재 ${materialIds.length}종에 걸쳐 수불부 역수행 생략`);
+          }
+        }
       } catch (mldErr) {
         console.error(`[productSaleCancel] material_ledger_daily 역수행 실패:`, mldErr);
       }
