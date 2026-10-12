@@ -32,7 +32,7 @@ import { industryRouterMap } from "./_maps/industryMap";
 import { coreMesRouterMap } from "./_maps/coreMesMap";
 
 // ── inventory ──
-import { inventoryRouter, materialLedgerRouter, stockAlertsRouter } from "./inventory";
+import { inventoryRouter, materialLedgerRouter, stockAlertsRouter, materialPriceRouter } from "./inventory";
 
 // ── master ── (2026-04-19: 도메인 맵으로 분리)
 import { masterRouterMap } from "./_maps/masterMap";
@@ -86,6 +86,7 @@ export const appRouter = router({
   inventory: inventoryRouter,
   materialLedger: materialLedgerRouter,
   stockAlerts: stockAlertsRouter,
+  materialPrice: materialPriceRouter,
 
   // ── accounting ── (2026-04-19 분해: _maps/accountingMap.ts)
   ...accountingRouterMap,
