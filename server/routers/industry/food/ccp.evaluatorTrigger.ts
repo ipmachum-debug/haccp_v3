@@ -24,7 +24,7 @@
  *   - CAR 멱등성 (앱 레벨): (tenant, source_type, source_id) 중복 INSERT 방지
  *
  * CP-3-h 추가 (이 트리거가 IoT 에서도 호출됨):
- *   - server/services/iot/iotCcpBridge.ts 가 sensor → ccp_monitoring_records 후 본 트리거 호출
+ *   - (IoT 브리지는 2026-10-12 제거 — 자동화 모듈 때 재도입. 그때 sensor → ccp_monitoring_records 후 본 트리거 호출)
  *   - operatorId=0 (system) 시 recipients 가 admin 만 + length=0 가능 → 알림 스킵 가드 추가
  *
  * 미구현 (다음 사이클):

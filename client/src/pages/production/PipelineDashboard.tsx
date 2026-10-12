@@ -192,13 +192,9 @@ export const PipelineDashboardContent: React.FC = () => {
     todayLocal()
   );
   const [autoRefresh, setAutoRefresh] = useState(true);
-  // IoT 디바이스 목록 조회 (등록된 센서가 있으면 동적 표시)
-  const { data: iotDevices } = trpc.iot?.listDevices?.useQuery?.(undefined, {
-    refetchInterval: autoRefresh ? 10000 : false, // 10초 갱신
-  }) ?? { data: undefined };
-  const { data: iotDashboard } = trpc.iot?.getDashboard?.useQuery?.(undefined, {
-    refetchInterval: autoRefresh ? 10000 : false,
-  }) ?? { data: undefined };
+  // IoT 센서 연동은 2026-10-12 제거 (CEO: 자동화 모듈 때 다시 개발). 패널은 자리만 유지.
+  const iotDevices: IotDevice[] | undefined = undefined;
+  const iotDashboard: { anomalies24h?: number } | undefined = undefined;
 
   // IoT 디바이스 → SensorData 변환 (설비별 개별 표시)
   const sensors: SensorData[] = useMemo(() => {

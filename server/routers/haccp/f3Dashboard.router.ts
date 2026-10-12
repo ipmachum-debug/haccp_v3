@@ -37,7 +37,7 @@ import { isCcpCarEnabled } from "../industry/food/ccp.correctiveAction";
 /**
  * IoT 브리지 env flag 인라인 체크.
  *
- * `server/services/iot/iotCcpBridge.ts` 의 `isIotCcpBridgeEnabled` 와 동일한
+ * (2026-10-12 제거된 IoT 브리지의 `isIotCcpBridgeEnabled` 와 동일한
  * 로직 — PR #140 머지 후 import 로 통합 가능. 그 전에도 동작하도록 인라인.
  */
 function isIotCcpBridgeEnabledLocal(tenantId: number): boolean {

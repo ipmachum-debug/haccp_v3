@@ -35,5 +35,4 @@ export { serverMonitorRouter } from "./serverMonitor.router";
 export { trainingRouter } from "./training.router";
 export { dailyTrainingRouter } from "./dailyTraining.router";
 export { tenantsRouter } from "./tenants.router";
-export { iotRouter } from "./iot.router";
 export { industryRouter } from "./industry.router";
