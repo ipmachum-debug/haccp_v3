@@ -65,8 +65,10 @@ export async function cancelProductSale(
   const cogsAcc = await resolveSystemAccount(
     tenantId, SYSTEM_ACCOUNTS.COST_OF_GOODS, "5010", "매출원가",
   );
+  // ★ 2026-10-12: post 와 대칭 — 제품(1430). 1430 이전에 확정된 매출(상품 1420 대변)의 취소는
+  //   원 전표를 역분개하는 것이 정확하나, 현행 구조(description 매칭)에서는 현재 계정으로 되돌린다.
   const inventoryGoodsAcc = await resolveSystemAccount(
-    tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1420", "제품",
+    tenantId, SYSTEM_ACCOUNTS.INVENTORY_FINISHED, "1430", "제품",
   );
   const vatAcc = taxAmount > 0
     ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.VAT_OUTPUT, "2350", "부가세예수금")

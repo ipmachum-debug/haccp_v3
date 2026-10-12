@@ -213,8 +213,15 @@ VAT_INPUT → 부가세대급금 (1350)
 ACCOUNTS_PAYABLE → 외상매입금 (2010)
 ACCOUNTS_PAYABLE_CARD → 미지급금-카드 (2020)
 VAT_OUTPUT → 부가세예수금 (2350)
+INVENTORY_RAW → 원재료 (1410)
+INVENTORY_GOODS → 상품 (1420, 외부 매입 재판매)
+INVENTORY_FINISHED → 제품 (1430, 자사 생산 완제품 — 2026-10-12 신설)
+WIP → 재공품 (1440, 자동분개 미사용)
 SALES_REVENUE → 상품매출 (4010)
 COST_OF_GOODS → 매출원가 (5010)
+
+생산완료 분개 (2026-10-12~, 전향적): 차변 제품(1430) / 대변 원재료(1410) — `server/lib/production/productionCompletionJournal.ts`
+제품 매출 COGS: 차변 매출원가(5010) / 대변 제품(1430)
 ```
 
 ### 2. 회계 모듈 연동 현황 (2026-03-05 기준)
