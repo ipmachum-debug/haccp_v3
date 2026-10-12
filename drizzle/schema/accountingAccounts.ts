@@ -60,8 +60,9 @@ export const SYSTEM_ACCOUNTS = {
   BANK_DEPOSIT: "BANK_DEPOSIT",           // 보통예금
   ACCOUNTS_RECEIVABLE: "ACCOUNTS_RECEIVABLE", // 외상매출금
   VAT_INPUT: "VAT_INPUT",                 // 부가세대급금 (매입세액)
-  INVENTORY_RAW: "INVENTORY_RAW",         // 원재료
-  INVENTORY_GOODS: "INVENTORY_GOODS",     // 상품
+  INVENTORY_RAW: "INVENTORY_RAW",         // 원재료 (1410)
+  INVENTORY_GOODS: "INVENTORY_GOODS",     // 상품 (1420) — 외부 매입 재판매 품목
+  INVENTORY_FINISHED: "INVENTORY_FINISHED", // 제품 (1430) — 자사 생산 완제품 (2026-10-12 신설)
   
   // 부채 (Liabilities)
   ACCOUNTS_PAYABLE: "ACCOUNTS_PAYABLE",   // 외상매입금 (미지급금)
@@ -78,7 +79,7 @@ export const SYSTEM_ACCOUNTS = {
   
   // 비용 (Expenses) - 세부는 사용자 정의
   COST_OF_GOODS: "COST_OF_GOODS",   // 매출원가
-  WIP: "WIP",                       // 재공품 (제조 중간 재고, 월말 평가용)
+  WIP: "WIP",                       // 재공품 (1440, 제조 중간 재고, 월말 평가용 — 현재 자동분개 미사용)
   PRODUCTION_LOSS: "PRODUCTION_LOSS", // 제조손실 (CCP 이탈 / 부적합품 폐기 등 — 식품 HACCP F-3)
 } as const;
 

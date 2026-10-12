@@ -129,9 +129,16 @@ export async function postProductSale(
     tenantId, SYSTEM_ACCOUNTS.COST_OF_GOODS, "5010", "매출원가",
   );
   // COGS 분개 대변 계정: 제품재고 vs 원재료재고 (판매 품목 타입에 따라)
-  const inventoryGoodsAcc = isProductSale
-    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1420", "제품")
+  // ★ 2026-10-12: 자사 제품 매출은 제품(1430, INVENTORY_FINISHED) 을 대변 처리.
+  //   상품(1420) 은 외부 매입 재판매용. 계정이 없으면 ensureSystemAccounts 로 시드.
+  let inventoryGoodsAcc = isProductSale
+    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_FINISHED, "1430", "제품")
     : null;
+  if (isProductSale && inventoryGoodsAcc && !inventoryGoodsAcc.id) {
+    const { ensureSystemAccounts } = await import("../../db/accounting/journalHelper");
+    await ensureSystemAccounts(tenantId, userId);
+    inventoryGoodsAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_FINISHED, "1430", "제품");
+  }
   const inventoryRawAcc = isMaterialSale
     ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1310", "원재료")
     : null;
@@ -143,7 +150,7 @@ export async function postProductSale(
   if (receivableAcc.id === 0) missing.push("ACCOUNTS_RECEIVABLE");
   if (salesRevenueAcc.id === 0) missing.push("SALES_REVENUE");
   if (cogsAcc.id === 0) missing.push("COST_OF_GOODS");
-  if (isProductSale && inventoryGoodsAcc && inventoryGoodsAcc.id === 0) missing.push("INVENTORY_GOODS");
+  if (isProductSale && inventoryGoodsAcc && inventoryGoodsAcc.id === 0) missing.push("INVENTORY_FINISHED");
   if (isMaterialSale && inventoryRawAcc && inventoryRawAcc.id === 0) missing.push("INVENTORY_RAW");
   if (vatAcc && vatAcc.id === 0) missing.push("VAT_OUTPUT");
   if (missing.length > 0) {

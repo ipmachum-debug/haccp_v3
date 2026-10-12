@@ -424,6 +424,8 @@ export async function ensureSystemAccounts(tenantId: number, createdBy: number) 
     code: string;
     name: string;
     category: string;
+    /** code 가 다른 system_code 의 계정에 이미 쓰이고 있을 때 대신 쓸 코드 */
+    altCode?: string;
   }[] = [
     // 자산
     { systemCode: SYSTEM_ACCOUNTS.CASH, code: "1010", name: "현금", category: "assets" },
@@ -432,6 +434,8 @@ export async function ensureSystemAccounts(tenantId: number, createdBy: number) 
     { systemCode: SYSTEM_ACCOUNTS.VAT_INPUT, code: "1350", name: "부가세대급금", category: "assets" },
     { systemCode: SYSTEM_ACCOUNTS.INVENTORY_RAW, code: "1410", name: "원재료", category: "assets" },
     { systemCode: SYSTEM_ACCOUNTS.INVENTORY_GOODS, code: "1420", name: "상품", category: "assets" },
+    // 2026-10-12: 제품(자사 생산 완제품) 분리 신설 — 생산완료 분개 차변 / 제품 매출 COGS 대변
+    { systemCode: SYSTEM_ACCOUNTS.INVENTORY_FINISHED, code: "1430", name: "제품", category: "assets", altCode: "1435" },
     // 부채
     { systemCode: SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, code: "2010", name: "외상매입금", category: "liabilities" },
     { systemCode: SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE_CARD, code: "2020", name: "미지급금-카드", category: "liabilities" },
@@ -444,8 +448,8 @@ export async function ensureSystemAccounts(tenantId: number, createdBy: number) 
     { systemCode: SYSTEM_ACCOUNTS.SERVICE_REVENUE, code: "4020", name: "서비스매출", category: "revenue" },
     // 비용
     { systemCode: SYSTEM_ACCOUNTS.COST_OF_GOODS, code: "5010", name: "매출원가", category: "expenses" },
-    // 재고 자산 (제조 중간 단계)
-    { systemCode: SYSTEM_ACCOUNTS.WIP, code: "1430", name: "재공품", category: "assets" },
+    // 재고 자산 (제조 중간 단계) — 2026-10-12: 1430 은 제품에 양보, 재공품은 1440 (기존 1430 재공품 테넌트는 system_code 로 유지)
+    { systemCode: SYSTEM_ACCOUNTS.WIP, code: "1440", name: "재공품", category: "assets", altCode: "1445" },
   ];
 
   for (const seed of systemAccountSeeds) {
@@ -461,20 +465,29 @@ export async function ensureSystemAccounts(tenantId: number, createdBy: number) 
       `SELECT id FROM accounting_accounts WHERE tenant_id = ? AND code = ? LIMIT 1`,
       [tenantId, seed.code],
     );
+    let codeToUse = seed.code;
     if ((codeExisting as any[]).length > 0) {
-      // 기존 계정에 system_code만 설정
-      await conn.execute(
+      // 기존 계정에 system_code 가 비어 있으면 그 계정을 채택
+      const [upd]: any = await conn.execute(
         `UPDATE accounting_accounts SET system_code = ? WHERE tenant_id = ? AND code = ? AND system_code IS NULL`,
         [seed.systemCode, tenantId, seed.code],
       );
-      continue;
+      if (Number(upd?.affectedRows ?? 0) > 0) continue;
+      // code 가 다른 역할(system_code)의 계정에 쓰이고 있음 → altCode 로 신설, 없으면 건너뜀
+      if (!seed.altCode) continue;
+      const [altExisting] = await conn.execute(
+        `SELECT id FROM accounting_accounts WHERE tenant_id = ? AND code = ? LIMIT 1`,
+        [tenantId, seed.altCode],
+      );
+      if ((altExisting as any[]).length > 0) continue;
+      codeToUse = seed.altCode;
     }
 
     // 새로 생성
     await conn.execute(
       `INSERT INTO accounting_accounts (tenant_id, category, code, name, system_code, is_active, created_by)
        VALUES (?, ?, ?, ?, ?, 'Y', ?)`,
-      [tenantId, seed.category, seed.code, seed.name, seed.systemCode, createdBy],
+      [tenantId, seed.category, codeToUse, seed.name, seed.systemCode, createdBy],
     );
   }
 }
