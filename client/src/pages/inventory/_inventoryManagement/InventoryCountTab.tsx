@@ -38,7 +38,12 @@ type InventoryRow = {
   unit: string;
   currentAvailable: number;
   lotCount: number;
+  unitPrice: number;     // 평가단가(추정) — 0 이면 단가 없음
+  priceSource: string;   // lot | master | last_receipt | batch_cost | none
 };
+
+const PRICE_SOURCE_LABEL: Record<string, string> = { lot: "LOT 가중평균", master: "마스터 단가", last_receipt: "최근 입고가", batch_cost: "최근 배치 원가", none: "단가 없음" };
+const fmtWon = (n: number) => n.toLocaleString("ko-KR");
 
 type CountInput = {
   actualQty: string; // text input, parsed on submit
@@ -69,11 +74,13 @@ export function InventoryCountTab() {
       return ((productQ.data as any[] | undefined) ?? []).map((r) => ({
         id: Number(r.productId), code: r.productCode ?? "", name: r.productName ?? "", unit: r.unit || "kg",
         currentAvailable: Number(r.currentAvailable ?? 0), lotCount: Number(r.lotCount ?? 0),
+        unitPrice: Number(r.unitPrice ?? 0), priceSource: r.priceSource ?? "none",
       }));
     }
     return ((materialQ.data as any[] | undefined) ?? []).map((r) => ({
       id: Number(r.materialId), code: r.materialCode ?? "", name: r.materialName ?? "", unit: r.unit || "kg",
       currentAvailable: Number(r.currentAvailable ?? 0), lotCount: Number(r.lotCount ?? 0),
+      unitPrice: Number(r.unitPrice ?? 0), priceSource: r.priceSource ?? "none",
     }));
   }, [mode, productQ.data, materialQ.data]);
   const label = mode === "product" ? "제품" : "원재료";
@@ -107,6 +114,19 @@ export function InventoryCountTab() {
         r.name.toLowerCase().includes(q),
     );
   }, [rows, search]);
+
+  // 평가액 합계 — 현재(장부) vs 실사(입력값 있으면 입력값, 없으면 현재). 기초잔액 전표 입력용.
+  const valuation = useMemo(() => {
+    let current = 0, counted = 0, priced = 0, unpriced = 0;
+    for (const r of rows) {
+      if (r.unitPrice > 0) priced++; else { unpriced++; continue; }
+      current += r.currentAvailable * r.unitPrice;
+      const v = inputs[r.id]?.actualQty;
+      const num = v !== undefined && v !== "" ? parseFloat(v) : NaN;
+      counted += (!isNaN(num) && num >= 0 ? num : r.currentAvailable) * r.unitPrice;
+    }
+    return { current: Math.round(current), counted: Math.round(counted), priced, unpriced };
+  }, [rows, inputs]);
 
   // 변경 예정 항목 수
   const pendingCount = useMemo(() => {
@@ -175,12 +195,13 @@ export function InventoryCountTab() {
       "품명": r.name,
       "단위": r.unit,
       "현재가용": r.currentAvailable,
+      "평가단가": r.unitPrice || "",
       "실사수량 (입력)": "",
       "비고": "",
     }));
     const ws = XLSX.utils.json_to_sheet(exportRows);
     ws["!cols"] = [
-      { wch: 12 }, { wch: 30 }, { wch: 6 }, { wch: 12 }, { wch: 14 }, { wch: 24 },
+      { wch: 12 }, { wch: 30 }, { wch: 6 }, { wch: 12 }, { wch: 10 }, { wch: 14 }, { wch: 24 },
     ];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, `${label}실사`);
@@ -306,8 +327,10 @@ export function InventoryCountTab() {
                   <th className="text-left py-2 px-2 font-medium">{label}명</th>
                   <th className="text-right py-2 px-2 font-medium">현재가용</th>
                   <th className="text-right py-2 px-2 font-medium">LOT</th>
+                  <th className="text-right py-2 px-2 font-medium w-24">평가단가</th>
                   <th className="text-right py-2 px-2 font-medium w-32">실사 수량 *</th>
                   <th className="text-right py-2 px-2 font-medium w-20">차이</th>
+                  <th className="text-right py-2 px-2 font-medium w-28">실사 평가액</th>
                   <th className="text-left py-2 px-2 font-medium w-40">비고</th>
                 </tr>
               </thead>
@@ -334,6 +357,9 @@ export function InventoryCountTab() {
                       <td className="text-right py-1.5 px-2 tabular-nums">
                         <span className="text-muted-foreground">{r.lotCount}</span>
                       </td>
+                      <td className="text-right py-1.5 px-2 tabular-nums" title={PRICE_SOURCE_LABEL[r.priceSource] ?? r.priceSource}>
+                        {r.unitPrice > 0 ? <span>{fmtWon(r.unitPrice)}<span className="ml-0.5 text-[9px] text-muted-foreground">{r.priceSource === "lot" ? "L" : r.priceSource === "master" ? "M" : r.priceSource === "last_receipt" ? "R" : "B"}</span></span> : <span className="text-amber-600">-</span>}
+                      </td>
                       <td className="py-1 px-1">
                         <Input
                           type="number"
@@ -352,6 +378,9 @@ export function InventoryCountTab() {
                           ? `+${diff.toFixed(1)}`
                           : diff.toFixed(1)}
                       </td>
+                      <td className="text-right py-1.5 px-2 tabular-nums text-muted-foreground">
+                        {r.unitPrice > 0 ? fmtWon(Math.round((!isNaN(actualNum) ? actualNum : r.currentAvailable) * r.unitPrice)) : "-"}
+                      </td>
                       <td className="py-1 px-1">
                         <Input
                           value={ip?.reason ?? ""}
@@ -365,6 +394,20 @@ export function InventoryCountTab() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* 평가액 요약 — 기초잔액(전기이월) 전표 입력용 */}
+        {rows.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 rounded-md border bg-muted/20 px-3 py-2 text-xs">
+            <span>장부 평가액 <b className="tabular-nums">{fmtWon(valuation.current)}원</b></span>
+            <span>실사 평가액 <b className="tabular-nums">{fmtWon(valuation.counted)}원</b>
+              <span className={`ml-1 tabular-nums ${valuation.counted - valuation.current < 0 ? "text-red-600" : valuation.counted - valuation.current > 0 ? "text-emerald-600" : "text-muted-foreground"}`}>
+                ({valuation.counted - valuation.current >= 0 ? "+" : ""}{fmtWon(valuation.counted - valuation.current)})
+              </span>
+            </span>
+            <span className="text-muted-foreground">단가 있는 품목 {valuation.priced} · 단가 없음 {valuation.unpriced} (평가액 제외)</span>
+            <span className="text-muted-foreground">단가 출처: L=LOT 가중평균 · M=마스터 · R=최근 입고가 · B=최근 배치 원가</span>
           </div>
         )}
 

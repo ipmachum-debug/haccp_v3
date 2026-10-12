@@ -631,24 +631,38 @@ export const inventoryRouter = router({
         if (!db) throw new Error("Database not available");
         const { sql } = await import("drizzle-orm");
         const [rows]: any = await db.execute(sql`
-          SELECT m.id, m.material_code, m.material_name, m.unit, m.kind,
+          SELECT m.id, m.material_code, m.material_name, m.unit, m.kind, m.unit_price AS master_price,
                  COALESCE(SUM(CASE WHEN COALESCE(l.status,'available') = 'available' THEN l.available_quantity END), 0) AS avail,
-                 COUNT(CASE WHEN COALESCE(l.status,'available') = 'available' THEN 1 END) AS lot_cnt
+                 COUNT(CASE WHEN COALESCE(l.status,'available') = 'available' THEN 1 END) AS lot_cnt,
+                 SUM(CASE WHEN COALESCE(l.status,'available') = 'available' AND l.unit_price > 0 AND l.available_quantity > 0 THEN l.available_quantity * l.unit_price END)
+                   / NULLIF(SUM(CASE WHEN COALESCE(l.status,'available') = 'available' AND l.unit_price > 0 AND l.available_quantity > 0 THEN l.available_quantity END), 0) AS lot_avg_price,
+                 (SELECT t.unit_cost FROM h_inventory_transactions t
+                   WHERE t.material_id = m.id AND t.tenant_id = m.tenant_id AND t.transaction_type = 'receipt' AND t.unit_cost > 0
+                   ORDER BY t.transaction_date DESC, t.id DESC LIMIT 1) AS last_receipt_price
             FROM h_materials m
             LEFT JOIN h_inventory_lots l ON l.material_id = m.id AND l.tenant_id = m.tenant_id
            WHERE m.tenant_id = ${ctx.tenantId} AND m.is_active = 1
-           GROUP BY m.id, m.material_code, m.material_name, m.unit, m.kind
+           GROUP BY m.id, m.material_code, m.material_name, m.unit, m.kind, m.unit_price
            ORDER BY avail DESC, m.material_name ASC
         `);
-        return (rows as any[]).map((r) => ({
-          materialId: Number(r.id),
-          materialCode: r.material_code ?? "",
-          materialName: r.material_name ?? "",
-          kind: r.kind ?? null,
-          unit: r.unit || "kg",
-          currentAvailable: Math.round(parseFloat(r.avail || "0") * 1000) / 1000,
-          lotCount: Number(r.lot_cnt || 0),
-        }));
+        // 평가단가(추정): 가용 LOT 가중평균 → 자재 마스터 단가 → 마지막 입고가 (2026-10-12, 실사 평가액 산출용)
+        return (rows as any[]).map((r) => {
+          const lotAvg = Number(r.lot_avg_price || 0), master = Number(r.master_price || 0), last = Number(r.last_receipt_price || 0);
+          const [unitPrice, priceSource] = lotAvg > 0 ? [lotAvg, "lot"] : master > 0 ? [master, "master"] : last > 0 ? [last, "last_receipt"] : [0, "none"];
+          const currentAvailable = Math.round(parseFloat(r.avail || "0") * 1000) / 1000;
+          return {
+            materialId: Number(r.id),
+            materialCode: r.material_code ?? "",
+            materialName: r.material_name ?? "",
+            kind: r.kind ?? null,
+            unit: r.unit || "kg",
+            currentAvailable,
+            lotCount: Number(r.lot_cnt || 0),
+            unitPrice: Math.round(unitPrice * 100) / 100,
+            priceSource,
+            valuation: Math.round(currentAvailable * unitPrice),
+          };
+        });
       }),
 
     getProductInventorySnapshot: tenantRequiredProcedure
@@ -727,16 +741,42 @@ export const inventoryRouter = router({
             ),
           );
 
+        // 평가단가(추정): 가용 LOT 가중평균 → 최근 완료 배치 unit_cost (2026-10-12, 실사 평가액 산출용)
+        const { sql: sqlTag } = await import("drizzle-orm");
+        const [priceRows]: any = await db.execute(sqlTag`
+          SELECT p.id,
+                 (SELECT SUM(l.available_quantity * l.unit_price) / NULLIF(SUM(l.available_quantity), 0)
+                    FROM h_inventory_lots l
+                   WHERE l.product_id = p.id AND l.tenant_id = p.tenant_id AND l.status = 'available'
+                     AND l.unit_price > 0 AND l.available_quantity > 0) AS lot_avg_price,
+                 (SELECT b.unit_cost FROM h_batches b
+                   WHERE b.product_id = p.id AND b.tenant_id = p.tenant_id AND b.status = 'completed' AND b.unit_cost > 0
+                   ORDER BY b.planned_date DESC, b.id DESC LIMIT 1) AS last_batch_unit_cost
+            FROM h_products_v2 p
+           WHERE p.tenant_id = ${ctx.tenantId} AND p.is_active = 1
+        `);
+        const priceMap = new Map<number, { unitPrice: number; priceSource: string }>();
+        for (const r of priceRows as any[]) {
+          const lotAvg = Number(r.lot_avg_price || 0), batchCost = Number(r.last_batch_unit_cost || 0);
+          const [unitPrice, priceSource] = lotAvg > 0 ? [lotAvg, "lot"] : batchCost > 0 ? [batchCost, "batch_cost"] : [0, "none"];
+          priceMap.set(Number(r.id), { unitPrice: Math.round(unitPrice * 100) / 100, priceSource });
+        }
+
         const result = (allActiveProducts as any[]).map((p: any) => {
           const g = byProduct.get(Number(p.id));
+          const currentAvailable = g?.totalAvailable ?? 0;
+          const price = priceMap.get(Number(p.id)) ?? { unitPrice: 0, priceSource: "none" };
           return {
             productId: Number(p.id),
             productCode: p.productCode,
             productName: p.productName,
             unit: g?.unit || p.unit || "kg",
-            currentAvailable: g?.totalAvailable ?? 0,
+            currentAvailable,
             activeLots: g?.lots ?? [],
             lotCount: g?.lots.length ?? 0,
+            unitPrice: price.unitPrice,
+            priceSource: price.priceSource,
+            valuation: Math.round(currentAvailable * price.unitPrice),
           };
         });
 
