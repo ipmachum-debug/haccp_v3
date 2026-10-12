@@ -31,6 +31,10 @@ on:
         description: '배포할 release tag (workflow_dispatch 시 필수, 예: v0.8.3). 비우면 latest 사용.'
         required: false
         default: ''
+      source:
+        description: '호출 주체. auto-release 워크플로가 넘기는 "auto-release" 면 자동 배포로 취급(최신 release 검사·롤백 불가). 사람이 직접 실행하면 비워 둠(manual = 롤백 허용).'
+        required: false
+        default: 'manual'
 
 jobs:
   # ───────────────────────────────────────────
@@ -221,8 +225,11 @@ jobs:
       RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
       ASSET_NAME: ${{ needs.build.outputs.asset_name }}
       EXPECTED_SHA256: ${{ needs.build.outputs.sha256 }}
-      # 수동 실행에서 target_tag 를 명시한 경우만 "낮은 버전 설치(롤백)" 허용
-      ALLOW_DOWNGRADE: ${{ github.event_name == 'workflow_dispatch' && inputs.target_tag != '' }}
+      # 자동 배포 = release 이벤트 또는 auto-release 가 넘긴 workflow_dispatch(source=auto-release).
+      # PAT 가 무효한 환경에선 자동 배포도 workflow_dispatch 로 들어오므로 event 만으로는 구분 못 함.
+      IS_AUTO: ${{ github.event_name == 'release' || inputs.source == 'auto-release' }}
+      # 사람이 직접 실행(source=manual)하고 target_tag 를 명시한 경우만 "낮은 버전 설치(롤백)" 허용
+      ALLOW_DOWNGRADE: ${{ github.event_name == 'workflow_dispatch' && inputs.source != 'auto-release' && inputs.target_tag != '' }}
 
     steps:
       # ★ 2026-10-13 — 순서 역전 방지 (10/12 사고):
@@ -237,7 +244,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          if [ "${{ github.event_name }}" != "release" ]; then
+          if [ "${IS_AUTO}" != "true" ]; then
             echo "superseded=false" >> "$GITHUB_OUTPUT"
             echo "수동 실행 — 최신 여부 검사 생략 (롤백 허용: ${ALLOW_DOWNGRADE})"
             exit 0
