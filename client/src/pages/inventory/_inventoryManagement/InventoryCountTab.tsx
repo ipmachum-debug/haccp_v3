@@ -81,6 +81,7 @@ export function InventoryCountTab() {
   // 입력 상태: productId → { actualQty, reason }
   const [inputs, setInputs] = useState<Record<number, CountInput>>({});
   const [defaultReason, setDefaultReason] = useState("정기 재고 실사");
+  const [countDate, setCountDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<ApplyResult[] | null>(null);
 
@@ -157,14 +158,14 @@ export function InventoryCountTab() {
     }
     if (!confirm(
       `${label} ${items.length}건 실사 적용\n` +
-      `사유: ${defaultReason}\n\n` +
+      `실사일: ${countDate} · 사유: ${defaultReason}\n\n` +
       `감소: 가장 오래된 LOT 부터 자동 차감 (FEFO)\n` +
       `증가: 최신 LOT 에 가산 (활성 LOT 없으면 실사 LOT 신규 생성)\n\n` +
       `진행하시겠습니까?`,
     )) {
       return;
     }
-    mutation.mutate({ items, defaultReason });
+    mutation.mutate({ items, defaultReason, countDate });
   };
 
   // ─── Excel 다운로드 (템플릿) ─────────────────────
@@ -277,7 +278,9 @@ export function InventoryCountTab() {
         </div>
 
         {/* 일괄 사유 */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="text-xs text-muted-foreground whitespace-nowrap">실사일:</label>
+          <Input type="date" value={countDate} onChange={(e) => setCountDate(e.target.value)} className="h-8 text-xs w-40" />
           <label className="text-xs text-muted-foreground whitespace-nowrap">기본 사유:</label>
           <Input
             value={defaultReason}

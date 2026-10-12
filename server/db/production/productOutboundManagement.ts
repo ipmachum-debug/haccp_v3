@@ -13,6 +13,7 @@
 
 import { getDb, getRawConnection } from "../connection";
 import { todayKST } from "../../utils/timezone";
+import { resolveBatchBusinessDate } from "../../lib/production/batchBusinessDate";
 import { hInventoryLots, hInventoryTransactions } from "../../../drizzle/schema";
 import { eq, desc, and, sql } from "drizzle-orm";
 
@@ -74,6 +75,8 @@ export async function createProductLotFromBatch(params: {
   userId: number;
   skuId?: number;
   skuName?: string;
+  /** 생산일 (YYYY-MM-DD). 생략 시 오늘 — 배치 경로는 반드시 배치 생산일을 넘길 것 (2026-10-12 업무일자 원칙) */
+  productionDate?: string;
 }, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
@@ -112,7 +115,7 @@ export async function createProductLotFromBatch(params: {
     quantity: params.quantity.toString(),
     availableQuantity: params.quantity.toString(),
     unit: params.unit || "kg",
-    productionDate: todayKST(),
+    productionDate: params.productionDate || todayKST(),
     expiryDate: params.expiryDate || null,
     status: "available",
   } as any);
@@ -130,7 +133,7 @@ export async function createProductLotFromBatch(params: {
     notes: `생산 완료 입고 (배치: ${params.batchCode}, 제품: ${params.productName}${params.skuName ? `, SKU: ${params.skuName}` : ''})`,
     createdBy: params.userId,
     performedBy: params.userId,
-    transactionDate: todayKST(),
+    transactionDate: params.productionDate || todayKST(),
   } as any);
 
   return { lotId, lotNumber, isNew: true };
@@ -175,7 +178,7 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
   // 1. 배치 정보 조회
   const [batchRows]: any = await conn.execute(
     `SELECT b.id, b.tenant_id, b.batch_code, b.product_id, b.status,
-            b.actual_quantity, b.planned_quantity, b.end_time, b.created_at,
+            b.actual_quantity, b.planned_quantity, b.end_time, b.created_at, b.planned_date, b.completed_at,
             COALESCE(im.item_name, p.product_name, CONCAT('제품#', b.product_id)) AS product_name
        FROM h_batches b
        LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
@@ -212,7 +215,8 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
   );
 
   const created: Array<{ lotId: number; lotNumber: string; quantity: number; unit: string; skuId: number | null }> = [];
-  const productionDate = batch.end_time || batch.created_at || new Date();
+  // 2026-10-12: 생산일(planned_date) 기준 — 입력/완료 시각 아님
+  const productionDate = resolveBatchBusinessDate(batch);
   const batchCode = batch.batch_code || `B${batchId}`;
   const productName = batch.product_name || "제품";
 
@@ -256,7 +260,7 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
         notes: `LOT 보강 생성 (배치: ${batchCode}, SKU: ${skuName}, ${productName})`,
         createdBy: 1,
         performedBy: 1,
-        transactionDate: todayKST(),
+        transactionDate: productionDate,
       } as any);
 
       created.push({ lotId, lotNumber, quantity: skuQty, unit: salesUnit, skuId: Number(sku.sku_id) });
@@ -317,7 +321,7 @@ export async function ensureBatchLots(batchId: number, tenantId: number): Promis
     notes: `LOT 보강 생성 (배치: ${batchCode}, ${productName})`,
     createdBy: 1,
     performedBy: 1,
-    transactionDate: todayKST(),
+    transactionDate: productionDate,
   } as any);
 
   created.push({ lotId, lotNumber, quantity: fallbackQty, unit, skuId: null });

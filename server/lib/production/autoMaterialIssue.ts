@@ -26,6 +26,7 @@
 import { getDb } from "../../db";
 import { getRawConnection } from "../../db/connection";
 import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
+import { resolveBatchBusinessDate } from "./batchBusinessDate";
 import { reconcileNegativeLots, createNegativePlaceholderLot } from "../inventory/negativeLotReconcile";
 import { NoLotsForNegativeError, type FefoAllocation } from "../inventory/fefoLotAllocation";
 import { eq, and, sql } from "drizzle-orm";
@@ -56,13 +57,8 @@ function isWaterMaterial(materialName: string | null | undefined): boolean {
  *   - 4/9 배치를 4/26 에 재처리해도 transaction_date 는 4/9 로 기록
  *   - material_ledger_daily 와 일별 그래프의 일자 정합성 회복
  */
-function resolveBatchTransactionDate(batch: { completed_at?: any; planned_date?: any }): string {
-  const candidate = batch?.completed_at ?? batch?.planned_date ?? null;
-  const d = candidate ? new Date(candidate) : new Date();
-  // KST(UTC+9) 변환 후 YYYY-MM-DD
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  return kst.toISOString().split("T")[0];
-}
+// 2026-10-12: 업무일자 = 생산일(planned_date) 우선 (batchBusinessDate.ts 로 통일). 입력 시각 아님.
+const resolveBatchTransactionDate = resolveBatchBusinessDate;
 
 interface AutoIssueResult {
   success: boolean;
