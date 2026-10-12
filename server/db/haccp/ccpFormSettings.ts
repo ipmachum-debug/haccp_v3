@@ -151,6 +151,10 @@ export async function submitCcpFormRecord(params: {
     [approvalRequestId, params.formRecordId, params.tenantId]
   );
 
+  // 기록지 submitted → 인스턴스에도 반영 (2026-10-12, CCP 단일 흐름 1단계)
+  const { syncCcpInstanceStatusFromForm } = await import("./ccpStatusSync");
+  await syncCcpInstanceStatusFromForm(params.formRecordId, params.tenantId);
+
   return approvalRequestId;
   // ※ getRawConnection()은 Pool 싱글턴 → release()/end() 호출 금지
 }
