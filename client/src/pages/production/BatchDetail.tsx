@@ -945,7 +945,7 @@ export default function BatchDetail() {
                   <thead>
                     <tr className="border-b">
                       <th className="text-left p-3 font-medium">원재료명</th>
-                      <th className="text-left p-3 font-medium">LOT ID</th>
+                      <th className="text-left p-3 font-medium" title="실제 차감된 재고 LOT (FEFO — 한 투입이 여러 LOT 에서 빠질 수 있음)">차감 LOT</th>
                       <th className="text-left p-3 font-medium">계획 수량</th>
                       <th className="text-left p-3 font-medium">실제 수량</th>
                       <th className="text-left p-3 font-medium">단위</th>
@@ -958,7 +958,25 @@ export default function BatchDetail() {
                     {batchInputs.map((input: BatchInput) => (
                       <tr key={input.id} className="border-b hover:bg-accent/50">
                         <td className="p-3">{String((input as { materialName?: string }).materialName ?? `원재료 #${input.materialId}`)}</td>
-                        <td className="p-3">{input.lotId || "-"}</td>
+                        <td className="p-3">
+                          {(() => {
+                            const lots = ((input as { lots?: Array<{ lotId: number | null; lotNumber: string | null; quantity: number; negative: boolean }> }).lots) ?? [];
+                            if (lots.length === 0) return <span className="text-muted-foreground">-</span>;
+                            return (
+                              <div className="flex flex-col gap-0.5">
+                                {lots.map((lot, idx) => (
+                                  <span key={`${lot.lotId ?? "none"}-${idx}`} className="text-xs font-mono flex items-center gap-1">
+                                    {lot.lotNumber ?? (lot.lotId ? `#${lot.lotId}` : "재고 미등록")}
+                                    {lots.length > 1 && <span className="text-muted-foreground">({lot.quantity}{input.unit})</span>}
+                                    {lot.negative && (
+                                      <span className="px-1 rounded bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300 text-[10px]">입고 대기</span>
+                                    )}
+                                  </span>
+                                ))}
+                              </div>
+                            );
+                          })()}
+                        </td>
                         <td className="p-3">{input.plannedQuantity}</td>
                         <td className="p-3">{input.actualQuantity || "-"}</td>
                         <td className="p-3">{input.unit}</td>

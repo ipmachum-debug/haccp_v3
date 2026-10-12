@@ -152,7 +152,7 @@ export const inventoryRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getBatchMaterialInputs } = await import("../../db");
-        return await getBatchMaterialInputs(input.batchId);
+        return await getBatchMaterialInputs(input.batchId, ctx.tenantId);
       }),
     
     // 원재료 투입 수정

@@ -350,7 +350,7 @@ export async function getBatchMaterialInputs(batchId: number, tenantId?: number)
   // - 기존 코드는 item_master 와 JOIN 했으나 ID 체계가 달라 매칭 실패 → fallback 발동
   // - 1차 JOIN: h_materials (정본), 2차 JOIN: item_master (통합 마스터 호환)
   // - COALESCE 우선순위: h_materials.material_name → item_master.item_name → 'h_materials.id에 대한 fallback'
-  return await db.select({
+  const inputs = await db.select({
     id: hBatchInputs.id,
     batchId: hBatchInputs.batchId,
     materialId: hBatchInputs.materialId,
@@ -368,6 +368,66 @@ export async function getBatchMaterialInputs(batchId: number, tenantId?: number)
   .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
   .leftJoin(itemMaster, eq(hBatchInputs.materialId, itemMaster.id))
   .where(eq(hBatchInputs.batchId, batchId));
+
+  // ── 투입별 실제 소비 LOT (2026-10-12) ──
+  // h_batch_inputs.lot_id 는 설계상 거의 비어 있다 (FEFO 가 한 투입을 여러 LOT 에서 차감하므로 한 칸에 못 담음).
+  // 실제 차감 내역은 h_inventory_transactions (source_type='BATCH', source_line_id = 투입 id) 에 LOT 단위로 있다.
+  // 배치 화면 "LOT" 칸이 항상 "-" 였던 이유. 거래에서 역조회해서 붙인다.
+  type ConsumedLot = { lotId: number | null; lotNumber: string | null; quantity: number; negative: boolean };
+  const lotsByInput = new Map<number, ConsumedLot[]>();
+  if (inputs.length > 0) {
+    try {
+      const conn = await getRawConnection();
+      const [txRows] = await conn.execute<any[]>(
+        `SELECT t.source_line_id AS inputId, t.lot_id AS lotId, l.lot_number AS lotNumber,
+                t.quantity, t.notes
+         FROM h_inventory_transactions t
+         LEFT JOIN h_inventory_lots l ON l.id = t.lot_id
+         WHERE t.source_type = 'BATCH' AND t.source_id = ? AND t.transaction_type = 'usage'
+           ${tenantId ? "AND t.tenant_id = ?" : ""}
+         ORDER BY t.source_line_id, t.id`,
+        tenantId ? [batchId, tenantId] : [batchId],
+      );
+      for (const r of txRows as any[]) {
+        const key = Number(r.inputId);
+        if (!key) continue;
+        const list = lotsByInput.get(key) ?? [];
+        list.push({
+          lotId: r.lotId != null ? Number(r.lotId) : null,
+          lotNumber: r.lotNumber ?? null,
+          quantity: parseFloat(String(r.quantity ?? 0)),
+          negative: String(r.lotNumber ?? "").startsWith("NEG-") || /음수 차감/.test(String(r.notes ?? "")),
+        });
+        lotsByInput.set(key, list);
+      }
+    } catch (err) {
+      console.warn(`[getBatchMaterialInputs] 소비 LOT 조회 실패 batch=${batchId} (LOT 칸 비움):`, err);
+    }
+  }
+
+  // 수동 투입(h_batch_inputs.lot_id 직접 지정)이고 거래 역조회가 비면 그 LOT 번호라도 보여준다
+  const manualLotIds = inputs.filter(i => i.lotId && !lotsByInput.has(i.id)).map(i => Number(i.lotId));
+  const manualLotNames = new Map<number, string>();
+  if (manualLotIds.length > 0) {
+    try {
+      const conn = await getRawConnection();
+      const [lotRows] = await conn.execute<any[]>(
+        `SELECT id, lot_number FROM h_inventory_lots WHERE id IN (${manualLotIds.map(() => "?").join(",")})`,
+        manualLotIds,
+      );
+      for (const r of lotRows as any[]) manualLotNames.set(Number(r.id), String(r.lot_number ?? ""));
+    } catch { /* 표시용 — 실패해도 무시 */ }
+  }
+
+  return inputs.map(i => {
+    const consumed = lotsByInput.get(i.id);
+    const lots: ConsumedLot[] = consumed && consumed.length > 0
+      ? consumed
+      : i.lotId
+        ? [{ lotId: Number(i.lotId), lotNumber: manualLotNames.get(Number(i.lotId)) ?? `#${i.lotId}`, quantity: parseFloat(String(i.actualQuantity ?? i.plannedQuantity ?? 0)), negative: false }]
+        : [];
+    return { ...i, lots };
+  });
 }
 
 // ============================================================================
