@@ -54,10 +54,30 @@ export async function getBatchCost(batchId: number, tenantId?: number) {
     .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
     .where(eq(hBatchInputs.batchId, batchId));
 
+  // ★ 2026-10-13 (CEO 원칙 "과거는 과거 가격"): 투입 단가가 없으면 배치 업무일 이전 최근 입고가 → 마스터 단가
+  const [batchRow] = await db.select({ plannedDate: hBatches.plannedDate }).from(hBatches).where(eq(hBatches.id, batchId)).limit(1);
+  const asOf = batchRow?.plannedDate ?? null;
+  const { getRawConnection } = await import("../connection");
+  const { getLatestReceiptUnitPrice } = await import("../../lib/inventory/materialPrice");
+  const conn = await getRawConnection();
+  const asOfCache = new Map<number, number | null>();
+  const asOfPrice = async (materialId: number): Promise<number | null> => {
+    if (!tenantId) return null;
+    if (asOfCache.has(materialId)) return asOfCache.get(materialId)!;
+    const r = await getLatestReceiptUnitPrice(conn, materialId, tenantId, asOf);
+    const p = r && r.unitPrice > 0 ? r.unitPrice : null;
+    asOfCache.set(materialId, p);
+    return p;
+  };
+
   // 각 원재료별 비용 계산
-  // 우선순위: ① h_batch_inputs.unitPrice (FEFO LOT 실제단가) → ② h_materials.unitPrice (마스터 단가)
+  // 우선순위: ① h_batch_inputs.unitPrice (FEFO LOT 실제단가) → ② 업무일 기준 최근 입고가 → ③ h_materials.unitPrice (마스터 단가)
   // 정제수는 비용 0으로 처리
-  const materialCosts = inputs.map((item) => {
+  const materialCosts: Array<{
+    materialId: number; materialName: string; quantity: number; unit: string | null;
+    unitPrice: number; totalCost: number; isWater: boolean; priceSource: string;
+  }> = [];
+  for (const item of inputs) {
     const quantity = parseFloat(String(item.input.actualQuantity || item.input.plannedQuantity));
     const water = isWaterMaterial(item.material?.materialName);
 
@@ -65,8 +85,9 @@ export async function getBatchCost(batchId: number, tenantId?: number) {
     // ★ 2026-05-10 (PR #297): 0 도 폴백 트리거 (4/13 이후 unit_price=0 대량 발생 대응)
     const rawBatchInputPrice = item.input.unitPrice ? parseFloat(String(item.input.unitPrice)) : 0;
     const batchInputUnitPrice = rawBatchInputPrice > 0 ? rawBatchInputPrice : null;
+    const receiptPrice = !water && batchInputUnitPrice === null ? await asOfPrice(item.input.materialId) : null;
     const masterUnitPrice = item.material?.unitPrice ? parseFloat(String(item.material.unitPrice)) : 0;
-    const unitPrice = water ? 0 : (batchInputUnitPrice ?? masterUnitPrice);
+    const unitPrice = water ? 0 : (batchInputUnitPrice ?? receiptPrice ?? masterUnitPrice);
 
     // total_price가 있으면 직접 사용 (FEFO 가중평균 기반), 없으면 수량×단가
     // ★ 2026-05-10 (PR #297): 0 도 폴백 트리거 (NULL/0 모두 폴백)
@@ -74,7 +95,7 @@ export async function getBatchCost(batchId: number, tenantId?: number) {
     const batchInputTotalPrice = rawBatchInputTotalPrice > 0 ? rawBatchInputTotalPrice : null;
     const cost = water ? 0 : (batchInputTotalPrice ?? quantity * unitPrice);
 
-    return {
+    materialCosts.push({
       materialId: item.input.materialId,
       materialName: item.material?.materialName || "Unknown",
       quantity,
@@ -82,9 +103,9 @@ export async function getBatchCost(batchId: number, tenantId?: number) {
       unitPrice,
       totalCost: cost,
       isWater: water,
-      priceSource: water ? "excluded" : (batchInputUnitPrice !== null ? "lot" : "master")
-    };
-  });
+      priceSource: water ? "excluded" : (batchInputUnitPrice !== null ? "lot" : receiptPrice !== null ? "receipt_asof" : "master")
+    });
+  }
 
   // 총 비용 계산 (정제수 제외)
   const totalCost = materialCosts.reduce((sum, item) => sum + item.totalCost, 0);
@@ -146,6 +167,12 @@ export async function getBatchCostSummary(batchIds: number[], tenantId?: number)
            COALESCE(bi.actual_quantity, bi.planned_quantity, 0)
              * COALESCE(
                  NULLIF(bi.unit_price, 0),
+                 /* 2026-10-13 (CEO 원칙 "과거는 과거 가격"): 배치 업무일 이전 최근 입고가 */
+                 (SELECT l.unit_price FROM h_inventory_lots l
+                   WHERE l.tenant_id = bi.tenant_id AND l.material_id = bi.material_id
+                     AND l.unit_price > 0 AND l.lot_number NOT LIKE 'NEG-%' AND l.lot_number NOT LIKE 'COUNT-%'
+                     AND (l.receipt_date IS NULL OR b.planned_date IS NULL OR l.receipt_date <= b.planned_date)
+                   ORDER BY l.receipt_date DESC, l.id DESC LIMIT 1),
                  NULLIF(m.unit_price, 0),
                  NULLIF(im.default_unit_price, 0),
                  NULLIF(m_byname.unit_price, 0),
@@ -155,6 +182,7 @@ export async function getBatchCostSummary(batchIds: number[], tenantId?: number)
          )
        ) AS totalCost
      FROM h_batch_inputs bi
+     LEFT JOIN h_batches b ON b.id = bi.batch_id
      LEFT JOIN h_materials m
        ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
      LEFT JOIN item_master im

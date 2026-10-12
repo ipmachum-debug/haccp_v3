@@ -240,7 +240,8 @@ export async function autoIssueMaterialsForBatch(
       if (!isWater && baseUnitPrice <= 0) {
         try {
           const rawConn = await getRawConnection();
-          const fb = await resolvePriceFallback(canonicalId, itemMasterId, tenantId, rawConn);
+          // 2026-10-13: 업무일자(transactionDate) 기준 — 과거 생산을 나중에 입력해도 그 시점 입고가로
+          const fb = await resolvePriceFallback(canonicalId, itemMasterId, tenantId, rawConn, transactionDate);
           if (fb.unitPrice > 0) {
             baseUnitPrice = fb.unitPrice;
             priceFallbackSource = fb.source;
@@ -359,7 +360,14 @@ export async function autoIssueMaterialsForBatch(
                     throw fefoInner;
                   }
                 }
-                
+
+                // ★ 2026-10-13 (원가 정합성): LOT 에 단가가 없으면(매입 등록 경로가 unit_price 를 안 넣던 153 LOT)
+                //   FEFO unitCost 가 0 으로 들어와 materialCost=0 → h_batch_inputs.unit_price=0 → 원가 화면이
+                //   마스터 단가(옛 값)로 폴백했다. 0 인 할당은 이 자재의 폴백 단가(최근 입고가 → 마스터)로 채운다.
+                allocations = allocations.map((a) =>
+                  a.unitCost > 0 ? a : { ...a, unitCost: unitPrice },
+                );
+
                 let totalAllocated = 0;
                 for (const alloc of allocations) {
                   const amount = alloc.quantity * alloc.unitCost;

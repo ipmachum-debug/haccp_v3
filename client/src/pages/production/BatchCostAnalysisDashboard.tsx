@@ -321,6 +321,13 @@ export default function BatchCostAnalysisDashboard() {
                           {!water && m.unitPrice === 0 && (
                             <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
                           )}
+                          {/* 2026-10-13: 단가 출처 — lot(투입 LOT 실제단가) / receipt_asof(업무일 이전 최근 입고가) / master(마스터 단가 추정) */}
+                          {!water && m.unitPrice > 0 && m.priceSource === "receipt_asof" && (
+                            <span className="text-[10px] text-muted-foreground" title="투입 LOT 단가가 없어 배치 업무일 이전 최근 입고가를 적용">입고가</span>
+                          )}
+                          {!water && m.unitPrice > 0 && m.priceSource === "master" && (
+                            <span className="text-[10px] text-amber-600" title="투입 LOT 단가·입고가가 없어 마스터 단가로 추정">추정</span>
+                          )}
                         </span>
                       </TableCell>
                       <TableCell className="text-right">{m.plannedQuantity?.toLocaleString("ko-KR")} kg</TableCell>

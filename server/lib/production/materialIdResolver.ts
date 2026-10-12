@@ -228,19 +228,40 @@ export async function resolvePriceFallback(
   canonicalId: number,
   itemMasterId: number | null,
   tenantId: number,
-  conn: AnyConn
-): Promise<{ unitPrice: number; source: "last_lot" | "h_materials" | "item_master" | "none" }> {
-  // (2) 마지막 입고 lot의 unit_price (canonicalId 기준)
+  conn: AnyConn,
+  /** 2026-10-13: 시점 기준 — 주면 "그 날짜 이전 최근 입고가" (과거 배치는 과거 가격). 없으면 현재 기준 */
+  asOfDate?: string | null
+): Promise<{ unitPrice: number; source: "last_lot" | "last_receipt_tx" | "h_materials" | "item_master" | "none" }> {
+  const asOf = asOfDate ? String(asOfDate).slice(0, 10) : null;
+  // (2) 마지막 입고 lot의 unit_price (canonicalId 기준) — 자리표시(NEG-)·실사(COUNT-) LOT 제외
   const [lotRows]: any = await conn.execute(
     `SELECT unit_price FROM h_inventory_lots
        WHERE tenant_id = ? AND material_id = ?
          AND unit_price IS NOT NULL AND unit_price > 0
+         AND lot_number NOT LIKE 'NEG-%' AND lot_number NOT LIKE 'COUNT-%'
+         ${asOf ? "AND (receipt_date IS NULL OR receipt_date <= ?)" : ""}
        ORDER BY receipt_date DESC, id DESC LIMIT 1`,
-    [tenantId, canonicalId]
+    asOf ? [tenantId, canonicalId, asOf] : [tenantId, canonicalId]
   );
   if ((lotRows as any[]).length > 0) {
     const p = parseFloat((lotRows as any[])[0].unit_price ?? 0);
     if (p > 0) return { unitPrice: p, source: "last_lot" };
+  }
+
+  // (2-b) 2026-10-13: LOT 단가가 비어 있어도 입고 거래에 금액이 있으면 금액 ÷ 수량 (LOT 수량 단위당)
+  //   매입 등록 경로가 LOT unit_price 를 안 넣던 기간(~2026-10-13)의 LOT 를 마스터 옛 단가 대신 실제 입고가로 잡는다.
+  const [txRows]: any = await conn.execute(
+    `SELECT amount, quantity FROM h_inventory_transactions
+       WHERE tenant_id = ? AND material_id = ? AND transaction_type = 'receipt'
+         AND amount IS NOT NULL AND amount > 0 AND quantity IS NOT NULL AND quantity > 0
+         ${asOf ? "AND transaction_date <= ?" : ""}
+       ORDER BY transaction_date DESC, id DESC LIMIT 1`,
+    asOf ? [tenantId, canonicalId, asOf] : [tenantId, canonicalId]
+  );
+  if ((txRows as any[]).length > 0) {
+    const r = (txRows as any[])[0];
+    const p = parseFloat(r.amount) / parseFloat(r.quantity);
+    if (p > 0) return { unitPrice: Math.round(p * 100) / 100, source: "last_receipt_tx" };
   }
 
   // (3) h_materials.unit_price

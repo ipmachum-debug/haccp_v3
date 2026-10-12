@@ -160,23 +160,39 @@ export async function createInboundReceipt(params: {
 
     // (B) 재고 거래 내역 기록 (양수 quantity, type='receipt')
     // PR-§5.2-2: material_id 직접 작성
+    // 2026-10-13: unit_cost / amount 도 기록 (원가 역추적·최근 입고가 산출용)
+    const inboundUnitPrice = params.unitPrice != null && params.unitPrice > 0 ? params.unitPrice : null;
     await conn.execute(
       `INSERT INTO h_inventory_transactions
-         (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date,
+         (tenant_id, lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount, transaction_date,
           reference_type, reference_id, notes, created_by)
-       VALUES (?, ?, ?, 'receipt', ?, ?, ?, 'inbound_receipt', ?, ?, ?)`,
+       VALUES (?, ?, ?, 'receipt', ?, ?, ?, ?, ?, 'inbound_receipt', ?, ?, ?)`,
       [
         tenantId ?? null,
         lotId,
         params.materialId,
         params.quantity.toString(),
         params.unit,
+        inboundUnitPrice != null ? inboundUnitPrice.toString() : null,
+        inboundUnitPrice != null ? (inboundUnitPrice * params.quantity).toFixed(2) : null,
         receiptDate.toISOString().slice(0, 10),
         lotId,
         params.notes ?? null,
         params.createdBy,
       ],
     );
+
+    // 2026-10-13: 신규 입고가 → 자재 현재 단가 자동 갱신 + 이력 (CEO 요구)
+    if (inboundUnitPrice != null && tenantId) {
+      const { applyMaterialPriceFromReceipt } = await import("../../lib/inventory/materialPrice");
+      await applyMaterialPriceFromReceipt(conn, {
+        materialId: params.materialId,
+        tenantId,
+        unitPrice: inboundUnitPrice,
+        changedBy: params.createdBy,
+        reason: `직접 입고 (${lotNumber})`,
+      });
+    }
 
     // (C) h_inventory 테이블 업데이트 (총 재고량 증가)
     //     - 기존 레코드 있으면 UPDATE, 없으면 INSERT
