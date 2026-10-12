@@ -97,7 +97,7 @@ h_products_v2 (제품 상세)        h_materials (원재료 상세)   ← 배치
 | 4 | 업무 FK 13개 추가 — `scripts/migrations-manual/2026-10-12-step4-business-fks.sql` (사전검사 → ALTER 13 → 검증 → 롤백). 마스터·원장은 RESTRICT, 순수 자식은 CASCADE | 1~3단계 완료 보고 2026-10-12 11:40. 현재 업무 FK 28개 / 350 | Claude PR → Genspark 실행 | **PR 올림** |
 | 5 | `ItemIdentityService` + 재고 쓰기 28곳 → 관문 1곳. `check-table-drift` / `aiProductionParser` 교정 | 이주대장 29건 대기 | Claude PR | 코드 |
 | 6 | 빈·백업 테이블 정리 + Drizzle = DB — `12-schema-baseline-step6.md` 분류 확정 (A 백업 28 / B 빈·미참조 14 DROP, D·E 78 스키마 추가, F·G 36 생성/제거). 실행은 FK 일주일 관찰 후 | 스키마 358 vs DB 444 | Claude + Genspark | **분류 PR 올림**, 6-a SQL 준비 |
-| 7 | 역할별 업무 화면 (오늘의 생산 등) | 메뉴 정의 110+ | Claude PR | 화면 |
+| 7 | 역할별 업무 화면 — `13-role-workflow-screens-step7.md` 설계 초안 (첫 화면·오늘의 생산·허브 8개·측정·7-a~7-e 롤아웃). 코드는 CEO 검토 후 | 메뉴 정의 117 (업종 복제 48, 중복 등록 9) | Claude PR | **설계 PR 올림** |
 
 각 단계 통과 조건 (고정): 테넌트 미혼합 · LOT/생산 이력 유지 · 입출고 수량 일치 · 회계 분개 무차이 · HACCP 기록/승인 이력 보존.
 
