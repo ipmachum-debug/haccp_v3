@@ -161,6 +161,8 @@ export interface ApplyLotDeltaParams {
   };
   notes?: string | null;
   createdBy: number;
+  /** 원장 transaction_date (YYYY-MM-DD). 생략 시 NULL (created_at 으로 추적). */
+  transactionDate?: string | null;
   /** true 면 가용 부족이어도 throw 하지 않고 LOT 를 음수까지 차감(원장 양 = LOT 차감 양). 기본 false. */
   allowNegative?: boolean;
 }
@@ -243,14 +245,20 @@ export async function applyLotDelta(
   }
 
   // (3) 원장 기록 — 양수 quantity, canonical material_id(또는 제품은 NULL)
+  // 원장 규약: 양수 quantity + transaction_type 으로 방향 표현.
+  // 예외 — 'adjustment' 는 기존 데이터·리포트(inventoryFunctions/productionAnalytics/inventoryChecks 의
+  // SUM(quantity))가 부호로 증감을 읽으므로 감소분은 음수로 남긴다 (2026-10-12, 5단계 4차).
+  const signedAdjustment = p.transactionType === "adjustment" && p.direction === "decrease";
   await insertLedger(conn, {
     tenantId: p.tenantId,
     lotId: p.lotId,
     materialId: s.materialId,
     transactionType: p.transactionType,
-    quantity: qty,
+    quantity: signedAdjustment ? -qty : qty,
+    keepSign: signedAdjustment,
     unit: p.unit,
     unitCost: p.unitCost ?? null,
+    transactionDate: p.transactionDate ?? null,
     reference: p.reference,
     notes: p.notes ?? null,
     createdBy: p.createdBy,
@@ -372,6 +380,8 @@ async function insertLedger(
     reference?: ApplyLotDeltaParams["reference"];
     notes?: string | null;
     createdBy: number;
+    /** true 면 quantity 부호를 그대로 저장 ('adjustment' 감소분 음수 규약) */
+    keepSign?: boolean;
   },
 ): Promise<number> {
   const r = a.reference ?? {};
@@ -388,7 +398,7 @@ async function insertLedger(
       a.lotId, // NULL 허용(sentinel 0 금지)
       a.materialId,
       a.transactionType,
-      Math.abs(a.quantity), // 항상 양수
+      a.keepSign ? a.quantity : Math.abs(a.quantity), // 기본 양수, adjustment 감소는 음수
       a.unit,
       a.unitCost ?? null,
       amount,

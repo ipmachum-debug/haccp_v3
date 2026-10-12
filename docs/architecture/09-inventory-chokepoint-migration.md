@@ -94,11 +94,11 @@ h_inventory_lots (LOT, FEFO 정본)  ⇄  h_inventory_transactions (원장)  ⇄
 ### D. 조정/실사
 | 상태 | 사이트 | leg | 비고 |
 |------|--------|-----|------|
-| ⏳ | `inventory/inventoryAdjustment.adjustInventory` | 3 leg(비원자) | LOT.quantity vs AGG.total 정합 주의 |
+| ✅**제거** | `inventory/inventoryAdjustment.adjustInventory` | — | 2026-10-12 삭제 (클라이언트 호출 0). `stockAdjustment.adjustLot` 로 대체 |
 | 🔜 | `inventory/inventoryFunctions.adjustInventoryStock` | LOT+TXN | 비표준 txn_type |
-| 🔜 | `inventory/inventory.router.adjustStock` | LOT+TXN | 패턴 A |
-| 🔜 | `inventory/inventory.router.adjustStockByProduct` | LOT+TXN | FEFO cascade |
-| 🔜 | `inventory/inventory.router.applyPhysicalCount` | LOT+TXN | 패턴 A |
+| ✅**이주완료** | `inventory/inventory.router.adjustStock` | 관문 | 2026-10-12 `stockAdjustment.adjustLot` → `applyLotDelta` |
+| ✅**이주완료** | `inventory/inventory.router.adjustStockByProduct` | 관문 | 2026-10-12 `stockAdjustment.adjustBySubject` (자재 id 는 ItemIdentityService 변환) |
+| ✅**이주완료** | `inventory/inventory.router.bulkApplyInventoryCount` (실사) | 관문 | 2026-10-12 품목마다 `withInventoryTx(adjustBySubject)` |
 
 ### E. 취소/역수행/반품
 | 상태 | 사이트 | leg | 비고 |

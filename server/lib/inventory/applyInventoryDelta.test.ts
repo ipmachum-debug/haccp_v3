@@ -28,7 +28,7 @@ function makeConn(opts: {
       if (/COALESCE\(SUM\(available_quantity\), 0\) AS avail/i.test(s)) {
         return [[{ avail: String(opts.lotAvailSum ?? 0), lot_unit: opts.lotUnit ?? "kg" }], []] as any;
       }
-      if (/^SELECT id, quantity, available_quantity, current_quantity, unit, status FROM h_inventory_lots/i.test(s)) {
+      if (/^SELECT id, quantity, available_quantity, current_quantity, unit, status(, material_id, product_id)? FROM h_inventory_lots/i.test(s)) {
         return [opts.lotRow ? [opts.lotRow] : [], []] as any;
       }
       if (/^INSERT INTO/i.test(s)) {
