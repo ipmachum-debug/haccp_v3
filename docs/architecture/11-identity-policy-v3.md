@@ -96,7 +96,7 @@ h_products_v2 (제품 상세)        h_materials (원재료 상세)   ← 배치
 | 3 | `h_inventory_transactions.material_id` 혼용 135건 → `legacy_material_id` 로 `h_materials.id` 변환 | 2026-04-20~05-08 AUTO_ISSUE 128 + receipt 7. 다리 dangling 0 | Genspark (앱 로직/스크립트) | 변환 로그 |
 | 4 | 업무 FK 13개 추가 — `scripts/migrations-manual/2026-10-12-step4-business-fks.sql` (사전검사 → ALTER 13 → 검증 → 롤백). 마스터·원장은 RESTRICT, 순수 자식은 CASCADE | 1~3단계 완료 보고 2026-10-12 11:40. 현재 업무 FK 28개 / 350 | Claude PR → Genspark 실행 | **PR 올림** |
 | 5 | `ItemIdentityService` + 재고 쓰기 28곳 → 관문 1곳. `check-table-drift` / `aiProductionParser` 교정 | 이주대장 29건 대기 | Claude PR | 코드 |
-| 6 | 빈 테이블 296 · 백업 테이블 48 정리, Drizzle 스키마 = DB baseline | 스키마 358 vs DB 444 | Claude + Genspark | DROP 목록 + 백업 |
+| 6 | 빈·백업 테이블 정리 + Drizzle = DB — `12-schema-baseline-step6.md` 분류 확정 (A 백업 28 / B 빈·미참조 14 DROP, D·E 78 스키마 추가, F·G 36 생성/제거). 실행은 FK 일주일 관찰 후 | 스키마 358 vs DB 444 | Claude + Genspark | **분류 PR 올림**, 6-a SQL 준비 |
 | 7 | 역할별 업무 화면 (오늘의 생산 등) | 메뉴 정의 110+ | Claude PR | 화면 |
 
 각 단계 통과 조건 (고정): 테넌트 미혼합 · LOT/생산 이력 유지 · 입출고 수량 일치 · 회계 분개 무차이 · HACCP 기록/승인 이력 보존.
