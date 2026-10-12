@@ -126,6 +126,17 @@ export async function createPurchase(params: {
       // 포장규격 × 수량 = 총 재고량
       const totalInventoryQuantity = (params.packagingSize || 1) * params.quantity;
 
+      // ★ 2026-10-13 (원가 정합성): LOT 단가 = LOT 수량 단위당 가격 (금액 ÷ 기준수량, 없으면 단가 ÷ 포장규격).
+      //   이전에는 LOT 에 unit_price 를 안 넣고 거래 unit_cost 에 "포대당 가격" 을 넣어 kg 수량과 단위가 어긋났다
+      //   (찹쌀 50포×65,000원=3,250,000원/1,000kg → kg당 3,250원인데 unit_cost=65,000, LOT 단가 NULL).
+      const { perUnitPriceFromPurchase } = await import("../../lib/inventory/materialPrice");
+      const perUnitPrice = perUnitPriceFromPurchase({
+        unitPrice: params.unitPrice,
+        packagingSize: params.packagingSize,
+        amount: params.amount,
+        totalBaseQty: totalInventoryQuantity,
+      });
+
       // h_inventory_lots에 LOT 생성
       const [lot] = await db.insert(hInventoryLots).values({
         tenantId: tenantId,
@@ -133,6 +144,7 @@ export async function createPurchase(params: {
         materialId: resolvedMaterialId,
         quantity: totalInventoryQuantity,
         availableQuantity: totalInventoryQuantity, // 초기 입고 시 가용 수량 = 총 수량
+        unitPrice: perUnitPrice > 0 ? String(perUnitPrice) : null,
         unit: material.unit, // 원재료의 단위 사용
         receiptDate: params.transactionDate,
         expiryDate: params.expiryDate || null,
@@ -154,7 +166,8 @@ export async function createPurchase(params: {
           transactionType: "receipt",
           quantity: totalInventoryQuantity,
           unit: material.unit,
-          unitCost: params.unitPrice ? String(params.unitPrice) : null,
+          // 2026-10-13: unit_cost 도 LOT 수량 단위당 (quantity 와 같은 단위). amount 는 매입 금액 그대로.
+          unitCost: perUnitPrice > 0 ? String(perUnitPrice) : null,
           amount: params.amount ? String(params.amount) : null,
           transactionDate: params.transactionDate,
           referenceType: "accounting_purchase",
@@ -194,6 +207,19 @@ export async function createPurchase(params: {
         // 트랜잭션/재고 합계 INSERT 실패는 비치명 (LOT/매입은 이미 기록됨)
         console.error(`[createPurchase] h_inventory_transactions/h_inventory 기록 실패 (비치명):`,
           txnErr?.message || txnErr);
+      }
+
+      // ★ 2026-10-13: 신규 입고가 → 자재 현재 단가(h_materials.unit_price) 자동 갱신 + 이력 (CEO 요구)
+      if (perUnitPrice > 0) {
+        const { getRawConnection } = await import("../connection");
+        const { applyMaterialPriceFromReceipt } = await import("../../lib/inventory/materialPrice");
+        await applyMaterialPriceFromReceipt(await getRawConnection(), {
+          materialId: resolvedMaterialId,
+          tenantId: tenantId as number,
+          unitPrice: perUnitPrice,
+          changedBy: params.createdBy,
+          reason: `매입 입고 #${purchase.insertId} (${lotNumber})`,
+        });
       }
 
       // h_material_inspections에 육안검사일지 자동 생성

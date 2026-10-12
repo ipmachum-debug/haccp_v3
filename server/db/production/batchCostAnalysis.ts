@@ -38,6 +38,10 @@ export interface MaterialCostBreakdown {
   plannedCost: number;
   actualCost: number;
   costDifference: number;
+  /** 정제수 등 원가 제외 자재 */
+  isWater: boolean;
+  /** 단가 출처: lot(투입 LOT 실제단가) | receipt_asof(업무일 이전 최근 입고가) | master(마스터 단가 추정) | excluded */
+  priceSource: "lot" | "receipt_asof" | "master" | "excluded";
 }
 
 export interface CostAnalysisPeriodSummary {
@@ -188,18 +192,36 @@ export async function getBatchMaterialCostBreakdown(
     ))
     .where(eq(hBatchInputs.batchId, batchId));
 
-  return batchInputs.map((input) => {
+  // ★ 2026-10-13 (원가 정합성, CEO 원칙 "과거는 과거 가격"): 투입 단가가 없으면 오늘 마스터 단가가 아니라
+  //   "배치 업무일 이전 최근 입고가" 를 먼저 쓴다. 그것도 없을 때만 마스터 단가.
+  const [batchRow] = await db.select({ plannedDate: hBatches.plannedDate }).from(hBatches).where(eq(hBatches.id, batchId)).limit(1);
+  const asOf = batchRow?.plannedDate ?? null;
+  const { getRawConnection } = await import("../connection");
+  const { getLatestReceiptUnitPrice } = await import("../../lib/inventory/materialPrice");
+  const conn = await getRawConnection();
+  const asOfCache = new Map<number, number | null>();
+  const asOfPrice = async (materialId: number): Promise<number | null> => {
+    if (asOfCache.has(materialId)) return asOfCache.get(materialId)!;
+    const r = await getLatestReceiptUnitPrice(conn, materialId, tenantId, asOf);
+    const p = r && r.unitPrice > 0 ? r.unitPrice : null;
+    asOfCache.set(materialId, p);
+    return p;
+  };
+
+  const result: MaterialCostBreakdown[] = [];
+  for (const input of batchInputs) {
     const plannedQuantity = Number(input.plannedQuantity || 0);
     const actualQuantity = Number(input.actualQuantity || 0);
     const water = isWaterMaterial(input.materialName);
 
     // ★ 2026-05-10 (PR #297): 0 도 폴백 트리거 (4/13 이후 unit_price=0 대량 발생 대응)
-    // 단가 우선순위: LOT 실제단가 (>0) → 마스터 단가 (h_materials/item_master COALESCE)
+    // 단가 우선순위: LOT 실제단가 (>0) → 업무일 기준 최근 입고가 → 마스터 단가 (h_materials/item_master COALESCE)
     const rawLotPrice = input.lotUnitPrice ? Number(input.lotUnitPrice) : 0;
     const lotPrice = rawLotPrice > 0 ? rawLotPrice : null;
+    const receiptPrice = !water && lotPrice === null ? await asOfPrice(input.materialId) : null;
     const masterPrice = input.masterUnitPrice ? Number(input.masterUnitPrice) : 0;
-    const unitPrice = water ? 0 : (lotPrice ?? masterPrice);
-    const priceSource = water ? "excluded" : (lotPrice !== null ? "lot" : "master");
+    const unitPrice = water ? 0 : (lotPrice ?? receiptPrice ?? masterPrice);
+    const priceSource = water ? "excluded" : (lotPrice !== null ? "lot" : receiptPrice !== null ? "receipt_asof" : "master");
 
     const plannedCost = plannedQuantity * unitPrice;
     // ★ 2026-05-10 (PR #297): LOT total_price 도 0 이면 폴백 (수량 × unitPrice)
@@ -208,7 +230,7 @@ export async function getBatchMaterialCostBreakdown(
     const actualCost = water ? 0 : (lotTotal ?? actualQuantity * unitPrice);
     const costDifference = actualCost - plannedCost;
 
-    return {
+    result.push({
       materialId: input.materialId,
       materialName: input.materialName || "Unknown",
       plannedQuantity,
@@ -218,9 +240,10 @@ export async function getBatchMaterialCostBreakdown(
       actualCost: Math.round(actualCost * 100) / 100,
       costDifference: Math.round(costDifference * 100) / 100,
       isWater: water,
-      priceSource  // "lot" | "master" | "excluded"
-    };
-  });
+      priceSource  // "lot" | "receipt_asof" | "master" | "excluded"
+    });
+  }
+  return result;
 }
 
 /**
