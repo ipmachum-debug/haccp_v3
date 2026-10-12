@@ -2,12 +2,6 @@ import { z } from "zod";
 import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { dispatchPostPurchase, dispatchPostSale } from "../../lib/accounting/postDispatcher";
 import { cancelPurchase } from "../../lib/accounting/purchaseCancel";
-import { postMaterialOutbound } from "../../lib/inventory/materialOutboundPost";
-import { cancelMaterialOutbound } from "../../lib/inventory/materialOutboundCancel";
-// 2026-04-29 (F2-3-b): dispatcher 경유 — env 기본값 v1 (운영 안전).
-// USE_PRODUCTION_COMPLETE_V2 / USE_PRODUCTION_COMPLETE_V2_TENANTS 로 점진 v2 전환 가능.
-import { productionCompleteDispatch } from "../../lib/production/productionCompleteDispatcher";
-import { cancelProductionComplete } from "../../lib/production/productionCompleteCancel";
 import { cancelProductSale } from "../../lib/accounting/productSaleCancel";
 import { getRawConnection } from "../../db";
 
@@ -81,54 +75,12 @@ export const inventoryAccountingRouter = router({
       return { success: true, message: "매입이 대기 상태로 복구되었습니다." };
     }),
 
-  // 원재료 출고 POST
-  materialOutboundPost: tenantRequiredProcedure
-    .input(
-      z.object({
-        outboundId: z.number(),
-      })
-    )
-    .mutation(async ({ input, ctx }: { input: { outboundId: number }, ctx: any }) => {
-      await postMaterialOutbound(input.outboundId, ctx.user.id, ctx.tenantId);
-      return { success: true, message: "원재료 출고가 확정되었습니다." };
-    }),
-
-  // 원재료 출고 CANCEL
-  materialOutboundCancel: tenantRequiredProcedure
-    .input(
-      z.object({
-        outboundId: z.number(),
-      })
-    )
-    .mutation(async ({ input, ctx }: { input: { outboundId: number }, ctx: any }) => {
-      await cancelMaterialOutbound(input.outboundId, ctx.user.id, ctx.tenantId);
-      return { success: true, message: "원재료 출고가 취소되었습니다." };
-    }),
-
-  // 생산 완료 POST
-  productionCompletePost: tenantRequiredProcedure
-    .input(
-      z.object({
-        batchId: z.number(),
-        actualQuantity: z.number(),
-      })
-    )
-    .mutation(async ({ input, ctx }: { input: { batchId: number, actualQuantity: number }, ctx: any }) => {
-      await productionCompleteDispatch(input.batchId, input.actualQuantity, ctx.user.id, ctx.tenantId);
-      return { success: true, message: "생산이 완료되었습니다." };
-    }),
-
-  // 생산 완료 CANCEL
-  productionCompleteCancel: tenantRequiredProcedure
-    .input(
-      z.object({
-        batchId: z.number(),
-      })
-    )
-    .mutation(async ({ input, ctx }: { input: { batchId: number }, ctx: any }) => {
-      await cancelProductionComplete(input.batchId, ctx.user.id, ctx.tenantId);
-      return { success: true, message: "생산 완료가 취소되었습니다." };
-    }),
+  // ★ 2026-10-12 (v3 5단계 3차): materialOutboundPost/Cancel · productionCompletePost/Cancel 제거.
+  //   - 원재료 출고 전표: 출고 문서 테이블이 없어 h_inventory_transactions 를 문서처럼 읽던 stub.
+  //     status 검사가 항상 실패해 실행 불가, 운영 DB OUTBOUND 행 0 / 클라이언트 호출 0.
+  //   - 생산완료 전기: 배치는 completeBatch 에서 이미 'completed' 라 항상 alreadyProcessed 로 no-op.
+  //     운영 DB PRODUCTION 행 0 / [생산완료] 분개 0 / 클라이언트 호출 0. 둘 다 유령 원장 경로 (09 🐞).
+  //   생산완료 회계 전기(WIP → 제품재고)는 별도 결정 후 전용 PR (11 문서 §3 5단계 후속).
 
   // 제품 출고/판매 POST
   productSalePost: tenantRequiredProcedure

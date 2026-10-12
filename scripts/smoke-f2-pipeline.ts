@@ -12,7 +12,7 @@
  * 검증 항목:
  *   1. shouldUseV2(tenantId) — env flag 분기 정상
  *      USE_AUTO_ISSUE_V2_TENANTS / USE_AUTO_ISSUE_V2 / 미설정 케이스
- *   2. shouldUseProductionCompleteV2(tenantId) — 동일
+ *   2. (제거됨 2026-10-12) productionCompleteDispatcher
  *   3. dispatcher import 가능 + 시그니처 일관성 (V1 ↔ V2 호환)
  *   4. (있으면) 기존 'in_progress' batch 로 dispatcher 호출 dry-run
  *   5. autoMaterialIssueDispatcher 의 conn 옵션 PostgreSQL 호환 확인
@@ -49,9 +49,7 @@ async function smoke() {
 
   // ── 1. dispatcher import 가능 ──
   let shouldUseV2: any;
-  let shouldUseProductionCompleteV2: any;
   let autoIssueMaterialsDispatch: any;
-  let productionCompleteDispatch: any;
 
   try {
     const aiMod = await import(
@@ -60,13 +58,8 @@ async function smoke() {
     shouldUseV2 = aiMod.shouldUseV2;
     autoIssueMaterialsDispatch = aiMod.autoIssueMaterialsDispatch;
 
-    const pcMod = await import(
-      "../server/lib/production/productionCompleteDispatcher"
-    );
-    shouldUseProductionCompleteV2 = pcMod.shouldUseProductionCompleteV2;
-    productionCompleteDispatch = pcMod.productionCompleteDispatch;
-
-    record("import-dispatchers", "PASS", "두 dispatcher 모두 import 성공");
+    // productionCompleteDispatcher 는 2026-10-12 제거 (유령 receipt 원장, 운영 실행 0건)
+    record("import-dispatchers", "PASS", "autoMaterialIssue dispatcher import 성공");
   } catch (e: any) {
     record("import-dispatchers", "FAIL", `import 실패: ${e?.message ?? e}`);
     return failExit();
@@ -137,24 +130,7 @@ async function smoke() {
       );
     }
 
-    // ── productionCompleteV2 dispatcher 도 동일 패턴 검증 ──
-    delete process.env.USE_PRODUCTION_COMPLETE_V2;
-    delete process.env.USE_PRODUCTION_COMPLETE_V2_TENANTS;
-    if (shouldUseProductionCompleteV2(2) === false) {
-      record("prodComplete-default-false", "PASS", "env 미설정 시 false");
-    } else {
-      record("prodComplete-default-false", "FAIL", "env 미설정인데 true");
-    }
-
-    process.env.USE_PRODUCTION_COMPLETE_V2_TENANTS = "3";
-    if (
-      shouldUseProductionCompleteV2(3) === true &&
-      shouldUseProductionCompleteV2(2) === false
-    ) {
-      record("prodComplete-tenant-list", "PASS", 'TENANTS="3" → 3만 true');
-    } else {
-      record("prodComplete-tenant-list", "FAIL", "tenant list 분기 비정상");
-    }
+    // productionCompleteDispatcher 는 2026-10-12 제거 — 해당 검증 블록 삭제
   } finally {
     // env 복원
     if (backup.AUTO !== undefined) process.env.USE_AUTO_ISSUE_V2 = backup.AUTO;
@@ -240,19 +216,6 @@ async function smoke() {
       "dispatcher-signatures",
       "FAIL",
       `시그니처 불일치 — 인자 수 ${autoIssueMaterialsDispatch?.length ?? "?"}`,
-    );
-  }
-  if (typeof productionCompleteDispatch === "function" && productionCompleteDispatch.length === 4) {
-    record(
-      "prodComplete-signature",
-      "PASS",
-      "productionCompleteDispatch 시그니처 (batchId, qty, userId, tenantId) 일관",
-    );
-  } else {
-    record(
-      "prodComplete-signature",
-      "FAIL",
-      `시그니처 불일치 — 인자 수 ${productionCompleteDispatch?.length ?? "?"}`,
     );
   }
 

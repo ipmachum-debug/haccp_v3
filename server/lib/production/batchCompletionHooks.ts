@@ -7,8 +7,8 @@
  *
  *   Path 1: server/db/production/batchLifecycle.ts:completeBatch()
  *           — 메인 경로 (router/production/batch.lifecycle.router.ts:475)
- *   Path 2: server/lib/production/productionCompletePost{V2}.ts
- *           — 회계/재고 후처리 (productionCompleteDispatch)
+ *   Path 2: (제거됨 2026-10-12) productionCompletePost{V2} — 유령 receipt 원장만 쓰던 경로.
+ *           승인(finalApproveRequest)은 이제 ensureBatchLots 만 호출.
  *   Path 3: server/db/production/batchCRUD.ts:updateBatchStatus()
  *           — 드롭다운/직접 상태 변경
  *
@@ -66,7 +66,7 @@ import { getRawConnection } from "../../db/connection";
 
 export interface BatchCompletionHookOptions {
   /** 호출 출처 식별 (로깅용) */
-  source: "completeBatch" | "productionCompletePost" | "updateBatchStatus" | "manual";
+  source: "completeBatch" | "updateBatchStatus" | "manual";
   /** true 시 actual_quantity 가 NULL/0 일 때 production_sku_output 합계로 보강 (기본 true) */
   backfillActualQuantity?: boolean;
   /** true 시 h_batch_inputs 가 0건이면 경고 로그 출력 (기본 true) */
