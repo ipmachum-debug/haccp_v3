@@ -105,6 +105,7 @@ interface CcpFormRow {
   pressureMpa?: string | null;
   tempEdgeC?: string | null;
   tempCenterC?: string | null;
+  metalPassTime?: string | null;
   metalFeMid?: string | null;
   metalSusMid?: string | null;
   metalProductOnly?: string | null;
@@ -599,6 +600,133 @@ function RowInputForm({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// CCP-4P 일일 기록지 — 감도 모니터링 + 통과량 (인쇄 양식 CcpRenderers 와 같은 분류·컬럼)
+// 4P 는 "배치" 단위가 아니라 품목별 감도 체크(시작·2시간·종료) + 제품별 통과 기록이다.
+// ─────────────────────────────────────────────────────────────────────────────
+function classify4pRow(r: CcpFormRow): "sensitivity" | "passage" | "unknown" {
+  if (r.equipmentType === "sensitivity") return "sensitivity";
+  if (r.equipmentType === "passage") return "passage";
+  if (r.passTimeStart || r.passTimeEnd) return "passage";
+  if (r.metalPassTime || r.metalFeMid || r.metalSusMid || r.metalFeProduct || r.metalSusProduct || r.metalProductOnly) return "sensitivity";
+  return "unknown";
+}
+
+function Ccp4pDailyTables({
+  rows, editingSeq, onEdit, onDelete,
+}: {
+  rows: CcpFormRow[];
+  editingSeq: number | null;
+  onEdit: (seq: number) => void;
+  onDelete: (id: number) => void;
+}) {
+  const sorted = [...rows].sort((a, b) => a.batchSeq - b.batchSeq);
+  const sensitivity = sorted.filter(r => classify4pRow(r) === "sensitivity");
+  const passage = sorted.filter(r => classify4pRow(r) === "passage");
+  const unknown = sorted.filter(r => classify4pRow(r) === "unknown");
+
+  const rowActions = (r: CcpFormRow) => (
+    <div className="flex items-center gap-1 justify-end">
+      <Button size="sm" variant="ghost" className="h-6 text-xs px-2" onClick={() => onEdit(r.batchSeq)}>
+        {editingSeq === r.batchSeq ? "접기" : "수정"}
+      </Button>
+      <Button size="sm" variant="ghost" className="h-6 px-1 text-red-400 hover:text-red-600" onClick={() => onDelete(r.id)}>
+        <Trash2 className="h-3 w-3" />
+      </Button>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <div className="text-sm font-semibold flex items-center gap-2 mb-1">
+          <Clock className="h-4 w-4 text-purple-500" />
+          감도 모니터링 (테스트피스) · {sensitivity.length}건
+        </div>
+        {sensitivity.length === 0 ? (
+          <p className="text-xs text-muted-foreground px-1">감도 체크 행이 없습니다.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="text-xs">
+                <TableHead className="py-1 text-xs">시각</TableHead>
+                <TableHead className="py-1 text-xs">품목</TableHead>
+                <TableHead className="py-1 text-xs">구분</TableHead>
+                <TableHead className="py-1 text-xs text-center">Fe</TableHead>
+                <TableHead className="py-1 text-xs text-center">SUS</TableHead>
+                <TableHead className="py-1 text-xs text-center">제품</TableHead>
+                <TableHead className="py-1 text-xs text-center">Fe+제품</TableHead>
+                <TableHead className="py-1 text-xs text-center">SUS+제품</TableHead>
+                <TableHead className="py-1 text-xs">판정</TableHead>
+                <TableHead className="py-1 text-xs w-20"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sensitivity.map(r => (
+                <TableRow key={r.id} className="text-xs">
+                  <TableCell className="py-1 font-mono">{r.metalPassTime || "-"}</TableCell>
+                  <TableCell className="py-1">{r.productName || "-"}</TableCell>
+                  <TableCell className="py-1 text-muted-foreground">{r.note || "-"}</TableCell>
+                  <TableCell className="py-1 text-center"><OXCell value={r.metalFeMid} /></TableCell>
+                  <TableCell className="py-1 text-center"><OXCell value={r.metalSusMid} /></TableCell>
+                  <TableCell className="py-1 text-center"><OXCell value={r.metalProductOnly} /></TableCell>
+                  <TableCell className="py-1 text-center"><OXCell value={r.metalFeProduct} /></TableCell>
+                  <TableCell className="py-1 text-center"><OXCell value={r.metalSusProduct} /></TableCell>
+                  <TableCell className="py-1"><ResultBadge result={r.result} /></TableCell>
+                  <TableCell className="py-1">{rowActions(r)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+
+      <div>
+        <div className="text-sm font-semibold flex items-center gap-2 mb-1">
+          <Clock className="h-4 w-4 text-blue-500" />
+          통과량 기록 · {passage.length}건
+        </div>
+        {passage.length === 0 ? (
+          <p className="text-xs text-muted-foreground px-1">통과 기록 행이 없습니다.</p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow className="text-xs">
+                <TableHead className="py-1 text-xs">제품명</TableHead>
+                <TableHead className="py-1 text-xs">최초통과</TableHead>
+                <TableHead className="py-1 text-xs">통과종료</TableHead>
+                <TableHead className="py-1 text-xs text-right">통과량(개)</TableHead>
+                <TableHead className="py-1 text-xs text-right">검출량(개)</TableHead>
+                <TableHead className="py-1 text-xs">특이사항</TableHead>
+                <TableHead className="py-1 text-xs">판정</TableHead>
+                <TableHead className="py-1 text-xs w-20"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {passage.map(r => (
+                <TableRow key={r.id} className="text-xs">
+                  <TableCell className="py-1">{r.productName || "-"}</TableCell>
+                  <TableCell className="py-1 font-mono">{r.passTimeStart || "-"}</TableCell>
+                  <TableCell className="py-1 font-mono">{r.passTimeEnd || "-"}</TableCell>
+                  <TableCell className="py-1 text-right font-mono">{r.passQty ?? "-"}</TableCell>
+                  <TableCell className="py-1 text-right font-mono">{r.detectedQty ?? 0}</TableCell>
+                  <TableCell className="py-1 text-muted-foreground">{r.specialNote || "-"}</TableCell>
+                  <TableCell className="py-1"><ResultBadge result={r.result} /></TableCell>
+                  <TableCell className="py-1">{rowActions(r)}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </div>
+
+      {unknown.length > 0 && (
+        <p className="text-xs text-muted-foreground">분류되지 않은 행 {unknown.length}건 (감도·통과 데이터 없음) — 인쇄 양식에도 표시되지 않습니다.</p>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 단일 CCP 기록지 패널
 // ─────────────────────────────────────────────────────────────────────────────
 function CcpFormPanel({
@@ -643,6 +771,10 @@ function CcpFormPanel({
   const ccpGroup = equipmentGroups.find(g => g.ccpType === formRecord.ccpType);
   const equipmentList: EquipmentInfo[] = ccpGroup?.equipment ?? [];
   const clDefaults = CCP_CL_DEFAULTS[formRecord.ccpType] ?? {};
+  // CCP-4P 는 일일 통합 기록지 — 배치 단위가 아니라 감도 체크 + 통과 기록 (BOM 배치수·설비 할당 해당 없음)
+  const is4P = formRecord.ccpType === "CCP-4P";
+  const sens4pCount = is4P ? rows.filter(r => classify4pRow(r) === "sensitivity").length : 0;
+  const pass4pCount = is4P ? rows.filter(r => classify4pRow(r) === "passage").length : 0;
 
   // 배치수 변경 시 저장
   const handleBatchCountChange = (n: number) => {
@@ -689,7 +821,7 @@ function CcpFormPanel({
              formRecord.status === "rejected" ? "❌ 반려" : "✏️ 작성중"}
           </Badge>
           <span className="text-xs text-muted-foreground">
-            {batchCount}배치 · {rows.length}건 입력
+            {is4P ? `감도 ${sens4pCount}건 · 통과 ${pass4pCount}건` : `${batchCount}배치 · ${rows.length}건 입력`}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -724,15 +856,43 @@ function CcpFormPanel({
             {formRecord.ccpType === "CCP-4P" && `감도 ${clDefaults.metalSensitivity} · Fe ${clDefaults.feMm}mmΦ 불검출 · SUS ${clDefaults.susMm}mmΦ 불검출`}
           </div>
 
+          {/* CCP-4P: 감도 모니터링 + 통과량 (일일 통합) */}
+          {is4P && (
+            <>
+              <Ccp4pDailyTables
+                rows={rows}
+                editingSeq={addingBatch}
+                onEdit={(seq) => setAddingBatch(addingBatch === seq ? null : seq)}
+                onDelete={(id) => deleteRowMutation.mutate({ id })}
+              />
+              {addingBatch !== null && (
+                <div className="p-3 border rounded">
+                  <div className="text-xs font-semibold mb-2">행 #{addingBatch} 수정</div>
+                  <RowInputForm
+                    ccpType={formRecord.ccpType}
+                    batchSeq={addingBatch}
+                    formRecordId={formRecord.id}
+                    clDefaults={clDefaults}
+                    editRow={getRowForBatch(addingBatch)}
+                    onSaved={() => { setAddingBatch(null); onRefresh(); }}
+                  />
+                </div>
+              )}
+            </>
+          )}
+
           {/* BOM 배치수 계산 */}
+          {!is4P && (
           <BatchCountCalc
             productId={productId}
             plannedQtyKg={plannedQtyKg}
             batchCount={batchCount}
             onBatchCountChange={handleBatchCountChange}
           />
+          )}
 
           {/* 설비 할당 */}
+          {!is4P && (
           <EquipmentAssignSection
             batchId={batchId}
             batchCount={batchCount}
@@ -742,8 +902,10 @@ function CcpFormPanel({
             onIntervalChange={handleIntervalChange}
             equipmentList={equipmentList}
           />
+          )}
 
-          {/* 배치별 기록 입력 */}
+          {/* 배치별 기록 입력 (1B / 2B) */}
+          {!is4P && (
           <div className="space-y-2">
             <div className="text-sm font-semibold flex items-center gap-2">
               <Clock className="h-4 w-4 text-blue-500" />
@@ -838,9 +1000,10 @@ function CcpFormPanel({
               );
             })}
           </div>
+          )}
 
-          {/* 전체 요약 테이블 */}
-          {rows.length > 0 && (
+          {/* 전체 요약 테이블 (1B / 2B) */}
+          {!is4P && rows.length > 0 && (
             <div className="mt-2">
               <div className="text-xs font-semibold text-muted-foreground mb-1">기록 요약</div>
               <Table>
