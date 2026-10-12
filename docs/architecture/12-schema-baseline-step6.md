@@ -91,8 +91,18 @@ introspect 출력(snake_case 컬럼 키)을 그대로 넣었다. 수작업 변�
 | w3_tx_backup_2026_04_26 | 4000 |
 | w4_backup_lot_750_removal_2026_06_25 | 3 |
 
-## 4. 6-a 실행 (Genspark, FK 일주일 관찰 후)
-`scripts/migrations-manual/2026-10-12-step6-cleanup.sql`: §1 아카이브(mysqldump 한 파일) → §2 DROP 29 (A 28 + C 1) → §3 테이블 수 확인. **빈 테이블 DROP 은 없다.**
+## 4. 6-a 실행 — DROP 전 관문 4개 (CEO, 2026-10-12)
+
+FK 로그 일주일 무사고는 **필요조건이지 충분조건이 아니다.** `scripts/migrations-manual/2026-10-12-step6-cleanup.sql` 은 아래 관문을 전부 통과해야 DROP 으로 간다.
+
+| 관문 | 내용 | 방법 |
+|---|---|---|
+| G1 | 대상 29개의 **백업 행수 = 원본 행수** | §1 COUNT·CHECKSUM 기록 → 복원본과 테이블별 비교 |
+| G2 | **복구 가능성** 검증 | 아카이브를 검증용 스키마(`haccp_step6_verify`)에 복원 → 행수·CHECKSUM 재비교 → 검증 스키마 삭제 |
+| G3 | 운영 코드·SQL·cron·DB 객체에서 **참조 0** 재검사 | DB: 뷰·트리거·루틴·FK (§3-b). 코드·cron: `scripts/diag/table-ref-check.sh`. 덤프 10/10 기준 DB 객체 참조 0, 코드 참조는 일회성 출력물·스키마 스냅샷뿐 |
+| G4 | DROP 후 **생산·재고·회계 회귀** | smoke + 배치 1건(생성→자동출고→완료→분개) + 매입 1건 + 매출 1건 + 실사 ±1 + 진단 §B·§C·§D 전후 동일 |
+
+끝나면 introspect 재추출 → `schema-diff.ts` 0/0, `dump-schema-baseline.ts` 로 `drizzle/baseline/actual-schema.json` 재생성 → PR (CI `schema-reproducibility` 가 이 스냅샷을 본다).
 
 ## 5. 외부 진단이 짚은 후속 과제 (6-d 후보, 이 PR 범위 아님)
 | 지적 | 상태 | 방향 |
@@ -102,7 +112,12 @@ introspect 출력(snake_case 컬럼 키)을 그대로 넣었다. 수작업 변�
 | FK 없는 핵심 3곳: `h_ccp_form_records.batch_id`, `h_inventory_lots.inventory_id`, `material_ledger_daily.material_id` | 알려짐 (#458 보류 목록) | 각각 고아 45 격리 / 완제품 집계 행(10 문서) / 선택지 A 58건 처리 후 |
 | `h_mf_ingredients.material_id → item_master` vs `h_batch_inputs.material_id → h_materials` | 의도된 두 층위 (11 문서 §2-1) | `ItemIdentityService` 경유 강제(depcruise error) 유지 |
 
-## 6. 완료 기준 — 전수 diff
+## 6. 완료 기준 — 전수 diff (구조 정합성에 한함)
 `scripts/diag/schema-diff.ts <introspect schema.ts>` 가 **DB-only 0 · 스키마-only 0** 을 출력하면 6단계 완료.
 (A·C DROP 과 banners 생성이 끝난 뒤 Genspark 가 introspect 를 다시 떠서 돌린다. 이 결과가 6단계 완료의 근거다.)
 그 뒤로는 DDL 을 Drizzle 마이그레이션으로만 한다 — 운영 DB 에 손으로 테이블을 만들면 diff 가 다시 벌어진다.
+
+**DB-only 0 / 스키마-only 0 은 "구조" 가 맞는다는 뜻이지 고아 데이터가 생기지 않는다는 증거가 아니다.** 데이터 무결성은 §5 의 별도 트랙으로 계속 관리한다.
+- 보류 FK 3곳 (`h_ccp_form_records.batch_id`, `h_inventory_lots.inventory_id`, `material_ledger_daily.material_id`) — 각 선행 작업 후 FK 추가, 그 전까지 `identity-namespace-diag.sql` §C 로 주기 점검
+- 테넌트 간 참조 무결성 — 복합 FK 전까지 앱 레벨(`tenantRequiredProcedure` + 테넌트 조건 JOIN) + 진단 §D 주기 점검
+- FK 위반 로그(`~/fk_violations.log`) 는 "쓰기 시점에 막힌 것" 만 보여준다. 이미 들어가 있는 불일치는 진단 SQL 로만 보인다
