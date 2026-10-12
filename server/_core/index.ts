@@ -629,6 +629,9 @@ async function startServer() {
       const releaseTag = typeof body.release_tag === "string" ? body.release_tag.trim() : "";
       const assetName = typeof body.asset_name === "string" ? body.asset_name.trim() : "";
       const expectedSha256 = typeof body.expected_sha256 === "string" ? body.expected_sha256.trim() : "";
+      // 2026-10-13: 현재 설치된 release 보다 낮은 tag 는 deploy.sh 가 거부한다 (10/12 순서 역전 사고).
+      //   의도적 롤백(workflow_dispatch + target_tag) 만 allow_downgrade=true 로 통과.
+      const allowDowngrade = body.allow_downgrade === true;
 
       if (!releaseTag) {
         return res.status(400).json({
@@ -680,6 +683,7 @@ async function startServer() {
             RELEASE_TAG: releaseTag,
             ASSET_NAME: assetName,
             EXPECTED_SHA256: expectedSha256,
+            ALLOW_DOWNGRADE: allowDowngrade ? "1" : "0",
           },
         });
 

@@ -221,10 +221,49 @@ jobs:
       RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
       ASSET_NAME: ${{ needs.build.outputs.asset_name }}
       EXPECTED_SHA256: ${{ needs.build.outputs.sha256 }}
+      # 수동 실행에서 target_tag 를 명시한 경우만 "낮은 버전 설치(롤백)" 허용
+      ALLOW_DOWNGRADE: ${{ github.event_name == 'workflow_dispatch' && inputs.target_tag != '' }}
 
     steps:
+      # ★ 2026-10-13 — 순서 역전 방지 (10/12 사고):
+      #   v0.8.339(#468)·v0.8.340(#469) 의 deploy job 이 직렬화는 됐지만 "빌드가 먼저 끝난 순서" 로 돌아
+      #   v0.8.340 이 먼저 설치되고 v0.8.339 가 나중에 덮어써 운영이 한 커밋 뒤로 갔다.
+      #   release 이벤트 배포는 "이 태그가 현재 최신 release 일 때만" 실행한다. 더 새 release 가 있으면
+      #   그 release 의 deploy job 이 (이미 돌았거나 곧) 운영을 맞추므로 이 run 은 조용히 빠진다.
+      #   수동 실행(workflow_dispatch + target_tag) 은 의도적 롤백이므로 검사하지 않는다.
+      - name: 최신 release 여부 확인
+        id: latest
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if [ "${{ github.event_name }}" != "release" ]; then
+            echo "superseded=false" >> "$GITHUB_OUTPUT"
+            echo "수동 실행 — 최신 여부 검사 생략 (롤백 허용: ${ALLOW_DOWNGRADE})"
+            exit 0
+          fi
+          LATEST=$(gh release list --repo "${{ github.repository }}" --limit 30 --json tagName,isDraft,isPrerelease \
+                    --jq '.[] | select(.isDraft|not) | .tagName' | sort -V | tail -n1)
+          echo "이 run 의 tag : ${RELEASE_TAG}"
+          echo "최신 release : ${LATEST}"
+          NEWEST=$(printf '%s\n%s\n' "${RELEASE_TAG}" "${LATEST}" | sort -V | tail -n1)
+          if [ -n "${LATEST}" ] && [ "${NEWEST}" != "${RELEASE_TAG}" ]; then
+            echo "superseded=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::${RELEASE_TAG} 보다 새 release ${LATEST} 가 있어 이 배포는 건너뜁니다 (최신 release 의 deploy 가 운영을 맞춤)."
+            {
+              echo "## ⏭️ 배포 건너뜀 (superseded)"
+              echo ""
+              echo "- **이 run**: \`${RELEASE_TAG}\`"
+              echo "- **최신 release**: \`${LATEST}\`"
+              echo "- 자산은 release 에 업로드돼 있으므로 롤백은 수동 실행(target_tag) 으로 가능"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "superseded=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: 배포 API 호출
         id: deploy
+        if: steps.latest.outputs.superseded != 'true'
         run: |
           set +e
 
@@ -245,7 +284,8 @@ jobs:
             --arg tag "${RELEASE_TAG}" \
             --arg asset "${ASSET_NAME}" \
             --arg sha256 "${EXPECTED_SHA256}" \
-            '{release_tag: $tag, asset_name: $asset, expected_sha256: $sha256}')
+            --argjson allow_downgrade "$([ "${ALLOW_DOWNGRADE}" = "true" ] && echo true || echo false)" \
+            '{release_tag: $tag, asset_name: $asset, expected_sha256: $sha256, allow_downgrade: $allow_downgrade}')
 
           RESPONSE_FILE=$(mktemp)
 

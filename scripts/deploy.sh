@@ -261,6 +261,23 @@ NEW_INDEX_SIZE=$(du -h "${WORK_DIR}/dist/index.js" | cut -f1)
 NEW_PUBLIC_SIZE=$(du -sh "${WORK_DIR}/dist/public" | cut -f1)
 log "   ✅ 추출 완료: index.js ${NEW_INDEX_SIZE}, public ${NEW_PUBLIC_SIZE}"
 
+# ── 4-b. 버전 역전 방지 (2026-10-13, 10/12 사고) ──
+# 같은 분에 머지된 release 두 개의 deploy 가 "빌드 끝난 순서" 로 돌아 v0.8.340 위에 v0.8.339 가 덮였다.
+# 현재 설치된 tag (dist/RELEASE_TAG, 5단계에서 기록) 보다 낮은 tag 는 거부한다.
+# 의도적 롤백은 ALLOW_DOWNGRADE=1 (workflow_dispatch + target_tag → API body allow_downgrade=true).
+CURRENT_TAG=""
+if [ -f "${APP_DIR}/dist/RELEASE_TAG" ]; then
+  CURRENT_TAG=$(tr -d '[:space:]' < "${APP_DIR}/dist/RELEASE_TAG" || true)
+fi
+if [ -n "${CURRENT_TAG}" ] && [ "${CURRENT_TAG}" != "${RELEASE_TAG}" ] && [ "${ALLOW_DOWNGRADE:-0}" != "1" ]; then
+  NEWEST=$(printf '%s\n%s\n' "${CURRENT_TAG}" "${RELEASE_TAG}" | sort -V | tail -n1)
+  if [ "${NEWEST}" = "${CURRENT_TAG}" ]; then
+    err "현재 설치된 ${CURRENT_TAG} 보다 낮은 ${RELEASE_TAG} 설치 거부 (버전 역전 방지). 롤백이면 ALLOW_DOWNGRADE=1 로 호출."
+    exit 6
+  fi
+fi
+log "4-b. 버전 검사 통과 (현재: ${CURRENT_TAG:-기록 없음} → 요청: ${RELEASE_TAG}, ALLOW_DOWNGRADE=${ALLOW_DOWNGRADE:-0})"
+
 # ── 5. Atomic swap (기존 dist → 백업, 신규 dist → 활성화) ──
 log "5. dist atomic swap"
 
@@ -275,7 +292,9 @@ fi
 
 # 신규 dist 를 본 자리로 이동
 mv "${WORK_DIR}/dist" "${APP_DIR}/dist"
-log "   ✅ 신규 dist 활성화"
+# 설치된 release tag 기록 (4-b 버전 역전 검사 + 운영 확인용: cat dist/RELEASE_TAG)
+echo "${RELEASE_TAG}" > "${APP_DIR}/dist/RELEASE_TAG"
+log "   ✅ 신규 dist 활성화 (RELEASE_TAG=${RELEASE_TAG})"
 
 # 오래된 백업 정리 (BACKUP_KEEP 개 초과 시)
 BACKUP_COUNT=$(ls -1d "${APP_DIR}"/dist.bak.* 2>/dev/null | wc -l)
