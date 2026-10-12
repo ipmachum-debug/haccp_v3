@@ -421,6 +421,9 @@ export async function createSingleBatch(
               [approvalId4p, ccp4pRec.id, input.tenantId],
             );
             console.log(`[batchOrchestrator] CCP-4P 금속검출 통합 승인요청 등록 (pending_review): approvalId=${approvalId4p}`);
+            // 기록지 submitted → 같은 날 4P 인스턴스에 반영 (2026-10-12)
+            const { syncCcpInstanceStatusFromForm } = await import("../db/haccp/ccpStatusSync");
+            await syncCcpInstanceStatusFromForm(ccp4pRec.id, input.tenantId);
           }
         }
       } catch (ccp4pErr) {
@@ -447,6 +450,9 @@ export async function createSingleBatch(
       const affected = (updateResult as any).affectedRows || 0;
       if (affected > 0) {
         console.log(`[batchOrchestrator] CCP-1B/2B form_record ${affected}건 → submitted (batchId=${batchId})`);
+        // 기록지 submitted → 인스턴스에 반영 (2026-10-12, CCP 단일 흐름 1단계)
+        const { syncCcpInstanceStatusForBatch } = await import("../db/haccp/ccpStatusSync");
+        await syncCcpInstanceStatusForBatch(batchId, input.tenantId);
       }
     } catch (ccp1b2bErr) {
       console.error("[batchOrchestrator] CCP-1B/2B form_record status 전환 실패:", ccp1b2bErr);

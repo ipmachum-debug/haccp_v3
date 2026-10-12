@@ -301,6 +301,8 @@ export const batchCrudRouter = router({
                   [approvalId4p, ccp4pRec.id, tenantId],
                 );
                 console.log(`[파이프라인] CCP-4P 금속검출 통합 승인요청 생성: approvalId=${approvalId4p}`);
+                const { syncCcpInstanceStatusFromForm } = await import("../../db/haccp/ccpStatusSync");
+                await syncCcpInstanceStatusFromForm(ccp4pRec.id, tenantId);
               }
             }
           } catch (ccp4pErr) {
@@ -695,6 +697,8 @@ export const batchCrudRouter = router({
                   [approvalId4p, ccp4pRec.id, ctx.tenantId],
                 );
                 console.log(`[bulkCreateForDay] CCP-4P 금속검출 통합 승인요청 생성: approvalId=${approvalId4p}, formRecordId=${ccp4pRec.id}`);
+                const { syncCcpInstanceStatusFromForm } = await import("../../db/haccp/ccpStatusSync");
+                await syncCcpInstanceStatusFromForm(ccp4pRec.id, ctx.tenantId);
               } else {
                 console.log(`[bulkCreateForDay] CCP-4P 승인요청 이미 존재 (id=${ccp4pRec.approval_request_id}) → skip`);
               }

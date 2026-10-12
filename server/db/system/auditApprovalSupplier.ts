@@ -524,6 +524,18 @@ export async function approveRequest(requestId: number, approvedBy: number, note
     comments: notes
   } as any);
 
+  // 3-1. [후처리] CCP 기록지 결재 → 기록지 status + 인스턴스 반영 (2026-10-12, CCP 단일 흐름 1단계)
+  if (request && (request as any).referenceType === "ccp_form_record" && (request as any).referenceId) {
+    const { applyCcpFormDecision } = await import("../haccp/ccpStatusSync");
+    const r = await applyCcpFormDecision({
+      formRecordId: Number((request as any).referenceId),
+      decision: "approved",
+      userId: approvedBy,
+      tenantId: (request as any).tenantId ?? undefined,
+    });
+    console.log(`[approveRequest] CCP 기록지 #${(request as any).referenceId} 승인 반영: form=${r.formUpdated} instances=${r.instancesUpdated}`);
+  }
+
   // 4. [후처리] 관련 document_instances 상태 자동 업데이트
   if (request) {
     try {
@@ -575,6 +587,9 @@ export async function rejectRequest(requestId: number, rejectedBy: number, rejec
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
+  const requestInfo = await db.select().from(hApprovalRequests).where(eq(hApprovalRequests.id, requestId)).limit(1);
+  const request = requestInfo[0];
+
   await db.update(hApprovalRequests)
     .set({
       status: "rejected",
@@ -592,6 +607,18 @@ export async function rejectRequest(requestId: number, rejectedBy: number, rejec
     actionAt: new Date(),
     comments: rejectionReason
   } as any);
+
+  // [후처리] CCP 기록지 반려 → 기록지 status + 인스턴스 반영 (2026-10-12)
+  if (request && (request as any).referenceType === "ccp_form_record" && (request as any).referenceId) {
+    const { applyCcpFormDecision } = await import("../haccp/ccpStatusSync");
+    await applyCcpFormDecision({
+      formRecordId: Number((request as any).referenceId),
+      decision: "rejected",
+      userId: rejectedBy,
+      reason: rejectionReason,
+      tenantId: (request as any).tenantId ?? undefined,
+    });
+  }
 
   return { success: true };
 }
