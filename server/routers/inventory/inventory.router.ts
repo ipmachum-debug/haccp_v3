@@ -485,57 +485,47 @@ export const inventoryRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // ★ 2026-10-12 (v3 5단계 6차): applyInventoryDelta 관문 경유 — LOT + 원장 + 집계 원자.
+        //   기존: LOT 를 0 에서 잘라내고(max(0, …)) 원장엔 입력 수량 그대로, 집계는 안 건드림 → 유령 원장.
+        //   업무일자 = 사용자가 입력한 출고일(releaseDate). 부족분은 음수 허용 정책(#447)대로 "입고 대기".
+        if (!(input.quantity > 0)) throw new Error("출고 수량은 0 보다 커야 합니다.");
+        if (!/^\d{4}-\d{2}-\d{2}/.test(input.releaseDate)) throw new Error("출고일 형식이 올바르지 않습니다 (YYYY-MM-DD).");
         const db = await getDb();
         if (!db) throw new Error("Database not available");
-        
-        // LOT 조회 (테넌트 격리 적용)
         const [lot] = await db.select().from(hInventoryLots).where(
-          and(
-            eq(hInventoryLots.id, input.lotId),
-            eq(hInventoryLots.tenantId, ctx.tenantId as any) 
-          )
+          and(eq(hInventoryLots.id, input.lotId), eq(hInventoryLots.tenantId, ctx.tenantId as any)),
         );
-        if (!lot) {
-          throw new Error("LOT을 찾을 수 없습니다.");
+        if (!lot) throw new Error("LOT을 찾을 수 없습니다.");
+
+        const { withInventoryTx, applyLotDelta, InventoryShortageError } = await import("../../lib/inventory/applyInventoryDelta");
+        const { isNegativeStockAllowed } = await import("../../lib/inventory/negativeStockPolicy");
+        const subject = lot.productId ? { productId: Number(lot.productId) } : { materialId: Number(lot.materialId) };
+        const allowNegative = isNegativeStockAllowed(ctx.tenantId);
+        try {
+          const r = await withInventoryTx(
+            (conn) => applyLotDelta(conn, {
+              tenantId: ctx.tenantId, lotId: input.lotId, subject,
+              quantity: input.quantity, direction: "decrease", transactionType: "usage",
+              unit: lot.unit || "kg", transactionDate: input.releaseDate.slice(0, 10),
+              reference: { referenceType: "manual_release", actionType: "RELEASE" },
+              notes: [input.reason, input.destination ? `→ ${input.destination}` : null].filter(Boolean).join(" ") || null,
+              createdBy: ctx.user.id, allowNegative,
+            }),
+            `releaseStock:${input.lotId}`,
+          );
+          return {
+            success: true,
+            message: r.remaining < 0
+              ? `출고가 완료되었습니다. (LOT 부족분 ${Math.abs(r.remaining).toFixed(3)} 입고 대기)`
+              : "출고가 완료되었습니다.",
+            remaining: r.remaining,
+          };
+        } catch (e: any) {
+          if (e instanceof InventoryShortageError) throw new Error(`재고 부족: LOT 가용 ${e.available}, 요청 ${e.requested}`);
+          throw e;
         }
-        
-        const availableQty = parseFloat(lot.availableQuantity);
-        
-        // 재고 0개여도 출고 가능 (처음 프로그램 시작 시 재고 미입력 고려)
-        // 마이너스 재고 방지: 재고가 있으면 차감, 없으면 0 유지
-        const newAvailableQty = Math.max(0, availableQty - input.quantity);
-        
-        // 재고 차감
-        await db.update(hInventoryLots)
-          .set({ 
-            availableQuantity: newAvailableQty.toString()
-          })
-          .where(and(
-            eq(hInventoryLots.id, input.lotId),
-            eq(hInventoryLots.tenantId, ctx.tenantId as any) 
-          ));
-        
-        // 거래 내역 기록 (h_inventory_transactions)
-        // PR-§5.2-2: material_id 직접 작성 (LOT material_id 승계)
-        await db.insert(hInventoryTransactions).values({
-          tenantId: ctx.tenantId,
-          lotId: input.lotId,
-          materialId: lot.materialId,
-          transactionType: "usage",
-          quantity: input.quantity.toString(),
-          unit: lot.unit,
-          notes: input.reason || null,
-          createdBy: ctx.user.id,
-          performedBy: ctx.user.id,
-          transactionDate: input.releaseDate
-        } as any);
-        
-        return { 
-          success: true, 
-          message: "출고가 완료되었습니다."
-        };
       }),
-    
+
     // 재고 조정 (재고 실사 등)
     adjustStock: workerProcedure
       .input(
@@ -776,6 +766,8 @@ export const inventoryRouter = router({
             reason: z.string().optional(),
           }).refine((v) => (v.productId && !v.materialId) || (!v.productId && v.materialId), { message: "productId 또는 materialId 중 하나" })).min(1),
           defaultReason: z.string().min(1).default("정기 재고 실사"),
+          /** 실사일 (YYYY-MM-DD). 생략 시 오늘. 현장은 며칠 뒤 입력하므로 실제 센 날을 넣는다. */
+          countDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
@@ -818,7 +810,7 @@ export const inventoryRouter = router({
           const reason = `[실사] ${item.reason || input.defaultReason}`;
           try {
             const r = await withInventoryTx(
-              (conn) => applyPhysicalCount(conn, { tenantId: ctx.tenantId, subject: idInfo, actualQty: item.actualQty, reason, userId: ctx.user.id, unit: meta?.unit }),
+              (conn) => applyPhysicalCount(conn, { tenantId: ctx.tenantId, subject: idInfo, actualQty: item.actualQty, reason, userId: ctx.user.id, unit: meta?.unit, countDate: input.countDate ?? null }),
               `physicalCount:${key}`,
             );
             results.push({ ...base, before: r.before, after: r.after, diff: r.diff, status: r.status, message: r.message,

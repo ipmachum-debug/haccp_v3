@@ -14,7 +14,8 @@
  * 규칙
  *   - 금액 = h_batches.material_cost > 0 ? material_cost : SUM(h_batch_inputs.total_price). 0 이면 전기 안 함.
  *   - 멱등: 같은 배치의 전표가 있으면 건너뜀 (description 마커 `[생산완료] BATCH-<id>` + tenant).
- *   - 전기 시작일 이전에 완료된 배치는 건너뜀 (PRODUCTION_JOURNAL_START_DATE, 기본 2026-10-12).
+ *   - 전기 시작일 이전 **생산일(planned_date)** 배치는 건너뜀 (PRODUCTION_JOURNAL_START_DATE, 기본 2026-10-12).
+ *     전표 entry_date 도 생산일. 완료 버튼 시각(completed_at)은 쓰지 않는다 — 현장은 며칠 뒤 입력한다.
  *   - 계정이 없으면 ensureSystemAccounts 로 시드 후 재조회 (운영 수작업 불필요).
  *   - 유령 재고 원장(h_inventory_transactions) 은 쓰지 않는다. 재고는 completeBatch 의 SKU LOT 이 정본.
  *   - 호출 지점: runBatchCompletionHooks (배치를 completed 로 만드는 모든 경로의 끝). 실패해도 완료는 유지.
@@ -23,6 +24,7 @@
 import { getRawConnection, withTransaction } from "../../db/connection";
 import { resolveSystemAccount, insertJournalLine, ensureSystemAccounts } from "../../db/accounting/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
+import { resolveBatchBusinessDate } from "./batchBusinessDate";
 
 export const DEFAULT_START_DATE = "2026-10-12";
 
@@ -70,15 +72,18 @@ export async function postProductionCompletionJournal(p: {
   const pool = await getRawConnection();
 
   const [bRows] = await pool.execute<any[]>(
-    `SELECT id, batch_code, status, completed_at, material_cost, actual_cost, actual_quantity
+    `SELECT id, batch_code, status, completed_at, planned_date, material_cost, actual_cost, actual_quantity
        FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`,
     [p.batchId, p.tenantId],
   );
   const batch = (bRows as any[])[0];
   if (!batch) return { posted: false, reason: "not_found" };
   if (batch.status !== "completed") return { posted: false, reason: "not_completed", detail: String(batch.status) };
-  if (!isOnOrAfterStart(batch.completed_at, startDate)) {
-    return { posted: false, reason: "before_start", detail: `${String(batch.completed_at).slice(0, 10)} < ${startDate}` };
+  // 업무일자 = 생산일(planned_date). 현장은 며칠 뒤 입력하므로 완료 시각으로 가르면
+  // 실사일 전 생산이 실사 뒤 입력됐을 때 평가액과 이중 계상된다 (2026-10-12 CEO 원칙).
+  const businessDate = resolveBatchBusinessDate(batch);
+  if (!isOnOrAfterStart(businessDate, startDate)) {
+    return { posted: false, reason: "before_start", detail: `${businessDate} < ${startDate}` };
   }
 
   const [iRows] = await pool.execute<any[]>(
@@ -99,7 +104,7 @@ export async function postProductionCompletionJournal(p: {
   }
 
   const marker = journalMarker(p.batchId);
-  const entryDate = String(batch.completed_at).slice(0, 10);
+  const entryDate = businessDate;
   const description = `${marker} ${batch.batch_code ?? ""} 원재료 → 제품 ${amount.toLocaleString("ko-KR")}원`.trim();
 
   return await withTransaction(async (conn) => {

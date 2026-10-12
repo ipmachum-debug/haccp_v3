@@ -36,6 +36,7 @@ import { postWithinTransaction } from "../_core";
 import type { TransactionContext } from "../_core";
 import { allocateLotsFEFO, NoLotsForNegativeError, type FefoAllocation } from "../inventory/fefoLotAllocation";
 import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
+import { resolveBatchBusinessDate } from "./batchBusinessDate";
 import { reconcileNegativeLots, createNegativePlaceholderLot } from "../inventory/negativeLotReconcile";
 
 /** v1 과 동일 result 타입 (호환성) */
@@ -70,15 +71,8 @@ function isWaterMaterial(materialName: string | null | undefined): boolean {
 /**
  * 배치 일자 결정 — v1 의 resolveBatchTransactionDate 와 동일.
  */
-function resolveBatchTransactionDate(batch: {
-  completed_at?: any;
-  planned_date?: any;
-}): string {
-  const candidate = batch?.completed_at ?? batch?.planned_date ?? null;
-  const d = candidate ? new Date(candidate) : new Date();
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000);
-  return kst.toISOString().split("T")[0];
-}
+// 2026-10-12: 업무일자 = 생산일(planned_date) 우선 (batchBusinessDate.ts 로 통일).
+const resolveBatchTransactionDate = resolveBatchBusinessDate;
 
 /**
  * 배치 정보 + 투입 계획 read-only 조회.

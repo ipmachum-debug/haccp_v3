@@ -67,7 +67,7 @@ function todayStr(): string {
  */
 export async function adjustLot(
   conn: InvConn,
-  p: { tenantId: number; lotId: number; delta: number; reason: string; userId: number; source?: string },
+  p: { tenantId: number; lotId: number; delta: number; reason: string; userId: number; source?: string; businessDate?: string | null },
 ): Promise<AffectedLot & { before: number }> {
   if (Math.abs(p.delta) < EPS) throw new Error("조정할 수량 변동이 없습니다.");
 
@@ -89,7 +89,7 @@ export async function adjustLot(
     direction: p.delta > 0 ? "increase" : "decrease",
     transactionType: "adjustment",
     unit: lot.unit || "kg",
-    transactionDate: todayStr(),
+    transactionDate: p.businessDate || todayStr(),
     reference: { referenceType: "adjustment", actionType: p.source ?? "ADJUST_LOT" },
     notes: `[재고조정] ${p.reason} (${before} → ${(before + p.delta).toFixed(3)})`,
     createdBy: p.userId,
@@ -142,14 +142,14 @@ async function loadActiveLots(
  */
 export async function adjustBySubject(
   conn: InvConn,
-  p: { tenantId: number; subject: AdjustSubject; delta: number; reason: string; userId: number; source?: string },
+  p: { tenantId: number; subject: AdjustSubject; delta: number; reason: string; userId: number; source?: string; businessDate?: string | null },
 ): Promise<{ affected: AffectedLot[]; before: number; after: number }> {
   if (Math.abs(p.delta) < EPS) throw new Error("조정 수량은 0 이 될 수 없습니다");
   const { lots, before, subjectForDelta } = await loadActiveLots(conn, { tenantId: p.tenantId, subject: p.subject, order: p.delta > 0 ? "DESC" : "ASC" });
   if (lots.length === 0) throw new NoActiveLotsError(p.subject);
 
   const affected: AffectedLot[] = [];
-  const date = todayStr();
+  const date = p.businessDate || todayStr();
   const note = `[재고조정] ${p.reason}`;
   const reference = { referenceType: "adjustment", actionType: p.source ?? "ADJUST_SUBJECT" };
 
@@ -205,7 +205,7 @@ export interface PhysicalCountResult {
  */
 export async function applyPhysicalCount(
   conn: InvConn,
-  p: { tenantId: number; subject: AdjustSubject; actualQty: number; reason: string; userId: number; unit?: string | null },
+  p: { tenantId: number; subject: AdjustSubject; actualQty: number; reason: string; userId: number; unit?: string | null; countDate?: string | null },
 ): Promise<PhysicalCountResult> {
   if (!Number.isFinite(p.actualQty) || p.actualQty < 0) throw new Error("실사 수량은 0 이상이어야 합니다");
   const { lots, before, subjectForDelta, canonicalId, col } = await loadActiveLots(conn, { tenantId: p.tenantId, subject: p.subject, order: "ASC" });
@@ -224,7 +224,7 @@ export async function applyPhysicalCount(
       lotNumber,
       quantity: diff,
       unit,
-      receiptDate: todayStr(),
+      receiptDate: p.countDate || todayStr(),
       transactionType: "adjustment",
       reference: { referenceType: "adjustment", actionType: "PHYSICAL_COUNT_NEW_LOT" },
       notes: `[실사] ${p.reason} — 활성 LOT 없어 실사 LOT 생성`,
@@ -240,6 +240,7 @@ export async function applyPhysicalCount(
 
   const r = await adjustBySubject(conn, {
     tenantId: p.tenantId, subject: p.subject, delta: diff, reason: p.reason, userId: p.userId, source: "PHYSICAL_COUNT",
+    businessDate: p.countDate || null,
   });
   return { before: r.before, after: r.after, diff, status: "applied", message: `${r.affected.length}개 LOT 조정`, affected: r.affected };
 }
