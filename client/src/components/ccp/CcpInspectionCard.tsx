@@ -436,7 +436,10 @@ export function CcpInspectionCard({
   defaultExpanded = false,
 }: CcpInspectionCardProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
-  const [activeTab, setActiveTab] = useState("equipment");
+  // CCP-4P 에는 "설비 기준" 탭이 없다 → 기본 탭을 유형에 맞춰야 내용이 그려진다
+  const [activeTab, setActiveTab] = useState(
+    ccp.ccpType === "CCP-4P" || ccp.ccpType === "CCP_4P" ? "metal" : "equipment",
+  );
 
   // 신규 행 입력 상태
   const [newTempC, setNewTempC] = useState("");
