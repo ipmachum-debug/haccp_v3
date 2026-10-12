@@ -41,25 +41,8 @@ export const accountingTransactions = mysqlTable("accounting_transactions", {
   sourceIdx: index("idx_source").on(table.sourceType, table.sourceId),
 }));
 
-/**
- * 문서 라인별 LOT 할당 저장 테이블 (doc_line_lots)
- */
-export const docLineLots = mysqlTable("doc_line_lots", {
-  id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
-  docType: mysqlEnum("doc_type", ["PURCHASE", "SALE", "MATERIAL_ISSUE", "BATCH", "OTHER"]).notNull(),
-  docId: varchar("doc_id", { length: 64 }).notNull(),
-  docLineId: varchar("doc_line_id", { length: 64 }).notNull(),
-  lotId: bigint("lot_id", { mode: "number" }).notNull(),
-  quantity: decimal("quantity", { precision: 10, scale: 3 }).notNull(),
-  unit: varchar("unit", { length: 20 }).notNull(),
-  unitCost: decimal("unit_cost", { precision: 15, scale: 2 }),
-  amount: decimal("amount", { precision: 15, scale: 2 }),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  createdBy: bigint("created_by", { mode: "number" }).notNull(),
-}, (table) => ({
-  docIdx: index("idx_doc").on(table.docType, table.docId),
-  lotIdIdx: index("idx_lot_id").on(table.lotId),
-}));
+// doc_line_lots: 2026-10-12 제거 — 운영 DB 에 없고 호출자 0 (saveLotAllocations 와 함께 삭제, 12 문서 F 그룹)
+
 
 /**
  * 계정 과목 마스터 테이블 (accounting_accounts)

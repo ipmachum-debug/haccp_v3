@@ -268,44 +268,4 @@ export async function allocateLotsFEFO(
   return allocations;
 }
 
-/**
- * LOT 할당 결과를 doc_line_lots 테이블에 저장
- *
- * @param docType 문서 타입 (PURCHASE, SALE, MATERIAL_ISSUE, BATCH, OTHER)
- * @param docId 문서 ID
- * @param docLineId 문서 라인 ID
- * @param allocations FEFO 할당 결과
- * @param unit 단위
- * @param createdBy 생성자 ID
- * @param tenantId 테넌트 ID (보안: 크로스 테넌트 접근 방지)
- * @param conn (선택) PoolConnection — 단일 트랜잭션 통합용 (F-2)
- */
-export async function saveLotAllocations(
-  docType: "PURCHASE" | "SALE" | "MATERIAL_ISSUE" | "BATCH" | "OTHER",
-  docId: string,
-  docLineId: string,
-  allocations: Array<{ lotId: number; quantity: number; unitCost: number }>,
-  unit: string,
-  createdBy: number,
-  tenantId: number,
-  conn?: PoolConnection,
-): Promise<void> {
-  const db = await resolveDrizzle(conn);
-
-  const { docLineLots } = await import("../../../drizzle/schema/schema_inventory_accounting");
-
-  // doc_line_lots 테이블에 삽입
-  for (const alloc of allocations) {
-    await db.insert(docLineLots).values({
-      docType,
-      docId,
-      docLineId,
-      lotId: alloc.lotId,
-      quantity: alloc.quantity.toString(),
-      unit,
-      unitCost: alloc.unitCost.toString(),
-      amount: (alloc.quantity * alloc.unitCost).toFixed(2),
-      createdBy
-    });
-  }
-}
+// saveLotAllocations / doc_line_lots 는 2026-10-12 제거 — 운영 DB 에 테이블이 없었고 호출자 0 (#452 로 마지막 호출자 소멸).

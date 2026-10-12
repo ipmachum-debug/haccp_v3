@@ -61,3 +61,6 @@ export * from "./skuBundles";
 export * from "./bundleLots";
 // PR #298 — SKU 별칭 (Excel 일괄 등록 매칭용)
 export * from "./skuAliases";
+
+// 2026-10-12 v3 6-b: 운영 DB introspect — 앱이 쓰는데 스키마에 없던 테이블 (12-schema-baseline-step6.md D·E)
+export * from "./introspected_2026_10_12";

@@ -1,31 +1,65 @@
-# 12. 스키마 baseline — 6단계 (빈 테이블·백업 테이블 정리 + Drizzle = DB)
+# 12. 스키마 정본화 — 6단계 (Drizzle 스키마 = 운영 DB)
 
-> 작성: 2026-10-12. 상태: **분류 확정, 실행 대기** (FK 4단계 일주일 관찰 뒤 실행 권장).
-> 근거: 운영 DB 덤프 2026-10-10 (444 테이블) × Drizzle 스키마 (358 테이블) × 앱 코드 참조 (server/client/shared, 테스트·일회성 스크립트 제외).
+> 작성: 2026-10-12 (v2 — 1차 분류의 집계 오류 정정). 상태: **6-b/6-c PR 올림, 6-a 실행 대기**.
+> 근거: 운영 DB 덤프 2026-10-10 (444 테이블) · `drizzle-kit introspect` 결과(2026-10-12, Genspark, 읽기 전용) · Drizzle 스키마 · 앱 코드 참조.
 > 선행: `11-identity-policy-v3.md` §3 6단계.
 
-## 0. 한 줄 결론
+## 0. 목표와 원칙 (CEO, 2026-10-12)
 
-DB 와 Drizzle 스키마가 서로 다른 테이블 목록을 갖고 있다 (DB-only 122, 스키마-only 36).
-**스키마가 진실이 아니다.** 6단계는 (a) 백업·죽은 테이블을 치우고 (b) 코드가 실제로 쓰는 테이블을 스키마에 넣고
-(c) 코드가 쓰는데 DB 에 없는 테이블을 만들어서, 그 뒤로는 `drizzle-kit` 이 DB 와 1:1 이 되게 하는 작업이다.
+**6단계는 "테이블 삭제 프로젝트" 가 아니라 "스키마 정본화 프로젝트" 다.** 테이블 수를 줄이는 것은 목표가 아니다.
+447개 테이블은 세 종류가 섞여 있다.
 
-## 1. 분류 (덤프 실측)
+| 종류 | 처리 |
+|---|---|
+| ① 현재 운영에 필요한 테이블 | 스키마에 정확히 있어야 한다 |
+| ② 향후 기능 확장을 위해 설계된 테이블 (지금은 비어 있음) | **유지**. 비어 있다는 이유로 지우지 않는다 |
+| ③ 초기 개발 잔재 — 중복·백업·폐기 | 실제 사용·코드 참조·데이터 보유·의존성을 전부 확인한 뒤에만 정리 |
 
-| 분류 | 테이블 수 | 처리 |
-|---|---:|---|
-| A. 백업·임시 테이블 (스키마 밖, 앱 참조 0) | **28** (13,332행) | 아카이브(mysqldump 파일) 후 DROP |
-| B. DB-only · 비어 있음 · 앱 참조 0 | **14** | DROP (실행 시점 0행 재확인) |
-| C. DB-only · 데이터 있음 · 앱 참조 0 | **2** | `phase2_lot0_matches` 아카이브 후 DROP, `sku_aliases`(1행) 용도 확인 후 |
-| D. DB-only · 앱이 쓰는데 스키마에 없음 (데이터 있음) | **28** | **Drizzle 스키마에 추가** (introspect) — 6-b |
-| E. DB-only · 앱이 쓰는데 스키마에 없음 (비어 있음) | **50** | 스키마에 추가 — 6-b (기능 미사용이지만 코드가 쓴다) |
-| F. 스키마-only · 앱이 참조 | **11** | **DB 에 생성** — 지금 호출되면 500. 우선 확인 — 6-c |
-| G. 스키마-only · 앱 참조 0 | **25** | Drizzle 스키마에서 제거 (platform 설계 잔재) — 6-c |
-| H. 스키마에 있고 비어 있음 | 230 | 유지 (기능 미사용) |
+②를 ③으로 오판하면 다시 개발해야 하고, 반대로 "언젠가 쓸지도" 로 전부 두는 것도 답이 아니다.
+가장 조심할 것은 **과거 데이터 보존** — 0~5단계에서 복구한 참조 관계를 스키마 정리로 다시 깨면 안 된다.
+**완료 기준 = 코드·스키마·DB 의 구조 차이 전수 검사가 0 (§6).**
 
-`_orphan_*_20261012` 격리 테이블(2단계)은 30일 보존 후 별도 결정 — 이 문서 대상 아님.
+## 1. 1차 분류의 오류와 정정
 
-## 2. A — 백업·임시 테이블 (28)
+1차(#460)는 Drizzle 테이블 선언을 `mysqlTable("…")` 큰따옴표만으로 세어 **스키마를 358개로 과소 집계**했다
+(작은따옴표·줄바꿈 선언 누락). 그 결과 "앱이 쓰는데 스키마에 없음 78", "비어 있고 미참조 14", "스키마에만 있음 36" 이 나왔다.
+따옴표·줄바꿈에 무관한 재집계 결과는 아래와 같다. **14개 "빈·미참조" 는 전부 ②(스키마에 있는 미래 기능 테이블) 였다 — 지우지 않는다.**
+
+| 집계 | 1차 (오류) | 정정 |
+|---|---:|---:|
+| Drizzle 스키마 테이블 | 358 | **392** |
+| DB-only (스키마에 없음) | 122 | **53** |
+| 스키마-only (DB 에 없음) | 36 | **1** (`banners`) |
+
+## 2. 정정된 분류 (덤프 444 테이블)
+
+| 분류 | 수 | 종류 | 처리 |
+|---|---:|---|---|
+| A 백업·임시 (스키마 밖, 앱 참조 0, 전부 2026-04~07 일회성) | **28** (13,332행) | ③ | 아카이브(mysqldump 파일) 후 DROP — 6-a |
+| B DB-only · 빈 · 미참조 | **0** | — | (1차의 14개는 전부 스키마에 있는 ② 였음) |
+| C DB-only · 데이터 있음 · 미참조 | **1** | ③ | `phase2_lot0_matches_2026_04_28` (440행, 2026-04-28 매칭 작업 산출물) 아카이브 후 DROP — 6-a |
+| D·E 앱이 쓰는데 **스키마에 없음** | **24** | ① | **introspect 그대로 스키마에 추가** — 6-b (이 PR) |
+| F 스키마-only · 앱 참조 | **1** (`banners`) | ① | DB 에 생성 — 6-c (이 PR, SQL) |
+| G 스키마-only · 미참조 (1차 25 + 미구축 billing 5 + 중복 tenants 1 + IoT 4 + doc_line_lots 1) | 36 → **0** | ③ | 스키마에서 제거 — 6-c (이 PR). 운영 DB 에 없었으므로 데이터 영향 0 |
+| H 스키마에 있고 비어 있음 | **282** | ② | **유지** |
+
+`_orphan_*_20261012` 격리 테이블(2단계)은 대상 아님 (30일 보존).
+
+### D·E — 스키마에 추가한 24개 (`drizzle/schema/introspected_2026_10_12.ts`)
+`ai_chat_history`, `ai_parse_corrections`, `ai_parse_history`, `attendance_records`, `budgets`, `document_approval_history`, `document_auto_approval_settings`, `document_batch_print_groups`, `document_batch_print_items`, `document_instances`, `document_types`, `fixed_asset_depreciation`, `fixed_assets`, `h_batch_pdf_logs`, `h_finished_product_inspection_items`, `h_finished_product_inspection_logs`, `h_product_outbound`, `h_training_levels`, `h_training_monthly_reports`, `h_visual_inspection_items`, `h_visual_inspection_logs`, `leave_balances`, `leave_requests`, `payroll_records`
+
+introspect 출력(snake_case 컬럼 키)을 그대로 넣었다. 수작업 변환 금지. drizzle-kit 0.31 의 빈 문자열 기본값 버그(`.default(')`)만 `''` 로 교정.
+
+### G — 스키마에서 제거한 것 (운영 DB 에 없던 선언)
+- `schema_control_plane.ts` 전체: **중복 `tenants` 정의**(정본은 `schema_main_core.ts`) + 미구축 billing(plans/subscriptions/licenses/billing_accounts/invoices/payments) + tenant_domains/environments
+- `schema_control_plane_domain.ts` 전체: 중복 `support_tickets`(정본 `support.ts`) + kpi/onboarding/notification/import_runs
+- `schema_control_plane_ops.ts`: super_admin_* / tenant_settings / feature_flags / tenant_feature_flags / usage_counters_daily / quota_events / system_health_snapshots / tenant_health / backups / migrations / tenant_migration_runs / incidents / incident_updates / security_events 제거 → `audit_logs`, `banners` 만 남김
+- `iotSchema.ts` + IoT 코드 4파일: CEO 결정 "지금 안 씀, 자동화 모듈 때 재개발". git 이력에 남음
+- `doc_line_lots` + `saveLotAllocations`: 호출자 0 (#452 로 소멸)
+
+**결제·구독**: 운영 중인 모델은 `tenants.subscription_package` + `package_features`(54) + `subscription_payments` + Toss 빌링키(`subscription.router`, 월정산 스케줄러)다. 제거한 billing 5개는 코드가 전혀 쓰지 않는 두 번째 설계였다. 서비스화는 **기존 모델을 완성**하는 별도 프로젝트로.
+
+## 3. A — 백업·임시 테이블 (28)
 | 테이블 | 행수 |
 |---|---|
 | _backup_h_batch_inputs_step16 | 860 |
@@ -57,66 +91,18 @@ DB 와 Drizzle 스키마가 서로 다른 테이블 목록을 갖고 있다 (DB-
 | w3_tx_backup_2026_04_26 | 4000 |
 | w4_backup_lot_750_removal_2026_06_25 | 3 |
 
-전부 2026-04~07 일회성 작업의 백업이다. 복구가 필요했던 적 없음. 한 파일로 아카이브(`§1` 명령) 후 DROP.
+## 4. 6-a 실행 (Genspark, FK 일주일 관찰 후)
+`scripts/migrations-manual/2026-10-12-step6-cleanup.sql`: §1 아카이브(mysqldump 한 파일) → §2 DROP 29 (A 28 + C 1) → §3 테이블 수 확인. **빈 테이블 DROP 은 없다.**
 
-## 3. B — 비어 있고 아무도 안 쓰는 테이블 (14)
-`accounting_purchase_items`, `accounting_sale_items`, `checklist_approvals`, `checklist_instance_item_history`, `checklist_schedules`, `checklist_template_versions`, `communication_log_files`, `h_cosmetic_formula_ingredient`, `h_quality_risk_assessments`, `hazard_analysis`, `metal_detection_standards`, `product_ccp_specs`, `product_specifications`, `verification_records`
+## 5. 외부 진단이 짚은 후속 과제 (6-d 후보, 이 PR 범위 아님)
+| 지적 | 상태 | 방향 |
+|---|---|---|
+| 테넌트 포함 복합 FK 0개 — FK 가 (tenant_id 일치) 까지는 보장 못 함 | 사실 | 부모에 `(tenant_id, id)` 유니크 추가 후 복합 FK 로 승격. 앱 레벨은 이미 `tenantRequiredProcedure` + JOIN 테넌트 조건. 실사 후 검토 |
+| `tenant_id DEFAULT 1` 126개 / `DEFAULT 2` 6개(`material_ledger_daily` 포함) / `DEFAULT 0` 1개 | 사실 | 테넌트 누락 쓰기가 조용히 잘못된 테넌트로 가는 구조. DEFAULT 제거(NOT NULL, 기본값 없음) 로 **누락이 에러로 드러나게** — 쓰기 경로 전수 점검과 함께 |
+| FK 없는 핵심 3곳: `h_ccp_form_records.batch_id`, `h_inventory_lots.inventory_id`, `material_ledger_daily.material_id` | 알려짐 (#458 보류 목록) | 각각 고아 45 격리 / 완제품 집계 행(10 문서) / 선택지 A 58건 처리 후 |
+| `h_mf_ingredients.material_id → item_master` vs `h_batch_inputs.material_id → h_materials` | 의도된 두 층위 (11 문서 §2-1) | `ItemIdentityService` 경유 강제(depcruise error) 유지 |
 
-실행 시점에 `COUNT(*)=0` 을 다시 확인하고 DROP.
-
-## 4. C — 데이터는 있는데 아무도 안 쓰는 테이블 (2)
-| 테이블 | 행수 |
-|---|---|
-| phase2_lot0_matches_2026_04_28 | 440 |
-| sku_aliases | 1 |
-
-## 5. D·E — 앱은 쓰는데 Drizzle 스키마에 없는 테이블 (78) → 6-b
-**데이터 있음 (28)**
-| 테이블 | 행수 |
-|---|---|
-| account_categories | 27 |
-| ai_alerts | 2301 |
-| ai_audit_logs | 16 |
-| ai_chat_history | 72 |
-| ai_parse_corrections | 396 |
-| ai_parse_history | 120 |
-| attendance_records | 582 |
-| b2c_sellers | 4 |
-| bundle_lots | 222 |
-| ccp_process_group_equipments | 17 |
-| ccp_process_group_products | 154 |
-| ccp_process_groups | 5 |
-| ccp_time_profiles | 4 |
-| communication_log_acks | 183 |
-| communication_log_comments | 30 |
-| communication_log_notifications | 40 |
-| document_types | 2220 |
-| h_finished_product_inspection_items | 2153 |
-| h_finished_product_inspection_logs | 22 |
-| h_training_levels | 9 |
-| h_visual_inspection_items | 585 |
-| h_visual_inspection_logs | 21 |
-| leave_balances | 15 |
-| leave_requests | 32 |
-| partner_activities | 426 |
-| partner_scores | 12112 |
-| partner_tags | 124 |
-| sku_bundles | 17 |
-
-**비어 있음 (50)**: `ai_batch_summaries`, `ai_knowledge_chunks`, `ai_knowledge_documents`, `ai_rules`, `ai_standards`, `b2c_sales_entries`, `budgets`, `capabilities`, `ccp_limits`, `ccp_monitoring_records`, `ccp_product_time_profile_map`, `checklist_instance_items`, `checklist_instances`, `checklist_template_items`, `checklist_templates`, `document_approval_history`, `document_auto_approval_settings`, `document_batch_print_groups`, `document_batch_print_items`, `document_instances`, `fixed_asset_depreciation`, `fixed_assets`, `h_allergen_assessments`, `h_audits`, `h_batch_pdf_logs`, `h_calibrations`, `h_change_controls`, `h_corrective_actions`, `h_cosmetic_bmr`, `h_cosmetic_bmr_ingredient`, `h_cosmetic_bmr_ipc`, `h_cosmetic_formula`, `h_cosmetic_label`, `h_cosmetic_release`, `h_cosmetic_stability_observation`, `h_cosmetic_stability_test`, `h_environmental_monitoring`, `h_food_defense_assessments`, `h_food_fraud_assessments`, `h_food_safety_culture_assessments`, `h_nonconformings`, `h_product_outbound`, `h_quality_suppliers`, `h_training_monthly_reports`, `h_trainings`, `metal_detection_tests`, `partner_documents`, `payroll_records`, `role_capabilities`, `user_capability_grants`
-
-처리: `drizzle-kit introspect` 로 DB 에서 끌어와 `drizzle/schema/` 에 넣는다. 이 78개가 스키마에 들어가야 "스키마 = DB" 가 성립하고 FK·마이그레이션을 Drizzle 로 관리할 수 있다. 수작업 금지.
-
-## 6. F·G — Drizzle 스키마에만 있는 테이블 (36) → 6-c
-**앱이 참조 (11) — 운영에 없음, 호출되면 500**: `backups`, `banners`, `doc_line_lots`, `invoices`, `iot_devices`, `iot_events`, `iot_rules`, `iot_sensor_data`, `migrations`, `payments`, `plans`
-- `doc_line_lots`: `saveLotAllocations` 가 쓰지만 호출자 0 (원재료 출고 전표 삭제 #452 로 소멸) → 함수와 함께 제거 후보
-- `banners`, `iot_*`, `invoices` / `payments` / `plans`, `backups`, `migrations`: 운영 화면에서 해당 메뉴를 열어 500 인지 확인 → 쓰면 생성, 안 쓰면 코드 제거
-
-**앱 참조 0 (25) — 스키마에서 제거**: `billing_accounts`, `data_import_runs`, `feature_flags`, `incident_updates`, `incidents`, `licenses`, `quota_events`, `security_events`, `subscriptions`, `super_admin_roles`, `super_admin_sessions`, `super_admin_user_roles`, `super_admin_users`, `support_ticket_comments`, `system_health_snapshots`, `tenant_domains`, `tenant_environments`, `tenant_feature_flags`, `tenant_health`, `tenant_kpi_daily`, `tenant_migration_runs`, `tenant_notification_settings`, `tenant_onboarding`, `tenant_settings`, `usage_counters_daily`
-
-## 7. 실행 순서
-1. (지금) 이 문서 머지 — 분류 확정.
-2. FK(#458) 일주일 관찰 종료 후 `scripts/migrations-manual/2026-10-12-step6-cleanup.sql` §1 아카이브 → §2 사전검사 → §3 DROP (A·B·C). Genspark.
-3. 6-b: introspect PR (D·E 78개 스키마 추가). Claude.
-4. 6-c: F 확인 결과에 따라 생성/제거, G 스키마 제거. Claude.
-5. 끝나면 `drizzle-kit check` 가 0 diff → 이후 DDL 은 Drizzle 마이그레이션으로만.
+## 6. 완료 기준 — 전수 diff
+`scripts/diag/schema-diff.ts <introspect schema.ts>` 가 **DB-only 0 · 스키마-only 0** 을 출력하면 6단계 완료.
+(A·C DROP 과 banners 생성이 끝난 뒤 Genspark 가 introspect 를 다시 떠서 돌린다. 이 결과가 6단계 완료의 근거다.)
+그 뒤로는 DDL 을 Drizzle 마이그레이션으로만 한다 — 운영 DB 에 손으로 테이블을 만들면 diff 가 다시 벌어진다.
