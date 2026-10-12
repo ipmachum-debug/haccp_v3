@@ -14,6 +14,8 @@
 4. [03-event-catalog.md](./03-event-catalog.md) — 표준 도메인 이벤트 + outbox 패턴
 5. [04-policy-registry.md](./04-policy-registry.md) — Feature / Capability / Package / Posting / Approval 정책
 6. [11-identity-policy-v3.md](./11-identity-policy-v3.md) — **품목 정체성 정본 정책 (v3 개편 0단계)** — 품목 id 를 다루는 모든 코드의 전제. 07 · 09 를 통합
+7. [12-schema-baseline-step6.md](./12-schema-baseline-step6.md) — 스키마 정본화 (6단계): 분류·6-a 정리·완료 기준(schema-diff 0/0)
+8. [13-role-workflow-screens-step7.md](./13-role-workflow-screens-step7.md) — 역할별 업무 화면 (7단계) 설계 초안: 첫 화면·"오늘의 생산"·허브 8개·측정·롤아웃
 
 ### 결정 기록 (ADR)
 - [ADR-001-shared-kernel.md](./ADR-001-shared-kernel.md) — Shared Kernel 도입
