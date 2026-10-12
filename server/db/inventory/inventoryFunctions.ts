@@ -1074,51 +1074,6 @@ export async function getInventoryTurnoverAnalysis(params: {
 // Release Inventory Stock
 // ============================================================================
 
-export async function releaseInventoryStock(params: {
-  lotId: number;
-  quantity: number;
-  reason?: string;
-  userId: number;
-}) {
-  const db = await getDb();
-
-  const { hInventoryLots, hInventoryTransactions } = await import("../../../drizzle/schema/schema_main");
-  const { eq } = await import("drizzle-orm");
-
-  // LOT 조회
-  const lot = await db.select().from(hInventoryLots).where(eq(hInventoryLots.id, params.lotId)).limit(1);
-  if (!lot || lot.length === 0) {
-    throw new Error("LOT를 찾을 수 없습니다");
-  }
-
-  const currentLot = lot[0];
-  const availableQty = parseFloat(currentLot.availableQuantity);
-
-  if (availableQty < params.quantity) {
-    throw new Error(`가용 수량이 부족합니다 (가용: ${availableQty}, 요청: ${params.quantity})`);
-  }
-
-  // 가용 수량 감소
-  await db.update(hInventoryLots)
-    .set({
-      availableQuantity: (availableQty - params.quantity).toString()
-    })
-    .where(eq(hInventoryLots.id, params.lotId));
-
-  // 거래 기록 생성
-  await db.insert(hInventoryTransactions).values({
-    lotId: params.lotId,
-    materialId: currentLot.materialId,
-    transactionType: "release",
-    quantity: params.quantity.toString(),
-    unit: currentLot.unit,
-    transactionDate: new Date(),
-    reason: params.reason || "재고 출고",
-    userId: params.userId
-  } as any);
-
-  return { success: true, message: "재고 출고가 완료되었습니다" };
-}
 
 // ============================================================================
 // Inventory Receipt History
@@ -1156,55 +1111,6 @@ export async function getInventoryReceiptHistory() {
 // Adjust Inventory Stock
 // ============================================================================
 
-/**
- * 재고 조정
- */
-export async function adjustInventoryStock(params: {
-  lotId: number;
-  quantityChange: number;
-  reason: string;
-  userId: number;
-}) {
-  const db = await getDb();
-
-  const { hInventoryLots, hInventoryTransactions } = await import("../../../drizzle/schema/schema_main");
-  const { eq } = await import("drizzle-orm");
-
-  // LOT 조회
-  const lot = await db.select().from(hInventoryLots).where(eq(hInventoryLots.id, params.lotId)).limit(1);
-  if (!lot || lot.length === 0) {
-    throw new Error("LOT를 찾을 수 없습니다");
-  }
-
-  const currentLot = lot[0];
-  const currentQty = parseFloat(currentLot.quantity);
-  const currentAvailableQty = parseFloat(currentLot.availableQuantity);
-  const newQty = currentQty + params.quantityChange;
-  const newAvailableQty = currentAvailableQty + params.quantityChange;
-
-  if (newQty < 0 || newAvailableQty < 0) {
-    throw new Error("조정 후 수량이 음수가 될 수 없습니다");
-  }
-
-  // 수량 조정
-  await db.update(hInventoryLots)
-    .set({
-      quantity: newQty.toString(),
-      availableQuantity: newAvailableQty.toString()
-    })
-    .where(eq(hInventoryLots.id, params.lotId));
-
-  // 거래 기록 생성
-  await db.insert(hInventoryTransactions).values({
-    lotId: params.lotId,
-    materialId: currentLot.materialId,
-    transactionType: params.quantityChange > 0 ? "adjustment_increase" : "adjustment_decrease",
-    quantity: Math.abs(params.quantityChange).toString(),
-    unit: currentLot.unit,
-    transactionDate: new Date(),
-    reason: params.reason,
-    userId: params.userId
-  } as any);
-
-  return { success: true, message: "재고 조정이 완료되었습니다" };
-}
+// releaseInventoryStock / adjustInventoryStock 는 2026-10-12 제거 (v3 5단계 5차).
+//   호출자 0, 비표준 transaction_type 으로 LOT+원장만 쓰고 집계 미반영이던 경로.
+//   출고·조정은 server/lib/inventory/{applyInventoryDelta,stockAdjustment}.ts 관문으로.

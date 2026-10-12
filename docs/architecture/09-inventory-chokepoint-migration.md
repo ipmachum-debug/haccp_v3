@@ -75,7 +75,7 @@ h_inventory_lots (LOT, FEFO 정본)  ⇄  h_inventory_transactions (원장)  ⇄
 | ⏳ | `production/autoMaterialIssue.autoMaterialIssue`(v1) | 3 leg(비원자)+fallback | v2 로 수렴 검토 |
 | ⏳ | `production/batchLifecycle.completeBatch` | AGG 선차감 후 LOT/TXN best-effort | 순서 취약. 패턴 B 재구성 |
 | 🔜 | `inventory/inventoryFunctions.addMaterialInputToBatch` | LOT+TXN | 패턴 A |
-| 🔜 | `inventory/inventoryFunctions.releaseInventory` | LOT+TXN | 비표준 txn_type |
+| ✅**제거** | `inventory/inventoryFunctions.releaseInventoryStock` | — | 2026-10-12 삭제 (호출자 0). 출고는 관문 경유 경로만 |
 | 🔜 | `inventory/inventory.router.release` | LOT+TXN | 패턴 A |
 | 🔜 | `system/simplifiedDataProcessor.createOutbound` | LOT+TXN | |
 | 🔜 | `system/simplifiedDataProcessor.createBatchInput` | LOT+AGG, **TXN 생략** | 원장 공백 |
@@ -95,7 +95,7 @@ h_inventory_lots (LOT, FEFO 정본)  ⇄  h_inventory_transactions (원장)  ⇄
 | 상태 | 사이트 | leg | 비고 |
 |------|--------|-----|------|
 | ✅**제거** | `inventory/inventoryAdjustment.adjustInventory` | — | 2026-10-12 삭제 (클라이언트 호출 0). `stockAdjustment.adjustLot` 로 대체 |
-| 🔜 | `inventory/inventoryFunctions.adjustInventoryStock` | LOT+TXN | 비표준 txn_type |
+| ✅**제거** | `inventory/inventoryFunctions.adjustInventoryStock` | — | 2026-10-12 삭제 (호출자 0). `stockAdjustment.adjustLot` 로 대체 |
 | ✅**이주완료** | `inventory/inventory.router.adjustStock` | 관문 | 2026-10-12 `stockAdjustment.adjustLot` → `applyLotDelta` |
 | ✅**이주완료** | `inventory/inventory.router.adjustStockByProduct` | 관문 | 2026-10-12 `stockAdjustment.adjustBySubject` (자재 id 는 ItemIdentityService 변환) |
 | ✅**이주완료** | `inventory/inventory.router.bulkApplyInventoryCount` (실사) | 관문 | 2026-10-12 품목마다 `withInventoryTx(adjustBySubject)` |
