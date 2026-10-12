@@ -26,6 +26,15 @@ permissions:
   contents: write   # gh release create 가 tag + release 생성
   actions: write    # PAT 실패 시 deploy.yml 을 workflow_dispatch 로 직접 트리거
 
+# ★ 2026-10-13 — 연속 머지 경합 방지 (10/12 #468·#469·#470 사고):
+#   PR 세 개가 1분 안에 머지되자 run 세 개가 동시에 "다음 버전"을 계산해 #469·#470 이 둘 다 v0.8.340 을
+#   잡았다. #469 가 먼저 만들고 #470 의 `gh release create` 는 태그 충돌로 실패 → #470 은 release 가
+#   없어 배포에서 빠졌다. run 을 직렬화하면 뒤 run 이 앞 run 의 태그를 보고 다음 번호를 잡는다.
+#   cancel-in-progress=false: 커밋마다 release 가 하나씩 나와야 하므로 취소하지 않고 줄 세운다.
+concurrency:
+  group: auto-release-main
+  cancel-in-progress: false
+
 jobs:
   release:
     name: Patch 버전 자동 release
@@ -122,10 +131,28 @@ jobs:
             export GH_TOKEN="$FALLBACK_TOKEN"
           fi
 
-          # 동일 태그가 이미 있으면 (수동 생성됐던 경우) 그냥 종료
-          if gh release view "$NEXT" --repo "$REPO" >/dev/null 2>&1; then
-            echo "::notice::Release $NEXT 가 이미 존재. 스킵."
-            exit 0
+          # ★ 2026-10-13 — 태그가 이미 있으면 "스킵" 하지 않고 다음 번호로 올린다.
+          #   스킵하면 이 커밋의 release 가 영영 안 만들어져 배포에서 빠진다 (10/12 #470 사고).
+          #   concurrency 로 직렬화했지만, 수동 태그·재실행 등 어떤 경로로 충돌해도 커밋당 release 하나를 보장.
+          bump_patch() {
+            local v="${1#v}"
+            local M m p
+            M=$(echo "$v" | cut -d. -f1); m=$(echo "$v" | cut -d. -f2); p=$(echo "$v" | cut -d. -f3)
+            echo "v${M}.${m}.$((p+1))"
+          }
+          ORIG_NEXT="$NEXT"
+          TRIES=0
+          while gh release view "$NEXT" --repo "$REPO" >/dev/null 2>&1 \
+             || git ls-remote --tags origin "refs/tags/$NEXT" | grep -q .; do
+            TRIES=$((TRIES+1))
+            if [ "$TRIES" -gt 20 ]; then
+              echo "::error::빈 태그를 20번 안에 찾지 못함 (시작 $ORIG_NEXT). 수동 개입 필요."
+              exit 1
+            fi
+            NEXT=$(bump_patch "$NEXT")
+          done
+          if [ "$NEXT" != "$ORIG_NEXT" ]; then
+            echo "::notice::태그 $ORIG_NEXT 가 이미 있어 $NEXT 로 올림 (동시 머지 경합 또는 수동 태그)"
           fi
 
           gh release create "$NEXT" \
