@@ -1,5 +1,8 @@
 /**
- * 재고 실사 (제품) 탭 — InventoryManagementIntegrated.tsx 에서 사용
+ * 재고 실사 (제품 / 원재료) 탭 — InventoryManagementIntegrated.tsx 에서 사용
+ *
+ * 2026-10-12: 원재료 모드 추가 (이번 달 실사). 서버는 applyPhysicalCount → applyInventoryDelta 관문.
+ *   활성 LOT 없는 품목에 실사 수량을 넣으면 실사 LOT 가 자동 생성된다 (더 이상 skip 아님).
  *
  * 2026-04-27 (PR #5): 사용자 결정에 따라 구현
  *   - 입력 방식: UI 직접 입력 + Excel 업로드 둘 다
@@ -25,13 +28,15 @@ import { SectionTitle } from "@/components/inventory/InventoryHelpers";
 import { toast } from "@/hooks/use-toast";
 import * as XLSX from "xlsx";
 
+type CountMode = "product" | "material";
+
+/** 화면용 공통 행 — 제품/원재료 스냅샷을 같은 모양으로 */
 type InventoryRow = {
-  productId: number;
-  productCode: string;
-  productName: string;
+  id: number;            // productId 또는 materialId
+  code: string;
+  name: string;
   unit: string;
   currentAvailable: number;
-  activeLots: Array<{ id: number; lotNumber: string; available: number; unit: string; expiryDate: any }>;
   lotCount: number;
 };
 
@@ -41,7 +46,8 @@ type CountInput = {
 };
 
 type ApplyResult = {
-  productId: number;
+  productId?: number;
+  materialId?: number;
   productCode?: string;
   productName?: string;
   before: number;
@@ -54,8 +60,23 @@ type ApplyResult = {
 
 export function InventoryCountTab() {
   const utils = trpc.useUtils();
-  const { data: snapshot, isLoading, refetch } = (trpc as any).inventory.getProductInventorySnapshot.useQuery();
-  const rows = (snapshot as InventoryRow[] | undefined) ?? [];
+  const [mode, setMode] = useState<CountMode>("product");
+  const productQ = (trpc as any).inventory.getProductInventorySnapshot.useQuery(undefined, { enabled: mode === "product" });
+  const materialQ = (trpc as any).inventory.getMaterialInventorySnapshot.useQuery(undefined, { enabled: mode === "material" });
+  const isLoading = mode === "product" ? productQ.isLoading : materialQ.isLoading;
+  const rows: InventoryRow[] = useMemo(() => {
+    if (mode === "product") {
+      return ((productQ.data as any[] | undefined) ?? []).map((r) => ({
+        id: Number(r.productId), code: r.productCode ?? "", name: r.productName ?? "", unit: r.unit || "kg",
+        currentAvailable: Number(r.currentAvailable ?? 0), lotCount: Number(r.lotCount ?? 0),
+      }));
+    }
+    return ((materialQ.data as any[] | undefined) ?? []).map((r) => ({
+      id: Number(r.materialId), code: r.materialCode ?? "", name: r.materialName ?? "", unit: r.unit || "kg",
+      currentAvailable: Number(r.currentAvailable ?? 0), lotCount: Number(r.lotCount ?? 0),
+    }));
+  }, [mode, productQ.data, materialQ.data]);
+  const label = mode === "product" ? "제품" : "원재료";
 
   // 입력 상태: productId → { actualQty, reason }
   const [inputs, setInputs] = useState<Record<number, CountInput>>({});
@@ -63,20 +84,26 @@ export function InventoryCountTab() {
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<ApplyResult[] | null>(null);
 
-  const updateInput = useCallback((productId: number, field: keyof CountInput, value: string) => {
+  const updateInput = useCallback((id: number, field: keyof CountInput, value: string) => {
     setInputs((prev) => ({
       ...prev,
-      [productId]: { ...(prev[productId] ?? { actualQty: "", reason: "" }), [field]: value },
+      [id]: { ...(prev[id] ?? { actualQty: "", reason: "" }), [field]: value },
     }));
   }, []);
+
+  const switchMode = (m: CountMode) => {
+    if (m === mode) return;
+    if (Object.keys(inputs).length > 0 && !confirm("입력 중인 실사 수량이 지워집니다. 전환할까요?")) return;
+    setMode(m); setInputs({}); setResults(null); setSearch("");
+  };
 
   const filteredRows = useMemo(() => {
     if (!search.trim()) return rows;
     const q = search.trim().toLowerCase();
     return rows.filter(
       (r) =>
-        r.productCode.toLowerCase().includes(q) ||
-        r.productName.toLowerCase().includes(q),
+        r.code.toLowerCase().includes(q) ||
+        r.name.toLowerCase().includes(q),
     );
   }, [rows, search]);
 
@@ -84,7 +111,7 @@ export function InventoryCountTab() {
   const pendingCount = useMemo(() => {
     let n = 0;
     for (const r of rows) {
-      const v = inputs[r.productId]?.actualQty;
+      const v = inputs[r.id]?.actualQty;
       if (v === undefined || v === "") continue;
       const num = parseFloat(v);
       if (isNaN(num) || num < 0) continue;
@@ -99,6 +126,7 @@ export function InventoryCountTab() {
       utils.inventory.list.invalidate();
       utils.inventory.getDashboard.invalidate();
       utils.inventory.getProductInventorySnapshot.invalidate();
+      (utils as any).inventory.getMaterialInventorySnapshot?.invalidate?.();
       toast({
         title: "실사 적용 완료",
         description: `적용 ${data.summary.applied} · skip ${data.summary.skipped} · 실패 ${data.summary.failed}`,
@@ -111,14 +139,14 @@ export function InventoryCountTab() {
   });
 
   const handleApply = () => {
-    const items: Array<{ productId: number; actualQty: number; reason?: string }> = [];
+    const items: Array<{ productId?: number; materialId?: number; actualQty: number; reason?: string }> = [];
     for (const r of rows) {
-      const ip = inputs[r.productId];
+      const ip = inputs[r.id];
       if (!ip || ip.actualQty === "") continue;
       const num = parseFloat(ip.actualQty);
       if (isNaN(num) || num < 0) continue;
       items.push({
-        productId: r.productId,
+        ...(mode === "product" ? { productId: r.id } : { materialId: r.id }),
         actualQty: num,
         reason: ip.reason?.trim() || undefined,
       });
@@ -128,10 +156,10 @@ export function InventoryCountTab() {
       return;
     }
     if (!confirm(
-      `${items.length}건 실사 적용\n` +
+      `${label} ${items.length}건 실사 적용\n` +
       `사유: ${defaultReason}\n\n` +
       `감소: 가장 오래된 LOT 부터 자동 차감 (FEFO)\n` +
-      `증가: 최신 LOT 에 가산 (활성 LOT 없으면 skip)\n\n` +
+      `증가: 최신 LOT 에 가산 (활성 LOT 없으면 실사 LOT 신규 생성)\n\n` +
       `진행하시겠습니까?`,
     )) {
       return;
@@ -142,8 +170,8 @@ export function InventoryCountTab() {
   // ─── Excel 다운로드 (템플릿) ─────────────────────
   const handleDownloadTemplate = () => {
     const exportRows = rows.map((r) => ({
-      "제품코드": r.productCode,
-      "제품명": r.productName,
+      "코드": r.code,
+      "품명": r.name,
       "단위": r.unit,
       "현재가용": r.currentAvailable,
       "실사수량 (입력)": "",
@@ -154,8 +182,8 @@ export function InventoryCountTab() {
       { wch: 12 }, { wch: 30 }, { wch: 6 }, { wch: 12 }, { wch: 14 }, { wch: 24 },
     ];
     const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, "재고실사");
-    XLSX.writeFile(wb, `재고실사_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    XLSX.utils.book_append_sheet(wb, ws, `${label}실사`);
+    XLSX.writeFile(wb, `${label}재고실사_${new Date().toISOString().slice(0, 10)}.xlsx`);
     toast({ title: "엑셀 템플릿 다운로드 완료" });
   };
 
@@ -172,12 +200,12 @@ export function InventoryCountTab() {
         const json = XLSX.utils.sheet_to_json(ws) as any[];
 
         const codeMap = new Map<string, InventoryRow>();
-        for (const r of rows) codeMap.set(r.productCode, r);
+        for (const r of rows) codeMap.set(r.code, r);
 
         const newInputs: Record<number, CountInput> = { ...inputs };
         let matched = 0, unmatched = 0;
         for (const row of json) {
-          const code = String(row["제품코드"] ?? "").trim();
+          const code = String(row["코드"] ?? row["제품코드"] ?? row["원재료코드"] ?? "").trim();
           if (!code) continue;
           const product = codeMap.get(code);
           if (!product) {
@@ -188,7 +216,7 @@ export function InventoryCountTab() {
           const qtyStr = String(qtyRaw).trim();
           if (qtyStr === "") continue;
           const reason = String(row["비고"] ?? "").trim();
-          newInputs[product.productId] = { actualQty: qtyStr, reason };
+          newInputs[product.id] = { actualQty: qtyStr, reason };
           matched++;
         }
         setInputs(newInputs);
@@ -209,18 +237,24 @@ export function InventoryCountTab() {
   return (
     <Card>
       <CardHeader className="py-2.5 px-4 border-b bg-muted/20">
-        <SectionTitle
-          icon={ClipboardCheck}
-          title="제품 재고 실사"
-          desc="제품 단위 실사 입력 후 일괄 적용 — 감소는 오래된 LOT 부터 자동 차감 (FEFO)"
-        />
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <SectionTitle
+            icon={ClipboardCheck}
+            title={`${label} 재고 실사`}
+            desc="품목 단위 실사 입력 후 일괄 적용 — 감소는 오래된 LOT 부터 자동 차감 (FEFO), LOT 없으면 실사 LOT 생성"
+          />
+          <div className="inline-flex rounded-md border overflow-hidden text-xs">
+            <button type="button" onClick={() => switchMode("product")} className={`px-3 h-8 ${mode === "product" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}>제품</button>
+            <button type="button" onClick={() => switchMode("material")} className={`px-3 h-8 border-l ${mode === "material" ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent"}`}>원재료</button>
+          </div>
+        </div>
       </CardHeader>
       <CardContent className="p-4 space-y-4">
         {/* 컨트롤 바 */}
         <div className="flex flex-wrap items-center gap-2 justify-between">
           <div className="flex items-center gap-2">
             <Input
-              placeholder="제품 검색..."
+              placeholder={`${label} 검색...`}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-8 text-xs w-56"
@@ -258,15 +292,15 @@ export function InventoryCountTab() {
           <div className="py-12 text-center text-sm text-muted-foreground">로딩 중...</div>
         ) : filteredRows.length === 0 ? (
           <div className="py-12 text-center text-sm text-muted-foreground">
-            {rows.length === 0 ? "활성 제품이 없습니다." : "검색 결과 없음"}
+            {rows.length === 0 ? `활성 ${label}이(가) 없습니다.` : "검색 결과 없음"}
           </div>
         ) : (
           <div className="border rounded-lg overflow-x-auto">
             <table className="w-full text-xs">
               <thead className="bg-muted/30 border-b">
                 <tr>
-                  <th className="text-left py-2 px-2 font-medium">제품코드</th>
-                  <th className="text-left py-2 px-2 font-medium">제품명</th>
+                  <th className="text-left py-2 px-2 font-medium">코드</th>
+                  <th className="text-left py-2 px-2 font-medium">{label}명</th>
                   <th className="text-right py-2 px-2 font-medium">현재가용</th>
                   <th className="text-right py-2 px-2 font-medium">LOT</th>
                   <th className="text-right py-2 px-2 font-medium w-32">실사 수량 *</th>
@@ -276,7 +310,7 @@ export function InventoryCountTab() {
               </thead>
               <tbody>
                 {filteredRows.map((r) => {
-                  const ip = inputs[r.productId];
+                  const ip = inputs[r.id];
                   const actualNum = ip?.actualQty ? parseFloat(ip.actualQty) : NaN;
                   const diff = !isNaN(actualNum) ? actualNum - r.currentAvailable : null;
                   const diffClass =
@@ -288,9 +322,9 @@ export function InventoryCountTab() {
                       ? "text-red-600 font-bold"
                       : "text-emerald-600 font-bold";
                   return (
-                    <tr key={r.productId} className="border-b hover:bg-muted/20">
-                      <td className="py-1.5 px-2 font-mono">{r.productCode}</td>
-                      <td className="py-1.5 px-2">{r.productName}</td>
+                    <tr key={r.id} className="border-b hover:bg-muted/20">
+                      <td className="py-1.5 px-2 font-mono">{r.code}</td>
+                      <td className="py-1.5 px-2">{r.name}</td>
                       <td className="text-right py-1.5 px-2 tabular-nums">
                         {r.currentAvailable.toFixed(1)} {r.unit}
                       </td>
@@ -303,7 +337,7 @@ export function InventoryCountTab() {
                           step="0.01"
                           min="0"
                           value={ip?.actualQty ?? ""}
-                          onChange={(e) => updateInput(r.productId, "actualQty", e.target.value)}
+                          onChange={(e) => updateInput(r.id, "actualQty", e.target.value)}
                           className="h-7 text-xs text-right tabular-nums"
                           placeholder={r.currentAvailable.toFixed(0)}
                         />
@@ -318,7 +352,7 @@ export function InventoryCountTab() {
                       <td className="py-1 px-1">
                         <Input
                           value={ip?.reason ?? ""}
-                          onChange={(e) => updateInput(r.productId, "reason", e.target.value)}
+                          onChange={(e) => updateInput(r.id, "reason", e.target.value)}
                           className="h-7 text-xs"
                           placeholder="(선택)"
                         />
