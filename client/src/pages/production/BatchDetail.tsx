@@ -23,16 +23,15 @@ type BatchCostMaterial = {
   isWater?: boolean;
   [k: string]: unknown;
 };
-type CcpCheckIncomplete = { ccpType: string; reason?: string; message?: string };
 type AiAlert = { id: number; level?: string; title?: string; message?: string; [k: string]: unknown };
-import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, History as HistoryIcon, Loader2, RefreshCw, Settings, ClipboardCheck, Brain, Shield, XCircle } from "lucide-react";
+import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, Loader2, RefreshCw, Settings, ClipboardCheck, Brain, Shield, XCircle } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { toast } from "sonner";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { CcpInspectionCard } from "@/components/ccp/CcpInspectionCard";
 import { CcpMonitoringForms } from "@/components/ccp/CcpMonitoringForms";
-import ApprovalTimeline from "@/components/dashboard/ApprovalTimeline";
+import BatchApprovalPanel from "./BatchApprovalPanel";
 import { BatchCompletionDialog } from "@/components/batch/BatchCompletionDialog";
 
 import { todayLocal } from "../../lib/dateUtils";
@@ -271,35 +270,7 @@ export default function BatchDetail() {
     },
   });
 
-  const approveBatchMutation = trpc.batch.approve.useMutation({
-    onSuccess: () => {
-      toast.success(`${L("batch")}가 승인되었습니다`);
-      window.location.reload();
-    },
-    onError: (error: { message: string }) => {
-      toast.error(`승인 실패: ${error.message}`);
-    },
-  });
-
-  const rejectBatchMutation = trpc.batch.reject.useMutation({
-    onSuccess: () => {
-      toast.success(`${L("batch")}가 반려되었습니다`);
-      window.location.reload();
-    },
-    onError: (error: { message: string }) => {
-      toast.error(`반려 실패: ${error.message}`);
-    },
-  });
-
-  const { data: approvalStatus } = trpc.batch.getApprovalStatus.useQuery(
-    { batchId },
-    { enabled: !!batchId }
-  );
-
-  const { data: ccpCheckStatus } = trpc.ccp.checkInspectionComplete.useQuery(
-    { batchId },
-    { enabled: !!batchId && batch?.status === "completed" }
-  );
+  // 승인/반려/현황/이력은 BatchApprovalPanel 이 담당 (2026-10-13 — 승인관리 h_approval_requests + 공식 기록지 기준)
 
   const handleDeleteMaterialInput = (inputId: number) => {
     if (confirm(`${L("material")} 투입 내역을 삭제하시겠습니까? 재고가 자동으로 복구됩니다.`)) {
@@ -567,139 +538,16 @@ export default function BatchDetail() {
                 </div>
               </div>
 
-              {/* 승인/반려 버튼 */}
+              {/* 배치 승인 — 승인관리 요청 + 공식 CCP 기록지 기준 (2026-10-13) */}
               {batch.status === "completed" && (
                 <div>
                   <h4 className="text-sm font-semibold mb-2">{`${L("batch")} 승인`}</h4>
-                  {approvalStatus?.status === "approved" ? (
-                    <div className="p-4 bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800 rounded-lg">
-                      <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
-                        <CheckCircle2 className="h-5 w-5" />
-                        <span className="font-semibold">승인 완료</span>
-                      </div>
-                      {approvalStatus.approvalDate && (
-                        <p className="text-sm text-muted-foreground mt-1">
-                          승인 일시: {new Date(approvalStatus.approvalDate).toLocaleString("ko-KR")}
-                        </p>
-                      )}
-                    </div>
-                  ) : approvalStatus?.status === "rejected" ? (
-                    <div className="p-4 bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 rounded-lg">
-                      <div className="flex items-center gap-2 text-red-700 dark:text-red-400 mb-2">
-                        <AlertTriangle className="h-5 w-5" />
-                        <span className="font-semibold">반려됨</span>
-                      </div>
-                      {approvalStatus.rejectionReason && (
-                        <p className="text-sm">반려 사유: {approvalStatus.rejectionReason}</p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {/* CCP 점검 상태 표시 */}
-                      {ccpCheckStatus && (
-                        <div className={`p-3 rounded-lg border ${
-                          ccpCheckStatus.allComplete
-                            ? "bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800"
-                            : "bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800"
-                        }`}>
-                          <div className="text-sm">
-                            <div className="font-semibold mb-1">
-                              CCP 점검 상태: {ccpCheckStatus.completedCcps}/{ccpCheckStatus.totalCcps} 완료
-                            </div>
-                            <div className="text-xs text-muted-foreground">
-                              적합: {ccpCheckStatus.passedCcps} | 부적합: {ccpCheckStatus.failedCcps}
-                            </div>
-                            {!ccpCheckStatus.allComplete && ccpCheckStatus.incompleteCcps.length > 0 && (
-                              <div className="mt-2 text-xs">
-                                <div className="font-semibold mb-1">미완료/부적합 CCP:</div>
-                                <ul className="list-disc list-inside space-y-0.5">
-                                  {ccpCheckStatus.incompleteCcps.map((ccp: CcpCheckIncomplete, idx: number) => (
-                                    <li key={idx}>
-                                      {ccp.ccpType} - {ccp.reason}
-                                    </li>
-                                  ))}
-                                </ul>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* 승인/반려 버튼 */}
-                      <div className="flex gap-2">
-                        <Button
-                          variant="default"
-                          className="bg-green-600 hover:bg-green-700"
-                          onClick={() => {
-                            if (confirm(`${L("batch")}를 승인하시겠습니까?`)) {
-                              approveBatchMutation.mutate({ batchId });
-                            }
-                          }}
-                          disabled={
-                            approveBatchMutation.isPending ||
-                            !ccpCheckStatus?.allComplete
-                          }
-                        >
-                          <CheckCircle2 className="mr-2 h-4 w-4" />
-                          승인
-                        </Button>
-                        <Button
-                          variant="destructive"
-                          onClick={() => {
-                            const reason = prompt("반려 사유를 입력해주세요:");
-                            if (reason && reason.trim()) {
-                              rejectBatchMutation.mutate({
-                                batchId,
-                                rejectionReason: reason.trim()
-                              });
-                            } else if (reason !== null) {
-                              toast.error("반려 사유를 입력해주세요");
-                            }
-                          }}
-                          disabled={rejectBatchMutation.isPending}
-                        >
-                          <AlertTriangle className="mr-2 h-4 w-4" />
-                          반려
-                        </Button>
-                      </div>
-
-                      {!ccpCheckStatus?.allComplete && (
-                        <p className="text-xs text-muted-foreground">
-                          * 모든 CCP 점검이 완료되고 적합 판정을 받아야 승인할 수 있습니다.
-                        </p>
-                      )}
-                      {/* 수동 모드: 승인관리 페이지로 이동 버튼 */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setLocation("/dashboard/approval")}
-                      >
-                        <CheckCircle2 className="mr-2 h-4 w-4" />
-                        승인관리로 이동
-                      </Button>
-                    </div>
-                  )}
+                  <BatchApprovalPanel batchId={batchId} batchLabel={L("batch")} />
                 </div>
               )}
             </div>
           </CardContent>
         </Card>
-
-        {/* 승인 이력 타임라인 */}
-        {batch.status === "completed" && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <HistoryIcon className="h-5 w-5" />
-                승인 이력
-              </CardTitle>
-              <CardDescription>{`${L("batch")} 승인 요청 및 처리 과정을 확인하세요`}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <ApprovalTimeline batchId={batchId} />
-            </CardContent>
-          </Card>
-        )}
 
         {/* 매출액 입력 */}
         <Card>

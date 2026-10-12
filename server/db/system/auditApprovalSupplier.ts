@@ -516,13 +516,21 @@ export async function approveRequest(requestId: number, approvedBy: number, note
     .where(eq(hApprovalRequests.id, requestId));
 
   // 3. 승인 이력 기록
-  await db.insert(hApprovalHistory).values({
-    requestId,
-    action: "approved",
-    actionBy: approvedBy,
-    actionAt: new Date(),
-    comments: notes
-  } as any);
+  //   2026-10-13: tenant_id 는 NOT NULL 인데 넣지 않아 strict 모드에서 INSERT 가 실패했고
+  //   (h_approval_history 0행), 그 예외가 승인 응답까지 깨뜨릴 수 있었다. tenant_id 를 넣고
+  //   이력 실패는 승인 결과를 바꾸지 않도록 격리한다.
+  try {
+    await db.insert(hApprovalHistory).values({
+      tenantId: (request as any)?.tenantId ?? undefined,
+      requestId,
+      action: "approved",
+      actionBy: approvedBy,
+      actionAt: new Date(),
+      comments: notes
+    } as any);
+  } catch (histErr) {
+    console.error(`[approveRequest] 이력 기록 실패 (승인은 완료) request=${requestId}:`, histErr);
+  }
 
   // 3-1. [후처리] CCP 기록지 결재 → 기록지 status + 인스턴스 반영 (2026-10-12, CCP 단일 흐름 1단계)
   if (request && (request as any).referenceType === "ccp_form_record" && (request as any).referenceId) {
@@ -599,14 +607,19 @@ export async function rejectRequest(requestId: number, rejectedBy: number, rejec
     })
     .where(eq(hApprovalRequests.id, requestId));
 
-  // 승인 이력 기록
-  await db.insert(hApprovalHistory).values({
-    requestId,
-    action: "rejected",
-    actionBy: rejectedBy,
-    actionAt: new Date(),
-    comments: rejectionReason
-  } as any);
+  // 승인 이력 기록 (2026-10-13: tenant_id 포함 + 실패 격리 — approveRequest 와 동일)
+  try {
+    await db.insert(hApprovalHistory).values({
+      tenantId: (request as any)?.tenantId ?? undefined,
+      requestId,
+      action: "rejected",
+      actionBy: rejectedBy,
+      actionAt: new Date(),
+      comments: rejectionReason
+    } as any);
+  } catch (histErr) {
+    console.error(`[rejectRequest] 이력 기록 실패 (반려는 완료) request=${requestId}:`, histErr);
+  }
 
   // [후처리] CCP 기록지 반려 → 기록지 status + 인스턴스 반영 (2026-10-12)
   if (request && (request as any).referenceType === "ccp_form_record" && (request as any).referenceId) {
