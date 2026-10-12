@@ -173,11 +173,14 @@ jobs:
             # ★ --ref 필수: 생략하면 저장소 "기본 브랜치" 에서 워크플로가 실행된다.
             #   이 저장소의 기본 브랜치는 main 이 아니라 genspark_ai_developer 이므로
             #   생략 시 옛 워크플로/옛 코드가 돈다 (2026-08-19 실제 발생).
+            # source=auto-release: deploy.yml 이 이 호출을 "자동 배포" 로 취급 (최신 release 검사 적용,
+            # 롤백 허용 안 함). 사람이 Actions UI 에서 직접 실행하면 source=manual(기본) → 롤백 허용.
             if gh workflow run deploy.yml \
                  --repo "$REPO" \
                  --ref main \
                  -f confirm=DEPLOY \
-                 -f target_tag="$NEXT"; then
+                 -f target_tag="$NEXT" \
+                 -f source=auto-release; then
               echo "✅ deploy.yml 트리거 완료 (tag=$NEXT)"
             else
               echo "::error::deploy.yml 자동 트리거 실패. Actions 탭에서 'Deploy to Production' 을 수동 실행하세요 (Use workflow from: main, confirm=DEPLOY, target_tag=$NEXT)."
