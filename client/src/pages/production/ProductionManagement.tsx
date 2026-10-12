@@ -2,9 +2,10 @@ import { useState } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs";
 import { TabsList } from "@/components/ui/tabs";
-import { Activity, Package, BarChart3, DollarSign, TrendingUp } from "lucide-react";
+import { Activity, Package, BarChart3, DollarSign, TrendingUp, Tag } from "lucide-react";
 import BatchList from "./BatchList";
 import BatchCostAnalysisDashboard from "./BatchCostAnalysisDashboard";
+import MaterialPriceManagement from "./MaterialPriceManagement";
 import BatchProfitabilityDashboard from "./BatchProfitabilityDashboard";
 import CostAnalysisDashboard from "./CostAnalysisDashboard";
 import { PipelineDashboardContent } from "./PipelineDashboard";
@@ -20,7 +21,7 @@ export default function ProductionManagement() {
         {/* 탭 네비게이션 - 에메랄드 테마 */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-0">
           <div className="rounded-xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-700 p-1 shadow-lg shadow-emerald-200/50">
-            <TabsList className="grid w-full grid-cols-5 bg-transparent h-auto p-0 gap-1">
+            <TabsList className="grid w-full grid-cols-6 bg-transparent h-auto p-0 gap-1">
               <TabsTrigger 
                 value="pipeline" 
                 className="flex items-center gap-2 py-2.5 px-3 text-sm font-medium rounded-lg transition-all duration-200
@@ -69,6 +70,16 @@ export default function ProductionManagement() {
                 <span className="hidden sm:inline">원가비교</span>
                 <span className="sm:hidden">비교</span>
               </TabsTrigger>
+              <TabsTrigger
+                value="material-price"
+                className="flex items-center gap-2 py-2.5 px-3 text-sm font-medium rounded-lg transition-all duration-200
+                  text-emerald-100 hover:text-white hover:bg-white/10
+                  data-[state=active]:bg-white data-[state=active]:text-emerald-700 data-[state=active]:shadow-md"
+              >
+                <Tag className="h-4 w-4" />
+                <span className="hidden sm:inline">단가 관리</span>
+                <span className="sm:hidden">단가</span>
+              </TabsTrigger>
             </TabsList>
           </div>
 
@@ -95,6 +106,11 @@ export default function ProductionManagement() {
           {/* 수익 */}
           <TabsContent value="profitability" className="space-y-4 pt-4">
             <BatchProfitabilityDashboard />
+          </TabsContent>
+
+          {/* 단가 관리 (2026-10-13) */}
+          <TabsContent value="material-price" className="space-y-4 pt-4">
+            <MaterialPriceManagement />
           </TabsContent>
         </Tabs>
       </div>
