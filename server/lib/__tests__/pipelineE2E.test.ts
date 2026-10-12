@@ -35,14 +35,6 @@ describe("멱등성 계약", () => {
     });
   });
 
-  describe("productionCompletePost", () => {
-    it("이미 completed 상태면 alreadyProcessed: true 반환", async () => {
-      const { postProductionComplete } = await import("../production/productionCompletePost");
-      expect(postProductionComplete).toBeDefined();
-      expect(typeof postProductionComplete).toBe("function");
-    });
-  });
-
   describe("autoMaterialIssue", () => {
     it("이미 전량 출고된 배치면 warnings로 반환 (에러 아님)", async () => {
       const { autoIssueMaterialsForBatch } = await import("../production/autoMaterialIssue");
@@ -142,9 +134,8 @@ describe("파이프라인 시나리오 (구매→입고→생산→완료→회�
     const { autoIssueMaterialsForBatch } = await import("../production/autoMaterialIssue");
     expect(autoIssueMaterialsForBatch.length).toBe(2); // (batchId, userId)
 
-    // Step 3: 생산 완료 → 제품재고 + 회계분개
-    const { postProductionComplete } = await import("../production/productionCompletePost");
-    expect(postProductionComplete.length).toBe(4); // (batchId, qty, userId, tenantId)
+    // Step 3: 생산 완료 → completeBatch (db/production/batchLifecycle) 가 SKU LOT 생성.
+    //   productionCompletePost 는 2026-10-12 제거 (유령 receipt 원장, 운영 실행 0건).
 
     // Step 4: 매입 취소 (역거래)
     const { cancelPurchase } = await import("../accounting/purchaseCancel");

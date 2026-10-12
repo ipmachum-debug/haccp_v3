@@ -71,7 +71,7 @@ h_inventory_lots (LOT, FEFO 정본)  ⇄  h_inventory_transactions (원장)  ⇄
 | ✅존치 | `production/autoMaterialIssueV2.issueOneMaterial` | 3 leg 원자 | 의도된 정본 소모 경로 |
 | ✅존치 | `production/outboundManagement.createOutboundRecord` | 3 leg 원자 | 정본 템플릿 |
 | ✅존치 | `inventory/inventoryFunctions.deductLotQuantity` | 3 leg 원자 | |
-| 🐞 | `inventory/materialOutboundPost.postMaterialOutbound` | **TXN only(음수)** | **LOT 미차감**! 유령 원장. 우선 수정 |
+| ✅**제거** | `inventory/materialOutboundPost.postMaterialOutbound` | — | 2026-10-12 삭제. 출고 문서 테이블 없이 h_inventory_transactions 를 문서처럼 읽던 stub, 실행 불가(status 검사 항상 실패), 운영 OUTBOUND 행 0 |
 | ⏳ | `production/autoMaterialIssue.autoMaterialIssue`(v1) | 3 leg(비원자)+fallback | v2 로 수렴 검토 |
 | ⏳ | `production/batchLifecycle.completeBatch` | AGG 선차감 후 LOT/TXN best-effort | 순서 취약. 패턴 B 재구성 |
 | 🔜 | `inventory/inventoryFunctions.addMaterialInputToBatch` | LOT+TXN | 패턴 A |
@@ -85,8 +85,8 @@ h_inventory_lots (LOT, FEFO 정본)  ⇄  h_inventory_transactions (원장)  ⇄
 ### C. 완제품 생산 입고(제품측)
 | 상태 | 사이트 | leg | 비고 |
 |------|--------|-----|------|
-| 🐞 | `production/productionCompletePost.postProductionComplete` | **TXN only** | LOT+AGG 생략. 제품재고 증가 불일치의 원인 |
-| 🐞 | `production/productionCompletePostV2` | TXN only | 동일 |
+| ✅**제거** | `production/productionCompletePost.postProductionComplete` | — | 2026-10-12 삭제. 승인 시 호출됐으나 배치가 이미 completed 라 항상 no-op (운영 PRODUCTION 행 0, [생산완료] 분개 0). 생산완료 회계 전기는 별도 PR |
+| ✅**제거** | `production/productionCompletePostV2` | — | 2026-10-12 삭제 (dispatcher 포함) |
 | ⏳ | `production/batchLifecycle.completeBatch` SKU LOT 블록 | LOT+TXN | AGG 별도 |
 | ⏳ | `production/productOutboundManagement.createProductLot/ensureBatchLots` | LOT+TXN | 제품 |
 | ⏳ | `system/simplifiedDataProcessor.createProductLot` | LOT+TXN | |
@@ -109,8 +109,8 @@ h_inventory_lots (LOT, FEFO 정본)  ⇄  h_inventory_transactions (원장)  ⇄
 | 🔜 | `accounting/productSalePost.postProductSale` | LOT+TXN(제품) | 패턴 A(subject=productId) |
 | 🔜 | `accounting/productSaleCancel.cancelProductSale` | LOT+TXN(제품) | 패턴 A |
 | 🔜 | `production/productOutboundManagement.cancelProductRelease` | LOT+TXN(제품) | |
-| 🐞 | `inventory/materialOutboundCancel.cancelMaterialOutbound` | TXN only(음수) | LOT 미복원 |
-| 🐞 | `production/productionCompleteCancel` | TXN only | LOT+AGG 미복원 |
+| ✅**제거** | `inventory/materialOutboundCancel.cancelMaterialOutbound` | — | 2026-10-12 삭제 (post 와 함께) |
+| ✅**제거** | `production/productionCompleteCancel` | — | 2026-10-12 삭제 (post 와 함께) |
 | ⏳ | `inventory/inventoryFunctions.deleteMaterialInput` | LOT 복원만 | TXN+AGG 누락 |
 
 ### F. 예약/상태/복구(수량 델타 없음)

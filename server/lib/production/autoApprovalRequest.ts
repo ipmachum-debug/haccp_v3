@@ -268,20 +268,17 @@ export async function finalApproveRequest(
 
       if (batchId) {
         try {
-          // 2026-04-29 (F2-3-b): dispatcher 경유 — env 기본 v1 (안전).
-          const { productionCompleteDispatch } = await import("./productionCompleteDispatcher");
           const { hBatches } = await import("../../../drizzle/schema");
           const { eq: drizzleEq } = await import("drizzle-orm");
           const [batch] = await db.select().from(hBatches).where(drizzleEq(hBatches.id, batchId)).limit(1);
           const actualQuantity = parseFloat(batch?.actualQuantity?.toString() || "0");
 
           if (actualQuantity > 0) {
-            await productionCompleteDispatch(batchId, actualQuantity, approverId, tenantId);
-            console.log(`[finalApprove] 배치 #${batchId} 재고이동/회계연동 완료`);
-
-            // ★ 2026-07-03: dispatch(productionCompletePost/V2)는 receipt 원장만 쓰고
-            //   완제품 LOT 을 안 만든다(path D 구멍). batch 브랜치(#404)와 동일하게
-            //   여기서도 완제품 LOT 을 멱등 생성해 두 승인경로를 모두 봉인.
+            // ★ 2026-10-12 (v3 5단계 3차): productionCompleteDispatch 호출 제거.
+            //   배치는 completeBatch 에서 이미 'completed' 라 dispatch 는 항상 alreadyProcessed no-op 였고
+            //   (운영 DB PRODUCTION 원장 0 / [생산완료] 분개 0), 실제로 하는 일은 아래 LOT 보강뿐이었다.
+            //   생산완료 회계 전기(WIP → 제품재고)는 별도 결정 후 전용 함수로 (유령 receipt 원장 없이).
+            // ★ 2026-07-03: 완제품 LOT 을 멱등 생성해 승인경로를 봉인 (#404 와 동일).
             try {
               const { ensureBatchLots } = await import("../../db/production/productOutboundManagement");
               const lotResult = await ensureBatchLots(batchId, tenantId);
@@ -292,7 +289,7 @@ export async function finalApproveRequest(
 
             return {
               success: true,
-              message: "승인 완료 - 제품재고 이동 및 회계연동이 처리되었습니다.",
+              message: "승인 완료 - 완제품 LOT 보강이 처리되었습니다.",
               inventoryTriggered: true
             };
           } else {
