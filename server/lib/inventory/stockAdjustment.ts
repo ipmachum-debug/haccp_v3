@@ -15,7 +15,7 @@
  */
 
 import type { InvConn } from "./applyInventoryDelta";
-import { applyLotDelta, InventoryShortageError } from "./applyInventoryDelta";
+import { applyLotDelta, receiveNewLot, InventoryShortageError } from "./applyInventoryDelta";
 import { toInventoryMaterialId } from "../identity/itemIdentityService";
 
 const EPS = 0.001;
@@ -97,30 +97,29 @@ export async function adjustLot(
   return { lotId: lot.id, lotNumber: lot.lot_number, changeQty: p.delta, newAvailable: r.remaining, before };
 }
 
-/**
- * 품목 단위 조정 (+/-) — LOT 자동 배분. 실사 반영도 이 함수를 품목마다 호출한다.
- */
-export async function adjustBySubject(
+/** 대상 LOT 조회 (활성, FOR UPDATE) — 자재는 네임스페이스 변환 후 canonical + 원본 id 모두 매칭 (전환기 안전) */
+async function loadActiveLots(
   conn: InvConn,
-  p: { tenantId: number; subject: AdjustSubject; delta: number; reason: string; userId: number; source?: string },
-): Promise<{ affected: AffectedLot[]; before: number; after: number }> {
-  if (Math.abs(p.delta) < EPS) throw new Error("조정 수량은 0 이 될 수 없습니다");
+  p: { tenantId: number; subject: AdjustSubject; order: "ASC" | "DESC" },
+): Promise<{ lots: LotRow[]; before: number; subjectForDelta: { productId?: number; materialId?: number }; canonicalId: number; col: "product_id" | "material_id" }> {
   const hasP = p.subject.productId != null && Number(p.subject.productId) > 0;
   const hasM = p.subject.materialId != null && Number(p.subject.materialId) > 0;
   if (hasP === hasM) throw new Error("productId 또는 materialId 중 하나만 지정해야 합니다");
 
-  // 대상 LOT (활성) — 자재는 네임스페이스 변환 후 canonical + 원본 id 모두 매칭 (전환기 안전)
   let col: "product_id" | "material_id";
   let ids: number[];
   let subjectForDelta: { productId?: number; materialId?: number };
+  let canonicalId: number;
   if (hasP) {
     col = "product_id";
-    ids = [Number(p.subject.productId)];
-    subjectForDelta = { productId: ids[0] };
+    canonicalId = Number(p.subject.productId);
+    ids = [canonicalId];
+    subjectForDelta = { productId: canonicalId };
   } else {
     col = "material_id";
     const raw = Number(p.subject.materialId);
     const resolved = await toInventoryMaterialId(raw, p.tenantId, conn);
+    canonicalId = resolved.id;
     ids = Array.from(new Set([resolved.id, raw]));
     subjectForDelta = { materialId: resolved.id };
   }
@@ -129,12 +128,24 @@ export async function adjustBySubject(
     `SELECT id, lot_number, quantity, available_quantity, unit, material_id, product_id, created_at
        FROM h_inventory_lots
       WHERE tenant_id = ? AND ${col} IN (${ids.map(() => "?").join(", ")}) AND status = 'available'
-      ORDER BY created_at ${p.delta > 0 ? "DESC" : "ASC"}, id ${p.delta > 0 ? "DESC" : "ASC"}
+      ORDER BY created_at ${p.order}, id ${p.order}
       FOR UPDATE`,
     [p.tenantId, ...ids],
   );
   const lots = rows as LotRow[];
   const before = lots.reduce((s, l) => s + (parseFloat(l.available_quantity) || 0), 0);
+  return { lots, before, subjectForDelta, canonicalId, col };
+}
+
+/**
+ * 품목 단위 조정 (+/-) — LOT 자동 배분. 실사 반영도 이 함수를 품목마다 호출한다.
+ */
+export async function adjustBySubject(
+  conn: InvConn,
+  p: { tenantId: number; subject: AdjustSubject; delta: number; reason: string; userId: number; source?: string },
+): Promise<{ affected: AffectedLot[]; before: number; after: number }> {
+  if (Math.abs(p.delta) < EPS) throw new Error("조정 수량은 0 이 될 수 없습니다");
+  const { lots, before, subjectForDelta } = await loadActiveLots(conn, { tenantId: p.tenantId, subject: p.subject, order: p.delta > 0 ? "DESC" : "ASC" });
   if (lots.length === 0) throw new NoActiveLotsError(p.subject);
 
   const affected: AffectedLot[] = [];
@@ -175,4 +186,60 @@ export async function adjustBySubject(
   }
 
   return { affected, before, after: before + p.delta };
+}
+
+export interface PhysicalCountResult {
+  before: number;
+  after: number;
+  diff: number;
+  status: "applied" | "skipped";
+  message?: string;
+  affected: AffectedLot[];
+  createdLotNumber?: string;
+}
+
+/**
+ * 실사 반영 1품목 — 실사 수량에 맞춰 조정. 활성 LOT 가 없는데 실사 수량이 있으면
+ * 실사 LOT 를 새로 만든다 (receiveNewLot, transaction_type='adjustment'). 그래야 "한 번도 입고
+ * 등록을 안 한 자재" 도 실사로 장부에 올라온다 (2026-10 실사 요구).
+ */
+export async function applyPhysicalCount(
+  conn: InvConn,
+  p: { tenantId: number; subject: AdjustSubject; actualQty: number; reason: string; userId: number; unit?: string | null },
+): Promise<PhysicalCountResult> {
+  if (!Number.isFinite(p.actualQty) || p.actualQty < 0) throw new Error("실사 수량은 0 이상이어야 합니다");
+  const { lots, before, subjectForDelta, canonicalId, col } = await loadActiveLots(conn, { tenantId: p.tenantId, subject: p.subject, order: "ASC" });
+  const diff = Math.round((p.actualQty - before) * 1000) / 1000;
+  if (Math.abs(diff) < EPS) {
+    return { before, after: p.actualQty, diff: 0, status: "skipped", message: "차이 없음 — 적용 skip", affected: [] };
+  }
+
+  if (lots.length === 0 && diff > 0) {
+    const unit = p.unit || "kg";
+    const tag = col === "product_id" ? `P${canonicalId}` : `M${canonicalId}`;
+    const lotNumber = `COUNT-${tag}-${todayStr().replace(/-/g, "")}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    const r = await receiveNewLot(conn, {
+      tenantId: p.tenantId,
+      subject: subjectForDelta,
+      lotNumber,
+      quantity: diff,
+      unit,
+      receiptDate: todayStr(),
+      transactionType: "adjustment",
+      reference: { referenceType: "adjustment", actionType: "PHYSICAL_COUNT_NEW_LOT" },
+      notes: `[실사] ${p.reason} — 활성 LOT 없어 실사 LOT 생성`,
+      createdBy: p.userId,
+    });
+    return {
+      before, after: p.actualQty, diff, status: "applied",
+      message: `활성 LOT 없음 → 실사 LOT ${r.lotNumber} 생성`,
+      affected: [{ lotId: r.lotId, lotNumber: r.lotNumber, changeQty: diff, newAvailable: diff }],
+      createdLotNumber: r.lotNumber,
+    };
+  }
+
+  const r = await adjustBySubject(conn, {
+    tenantId: p.tenantId, subject: p.subject, delta: diff, reason: p.reason, userId: p.userId, source: "PHYSICAL_COUNT",
+  });
+  return { before: r.before, after: r.after, diff, status: "applied", message: `${r.affected.length}개 LOT 조정`, affected: r.affected };
 }

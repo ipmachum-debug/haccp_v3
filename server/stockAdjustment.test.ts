@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { adjustLot, adjustBySubject, NoActiveLotsError, StockShortageError } from "./lib/inventory/stockAdjustment";
+import { adjustLot, adjustBySubject, applyPhysicalCount, NoActiveLotsError, StockShortageError } from "./lib/inventory/stockAdjustment";
 
 vi.mock("./lib/identity/itemIdentityService", () => ({
   toInventoryMaterialId: vi.fn(async (id: number) => ({ id: id === 168 ? 615 : id, trusted: true, source: "hm_direct", itemMasterId: null })),
@@ -37,7 +37,9 @@ function makeConn(lots: any[], inv = { id: 7, reserved_quantity: "0", unit: "kg"
         const sum = [...state.values()].filter((l) => Number(l[col]) === Number(params[1]) && l.status === "available").reduce((a, l) => a + parseFloat(l.available_quantity), 0);
         return [[{ avail: String(sum), lot_unit: "kg" }], []];
       }
+      if (/^INSERT INTO h_inventory_lots/.test(s)) return [{ insertId: 777 }, []];
       if (/^INSERT INTO/.test(s)) return [{ insertId: 500 }, []];
+      if (/available_quantity < -/.test(s)) return [[], []];
       return [{ affectedRows: 1 }, []];
     },
   } as any;
@@ -118,5 +120,48 @@ describe("adjustBySubject", () => {
     const { conn } = makeConn([]);
     await expect(adjustBySubject(conn, { tenantId: 2, subject: { productId: 1, materialId: 1 }, delta: 1, reason: "x", userId: 9 })).rejects.toThrow("하나만");
     await expect(adjustBySubject(conn, { tenantId: 2, subject: {}, delta: 1, reason: "x", userId: 9 })).rejects.toThrow("하나만");
+  });
+});
+
+describe("applyPhysicalCount (실사 1품목)", () => {
+  it("차이 없음 → skipped, 쓰기 없음", async () => {
+    const { conn, calls } = makeConn([L(1, "10.000")]);
+    const r = await applyPhysicalCount(conn, { tenantId: 2, subject: { productId: 82 }, actualQty: 10, reason: "실사", userId: 9 });
+    expect(r.status).toBe("skipped");
+    expect(calls.some((c) => /^(UPDATE|INSERT)/.test(c.sql))).toBe(false);
+  });
+
+  it("감소 실사 → 오래된 LOT 부터 차감 (adjustBySubject 경유)", async () => {
+    const { conn } = makeConn([L(1, "4.000"), L(2, "10.000")]);
+    const r = await applyPhysicalCount(conn, { tenantId: 2, subject: { productId: 82 }, actualQty: 8, reason: "실사", userId: 9 });
+    expect(r.status).toBe("applied");
+    expect(r.diff).toBe(-6);
+    expect(r.affected.map((a) => [a.lotId, a.changeQty])).toEqual([[1, -4], [2, -2]]);
+  });
+
+  it("활성 LOT 없음 + 실사 수량 > 0 → 실사 LOT 신규 생성 (adjustment 원장, receipt 아님)", async () => {
+    const { conn, calls } = makeConn([]);
+    const r = await applyPhysicalCount(conn, { tenantId: 2, subject: { materialId: 615 }, actualQty: 25.5, reason: "실사", userId: 9, unit: "kg" });
+    expect(r.status).toBe("applied");
+    expect(r.createdLotNumber).toMatch(/^COUNT-M615-\d{8}-[A-Z0-9]{4}$/);
+    expect(r.affected).toEqual([{ lotId: 777, lotNumber: r.createdLotNumber, changeQty: 25.5, newAvailable: 25.5 }]);
+    const lotIns = calls.find((c) => c.sql.startsWith("INSERT INTO h_inventory_lots"))!;
+    expect(lotIns.params[2]).toBe(615);   // material_id
+    expect(lotIns.params[5]).toBe(25.5);  // quantity
+    const ledger = calls.find((c) => c.sql.startsWith("INSERT INTO h_inventory_transactions"))!;
+    expect(ledger.params[3]).toBe("adjustment");
+    expect(ledger.params[4]).toBe(25.5);
+    expect(calls.some((c) => c.sql.startsWith("UPDATE h_inventory SET total_quantity"))).toBe(true); // 집계
+  });
+
+  it("활성 LOT 없음 + 실사 0 → skipped (차이 없음)", async () => {
+    const { conn } = makeConn([]);
+    const r = await applyPhysicalCount(conn, { tenantId: 2, subject: { productId: 82 }, actualQty: 0, reason: "실사", userId: 9 });
+    expect(r.status).toBe("skipped");
+  });
+
+  it("음수 실사 수량은 throw", async () => {
+    const { conn } = makeConn([]);
+    await expect(applyPhysicalCount(conn, { tenantId: 2, subject: { productId: 82 }, actualQty: -1, reason: "실사", userId: 9 })).rejects.toThrow("0 이상");
   });
 });

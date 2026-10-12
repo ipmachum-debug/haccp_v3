@@ -288,6 +288,8 @@ export interface ReceiveNewLotParams {
   reference?: ApplyLotDeltaParams["reference"];
   notes?: string | null;
   createdBy: number;
+  /** 원장 transaction_type. 기본 'receipt'. 실사로 생긴 LOT 는 'adjustment' (2026-10-12). */
+  transactionType?: string;
 }
 
 /**
@@ -336,7 +338,7 @@ export async function receiveNewLot(
     tenantId: p.tenantId,
     lotId,
     materialId: s.materialId,
-    transactionType: "receipt",
+    transactionType: p.transactionType ?? "receipt",
     quantity: qty,
     unit: p.unit,
     unitCost: p.unitPrice ?? null,

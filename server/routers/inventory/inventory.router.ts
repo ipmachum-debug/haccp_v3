@@ -625,6 +625,36 @@ export const inventoryRouter = router({
      * 클라이언트는 이 결과를 그리드로 표시 후 사용자가 "실사 수량" 입력 →
      * 차이를 계산해서 bulkApplyInventoryCount 로 일괄 적용.
      */
+    /**
+     * 재고 실사 — 원재료/부자재 현재 가용 합계 + 활성 LOT 수 (2026-10-12, 이번 달 실사용).
+     * h_materials(canonical) 기준. LOT 가 없는 자재도 포함 (실사로 처음 장부에 올릴 수 있게).
+     */
+    getMaterialInventorySnapshot: tenantRequiredProcedure
+      .query(async ({ ctx }) => {
+        const db = await getDb();
+        if (!db) throw new Error("Database not available");
+        const { sql } = await import("drizzle-orm");
+        const [rows]: any = await db.execute(sql`
+          SELECT m.id, m.material_code, m.material_name, m.unit, m.kind,
+                 COALESCE(SUM(CASE WHEN COALESCE(l.status,'available') = 'available' THEN l.available_quantity END), 0) AS avail,
+                 COUNT(CASE WHEN COALESCE(l.status,'available') = 'available' THEN 1 END) AS lot_cnt
+            FROM h_materials m
+            LEFT JOIN h_inventory_lots l ON l.material_id = m.id AND l.tenant_id = m.tenant_id
+           WHERE m.tenant_id = ${ctx.tenantId} AND m.is_active = 1
+           GROUP BY m.id, m.material_code, m.material_name, m.unit, m.kind
+           ORDER BY avail DESC, m.material_name ASC
+        `);
+        return (rows as any[]).map((r) => ({
+          materialId: Number(r.id),
+          materialCode: r.material_code ?? "",
+          materialName: r.material_name ?? "",
+          kind: r.kind ?? null,
+          unit: r.unit || "kg",
+          currentAvailable: Math.round(parseFloat(r.avail || "0") * 1000) / 1000,
+          lotCount: Number(r.lot_cnt || 0),
+        }));
+      }),
+
     getProductInventorySnapshot: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const db = await getDb();
@@ -740,63 +770,62 @@ export const inventoryRouter = router({
       .input(
         z.object({
           items: z.array(z.object({
-            productId: z.number(),
+            productId: z.number().optional(),
+            materialId: z.number().optional(),
             actualQty: z.number().min(0),
             reason: z.string().optional(),
-          })).min(1),
+          }).refine((v) => (v.productId && !v.materialId) || (!v.productId && v.materialId), { message: "productId 또는 materialId 중 하나" })).min(1),
           defaultReason: z.string().min(1).default("정기 재고 실사"),
         }),
       )
       .mutation(async ({ input, ctx }) => {
-        // ★ 2026-10-12 (v3 5단계 4차): 품목마다 withInventoryTx(adjustBySubject) — LOT+원장+집계 원자.
-        //   한 품목 실패가 다른 품목을 막지 않는 배치 패턴은 유지 (품목 단위 트랜잭션).
+        // ★ 2026-10-12 (v3 5단계 4차 + 실사 확장): 품목마다 withInventoryTx(applyPhysicalCount)
+        //   — LOT + 원장 + 집계 원자. 제품/원재료 모두. 활성 LOT 없는 품목에 실사 수량이 있으면 실사 LOT 생성.
+        //   한 품목 실패가 다른 품목을 막지 않는 배치 패턴 유지 (품목 단위 트랜잭션).
         const db = await getDb();
         if (!db) throw new Error("Database not available");
+        const { sql } = await import("drizzle-orm");
         const { withInventoryTx } = await import("../../lib/inventory/applyInventoryDelta");
-        const { adjustBySubject, NoActiveLotsError, StockShortageError } = await import("../../lib/inventory/stockAdjustment");
+        const { applyPhysicalCount, NoActiveLotsError, StockShortageError } = await import("../../lib/inventory/stockAdjustment");
 
         type ItemResult = {
-          productId: number;
-          productCode?: string;
-          productName?: string;
-          before: number;
-          after: number;
-          diff: number;
+          productId?: number; materialId?: number;
+          productCode?: string; productName?: string;
+          before: number; after: number; diff: number;
           status: "applied" | "skipped" | "failed";
           message?: string;
           affectedLots?: Array<{ lotNumber: string; changeQty: number; newAvailable: number }>;
         };
         const results: ItemResult[] = [];
 
-        const { hProductsV2 } = await import("../../../drizzle/schema");
-        const products = await db.select().from(hProductsV2).where(eq(hProductsV2.tenantId, ctx.tenantId as any));
-        const productMap = new Map<number, any>();
-        for (const p of products as any[]) productMap.set(Number(p.id), p);
+        const pids = input.items.map((i) => i.productId).filter((n): n is number => !!n);
+        const mids = input.items.map((i) => i.materialId).filter((n): n is number => !!n);
+        const nameMap = new Map<string, { code: string; name: string; unit: string }>();
+        if (pids.length > 0) {
+          const [prs]: any = await db.execute(sql`SELECT id, product_code, product_name, unit FROM h_products_v2 WHERE tenant_id = ${ctx.tenantId} AND id IN (${sql.join(pids.map((n) => sql`${n}`), sql`, `)})`);
+          for (const r of prs as any[]) nameMap.set(`P${r.id}`, { code: r.product_code ?? "", name: r.product_name ?? "", unit: r.unit || "kg" });
+        }
+        if (mids.length > 0) {
+          const [mrs]: any = await db.execute(sql`SELECT id, material_code, material_name, unit FROM h_materials WHERE tenant_id = ${ctx.tenantId} AND id IN (${sql.join(mids.map((n) => sql`${n}`), sql`, `)})`);
+          for (const r of mrs as any[]) nameMap.set(`M${r.id}`, { code: r.material_code ?? "", name: r.material_name ?? "", unit: r.unit || "kg" });
+        }
 
         for (const item of input.items) {
-          const product = productMap.get(item.productId);
-          const lots = await db.select().from(hInventoryLots).where(and(
-            eq(hInventoryLots.tenantId, ctx.tenantId as any),
-            eq(hInventoryLots.productId, item.productId),
-            eq(hInventoryLots.status, "available"),
-          ));
-          const before = (lots as any[]).reduce((sum, l) => sum + parseFloat(l.availableQuantity || "0"), 0);
-          const diff = item.actualQty - before;
-          const baseInfo = { productId: item.productId, productCode: product?.productCode, productName: product?.productName, before, after: item.actualQty, diff };
-
-          if (Math.abs(diff) < 0.001) { results.push({ ...baseInfo, status: "skipped", message: "차이 없음 — 적용 skip" }); continue; }
-          if (lots.length === 0 && diff > 0) { results.push({ ...baseInfo, status: "skipped", message: "활성 LOT 없음 — 생산 완료/수동 입고로 LOT 먼저 생성" }); continue; }
-
+          const key = item.productId ? `P${item.productId}` : `M${item.materialId}`;
+          const meta = nameMap.get(key);
+          const idInfo = item.productId ? { productId: item.productId } : { materialId: item.materialId! };
+          const base = { ...idInfo, productCode: meta?.code, productName: meta?.name };
+          const reason = `[실사] ${item.reason || input.defaultReason}`;
           try {
-            const reason = `[실사] ${item.reason || input.defaultReason}`;
             const r = await withInventoryTx(
-              (conn) => adjustBySubject(conn, { tenantId: ctx.tenantId, subject: { productId: item.productId }, delta: diff, reason, userId: ctx.user.id, source: "PHYSICAL_COUNT" }),
-              `physicalCount:${item.productId}`,
+              (conn) => applyPhysicalCount(conn, { tenantId: ctx.tenantId, subject: idInfo, actualQty: item.actualQty, reason, userId: ctx.user.id, unit: meta?.unit }),
+              `physicalCount:${key}`,
             );
-            results.push({ ...baseInfo, status: "applied", message: `${r.affected.length}개 LOT 조정`, affectedLots: r.affected.map((l) => ({ lotNumber: l.lotNumber, changeQty: l.changeQty, newAvailable: l.newAvailable })) });
+            results.push({ ...base, before: r.before, after: r.after, diff: r.diff, status: r.status, message: r.message,
+              affectedLots: r.affected.map((l) => ({ lotNumber: l.lotNumber, changeQty: l.changeQty, newAvailable: l.newAvailable })) });
           } catch (e: any) {
             const msg = e instanceof NoActiveLotsError || e instanceof StockShortageError ? e.message : (e?.message || String(e));
-            results.push({ ...baseInfo, status: "failed", message: msg });
+            results.push({ ...base, before: 0, after: item.actualQty, diff: 0, status: "failed", message: msg });
           }
         }
 
