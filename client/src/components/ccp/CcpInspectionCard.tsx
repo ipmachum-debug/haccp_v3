@@ -283,17 +283,6 @@ function EquipmentRowEdit({
                 {heatingShown != null ? `${heatingShown}분` : "미입력"}
               </span>
             </td>
-            <td className="p-2" title="설비 배치 운전시간 + (공정 가열 − 설비 기본가열). 유휴 포함 1배치 소요">
-              <span
-                className={
-                  row.durationMin == null || row.cycleTotalMin == null
-                    ? "text-muted-foreground text-xs"
-                    : "font-mono text-sm text-muted-foreground"
-                }
-              >
-                {row.cycleTotalMin != null && row.durationMin != null ? `${row.durationMin}분` : "-"}
-              </span>
-            </td>
           </>
         )}
         <td className="p-2">
@@ -369,16 +358,6 @@ function EquipmentRowEdit({
               title="가열시간(분)"
               value={heatingMin}
               onChange={(e) => setHeatingMin(e.target.value)}
-            />
-          </td>
-          <td className="p-1.5">
-            <Input
-              type="number"
-              className="h-7 text-xs w-20"
-              placeholder="총소요 분"
-              title="총소요시간(분)"
-              value={durationMin}
-              onChange={(e) => setDurationMin(e.target.value)}
             />
           </td>
         </>
@@ -692,7 +671,6 @@ export function CcpInspectionCard({
                           <th className="text-left p-2 font-medium">온도(°C)</th>
                           <th className="text-left p-2 font-medium">압력(bar)</th>
                           <th className="text-left p-2 font-medium" title="한계기준과 비교되는 값">가열(분)</th>
-                          <th className="text-left p-2 font-medium" title="유휴 포함 1배치 총소요 (설비 마스터 배치 운전시간 기준)">총소요(분)</th>
                           <th className="text-left p-2 font-medium">판정</th>
                           <th className="text-left p-2 font-medium">비고</th>
                           <th className="text-left p-2 font-medium" title="측정 입력 전에는 설비행 생성 시각 (생성)">측정시각</th>
