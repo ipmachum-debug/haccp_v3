@@ -358,6 +358,10 @@ export interface CcpInstanceDetail {
   batchCode: string | null;
   batchPlannedDate: Date | string | null;
   batchStatus: string | null;
+  batchPlannedQuantity: string | null;
+  /** 공식 기록지(h_ccp_form_records) 상태 — 같은 배치·CCP 유형의 최신 1건. 없으면 null */
+  formStatus: "draft" | "submitted" | "approved" | "rejected" | null;
+  formRecordId: number | null;
   rows: CcpInstanceDetailRow[];
 }
 
@@ -376,10 +380,17 @@ export async function getCcpInstanceDetail(instanceId: number, tenantId: number)
        pg.temperature_min AS tempMin, pg.temperature_max AS tempMax,
        pg.time_min AS timeMin, pg.time_max AS timeMax,
        pg.pressure_min AS pressureMin, pg.pressure_max AS pressureMax,
-       b.batch_code AS batchCode, b.planned_date AS batchPlannedDate, b.status AS batchStatus
+       b.batch_code AS batchCode, b.planned_date AS batchPlannedDate, b.status AS batchStatus,
+       b.planned_quantity AS batchPlannedQuantity,
+       fr.status AS formStatus, fr.id AS formRecordId
      FROM h_ccp_instances i
      LEFT JOIN ccp_process_groups pg ON pg.id = i.process_group_id
      LEFT JOIN h_batches b ON b.id = i.batch_id AND b.tenant_id = i.tenant_id
+     LEFT JOIN h_ccp_form_records fr ON fr.id = (
+       SELECT fr2.id FROM h_ccp_form_records fr2
+       WHERE fr2.batch_id = i.batch_id AND fr2.ccp_type = i.ccp_type AND fr2.tenant_id = i.tenant_id
+       ORDER BY fr2.id DESC LIMIT 1
+     )
      WHERE i.id = ? AND i.tenant_id = ?
      LIMIT 1`,
     [instanceId, tenantId]
@@ -542,7 +553,13 @@ export async function getAllCcpRecords(filters?: {
       status: hCcpInstances.status,
       workDate: hCcpInstances.workDate,
       createdAt: hCcpInstances.createdAt,
-      batchCode: hBatches.batchCode
+      batchCode: hBatches.batchCode,
+      // 공식 기록지 상태 (같은 배치·CCP 유형 최신 1건). 목록 배지는 이 값을 우선 사용 — 인스턴스 status 는
+      // 설비행 사본의 상태라 기록지가 제출됐어도 draft 로 남는다 (2026-10-12 실측 735건).
+      formStatus: sql<string | null>`(SELECT fr.status FROM h_ccp_form_records fr
+        WHERE fr.batch_id = ${hCcpInstances.batchId} AND fr.ccp_type = ${hCcpInstances.ccpType}
+          AND fr.tenant_id = ${hCcpInstances.tenantId}
+        ORDER BY fr.id DESC LIMIT 1)`,
     })
     .from(hCcpInstances)
     .leftJoin(hBatches, eq(hCcpInstances.batchId, hBatches.id))

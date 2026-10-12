@@ -139,6 +139,10 @@ interface Props {
   plannedQtyKg?: number;
   workDate?: string;
   onFormSaved?: () => void;
+  /** 이 CCP 유형의 기록지만 표시 (CCP 관리 상세 — 인스턴스 하나만 열 때) */
+  ccpTypeFilter?: string;
+  /** 도움말 배너 숨김 */
+  hideHelp?: boolean;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -885,6 +889,7 @@ function CcpFormPanel({
 // ─────────────────────────────────────────────────────────────────────────────
 export function CcpMonitoringForms({
   batchId, batchNumber, productId, productName, plannedQtyKg, workDate, onFormSaved,
+  ccpTypeFilter, hideHelp = false,
 }: Props) {
   const { toast } = useToast();
   const utils = trpc.useUtils();
@@ -984,7 +989,10 @@ export function CcpMonitoringForms({
     );
   }
 
-  const records = (formRecords as CcpFormRecord[] | undefined) ?? [];
+  const allRecords = (formRecords as CcpFormRecord[] | undefined) ?? [];
+  const records = ccpTypeFilter
+    ? allRecords.filter((r) => r.ccpType === ccpTypeFilter)
+    : allRecords;
 
   if (records.length === 0) {
     return (
@@ -1011,6 +1019,7 @@ export function CcpMonitoringForms({
   return (
     <div className="space-y-4">
       {/* 도움말 */}
+      {!hideHelp && (
       <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded text-xs text-green-800">
         <Calculator className="h-4 w-4 flex-shrink-0 mt-0.5 text-green-600" />
         <div>
@@ -1021,6 +1030,7 @@ export function CcpMonitoringForms({
           <strong>굽기/증숙 공정:</strong> 설비기준에서 시루(교반기/증숙기)가 표시됩니다.
         </div>
       </div>
+      )}
 
       {/* CCP 기록지 패널 목록 */}
       {records.map((record) => {

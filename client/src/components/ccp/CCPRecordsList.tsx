@@ -213,7 +213,9 @@ export function CCPRecordsList() {
             </div>
 
             {filteredRecords.map((record: any) => {
-              const statusInfo = STATUS_BADGE[record.status] || STATUS_BADGE.draft;
+              // 공식 기록지 상태 우선 (인스턴스 status 는 설비행 사본의 상태)
+              const effectiveStatus: string = record.formStatus ?? record.status;
+              const statusInfo = STATUS_BADGE[effectiveStatus] || STATUS_BADGE.draft;
               const ccpColor = CCP_TYPE_COLORS[record.ccpType] || "";
               const workDate = record.workDate
                 ? new Date(record.workDate).toLocaleDateString("ko-KR", { year: "numeric", month: "numeric", day: "numeric" })
