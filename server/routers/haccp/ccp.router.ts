@@ -28,6 +28,14 @@ export const ccpRouter = router({
         return await getCcpInstanceById(input.instanceId, tenantId);
       }),
     
+    // CCP 인스턴스 단건 상세 (공정그룹 한계기준 + 배치코드 + 설비행 rows) — /dashboard/ccp/:id
+    getInstanceDetail: tenantRequiredProcedure
+      .input(z.object({ instanceId: z.number() }))
+      .query(async ({ input, ctx }) => {
+        const { getCcpInstanceDetail } = await import("../../db");
+        return await getCcpInstanceDetail(input.instanceId, ctx.tenantId);
+      }),
+
     // CCP 인스턴스별 점검 행 조회
     getRowsByInstanceId: tenantRequiredProcedure
       .input(z.object({ instanceId: z.number() }))

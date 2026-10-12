@@ -248,6 +248,7 @@ const childRoutes: Record<string, string[]> = {
     "/dashboard/daily-logs", "/quality/templates", "/dashboard/checklist/employee-health",
   ],
   "/dashboard/approval": ["/dashboard/approval/dashboard"],
+  "/quality/ccp-monitoring": ["/dashboard/ccp"],
   "/dashboard/document-output": [
     "/dashboard/document-output/approved", "/dashboard/document-output/daily-log",
   ],
