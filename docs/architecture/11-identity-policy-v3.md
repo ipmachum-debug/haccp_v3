@@ -94,7 +94,7 @@ h_products_v2 (제품 상세)        h_materials (원재료 상세)   ← 배치
 | 1 | 재고 불일치 **분류** (자동 보정 금지) | 100 자재 중 40 불일치 (available LOT 합 기준) / 47 (전체 LOT 합) | Genspark (SELECT) | 분류표 |
 | 2 | 고아 격리 — 삭제 아님, 격리 테이블 이동 | batch_inputs 59 (2026-02-28 한 번의 실패 작업, 전부 미차감) · production_sku_output 97 · lots 7 · lots.inventory_id 166 (164건은 완제품 LOT, 구조 원인) | Genspark | 격리 로그 |
 | 3 | `h_inventory_transactions.material_id` 혼용 135건 → `legacy_material_id` 로 `h_materials.id` 변환 | 2026-04-20~05-08 AUTO_ISSUE 128 + receipt 7. 다리 dangling 0 | Genspark (앱 로직/스크립트) | 변환 로그 |
-| 4 | 업무 FK 추가: batch→product(v2), input→batch, input→material, lot→material, tx→lot, mf_ingredients→version, mf_reports→item_master | 현재 업무 FK 28개 / 350 | Claude PR | 마이그레이션 |
+| 4 | 업무 FK 13개 추가 — `scripts/migrations-manual/2026-10-12-step4-business-fks.sql` (사전검사 → ALTER 13 → 검증 → 롤백). 마스터·원장은 RESTRICT, 순수 자식은 CASCADE | 1~3단계 완료 보고 2026-10-12 11:40. 현재 업무 FK 28개 / 350 | Claude PR → Genspark 실행 | **PR 올림** |
 | 5 | `ItemIdentityService` + 재고 쓰기 28곳 → 관문 1곳. `check-table-drift` / `aiProductionParser` 교정 | 이주대장 29건 대기 | Claude PR | 코드 |
 | 6 | 빈 테이블 296 · 백업 테이블 48 정리, Drizzle 스키마 = DB baseline | 스키마 358 vs DB 444 | Claude + Genspark | DROP 목록 + 백업 |
 | 7 | 역할별 업무 화면 (오늘의 생산 등) | 메뉴 정의 110+ | Claude PR | 화면 |

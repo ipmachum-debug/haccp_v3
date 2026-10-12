@@ -315,7 +315,13 @@ export const inventoryRouter = router({
       .input(z.object({ lotId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteInventoryLot, createAuditLog } = await import("../../db");
-        await deleteInventoryLot(input.lotId);
+        // 4단계 FK(fk_tx_lot RESTRICT): 거래 이력이 있는 LOT 는 DB 가 삭제를 거부한다 → 사용자 메시지로
+        const { translateFkError } = await import("../../utils/fkError");
+        try {
+          await deleteInventoryLot(input.lotId);
+        } catch (e) {
+          throw translateFkError(e, "LOT");
+        }
         
         // 감사 로그 기록
         await createAuditLog({

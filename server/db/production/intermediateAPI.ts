@@ -206,14 +206,20 @@ export async function deleteIntermediate(intermediateId: number, tenantId?: numb
     .delete(hMixedMaterialComponents)
     .where(eq(hMixedMaterialComponents.intermediateMaterialId, intermediateId));
   
-  // 혼합재제 삭제
-  await db
-    .delete(hMaterials)
-    .where(and(
-      eq(hMaterials.tenantId, tenantId as any) ,
-      eq(hMaterials.id, intermediateId),
-      eq(hMaterials.kind, "MIXED")
-    ));
+  // 혼합재제 삭제 — 4단계 FK(fk_lots_material / fk_batch_inputs_material RESTRICT):
+  //   LOT·투입 이력이 있으면 DB 가 거부한다 → 사용자 메시지로 (비활성화 안내)
+  try {
+    await db
+      .delete(hMaterials)
+      .where(and(
+        eq(hMaterials.tenantId, tenantId as any) ,
+        eq(hMaterials.id, intermediateId),
+        eq(hMaterials.kind, "MIXED")
+      ));
+  } catch (e) {
+    const { translateFkError } = await import("../../utils/fkError");
+    throw translateFkError(e, "혼합재제");
+  }
   
   return true;
 }
