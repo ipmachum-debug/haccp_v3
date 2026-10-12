@@ -55,19 +55,35 @@ export const batchApprovalRouter = router({
       return { success: true, message: "승인 요청이 전송되었습니다." };
     }),
 
-  // 배치 승인
+  // 배치 승인 현황 (2026-10-13) — 실제 승인 흐름(h_approval_requests) + 공식 CCP 기록지 기준
+  getApprovalOverview: tenantRequiredProcedure
+    .input(z.object({ batchId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const { getBatchApprovalOverview } = await import("../../db/production/batchApprovalOverview");
+      return await getBatchApprovalOverview(input.batchId, ctx.tenantId);
+    }),
+
+  // 배치 승인 — 승인관리와 같은 흐름: 이 배치의 batch_production 승인 요청을 승인한다 (2026-10-13)
+  //   이전: h_batch_approvals(아무도 안 읽는 테이블) 에 쓰고 배치 status 를 'approved' 로 바꿈.
+  //   현재: approveRequest(요청 id) — 승인관리 대기목록의 "승인" 버튼과 동일 함수.
   approve: monitorProcedure
     .input(z.object({
       batchId: z.number(),
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const { approveBatch } = await import("../../db/production/batchApprovals");
-      const { updateBatchStatus, createAuditLog } = await import("../../db");
+      const { getBatchApprovalOverview, findPendingBatchRequestId } = await import("../../db/production/batchApprovalOverview");
+      const { approveRequest, createAuditLog } = await import("../../db");
 
-      const tenantId = ctx.tenantId;
-      await approveBatch({ batchId: input.batchId, approverId: ctx.user.id, notes: input.notes }, tenantId ?? undefined);
-      await updateBatchStatus(input.batchId, "approved", tenantId ?? undefined);
+      const overview = await getBatchApprovalOverview(input.batchId, ctx.tenantId);
+      if (!overview.canApprove) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: overview.blockers.join(" / ") });
+      }
+      const requestId = await findPendingBatchRequestId(input.batchId, ctx.tenantId);
+      if (!requestId) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "대기 중인 배치 승인 요청이 없습니다." });
+      }
+      await approveRequest(requestId, ctx.user.id, input.notes);
 
       await createAuditLog({
         action: "batch.approve",
@@ -76,14 +92,14 @@ export const batchApprovalRouter = router({
         userId: ctx.user.id,
         userEmail: ctx.user.email,
         userRole: ctx.user.role,
-        description: `배치 승인: ID ${input.batchId}`,
-        changes: { approved: true, notes: input.notes },
+        description: `배치 승인: ID ${input.batchId} (승인요청 #${requestId})`,
+        changes: { approved: true, requestId, notes: input.notes },
       });
 
-      return { success: true, message: "배치가 승인되었습니다." };
+      return { success: true, requestId, message: "배치 승인 요청이 승인되었습니다." };
     }),
 
-  // 배치 반려
+  // 배치 반려 — 승인관리와 같은 흐름 (rejectRequest)
   reject: monitorProcedure
     .input(z.object({
       batchId: z.number(),
@@ -91,12 +107,14 @@ export const batchApprovalRouter = router({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const { rejectBatch } = await import("../../db/production/batchApprovals");
-      const { updateBatchStatus, createAuditLog } = await import("../../db");
+      const { findPendingBatchRequestId } = await import("../../db/production/batchApprovalOverview");
+      const { rejectRequest, createAuditLog } = await import("../../db");
 
-      const tenantId = ctx.tenantId;
-      await rejectBatch({ batchId: input.batchId, approverId: ctx.user.id, rejectionReason: input.rejectionReason, notes: input.notes }, tenantId ?? undefined);
-      await updateBatchStatus(input.batchId, "rejected", tenantId ?? undefined);
+      const requestId = await findPendingBatchRequestId(input.batchId, ctx.tenantId);
+      if (!requestId) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "대기 중인 배치 승인 요청이 없습니다." });
+      }
+      await rejectRequest(requestId, ctx.user.id, input.rejectionReason);
 
       await createAuditLog({
         action: "batch.reject",
@@ -105,11 +123,11 @@ export const batchApprovalRouter = router({
         userId: ctx.user.id,
         userEmail: ctx.user.email,
         userRole: ctx.user.role,
-        description: `배치 반려: ID ${input.batchId}`,
-        changes: { rejected: true, reason: input.rejectionReason, notes: input.notes },
+        description: `배치 반려: ID ${input.batchId} (승인요청 #${requestId})`,
+        changes: { rejected: true, requestId, reason: input.rejectionReason, notes: input.notes },
       });
 
-      return { success: true, message: "배치가 반려되었습니다." };
+      return { success: true, requestId, message: "배치 승인 요청이 반려되었습니다." };
     }),
 
   // 배치 승인 이력 조회
