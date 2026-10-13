@@ -49,7 +49,7 @@ export default function ProductionPrediction() {
               <SelectItem value="all">전체 제품</SelectItem>
               {(products as any)?.map((product: any) => (
                 <SelectItem key={product.id} value={product.id.toString()}>
-                  {product.name}
+                  {product.productName ?? product.name ?? `제품 #${product.id}`}
                 </SelectItem>
               ))}
             </SelectContent>
