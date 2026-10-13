@@ -543,6 +543,16 @@ export async function approveRequest(requestId: number, approvedBy: number, note
     });
     console.log(`[approveRequest] CCP 기록지 #${(request as any).referenceId} 승인 반영: form=${r.formUpdated} instances=${r.instancesUpdated}`);
   }
+  // 3-2. [후처리] 배치 승인 요청("[CCP 기록지]" batch_production) 결재 → 그 배치의 CCP-1B/2B 기록지 승인 (2026-10-13)
+  if (request && (request as any).referenceType === "batch" && (request as any).referenceId) {
+    const { applyBatchDecisionToCcpForms } = await import("../haccp/ccpStatusSync");
+    await applyBatchDecisionToCcpForms({
+      batchId: Number((request as any).referenceId),
+      decision: "approved",
+      userId: approvedBy,
+      tenantId: (request as any).tenantId ?? undefined,
+    });
+  }
 
   // 4. [후처리] 관련 document_instances 상태 자동 업데이트
   if (request) {
@@ -626,6 +636,17 @@ export async function rejectRequest(requestId: number, rejectedBy: number, rejec
     const { applyCcpFormDecision } = await import("../haccp/ccpStatusSync");
     await applyCcpFormDecision({
       formRecordId: Number((request as any).referenceId),
+      decision: "rejected",
+      userId: rejectedBy,
+      reason: rejectionReason,
+      tenantId: (request as any).tenantId ?? undefined,
+    });
+  }
+  // [후처리] 배치 승인 요청 반려 → 그 배치의 CCP-1B/2B 기록지 반려 (2026-10-13)
+  if (request && (request as any).referenceType === "batch" && (request as any).referenceId) {
+    const { applyBatchDecisionToCcpForms } = await import("../haccp/ccpStatusSync");
+    await applyBatchDecisionToCcpForms({
+      batchId: Number((request as any).referenceId),
       decision: "rejected",
       userId: rejectedBy,
       reason: rejectionReason,

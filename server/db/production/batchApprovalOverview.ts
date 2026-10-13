@@ -44,6 +44,8 @@ export interface CcpFormView {
   approvalStatus: string | null;
   /** 같은 작업일의 일일 통합 기록지(CCP-4P)를 끌어온 경우 */
   isDaily: boolean;
+  /** 자기 요청이 없어 배치 승인 요청("[CCP 기록지]" batch_production)의 결재를 따르는 기록지 (CCP-1B/2B) */
+  viaBatchRequest: boolean;
 }
 
 export interface ApprovalHistoryView {
@@ -121,6 +123,7 @@ export async function getBatchApprovalOverview(batchId: number, tenantId: number
       approvalRequestId: r.approvalRequestId != null ? Number(r.approvalRequestId) : null,
       approvalStatus: r.approvalStatus ?? null,
       isDaily: r.ccpType === "CCP-4P" && Number(r.batchId) !== batchId,
+      viaBatchRequest: false,
     }));
 
   // 3. 승인 요청 — 배치 직결(reference batch) + 기록지 요청(ccp_form_record)
@@ -138,6 +141,17 @@ export async function getBatchApprovalOverview(batchId: number, tenantId: number
     [...requests].reverse().find((r) => r.requestType === "batch_production" && r.referenceType === "batch") ??
     [...requests].reverse().find((r) => r.referenceType === "batch") ??
     null;
+
+  // 3-1. 자기 요청이 없는 배치별 기록지(CCP-1B/2B)는 배치 승인 요청의 결재를 따른다 (2026-10-13).
+  //      "요청 없음" 으로 보이면 결재가 안 된 것처럼 오해하므로 배치 요청 상태를 그대로 보여준다.
+  if (batchRequest) {
+    for (const f of forms) {
+      if (f.approvalRequestId != null || f.ccpType === "CCP-4P") continue;
+      f.approvalRequestId = batchRequest.id;
+      f.approvalStatus = batchRequest.status;
+      f.viaBatchRequest = true;
+    }
+  }
 
   // 4. 결재 이력
   let history: ApprovalHistoryView[] = [];

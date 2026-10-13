@@ -1,5 +1,21 @@
 import { describe, it, expect } from "vitest";
-import { shouldApplyStatus } from "./db/haccp/ccpStatusSync";
+import { shouldApplyStatus, isFormGovernedByBatchRequest } from "./db/haccp/ccpStatusSync";
+
+describe("ccpStatusSync.isFormGovernedByBatchRequest — 배치 결재를 따르는 기록지 판정", () => {
+  it("자기 요청이 없는 CCP-1B/2B 는 배치 요청을 따른다 (순인절미 #1102 케이스)", () => {
+    expect(isFormGovernedByBatchRequest({ ccp_type: "CCP-1B", approval_request_id: null })).toBe(true);
+    expect(isFormGovernedByBatchRequest({ ccp_type: "CCP-2B", approval_request_id: null })).toBe(true);
+  });
+
+  it("CCP-4P 일일 기록지는 자기 요청이 있으므로 제외", () => {
+    expect(isFormGovernedByBatchRequest({ ccp_type: "CCP-4P", approval_request_id: null })).toBe(false);
+    expect(isFormGovernedByBatchRequest({ ccp_type: "CCP-4P", approval_request_id: 10 })).toBe(false);
+  });
+
+  it("자기 요청(approval_request_id)이 있는 기록지는 그 요청이 정본이라 제외", () => {
+    expect(isFormGovernedByBatchRequest({ ccp_type: "CCP-1B", approval_request_id: 55 })).toBe(false);
+  });
+});
 
 describe("ccpStatusSync.shouldApplyStatus — 기록지 → 인스턴스 상태는 올라가기만, 반려는 항상", () => {
   it("draft 인스턴스에 submitted / approved 는 반영", () => {

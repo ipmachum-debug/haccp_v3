@@ -62,6 +62,7 @@ type FormView = {
   approvalRequestId: number | null;
   approvalStatus: string | null;
   isDaily: boolean;
+  viaBatchRequest?: boolean;
 };
 
 export default function BatchApprovalPanel({ batchId, batchLabel = "배치" }: { batchId: number; batchLabel?: string }) {
@@ -157,6 +158,7 @@ export default function BatchApprovalPanel({ batchId, batchLabel = "배치" }: {
                   <td className={`py-1.5 text-right font-mono ${f.deviationCount > 0 ? "text-red-600 font-semibold" : ""}`}>{f.deviationCount}</td>
                   <td className="py-1.5 pl-3 text-xs">
                     {f.approvalStatus ? (STATUS_LABEL[f.approvalStatus] ?? f.approvalStatus) : <span className="text-muted-foreground">요청 없음</span>}
+                    {f.viaBatchRequest && <span className="text-[10px] text-muted-foreground ml-1">({batchLabel} 요청)</span>}
                   </td>
                 </tr>
               ))}

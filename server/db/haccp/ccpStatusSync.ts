@@ -153,3 +153,60 @@ export async function applyCcpFormDecision(params: {
     return { formUpdated: false, instancesUpdated: 0 };
   }
 }
+
+/**
+ * 기록지가 배치 단위 승인 요청("[CCP 기록지] …", request_type batch_production, reference batch)의
+ * 결재를 따르는가.
+ *  - CCP-4P 는 하루 1장짜리 일일 기록지라 자기 요청(ccp_form_record)을 따로 가진다 → 제외
+ *  - 자기 요청(approval_request_id)이 있는 기록지는 그 요청이 정본 → 제외
+ *  - 나머지(배치별 CCP-1B/2B 등)는 배치 생성 시 'submitted' 로만 두고 승인은 배치 요청이 대신한다.
+ */
+export function isFormGovernedByBatchRequest(form: { ccp_type: string; approval_request_id: number | null }): boolean {
+  if (form.ccp_type === "CCP-4P") return false;
+  return form.approval_request_id == null;
+}
+
+/**
+ * 배치 승인 요청(batch_production, reference 'batch')의 결재 결과를 그 배치의 기록지에 반영.
+ * approveRequest / rejectRequest / finalApproveRequest 가 reference_type = 'batch' 일 때 호출한다.
+ * (2026-10-13: 이 고리가 없어서 배치는 "결재 완료" 인데 CCP-1B 기록지는 '제출됨' 에 영구 체류 — 순인절미 #1102)
+ */
+export async function applyBatchDecisionToCcpForms(params: {
+  batchId: number;
+  decision: "approved" | "rejected";
+  userId: number;
+  reason?: string;
+  tenantId?: number;
+}): Promise<{ formsUpdated: number; instancesUpdated: number }> {
+  try {
+    const conn = await getRawConnection();
+    const [forms] = await conn.execute<any[]>(
+      `SELECT id, ccp_type, approval_request_id, status
+       FROM h_ccp_form_records
+       WHERE batch_id = ?${params.tenantId ? " AND tenant_id = ?" : ""}`,
+      params.tenantId ? [params.batchId, params.tenantId] : [params.batchId],
+    );
+    let formsUpdated = 0;
+    let instancesUpdated = 0;
+    for (const f of forms as any[]) {
+      if (!isFormGovernedByBatchRequest(f)) continue;
+      if (params.decision === "approved" && f.status === "approved") continue;
+      const r = await applyCcpFormDecision({
+        formRecordId: Number(f.id),
+        decision: params.decision,
+        userId: params.userId,
+        reason: params.reason,
+        tenantId: params.tenantId,
+      });
+      if (r.formUpdated) formsUpdated++;
+      instancesUpdated += r.instancesUpdated;
+    }
+    if (formsUpdated > 0) {
+      console.log(`[ccpStatusSync] 배치 #${params.batchId} ${params.decision} → 기록지 ${formsUpdated}건, 인스턴스 ${instancesUpdated}건 반영`);
+    }
+    return { formsUpdated, instancesUpdated };
+  } catch (err) {
+    console.error(`[ccpStatusSync] 배치 #${params.batchId} 결재 → 기록지 반영 실패 (무시):`, err);
+    return { formsUpdated: 0, instancesUpdated: 0 };
+  }
+}
