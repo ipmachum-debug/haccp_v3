@@ -69,9 +69,11 @@ export default function CostAnalysisDashboard() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">전체 제품</SelectItem>
+            {/* 2026-10-13: product.list 는 h_products_v2 행 → 필드명이 productName. 'name' 을 읽어 항목이 빈 줄로 보이던 문제 */}
             {products?.map((product: any) => (
               <SelectItem key={product.id} value={product.id.toString()}>
-                {product.name}
+                {product.productName ?? product.name ?? `제품 #${product.id}`}
+                {product.productCode ? <span className="ml-1 text-xs text-muted-foreground font-mono">{product.productCode}</span> : null}
               </SelectItem>
             ))}
           </SelectContent>
