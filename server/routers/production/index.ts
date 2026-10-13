@@ -1,6 +1,5 @@
 // production 도메인 라우터 모음
 export { batchRouter } from "./batch.router";
-export { batchApprovalRouter } from "./batchApproval.router";
 export { batchCostRouter } from "./batchCost.router";
 export { batchScheduleRouter } from "./batchSchedule.router";
 export { costAnalysisRouter } from "./costAnalysis.router";

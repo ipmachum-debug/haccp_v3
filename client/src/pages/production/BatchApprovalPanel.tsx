@@ -67,7 +67,10 @@ type FormView = {
 export default function BatchApprovalPanel({ batchId, batchLabel = "배치" }: { batchId: number; batchLabel?: string }) {
   const [, setLocation] = useLocation();
   const utils = trpc.useUtils();
-  const { data: ov, isLoading } = trpc.batch.getApprovalOverview.useQuery({ batchId }, { enabled: !!batchId });
+  const { data: ov, isLoading, error, refetch } = trpc.batch.getApprovalOverview.useQuery(
+    { batchId },
+    { enabled: !!batchId, retry: 1 },
+  );
 
   const refresh = () => {
     utils.batch.getApprovalOverview.invalidate({ batchId });
@@ -83,6 +86,21 @@ export default function BatchApprovalPanel({ batchId, batchLabel = "배치" }: {
     onError: (e: { message: string }) => toast.error(`반려 실패: ${e.message}`),
   });
 
+  // 2026-10-13: 조회가 실패하면 "불러오는 중" 에 갇히지 않고 오류를 보여준다 (CEO 보고: 무한 로딩)
+  if (error) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 dark:bg-red-950 dark:border-red-800 p-3 text-sm">
+        <div className="flex items-center gap-2 text-red-700 dark:text-red-400 font-semibold">
+          <AlertTriangle className="h-4 w-4" /> 승인 현황을 불러오지 못했습니다
+        </div>
+        <p className="text-xs text-muted-foreground mt-1 break-all">{(error as { message?: string }).message ?? String(error)}</p>
+        <div className="flex gap-2 mt-2">
+          <Button size="sm" variant="outline" onClick={() => void refetch()}>다시 시도</Button>
+          <Button size="sm" variant="outline" onClick={() => setLocation("/dashboard/approval")}>승인관리로 이동</Button>
+        </div>
+      </div>
+    );
+  }
   if (isLoading || !ov) {
     return (
       <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
