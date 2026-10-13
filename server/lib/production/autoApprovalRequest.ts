@@ -321,6 +321,15 @@ export async function finalApproveRequest(
         `);
         console.log(`[finalApprove] 배치 #${batchId} 상태 → completed (planned_date 기준)`);
 
+        // ★ 2026-10-13: 배치 결재 → 그 배치의 CCP-1B/2B 기록지 승인 + 설비행 동기화.
+        //   이 고리가 없어서 배치는 결재 완료인데 기록지는 '제출됨' 에 머물렀다 (순인절미 #1102).
+        try {
+          const { applyBatchDecisionToCcpForms } = await import("../../db/haccp/ccpStatusSync");
+          await applyBatchDecisionToCcpForms({ batchId, decision: "approved", userId: approverId, tenantId });
+        } catch (ccpErr: any) {
+          console.error(`[finalApprove] 배치 #${batchId} CCP 기록지 승인 반영 실패:`, ccpErr);
+        }
+
         // ★ 2026-07-03 근본수정: 승인경로 완료가 상태 플래그만 바꾸고 완제품 LOT 을
         //   안 만들던 버그(26배치 LOT 0건) 해소. 상태 UPDATE 는 planned_date 17:00 을
         //   유지하고, 여기서 정상 완료 후처리(완제품 LOT 생성 + 훅)를 마저 실행한다.
