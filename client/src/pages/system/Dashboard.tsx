@@ -9,7 +9,7 @@ import {
   AlertCircle, AlertTriangle, ArrowRight, ArrowUpRight, ArrowDownRight,
   BarChart3, Box, CalendarCheck, CheckCircle2, ChevronRight, Clock,
   ClipboardCheck, DollarSign, Factory, FileWarning, FlaskConical,
-  Layers, Package, ShieldAlert, ShieldCheck, ThermometerSun,
+  Bell, Layers, Package, ShieldAlert, ShieldCheck, ThermometerSun,
   TrendingUp, Truck, Users, Warehouse, Zap
 } from "lucide-react";
 import { Link } from "wouter";
@@ -91,6 +91,7 @@ function TaskItem({ icon: Icon, label, count, color, href }: {
     amber: "bg-amber-500",
     blue: "bg-blue-500",
     emerald: "bg-emerald-500",
+    slate: "bg-slate-400",
   };
   if (count === 0) return null;
   return (
@@ -169,10 +170,7 @@ export default function Dashboard() {
     staleTime: 5 * 60 * 1000,
     gcTime: 10 * 60 * 1000,
   });
-  const { data: todaySchedules } = trpc.dashboard.getTodaySchedules.useQuery(undefined, {
-    staleTime: 2 * 60 * 1000,
-    gcTime: 5 * 60 * 1000,
-  });
+  // 2026-10-13: getTodaySchedules(h_ccp_schedules, 0행 미사용 테이블) 조회 제거 — CCP 점검은 stats.todayCcpDraftCount 로
   const { data: notifications } = trpc.notification.list.useQuery(undefined, {
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000,
@@ -215,13 +213,20 @@ export default function Dashboard() {
 
   const unreadNotifications = notifications?.filter((n: any) => n.isRead === 0) || [];
   const expiryNotifications = notifications?.filter((n: any) => n.notificationType === "inventory_expiry" && n.isRead === 0) || [];
+  // ★ 2026-10-13: 승인 대기·알림·CCP 점검은 서버 집계값 하나만 쓴다 (목록 API 상한 200 에 걸린 "알림 수" 를 승인 대기로 표시하던 문제)
+  const pendingApprovalCount = stats?.pendingApprovalCount ?? 0;
+  const unreadNotificationCount = stats?.unreadNotificationCount ?? unreadNotifications.length;
+  const todayCcpDraftCount = stats?.todayCcpDraftCount ?? 0;
+  const unresolvedDeviations = (ccpDeviations || []).filter((d: any) => !d.isResolved);
 
-  // Production progress
+  // Production progress — 계획일이 오늘인 배치만, 서버 batchProgress 한 소스
+  //   (이전: 서버 완료가 0 이면 "오늘 updated_at 이 찍힌 completed 배치" 로 대체 → "0 중 완료 2" 모순)
   const totalBatches = batchProgress
     ? (batchProgress.planned || 0) + (batchProgress.running || 0) + (batchProgress.finished || 0) + (batchProgress.shipped || 0)
-    : batches.length;
-  const completedCount = batchProgress?.finished || completedToday.length;
+    : 0;
+  const completedCount = batchProgress?.finished ?? 0;
   const progressPercent = totalBatches > 0 ? Math.round((completedCount / totalBatches) * 100) : 0;
+  void completedToday;
 
   // Chart data for production trend
   const trendChartData = useMemo(() => {
@@ -307,10 +312,10 @@ export default function Dashboard() {
           {showHaccpKpis && (
             <MiniKPI
               label="HACCP 경고"
-              value={(ccpDeviations?.length || 0) + (todaySchedules?.length || 0)}
+              value={unresolvedDeviations.length + todayCcpDraftCount}
               icon={ShieldAlert}
-              color={(ccpDeviations?.length || 0) > 0 ? "red" : "emerald"}
-              sub={`CCP 이탈 ${ccpDeviations?.length || 0} | 점검 ${todaySchedules?.length || 0}`}
+              color={unresolvedDeviations.length > 0 ? "red" : todayCcpDraftCount > 0 ? "amber" : "emerald"}
+              sub={`CCP 이탈 ${unresolvedDeviations.length} | 미제출 기록지 ${todayCcpDraftCount}`}
               href="/quality/ccp-monitoring"
             />
           )}
@@ -324,13 +329,14 @@ export default function Dashboard() {
           />
           <MiniKPI
             label="이번달 매출"
-            value={accountingSummary?.totalSales
-              ? `${Math.round(Number(accountingSummary.totalSales) / 10000)}만`
+            value={accountingSummary?.approvedSales
+              ? `${Math.round(Number(accountingSummary.approvedSales) / 10000)}만`
               : "0"}
             icon={DollarSign}
             color="violet"
-            sub={accountingSummary?.totalPurchases
-              ? `매입 ${Math.round(Number(accountingSummary.totalPurchases) / 10000)}만`
+            sub={accountingSummary
+              ? `매입 ${Math.round(Number(accountingSummary.approvedPurchases || 0) / 10000)}만` +
+                ((accountingSummary.pendingTotalCount || 0) > 0 ? ` | 미승인 ${accountingSummary.pendingTotalCount}건` : "")
               : "데이터 없음"}
             href="/accounting/monthly-summary"
           />
@@ -354,17 +360,17 @@ export default function Dashboard() {
                   <>
                     <TaskItem
                       icon={ThermometerSun}
-                      label="CCP 점검"
-                      count={todaySchedules?.length || 0}
+                      label="CCP 기록지 미제출"
+                      count={todayCcpDraftCount}
                       color="red"
                       href="/quality/ccp-monitoring"
                     />
                     <TaskItem
                       icon={FlaskConical}
-                      label="검사 미완료"
-                      count={ccpDeviations?.length || 0}
+                      label="CCP 이탈 미해결"
+                      count={unresolvedDeviations.length}
                       color="amber"
-                      href="/dashboard/inspections"
+                      href="/quality/ccp-monitoring"
                     />
                   </>
                 )}
@@ -385,15 +391,23 @@ export default function Dashboard() {
                 <TaskItem
                   icon={ClipboardCheck}
                   label="승인 대기"
-                  count={unreadNotifications.length}
+                  count={pendingApprovalCount}
                   color="blue"
                   href="/dashboard/approval"
                 />
-                {(todaySchedules?.length || 0) === 0 &&
-                 (ccpDeviations?.length || 0) === 0 &&
+                <TaskItem
+                  icon={Bell}
+                  label="읽지 않은 알림"
+                  count={unreadNotificationCount}
+                  color="slate"
+                  href="/dashboard/notifications"
+                />
+                {todayCcpDraftCount === 0 &&
+                 unresolvedDeviations.length === 0 &&
                  inProgressBatches.length === 0 &&
                  (stats?.lowStockCount || 0) === 0 &&
-                 unreadNotifications.length === 0 && (
+                 pendingApprovalCount === 0 &&
+                 unreadNotificationCount === 0 && (
                   <div className="py-8 text-center">
                     <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto mb-2" />
                     <p className="text-sm text-muted-foreground">모든 작업이 완료되었습니다</p>
@@ -496,39 +510,24 @@ export default function Dashboard() {
                 <div className="p-3.5 rounded-xl bg-red-50/50 dark:bg-red-500/5 border border-red-100 dark:border-red-500/10">
                   <div className="flex items-center gap-2 mb-1">
                     <ThermometerSun className="h-3.5 w-3.5 text-red-500" />
-                    <span className="text-[11px] text-muted-foreground">CCP 미기록</span>
+                    <span className="text-[11px] text-muted-foreground">오늘 기록지 미제출</span>
                   </div>
-                  <div className="text-xl font-bold text-red-600 dark:text-red-400">{todaySchedules?.length || 0}</div>
+                  <div className="text-xl font-bold text-red-600 dark:text-red-400">{todayCcpDraftCount}<span className="text-xs text-muted-foreground font-normal ml-1">/ {stats?.todayCcpFormCount ?? 0}</span></div>
                 </div>
                 <div className="p-3.5 rounded-xl bg-amber-50/50 dark:bg-amber-500/5 border border-amber-100 dark:border-amber-500/10">
                   <div className="flex items-center gap-2 mb-1">
                     <FlaskConical className="h-3.5 w-3.5 text-amber-500" />
-                    <span className="text-[11px] text-muted-foreground">검사 미완료</span>
+                    <span className="text-[11px] text-muted-foreground">CCP 이탈 미해결</span>
                   </div>
-                  <div className="text-xl font-bold text-amber-600 dark:text-amber-400">{ccpDeviations?.length || 0}</div>
+                  <div className="text-xl font-bold text-amber-600 dark:text-amber-400">{unresolvedDeviations.length}</div>
                 </div>
               </div>
 
               {/* HACCP Alerts List */}
               <div className="space-y-1.5">
                 <p className="text-xs font-medium text-muted-foreground mb-2">최근 HACCP 경고</p>
-                {todaySchedules && todaySchedules.length > 0 ? (
-                  todaySchedules.slice(0, 4).map((schedule: any) => (
-                    <div key={schedule.id} className="flex items-center gap-3 py-2.5 px-3 rounded-xl hover:bg-accent/50 transition-colors">
-                      <div className="h-7 w-7 rounded-lg bg-red-50 dark:bg-red-500/10 flex items-center justify-center flex-shrink-0">
-                        <AlertCircle className="h-3.5 w-3.5 text-red-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{schedule.ccpType || "CCP 점검"}</p>
-                        <p className="text-[11px] text-muted-foreground truncate">
-                          {schedule.productName || "점검 필요"} · {schedule.frequency === "daily" ? "일일" : schedule.frequency === "weekly" ? "주간" : "월간"}
-                        </p>
-                      </div>
-                      <span className="text-[10px] px-2 py-0.5 rounded-md bg-red-50 text-red-600 dark:bg-red-500/10 dark:text-red-400 font-medium flex-shrink-0">미점검</span>
-                    </div>
-                  ))
-                ) : ccpDeviations && ccpDeviations.length > 0 ? (
-                  ccpDeviations.slice(0, 4).map((deviation: any, idx: number) => (
+                {unresolvedDeviations.length > 0 ? (
+                  unresolvedDeviations.slice(0, 4).map((deviation: any, idx: number) => (
                     <div key={idx} className="flex items-center gap-3 py-2.5 px-3 rounded-xl hover:bg-accent/50 transition-colors">
                       <div className="h-7 w-7 rounded-lg bg-amber-50 dark:bg-amber-500/10 flex items-center justify-center flex-shrink-0">
                         <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />

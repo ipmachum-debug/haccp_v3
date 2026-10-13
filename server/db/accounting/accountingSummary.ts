@@ -26,6 +26,8 @@ export async function getMonthlyAccountingSummary(tenantId: number) {
     SELECT
       COALESCE(SUM(CASE WHEN source_table = 'accounting_purchases' THEN total_amount ELSE 0 END), 0) AS total_purchases,
       COALESCE(SUM(CASE WHEN source_table = 'accounting_sales' THEN total_amount ELSE 0 END), 0) AS total_sales,
+      COALESCE(SUM(CASE WHEN source_table = 'accounting_purchases' AND status = 'approved' THEN total_amount ELSE 0 END), 0) AS approved_purchases,
+      COALESCE(SUM(CASE WHEN source_table = 'accounting_sales' AND status = 'approved' THEN total_amount ELSE 0 END), 0) AS approved_sales,
       SUM(CASE WHEN source_table = 'accounting_purchases' AND status = 'pending' THEN 1 ELSE 0 END) AS pending_purchases_count,
       SUM(CASE WHEN source_table = 'accounting_sales' AND status = 'pending' THEN 1 ELSE 0 END) AS pending_sales_count
     FROM (
@@ -48,6 +50,9 @@ export async function getMonthlyAccountingSummary(tenantId: number) {
   const row = (rows as any[])[0] ?? {};
   const totalPurchases = parseFloat(row.total_purchases || "0");
   const totalSales = parseFloat(row.total_sales || "0");
+  // 2026-10-13: 경영 상황판은 승인된 금액만 매출·매입으로 표시하고 미승인(pending)은 건수로 분리 표기
+  const approvedPurchases = parseFloat(row.approved_purchases || "0");
+  const approvedSales = parseFloat(row.approved_sales || "0");
   const pendingPurchasesCount = parseInt(row.pending_purchases_count || "0", 10);
   const pendingSalesCount = parseInt(row.pending_sales_count || "0", 10);
   const netCashFlow = totalSales - totalPurchases;
@@ -57,6 +62,8 @@ export async function getMonthlyAccountingSummary(tenantId: number) {
     currentMonth,
     totalPurchases,
     totalSales,
+    approvedPurchases,
+    approvedSales,
     netCashFlow,
     pendingPurchasesCount,
     pendingSalesCount,
