@@ -347,7 +347,9 @@ export async function autoIssueMaterialsForBatch(
                 const { allocateLotsFEFO } = await import("../inventory/fefoLotAllocation");
                 let allocations: FefoAllocation[];
                 try {
-                  allocations = await allocateLotsFEFO(inventoryId, requiredQuantity, unit, tenantId, canonicalId, undefined, { allowNegative });
+                  // 2026-10-13: 업무일자(transactionDate) 이후 입고 LOT 는 후보에서 제외 — 늦게 입력한 과거 생산은
+                  //   "그때 있던 LOT" 에서만 빠진다 (#457 업무일자 원칙의 재고 쪽 적용)
+                  allocations = await allocateLotsFEFO(inventoryId, requiredQuantity, unit, tenantId, canonicalId, undefined, { allowNegative, asOfDate: transactionDate });
                 } catch (fefoInner: any) {
                   if (allowNegative && fefoInner instanceof NoLotsForNegativeError) {
                     // LOT 가 하나도 없음 → 자리표시 LOT 를 만들어 전량 음수 차감

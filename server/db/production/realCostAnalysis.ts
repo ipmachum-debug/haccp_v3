@@ -58,13 +58,19 @@ async function getMaterialBestPrices(tenantId: number): Promise<Map<number, numb
   const conn = await getRawConnection();
   if (!conn) return new Map();
 
+  // 2026-10-13: 자리표시(NEG-)·실사(COUNT-) LOT 제외, 입고 거래 금액÷수량 폴백 추가 (원가 정합성 #474 와 동일 규칙)
   const [rows] = await conn.execute<any[]>(`
     SELECT m.id as material_id,
       COALESCE(
         NULLIF(m.unit_price, 0),
-        (SELECT l.unit_price FROM h_inventory_lots l 
-         WHERE l.material_id = m.id AND l.unit_price > 0 
-         ORDER BY l.receipt_date DESC LIMIT 1),
+        (SELECT l.unit_price FROM h_inventory_lots l
+         WHERE l.tenant_id = m.tenant_id AND l.material_id = m.id AND l.unit_price > 0
+           AND l.lot_number NOT LIKE 'NEG-%' AND l.lot_number NOT LIKE 'COUNT-%'
+         ORDER BY l.receipt_date DESC, l.id DESC LIMIT 1),
+        (SELECT ROUND(t.amount / t.quantity, 2) FROM h_inventory_transactions t
+         WHERE t.tenant_id = m.tenant_id AND t.material_id = m.id AND t.transaction_type = 'receipt'
+           AND t.amount > 0 AND t.quantity > 0
+         ORDER BY t.transaction_date DESC, t.id DESC LIMIT 1),
         0
       ) as best_price
     FROM h_materials m
@@ -227,6 +233,87 @@ export async function getProductCostSummary(params: {
   }
 
   return result.sort((a, b) => b.totalMaterialCost - a.totalMaterialCost);
+}
+
+// ── 2-b) 제품별 원재료 단가 커버리지 상세 (2026-10-13, CEO 요청) ──
+// 제품 행을 펼치면 "어느 재료가 단가 없음" 인지 보인다. 커버리지 91% 의 빠진 9% 를 찾기 위한 것.
+export interface ProductMaterialCoverageRow {
+  materialId: number;
+  materialName: string;
+  unit: string | null;
+  totalQuantity: number;
+  batchCount: number;
+  unitPrice: number;          // 0 = 단가 없음
+  totalCost: number;
+  priced: boolean;
+  /** 이 재료가 들어간 배치 중 단가 없이 계산된 배치 수 (= priced=false 면 batchCount) */
+  unpricedBatchCount: number;
+}
+
+export async function getProductMaterialCoverage(params: {
+  tenantId: number;
+  productId: number;
+  startDate?: string;
+  endDate?: string;
+}): Promise<{ productId: number; materials: ProductMaterialCoverageRow[]; pricedCount: number; totalCount: number; coverage: number; batchesWithoutInputs: number }> {
+  const conn = await getRawConnection();
+  const { tenantId, productId, startDate, endDate } = params;
+  const priceMap = await getMaterialBestPrices(tenantId);
+
+  let sql = `
+    SELECT bi.material_id, COALESCE(m.material_name, CONCAT('원재료 #', bi.material_id)) AS material_name, m.unit,
+           SUM(COALESCE(bi.actual_quantity, bi.planned_quantity, 0)) AS total_qty,
+           COUNT(DISTINCT bi.batch_id) AS batch_count
+    FROM h_batch_inputs bi
+    JOIN h_batches b ON b.id = bi.batch_id AND b.tenant_id = ?
+    LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = b.tenant_id
+    WHERE b.product_id = ?`;
+  const binds: any[] = [tenantId, productId];
+  if (startDate) { sql += ` AND b.planned_date >= ?`; binds.push(startDate); }
+  if (endDate) { sql += ` AND b.planned_date <= ?`; binds.push(endDate); }
+  sql += ` GROUP BY bi.material_id, m.material_name, m.unit ORDER BY total_qty DESC`;
+  const [rows] = await conn.execute<any[]>(sql, binds);
+
+  // 투입이 하나도 없는 배치 (원가 계산 자체가 불가 — 10월 2건 같은 데이터 공백)
+  let sql2 = `
+    SELECT COUNT(*) AS n FROM h_batches b
+    WHERE b.tenant_id = ? AND b.product_id = ?
+      AND NOT EXISTS (SELECT 1 FROM h_batch_inputs bi WHERE bi.batch_id = b.id)`;
+  const binds2: any[] = [tenantId, productId];
+  if (startDate) { sql2 += ` AND b.planned_date >= ?`; binds2.push(startDate); }
+  if (endDate) { sql2 += ` AND b.planned_date <= ?`; binds2.push(endDate); }
+  const [noInputRows] = await conn.execute<any[]>(sql2, binds2);
+
+  const materials: ProductMaterialCoverageRow[] = (rows as any[]).map((r) => {
+    const qty = parseFloat(r.total_qty || "0");
+    const price = priceMap.get(Number(r.material_id)) || 0;
+    const name = String(r.material_name ?? "");
+    const water = name.includes("정제수");
+    const priced = water || price > 0;
+    return {
+      materialId: Number(r.material_id),
+      materialName: name,
+      unit: r.unit ?? null,
+      totalQuantity: Math.round(qty * 10) / 10,
+      batchCount: Number(r.batch_count ?? 0),
+      unitPrice: water ? 0 : price,
+      totalCost: water ? 0 : Math.round(qty * price),
+      priced,
+      unpricedBatchCount: priced ? 0 : Number(r.batch_count ?? 0),
+    };
+  });
+  // 단가 없는 재료를 먼저
+  materials.sort((a, b) => (a.priced === b.priced ? b.totalCost - a.totalCost : a.priced ? 1 : -1));
+  const totalCount = materials.length;
+  const pricedCount = materials.filter((m) => m.priced).length;
+  return {
+    productId,
+    materials,
+    pricedCount,
+    totalCount,
+    coverage: totalCount > 0 ? Math.round((pricedCount / totalCount) * 100) : 0,
+    batchesWithoutInputs: Number((noInputRows as any[])[0]?.n ?? 0),
+  };
 }
 
 // ── 3) 원재료별 사용량/비용 순위 ────────────────────

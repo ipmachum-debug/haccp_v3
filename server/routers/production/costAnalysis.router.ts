@@ -57,6 +57,18 @@ export const costAnalysisRouter = router({
         });
       }),
 
+    // 제품별 원재료 단가 커버리지 상세 (2026-10-13) — 제품 행 펼침
+    getProductMaterialCoverage: tenantRequiredProcedure
+      .input(z.object({
+        productId: z.number(),
+        startDate: z.string().optional(),
+        endDate: z.string().optional()
+      }))
+      .query(async ({ input, ctx }) => {
+        const { getProductMaterialCoverage } = await import("../../db/production/realCostAnalysis");
+        return await getProductMaterialCoverage({ tenantId: ctx.tenantId, ...input });
+      }),
+
     // 원재료별 사용량/비용 순위
     getMaterialUsageRanking: tenantRequiredProcedure
       .input(z.object({
