@@ -2,16 +2,75 @@ import { useState } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { trpc } from "@/lib/trpc";
-import { Package, TrendingUp, TrendingDown, BarChart3, Info, Loader2, AlertTriangle } from "lucide-react";
+import { Package, TrendingUp, TrendingDown, BarChart3, Info, Loader2, AlertTriangle, ChevronDown, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from "recharts";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
+/** 제품 행 펼침 — 원재료별 단가 커버리지 (2026-10-13, CEO 요청: 91% 면 빠진 9% 가 뭔지 보여야 함) */
+function ProductMaterialRows({ productId, colSpan }: { productId: number; colSpan: number }) {
+  const L = useIndustryLabel();
+  const { data, isLoading } = trpc.costAnalysis.getProductMaterialCoverage.useQuery({ productId });
+  type Row = { materialId: number; materialName: string; unit: string | null; totalQuantity: number; batchCount: number; unitPrice: number; totalCost: number; priced: boolean; unpricedBatchCount: number };
+  const mats: Row[] = (data as any)?.materials ?? [];
+  const missing = mats.filter((m) => !m.priced);
+  return (
+    <TableRow className="bg-muted/30 hover:bg-muted/30">
+      <TableCell colSpan={colSpan} className="p-3">
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />원재료 불러오는 중...</div>
+        ) : mats.length === 0 ? (
+          <p className="text-sm text-muted-foreground">이 제품의 배치에 원재료 투입 기록이 없습니다.</p>
+        ) : (
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <span>원재료 {data.totalCount}종 중 단가 있음 <b>{data.pricedCount}</b> · 없음 <b className={missing.length > 0 ? "text-amber-600" : ""}>{missing.length}</b></span>
+              {data.batchesWithoutInputs > 0 && (
+                <Badge variant="outline" className="text-amber-700 border-amber-300">투입 기록 없는 {L("batch")} {data.batchesWithoutInputs}개 (원가 계산 불가)</Badge>
+              )}
+              {missing.length > 0 && <span className="text-xs text-muted-foreground">단가는 "단가 관리" 탭에서 입력하면 바로 반영됩니다.</span>}
+            </div>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-muted-foreground border-b">
+                  <th className="text-left py-1">원재료</th>
+                  <th className="text-right py-1">총 사용량</th>
+                  <th className="text-right py-1">{L("batch")} 수</th>
+                  <th className="text-right py-1">단가</th>
+                  <th className="text-right py-1">총 비용</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mats.map((m) => (
+                  <tr key={m.materialId} className={`border-b last:border-0 ${!m.priced ? "bg-amber-50 dark:bg-amber-950/30" : ""}`}>
+                    <td className="py-1">
+                      <span className="flex items-center gap-1.5">
+                        {!m.priced && <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />}
+                        {m.materialName}
+                        {m.materialName.includes("정제수") && <span className="text-[10px] text-blue-600">원가제외</span>}
+                      </span>
+                    </td>
+                    <td className="py-1 text-right font-mono">{m.totalQuantity.toLocaleString("ko-KR")} {m.unit ?? "kg"}</td>
+                    <td className="py-1 text-right">{m.batchCount}</td>
+                    <td className="py-1 text-right font-mono">{m.priced ? (m.unitPrice > 0 ? `₩${m.unitPrice.toLocaleString("ko-KR")}` : "-") : <span className="text-amber-700 font-semibold">단가 없음</span>}</td>
+                    <td className="py-1 text-right font-mono">{m.totalCost > 0 ? `₩${m.totalCost.toLocaleString("ko-KR")}` : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </TableCell>
+    </TableRow>
+  );
+}
+
 export default function CostAnalysisDashboard() {
   const L = useIndustryLabel();
   const [selectedProduct, setSelectedProduct] = useState<string>("all");
+  const [expandedProductId, setExpandedProductId] = useState<number | null>(null);
 
   // 제품 목록
   const { data: _rawProducts } = trpc.product.list.useQuery({ limit: 9999 });
@@ -218,23 +277,39 @@ export default function CostAnalysisDashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredProducts.map((p: any) => (
-                  <TableRow key={p.productId}>
-                    <TableCell className="font-medium">{p.productName}</TableCell>
-                    <TableCell className="text-right">{p.batchCount}개</TableCell>
-                    <TableCell className="text-right">{p.totalQuantityKg.toLocaleString()} kg</TableCell>
-                    <TableCell className="text-right">₩{p.totalMaterialCost.toLocaleString()}</TableCell>
-                    <TableCell className="text-right font-semibold">₩{p.avgCostPerKg.toLocaleString()}/kg</TableCell>
-                    <TableCell className="text-right text-sm text-muted-foreground">
-                      ₩{p.minCostPerKg.toLocaleString()} ~ ₩{p.maxCostPerKg.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <Badge variant={p.avgPriceCoverage >= 80 ? "default" : p.avgPriceCoverage >= 50 ? "secondary" : "destructive"}>
-                        {p.avgPriceCoverage}%
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {filteredProducts.map((p: any) => {
+                  const open = expandedProductId === p.productId;
+                  return (
+                    <>
+                      <TableRow
+                        key={p.productId}
+                        className="cursor-pointer"
+                        onClick={() => setExpandedProductId(open ? null : p.productId)}
+                        title="클릭하면 원재료별 단가 커버리지가 펼쳐집니다"
+                      >
+                        <TableCell className="font-medium">
+                          <span className="flex items-center gap-1.5">
+                            {open ? <ChevronDown className="h-4 w-4 text-muted-foreground" /> : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                            {p.productName}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right">{p.batchCount}개</TableCell>
+                        <TableCell className="text-right">{p.totalQuantityKg.toLocaleString()} kg</TableCell>
+                        <TableCell className="text-right">₩{p.totalMaterialCost.toLocaleString()}</TableCell>
+                        <TableCell className="text-right font-semibold">₩{p.avgCostPerKg.toLocaleString()}/kg</TableCell>
+                        <TableCell className="text-right text-sm text-muted-foreground">
+                          ₩{p.minCostPerKg.toLocaleString()} ~ ₩{p.maxCostPerKg.toLocaleString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={p.avgPriceCoverage >= 80 ? "default" : p.avgPriceCoverage >= 50 ? "secondary" : "destructive"}>
+                            {p.avgPriceCoverage}%
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                      {open && <ProductMaterialRows key={`${p.productId}-detail`} productId={p.productId} colSpan={7} />}
+                    </>
+                  );
+                })}
               </TableBody>
             </Table>
           )}

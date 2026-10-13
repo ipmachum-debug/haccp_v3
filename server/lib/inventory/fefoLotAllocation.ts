@@ -3,7 +3,7 @@ import { drizzle } from "drizzle-orm/mysql2";
 import { getDb } from "../../db";
 
 import { hInventoryLots } from "../../../drizzle/schema/part2";
-import { and, eq, gte, sql, desc } from "drizzle-orm";
+import { and, eq, gte, sql, desc, or, isNull, lte } from "drizzle-orm";
 
 /**
  * Drizzle 인스턴스 해석 — 같은 트랜잭션에서 사용하려면 conn 전달.
@@ -61,6 +61,13 @@ export interface FefoOptions {
    * (기본: 해당 자재의 가장 최근 LOT) 에 몰아서 음수로 차감한다.
    */
   allowNegative?: boolean;
+  /**
+   * 시점 기준 할당 (2026-10-13, 업무일자 원칙 #457 의 재고 쪽 적용).
+   * 'YYYY-MM-DD' 를 주면 그 날짜 이후에 입고된 LOT 는 후보에서 제외한다 — 과거 생산을 나중에 입력해도
+   * "그때 창고에 있던 LOT" 에서만 빠진다. receipt_date 가 NULL 인 LOT 는 제외하지 않는다.
+   * 부족분은 allowNegative 규칙대로 sink LOT(그 날짜 이전 최신 LOT) 에 음수로.
+   */
+  asOfDate?: string | null;
 }
 
 /** 음수 허용 모드인데 자재에 LOT 가 하나도 없을 때 — 호출측이 자리표시 LOT 를 만들어야 한다 */
@@ -132,6 +139,12 @@ export async function allocateLotsFEFO(
 ): Promise<FefoAllocation[]> {
   const db = await resolveDrizzle(conn);
 
+  // 시점 필터: asOfDate 가 있으면 그 날짜 이후 입고 LOT 제외 (receipt_date NULL 은 포함)
+  const asOf = options.asOfDate ? String(options.asOfDate).slice(0, 10) : null;
+  const asOfCond = asOf
+    ? or(isNull(hInventoryLots.receiptDate), lte(hInventoryLots.receiptDate, asOf as any))
+    : undefined;
+
   // 1. 유통기한 순으로 사용 가능한 LOT 조회 (tenant_id 필터 적용)
   let availableLots = await db
     .select({
@@ -145,7 +158,8 @@ export async function allocateLotsFEFO(
       and(
         eq(hInventoryLots.inventoryId, inventoryId),
         eq(hInventoryLots.tenantId, tenantId),
-        gte(hInventoryLots.availableQuantity, 0.001 as any)  // 재고 > 0
+        gte(hInventoryLots.availableQuantity, 0.001 as any),  // 재고 > 0
+        asOfCond
       )
     )
     .orderBy(
@@ -174,7 +188,8 @@ export async function allocateLotsFEFO(
         and(
           eq(hInventoryLots.materialId, materialId),
           eq(hInventoryLots.tenantId, tenantId),
-          gte(hInventoryLots.availableQuantity, 0.001 as any)
+          gte(hInventoryLots.availableQuantity, 0.001 as any),
+          asOfCond
         )
       )
       .orderBy(
@@ -218,8 +233,8 @@ export async function allocateLotsFEFO(
         .from(hInventoryLots)
         .where(
           materialId
-            ? and(eq(hInventoryLots.materialId, materialId), eq(hInventoryLots.tenantId, tenantId))
-            : and(eq(hInventoryLots.inventoryId, inventoryId), eq(hInventoryLots.tenantId, tenantId))
+            ? and(eq(hInventoryLots.materialId, materialId), eq(hInventoryLots.tenantId, tenantId), asOfCond)
+            : and(eq(hInventoryLots.inventoryId, inventoryId), eq(hInventoryLots.tenantId, tenantId), asOfCond)
         )
         .orderBy(sql`(${hInventoryLots.availableQuantity} < 0) DESC`, desc(hInventoryLots.id))
         .limit(1);
