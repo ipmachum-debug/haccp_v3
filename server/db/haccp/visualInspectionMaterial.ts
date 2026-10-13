@@ -468,6 +468,12 @@ export async function fetchMaterialReceivingsForMonth(
       AND lot.material_id IS NOT NULL
       AND lot.receipt_date >= ${startDate}
       AND lot.receipt_date < ${endDate}
+      /* 2026-10-13: 입고가 아닌 LOT 제외 — 음수 자리표시(NEG-, #447)·실사 조정(COUNT-, #456)·수량 0 이하.
+         LOT 없는 자재를 배치에 투입하면 NEG- LOT 이 업무일자로 생기는데, 그걸 "입고" 로 읽어
+         육안검사일지에 밀가루 10-08 같은 유령 입고 행이 매번 다시 생겼다 (CEO 보고). */
+      AND lot.lot_number NOT LIKE 'NEG-%'
+      AND lot.lot_number NOT LIKE 'COUNT-%'
+      AND lot.quantity > 0
     ORDER BY lot.receipt_date ASC, lot.id ASC
   `);
   const lotRows = (lotResult as any)[0] || [];
