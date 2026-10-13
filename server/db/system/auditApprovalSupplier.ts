@@ -679,7 +679,11 @@ export async function getPendingApprovalCount(tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const conditions: any[] = [eq(hApprovalRequests.status, "pending")];
+  // 2026-10-13: 실제 대기 상태는 pending_writer / pending_review / pending_approval (PR #264 이후).
+  //   'pending' 만 세고 있어 승인 배지가 항상 0 이었다.
+  const conditions: any[] = [
+    inArray(hApprovalRequests.status, ["pending", "pending_writer", "pending_review", "pending_approval"] as any),
+  ];
   if (tenantId) {
     conditions.push(eq(hApprovalRequests.tenantId, tenantId));
   }

@@ -150,6 +150,7 @@ async function checkLowStockMaterials(db: any, tenantId: number): Promise<{
       FROM h_materials m
       LEFT JOIN h_inventory_lots il ON il.material_id = m.id AND il.status = 'available'
       WHERE m.tenant_id = ${tenantId}
+        AND m.is_active = 1
         AND COALESCE(m.safety_stock_level, 0) > 0
       GROUP BY m.id, m.material_name, m.unit, m.safety_stock_level
       HAVING COALESCE(SUM(il.available_quantity), 0) < COALESCE(m.safety_stock_level, 0)
@@ -328,9 +329,22 @@ async function createClosingNotification(db: any, tenantId: number, data: {
   actionUrl?: string;
 }) {
   try {
+    // 2026-10-13: 같은 대상의 미읽음 알림이 남아 있으면 재발행하지 않는다 (매일 중복 발행 → 미읽음 2만 건 누적)
+    //   대상: 자재별 개별 알림(reference_id 있음) + 안전재고 요약(low_stock_warning). 일일 보고서는 날마다 보낸다.
+    const isStateAlert = data.referenceId != null || data.notificationType === "low_stock_warning";
+    if (isStateAlert) {
+      const { hasUnreadNotification } = await import("../db/system/notificationFunctions");
+      const dup = await hasUnreadNotification({
+        tenantId,
+        notificationType: data.notificationType,
+        referenceType: data.referenceType ?? null,
+        referenceId: data.referenceId ?? null,
+      });
+      if (dup) return;
+    }
     const now = toKSTTimestamp(new Date());
     await db.execute(sql`
-      INSERT INTO h_notifications 
+      INSERT INTO h_notifications
       (user_id, notification_type, title, message, reference_type, reference_id, priority, is_read, action_url, is_resolved, created_at, tenant_id)
       VALUES 
       (1, ${data.notificationType}, ${data.title}, ${data.message}, ${data.referenceType || null}, ${data.referenceId || null}, ${data.priority || 'medium'}, 0, ${data.actionUrl || null}, 0, ${now}, ${tenantId})

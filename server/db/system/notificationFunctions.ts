@@ -6,6 +6,35 @@ import { hNotifications, hInventoryLots, hMaterials, hInspectionRecords, users }
 // 알림 관리
 // ============================================================================
 
+/**
+ * 같은 대상에 대한 미읽음 알림이 이미 있는가 — 스케줄러 중복 발행 억제용 (2026-10-13)
+ *
+ * 재고 부족·유통기한·일일마감 스케줄러가 "오늘 이미 보냈는가" 만 보고 매일 새 알림을 만들어
+ * 운영 DB 미읽음 알림이 25,111건(그중 재고 부족 계열 20,301건)까지 쌓였다.
+ * 읽지 않은 같은 알림이 남아 있으면 다시 보내지 않는다. 읽고 나면 다음 실행 때 다시 보낸다.
+ */
+export async function hasUnreadNotification(params: {
+  tenantId: number;
+  notificationType: string;
+  referenceType?: string | null;
+  referenceId?: number | null;
+  /** reference 가 없는 알림(요약형·LOT 문자열 식별)은 message LIKE 로 식별 */
+  messageLike?: string;
+}): Promise<boolean> {
+  const db = await getDb();
+  if (!db) return false;
+  const conds: any[] = [
+    eq(hNotifications.tenantId, params.tenantId),
+    eq(hNotifications.notificationType, params.notificationType as any),
+    eq(hNotifications.isRead, 0),
+  ];
+  if (params.referenceType) conds.push(eq(hNotifications.referenceType, params.referenceType));
+  if (params.referenceId != null) conds.push(eq(hNotifications.referenceId, params.referenceId));
+  if (params.messageLike) conds.push(sql`${hNotifications.message} LIKE ${params.messageLike}`);
+  const rows = await db.select({ id: hNotifications.id }).from(hNotifications).where(and(...conds)).limit(1);
+  return rows.length > 0;
+}
+
 export async function createNotification(data: {
   tenantId: number;
   userId?: number;

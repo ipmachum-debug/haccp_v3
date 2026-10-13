@@ -131,18 +131,52 @@ export async function getDashboardStats(tenantId?: number) {
     .from(hBatches)
     .where(and(...monthConditions));
 
-  // CCP 점검 현황
+  // CCP 점검 현황 (2026-10-13: 테넌트 필터 누락 수정 — 전 테넌트 합계가 나오고 있었다)
+  const ccpTenantCond = tenantId ? eq(hCcpInstances.tenantId, tenantId) : undefined;
   const [ccpTotalResult] = await db
     .select({ count: count() })
-    .from(hCcpInstances);
+    .from(hCcpInstances)
+    .where(ccpTenantCond);
 
   const [ccpCompletedResult] = await db
     .select({ count: count() })
     .from(hCcpInstances)
-    .where(eq(hCcpInstances.status, "submitted"));
+    .where(ccpTenantCond ? and(inArray(hCcpInstances.status, ["submitted", "approved"]), ccpTenantCond) : inArray(hCcpInstances.status, ["submitted", "approved"]));
 
   // 재고 부족 원재료 수
   const lowStockMaterials = await getLowStockMaterials(tenantId);
+
+  // ★ 2026-10-13 경영 상황판 보정 (CEO 보고 "API 데이터도 안 맞아")
+  //   - 승인 대기: 화면이 "읽지 않은 알림 수(상한 200)" 를 승인 대기로 표시하고 있었다 → 실제 승인 요청 pending 건수
+  //   - CCP 점검: h_ccp_schedules(0행, 미사용) 대신 오늘 작업일 공식 기록지 중 미제출(draft) 건수
+  //   - 알림: 상한 없는 실제 미읽음 건수 (브로드캐스트 user_id=0 포함)
+  const todayStr = todayKST();
+  let pendingApprovalCount = 0;
+  let todayCcpDraftCount = 0;
+  let todayCcpFormCount = 0;
+  let unreadNotificationCount = 0;
+  if (tenantId) {
+    const { getRawConnection } = await import("../connection");
+    const conn = await getRawConnection();
+    const [[ap]] = await conn.execute<any[]>(
+      `SELECT COUNT(*) AS n FROM h_approval_requests
+       WHERE tenant_id = ? AND status IN ('pending_writer','pending_review','pending_approval','pending')`,
+      [tenantId],
+    );
+    pendingApprovalCount = Number((ap as any)?.n ?? 0);
+    const [[cf]] = await conn.execute<any[]>(
+      `SELECT COUNT(*) AS total, SUM(CASE WHEN status = 'draft' THEN 1 ELSE 0 END) AS drafts
+       FROM h_ccp_form_records WHERE tenant_id = ? AND work_date = ?`,
+      [tenantId, todayStr],
+    );
+    todayCcpFormCount = Number((cf as any)?.total ?? 0);
+    todayCcpDraftCount = Number((cf as any)?.drafts ?? 0);
+    const [[un]] = await conn.execute<any[]>(
+      `SELECT COUNT(*) AS n FROM h_notifications WHERE tenant_id = ? AND is_read = 0`,
+      [tenantId],
+    );
+    unreadNotificationCount = Number((un as any)?.n ?? 0);
+  }
 
   return {
     inProgressBatches: inProgressResult.count,
@@ -152,7 +186,11 @@ export async function getDashboardStats(tenantId?: number) {
     ccpTotal: ccpTotalResult.count,
     ccpCompleted: ccpCompletedResult.count,
     ccpPending: ccpTotalResult.count - ccpCompletedResult.count,
-    lowStockCount: lowStockMaterials.length
+    lowStockCount: lowStockMaterials.length,
+    pendingApprovalCount,
+    todayCcpFormCount,
+    todayCcpDraftCount,
+    unreadNotificationCount,
   };
 }
 

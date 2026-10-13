@@ -1,6 +1,7 @@
 import { getDb } from "../db";
 import { hInventoryLots, hMaterials, hNotifications, tenants } from "../../drizzle/schema";
 import { and, eq, lt, lte, sql } from "drizzle-orm";
+import { hasUnreadNotification } from "../db/system/notificationFunctions";
 
 /**
  * 유통기한 임박 알림 체크 (매일 오전 9시 실행)
@@ -88,21 +89,9 @@ export async function checkExpiryReminders() {
           content = `LOT ${lot.lotNumber}의 유통기한이 ${daysUntilExpiry}일 남았습니다. (수량: ${lot.quantity})`;
         }
 
-        // 중복 알림 방지: 오늘 이미 같은 LOT에 대한 알림이 있는지 확인 (테넌트별)
-        const existingNotifications = await db
-          .select()
-          .from(hNotifications)
-          .where(
-            and(
-              eq(hNotifications.tenantId, tenantId),
-              eq(hNotifications.notificationType, notificationType),
-              sql`${hNotifications.message} LIKE ${`%LOT ${lot.lotNumber}%`}`,
-              sql`DATE(${hNotifications.createdAt}) = CURDATE()`
-            )
-          )
-          .limit(1);
-
-        if (existingNotifications.length > 0) {
+        // 중복 알림 방지 (2026-10-13): 같은 LOT 의 미읽음 알림이 남아 있으면 재발행하지 않는다
+        //   이전: "오늘" 만 비교 → 매일 새 알림 → 미읽음 expiry_urgent 3,755건 누적
+        if (await hasUnreadNotification({ tenantId, notificationType, messageLike: `%LOT ${lot.lotNumber}%` })) {
           continue;
         }
 
@@ -158,7 +147,8 @@ export async function checkLowStockAlerts() {
         })
         .from(hMaterials)
         .leftJoin(hInventoryLots, eq(hMaterials.id, hInventoryLots.materialId))
-        .where(eq(hMaterials.tenantId, tenantId))
+        // 2026-10-13: 비활성 자재·안전재고 0 은 제외 (대시보드 getLowStockMaterials 와 동일 기준)
+        .where(and(eq(hMaterials.tenantId, tenantId), eq(hMaterials.isActive, 1), sql`COALESCE(${hMaterials.safetyStockLevel}, 0) > 0`))
         .groupBy(hMaterials.id, hMaterials.materialName, hMaterials.safetyStockLevel)
         .having(sql`COALESCE(SUM(CASE WHEN ${hInventoryLots.status} = 'available' THEN ${hInventoryLots.quantity} ELSE 0 END), 0) < ${hMaterials.safetyStockLevel}`);
 
@@ -168,21 +158,8 @@ export async function checkLowStockAlerts() {
         const title = `[경고] 재고 부족: ${material.materialName}`;
         const content = `현재 재고(${material.currentStock})가 안전 재고 수준(${material.safetyStockLevel}) 이하입니다. 발주를 검토하세요.`;
 
-        // 중복 알림 방지 (테넌트별)
-        const existingNotifications = await db
-          .select()
-          .from(hNotifications)
-          .where(
-            and(
-              eq(hNotifications.tenantId, tenantId),
-              eq(hNotifications.notificationType, "low_stock"),
-              sql`${hNotifications.message} LIKE ${`%${material.materialName}%`}`,
-              sql`DATE(${hNotifications.createdAt}) = CURDATE()`
-            )
-          )
-          .limit(1);
-
-        if (existingNotifications.length > 0) {
+        // 중복 알림 방지 (2026-10-13): 같은 자재의 미읽음 알림이 남아 있으면 재발행하지 않는다
+        if (await hasUnreadNotification({ tenantId, notificationType: "low_stock", messageLike: `%${material.materialName}%` })) {
           continue;
         }
 
