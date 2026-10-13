@@ -3,7 +3,6 @@
  */
 import {
   batchRouter,
-  batchApprovalRouter,
   batchCostRouter,
   batchScheduleRouter,
   costAnalysisRouter,
@@ -29,7 +28,8 @@ import {
 
 export const productionRouterMap = {
   batch: batchRouter,
-  batchApproval: batchApprovalRouter,
+  // batchApproval: 2026-10-13 제거 — batch.lifecycle.router 의 approve/reject/getApprovalOverview 와 중복이던
+  //   미사용 네임스페이스 (클라이언트 참조 0). #473 이 이 죽은 라우터를 고치는 바람에 배치 승인 카드가 무한 로딩이었다.
   batchCost: batchCostRouter,
   batchSchedule: batchScheduleRouter,
   product: productRouter,
