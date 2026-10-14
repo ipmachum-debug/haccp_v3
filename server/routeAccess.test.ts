@@ -32,11 +32,11 @@ const opens = (url: string): boolean => {
 };
 
 describe("① 라우트 목록", () => {
-  it("고유 경로 419 (2-b-3 의 411 + 2-c 공통 품질 8 — 옛 업종 경로 48 은 리다이렉트로 유지), 중복 0, 최종 폴백은 마지막 한 개", () => {
+  it("고유 경로 420 (2-b-3 의 411 + 2-c 공통 품질 8 + 3-b 허브 입구 1 — 옛 업종 경로 48 은 리다이렉트로 유지), 중복 0, 최종 폴백은 마지막 한 개", () => {
     const paths = real.map((r) => r.path);
     const dups = paths.filter((p, i) => paths.indexOf(p) !== i);
     expect(dups).toEqual([]);
-    expect(paths.length).toBe(419);
+    expect(paths.length).toBe(420);
     expect(routes[routes.length - 1].path).toBe("*");
     expect(routes.filter((r) => r.path === "*").length).toBe(1);
   });

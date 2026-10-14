@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from "react";
+import { PageHeader } from "@/components/common/PageHeader";
+import { StatusBadge } from "@/components/common/StatusBadge";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import type { RouterOutput } from "@/lib/trpcTypes";
@@ -473,22 +475,8 @@ function PurchasesListContent() {
     return map[status] || "-";
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "pending":
-        return <Badge variant="outline" className="text-yellow-600 border-yellow-300 bg-yellow-50">대기 중</Badge>;
-      case "approved":
-        return <Badge variant="default" className="bg-blue-100 text-blue-700 border-blue-200">승인됨</Badge>;
-      case "paid":
-        return <Badge variant="default" className="bg-green-100 text-green-700 border-green-200">지급 완료</Badge>;
-      case "cancelled":
-        return <Badge variant="destructive">취소됨</Badge>;
-      case "POSTED":
-        return <Badge variant="default" className="bg-emerald-100 text-emerald-700 border-emerald-200">확정</Badge>;
-      default:
-        return <Badge variant="outline">-</Badge>;
-    }
-  };
+  // 3-c: 상태 표시 표준 (매입 pending = 승인 대기, paid = 지급 완료, POSTED = 확정)
+  const getStatusBadge = (status: string) => <StatusBadge status={status} domain="purchase" />;
 
   const formatCurrency = (value: string | number) => {
     const num = typeof value === "string" ? parseFloat(value) : value;
@@ -497,28 +485,13 @@ function PurchasesListContent() {
 
   return (
     <div className="space-y-6">
-      {/* 페이지 헤더 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100 text-blue-600">
-            <ShoppingCart className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">매입 조회</h1>
-            <p className="text-sm text-muted-foreground">매입 거래 내역을 조회하고 관리합니다.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* 2-b-2 (2026-10-14): 매입 입력 바로가기 (사이드바 매입·매출 관리 > 매입 탭에도 있음) */}
-          <Button onClick={() => navigate("/dashboard/accounting/purchases/create")} size="sm" className="gap-1">
-            ＋ 매입 입력
-          </Button>
-          <Button onClick={() => setBulkUploadOpen(true)} variant="outline" size="sm" className="gap-2">
-            <FileSpreadsheet className="h-4 w-4" />
-            엑셀 일괄등록
-          </Button>
-        </div>
-      </div>
+      {/* 3-c (2026-10-14): 페이지 머리 표준 */}
+      <PageHeader
+        title="매입 조회"
+        description="매입 거래 내역을 조회하고 확정합니다."
+        primary={{ label: "＋ 매입 입력", onClick: () => navigate("/dashboard/accounting/purchases/create") }}
+        secondary={{ label: "엑셀 일괄등록", icon: FileSpreadsheet, onClick: () => setBulkUploadOpen(true) }}
+      />
 
       {/* KPI 요약 카드 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">

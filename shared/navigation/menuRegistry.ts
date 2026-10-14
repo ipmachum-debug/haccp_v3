@@ -372,6 +372,33 @@ export const HUB_ITEM_LAYOUT: Readonly<Record<string, { tab?: HubTabId; section?
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 3-b (2026-10-14): 허브 입구 화면 + 역할별 첫 화면 (명세 §3: 허브 첫 화면 = "지금 처리할 것")
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 허브 입구 화면 경로 — /hub/{허브} */
+export const hubHomePath = (hub: HubId) => `/hub/${hub}`;
+/** 입구 화면이 있는 허브 (환경설정·플랫폼은 메뉴 모음이라 입구 없음) */
+export const HUBS_WITH_HOME: readonly HubId[] = ["today", "trade", "items", "production", "quality", "finance"];
+
+/**
+ * 로그인 직후 첫 화면 (명세 §3 역할별 첫 화면). 메뉴·권한은 바꾸지 않는다 — 처음 여는 화면만.
+ * 작업자 = 오늘의 생산 / 품질 = 품질·규정 입구(오늘 쓸 기록지) / 회계 = 회계·경영 입구(받은편지함) /
+ * 관리자(대표) = 통합 대시보드(경영 상황판) / 슈퍼관리자 = 슈퍼관리자 대시보드 / 일반 직원 = 공지
+ */
+export const HOME_PATH_BY_ROLE: Readonly<Record<string, string>> = {
+  worker: "/dashboard/production/today",
+  inspector: "/hub/quality",
+  monitor: "/hub/quality",
+  accountant: "/hub/finance",
+  admin: "/dashboard",
+  super_admin: "/dashboard/super-admin",
+  employee: "/board",
+};
+export function homePathFor(role: string | null | undefined): string {
+  return (role && HOME_PATH_BY_ROLE[role]) || "/dashboard";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 2-b-4 (2026-10-14): 모바일 하단바 — 역할별 핵심 화면 + 알림 + 메뉴(허브 사이드바 열기)
 //
 // 역할마다 후보 경로를 우선순위대로 두고, 그 사용자가 **메뉴에서 볼 수 있는 경로만** 앞에서부터 MOBILE_NAV_SLOTS 개 고른다
@@ -619,6 +646,7 @@ export const PUBLIC_PATHS: readonly string[] = [
 export const ROUTE_HUB_RULES: ReadonlyArray<{ match: string; hub: HubId }> = [
   // 오늘 할 일 — 알림·결재·공지·AI
   { match: "/dashboard/integrated", hub: "today" },
+  { match: "/hub", hub: "today" }, // 허브 입구 /hub/:hubId — 각 허브 자체 소속은 화면이 경로 파라미터로 표시
   { match: "/notifications", hub: "today" },
   { match: "/notification-statistics", hub: "today" },
   { match: "/board", hub: "today" },

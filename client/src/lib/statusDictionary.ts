@@ -50,11 +50,27 @@ export const DOMAIN_STATUS_OVERRIDES: Readonly<Record<string, Readonly<Record<st
   purchase: { pending: "pending_approval" },
 };
 
+/**
+ * 업무 고유 문구 — 표준 상태(색)는 따르되 그 업무에서 굳어진 말을 지킨다 (3-c, 2026-10-14).
+ * 예: 매출 received = 완료(초록) 이지만 문구는 '수금 완료', 발주 partial_received = 진행 중(파랑) '일부 입고'.
+ */
+export const DOMAIN_STATUS_LABELS: Readonly<Record<string, Readonly<Record<string, { kind: StatusKind; label: string }>>>> = {
+  sale: { received: { kind: "completed", label: "수금 완료" } },
+  purchase: { paid: { kind: "completed", label: "지급 완료" }, posted: { kind: "approved", label: "확정" } },
+  purchaseOrder: {
+    approved: { kind: "approved", label: "승인" },
+    partial_received: { kind: "in_progress", label: "일부 입고" },
+    received: { kind: "completed", label: "전량 입고" },
+  },
+};
+
 export interface ResolvedStatus { kind: StatusKind | null; label: string; tone: StatusTone }
 
 export function resolveStatus(code: string | null | undefined, domain?: string): ResolvedStatus {
   const raw = String(code ?? "").trim();
   const key = raw.toLowerCase();
+  const special = domain ? DOMAIN_STATUS_LABELS[domain]?.[key] : undefined;
+  if (special) return { kind: special.kind, label: special.label, tone: STATUS_KINDS[special.kind].tone };
   const kind = (domain && DOMAIN_STATUS_OVERRIDES[domain]?.[key]) || STATUS_ALIASES[key] || null;
   if (!kind) return { kind: null, label: raw || "-", tone: "zinc" };
   return { kind, ...STATUS_KINDS[kind] };

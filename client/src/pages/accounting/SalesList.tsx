@@ -59,6 +59,8 @@ import * as XLSX from "xlsx";
 import { EditSaleDialog } from "@/components/accounting/EditSaleDialog";
 import { useLocation } from "wouter";
 import ExcelBulkUploadModal from "@/components/ExcelBulkUploadModal";
+import { PageHeader } from "@/components/common/PageHeader";
+import { StatusBadge } from "@/components/common/StatusBadge";
 
 import { todayLocal } from "../../lib/dateUtils";
 import {
@@ -740,20 +742,8 @@ function SalesListContent() {
     return map[type] || "-";
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "pending":
-        return <Badge variant="outline" className="text-yellow-600 border-yellow-300 bg-yellow-50">대기 중</Badge>;
-      case "approved":
-        return <Badge variant="default" className="bg-blue-100 text-blue-700 border-blue-200">승인됨</Badge>;
-      case "received":
-        return <Badge variant="default" className="bg-green-100 text-green-700 border-green-200">수금 완료</Badge>;
-      case "cancelled":
-        return <Badge variant="destructive">취소됨</Badge>;
-      default:
-        return <Badge variant="outline">-</Badge>;
-    }
-  };
+  // 3-c: 상태 표시 표준 (lib/statusDictionary — 매출 pending = 승인 대기, received = 수금 완료)
+  const getStatusBadge = (status: string) => <StatusBadge status={status} domain="sale" />;
 
   const getProofBadge = (type: string) => {
     switch (type) {
@@ -778,17 +768,29 @@ function SalesListContent() {
   return (
     <>
       <div className="space-y-6">
-        {/* 페이지 헤더 */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-100 text-emerald-600">
-              <TrendingUp className="h-5 w-5" />
-            </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">매출 조회</h1>
-              <p className="text-sm text-muted-foreground">매출 거래 내역을 조회하고 관리합니다.</p>
+        {/* 3-c (2026-10-14): 페이지 머리 표준 — 버튼 최대 2(주 1), 관리자 유지보수 버튼은 extra */}
+        <PageHeader
+          title="매출 조회"
+          description="매출 거래 내역을 조회하고 확정합니다."
+          primary={{ label: "＋ 매출 입력", onClick: () => navigate("/dashboard/accounting/sales/create") }}
+          secondary={{ label: "엑셀 일괄등록", icon: FileSpreadsheet, onClick: () => setBulkUploadOpen(true) }}
+          extra={isAdmin ? (
+            <Button
+              onClick={() => { setBulkRestoreOpen(true); setBulkRestorePreview(null); }}
+              variant="ghost"
+              size="sm"
+              className="text-amber-700 hover:bg-amber-50"
+              title="approved → pending 일괄 복구 (관리자 유지보수)"
+            >
+              상태 일괄 복구
+            </Button>
+          ) : undefined}
+        />
+        {/* 진단 표시 (PR-S/PR-U) — 빌드 번호·클릭 카운터는 슈퍼관리자에게만, 실패 상세 메시지는 모두에게 */}
+        <div className="-mt-2 space-y-2">
               {/* ★ PR-S (2026-05-20): 빌드 마커 + 가시 진단 패널.
                    사용자가 콘솔 없이도 클릭이 도달했는지/어느 빌드를 보고 있는지 즉시 식별. */}
+              {user?.role === "super_admin" && (
               <div className="flex flex-wrap items-center gap-2 mt-1">
                 <Badge variant="outline" className="text-[10px] bg-zinc-50 text-zinc-600 border-zinc-300 font-mono">
                   build {SALES_LIST_BUILD_TAG}
@@ -822,6 +824,7 @@ function SalesListContent() {
                   </Badge>
                 )}
               </div>
+              )}
               {/* ★ PR-U (2026-05-20): 마지막 액션 전체 메시지 패널.
                    Badge 는 한 줄로 truncate 되므로 긴 에러 메시지는 손실됨.
                    여기서는 줄바꿈 포함 전체 메시지를 사용자에게 그대로 노출. */}
@@ -836,29 +839,6 @@ function SalesListContent() {
                   </pre>
                 </div>
               )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            {isAdmin && (
-              <Button
-                onClick={() => { setBulkRestoreOpen(true); setBulkRestorePreview(null); }}
-                variant="outline"
-                size="sm"
-                className="gap-2 border-amber-300 text-amber-700 hover:bg-amber-50"
-                title="approved → pending 일괄 복구 (관리자 유지보수)"
-              >
-                상태 일괄 복구
-              </Button>
-            )}
-            {/* 2-b-2 (2026-10-14): 매출 입력 바로가기 (사이드바 매입·매출 관리 > 매출 탭에도 있음) */}
-            <Button onClick={() => navigate("/dashboard/accounting/sales/create")} size="sm" className="gap-1">
-              ＋ 매출 입력
-            </Button>
-            <Button onClick={() => setBulkUploadOpen(true)} variant="outline" size="sm" className="gap-2">
-              <FileSpreadsheet className="h-4 w-4" />
-              엑셀 일괄등록
-            </Button>
-          </div>
         </div>
 
         {/* ★ PR-U (2026-05-20): 재고 부족 자동 진단 카드 ─────────────────

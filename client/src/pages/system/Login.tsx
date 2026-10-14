@@ -4,6 +4,7 @@ import { Label } from "@/components/ui/label";
 import { trpc } from "@/lib/trpc";
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
+import { homePathFor } from "@shared/navigation/menuRegistry";
 import { toast } from "sonner";
 import { getGreetingMessage } from "@/lib/greetings";
 import { motion as _motion } from "framer-motion";
@@ -44,13 +45,8 @@ export default function Login() {
       const greetingMessage = getGreetingMessage(userName);
       toast.success(greetingMessage, { duration: 4000 });
 
-      if (response?.role === 'super_admin') {
-        setLocation("/dashboard/super-admin");
-      } else if (response?.role === 'employee') {
-        setLocation("/board");
-      } else {
-        setLocation("/dashboard");
-      }
+      // 3-b (2026-10-14): 역할별 첫 화면 — 레지스트리 HOME_PATH_BY_ROLE (슈퍼관리자·직원은 기존과 같다)
+      setLocation(homePathFor(response?.role));
     } catch (error) {
       setLocation("/dashboard");
     }

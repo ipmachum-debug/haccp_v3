@@ -35,6 +35,7 @@ import NotificationDropdown from "./NotificationDropdown";
 import HeaderAttendance, { ATTENDANCE_ROLES } from "./HeaderAttendance";
 import { AppBottomNav } from "./MobileBottomNav";
 import { GlobalMenuSearch, HeaderProfileMenu } from "./HeaderTools";
+import { HubMenuContext } from "./HubMenuContext";
 import { FEATURES, MODULES } from "@/lib/featureFlags";
 import { ROUTES } from "@/lib/routePaths";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1256,6 +1257,7 @@ function DashboardLayoutContent({
         />
       </div>
 
+      <HubMenuContext.Provider value={hubSections}>
       <SidebarInset>
         {/* 데모 모드 배너 */}
         {isDemo && <DemoBanner onLogout={logout} />}
@@ -1298,6 +1300,7 @@ function DashboardLayoutContent({
         <main className={cn("flex-1 min-w-0 w-full px-3 py-4 md:px-5 md:py-5", showBottomNav && "pb-24")}>{children}</main>
         {showBottomNav && <AppBottomNav items={mobileNavItems} isActivePath={isActivePath} onOpenMenu={toggleSidebar} />}
       </SidebarInset>
+      </HubMenuContext.Provider>
     </>
   );
 }

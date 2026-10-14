@@ -81,7 +81,14 @@ const [f, setF, reset] = useUrlFilters({ q: "", from: "", to: "", status: "all" 
 - 같은 대상의 다른 면에만. **URL 유지(`useTabWithUrl`) 필수**. 예외: 매입·매출 관리 허브의 [매입|매출] (사이드바 탐색).
 
 ## 3. 적용 순서 (3-c)
-허브별로 자주 쓰는 화면부터: 매출·매입 조회 → 재고 → CCP. 한 PR 에 한두 화면씩, 기능 변화 없이 부품만 바꾼다.
+허브별로 자주 쓰는 화면부터: 매출·매입 조회 → 재고 → CCP. 한 PR 에 몇 화면씩, 기능 변화 없이 부품만 바꾼다.
+
+| 차수 | 화면 | 적용 |
+|---|---|---|
+| 1차 (2026-10-14) | 매출 조회 · 매입 조회 · 발주서 | PageHeader, 상태 StatusBadge (sale·purchase·purchaseOrder 업무 문구) |
+| 1차 | 재고 관리 · CCP 모니터링 | PageHeader (재고 종류 전환·LOT 추적 / 기간·PDF 출력) |
+| 1차 | 허브 입구 /hub/{허브} | PageHeader + 처리할 일 카드 (새 화면) |
+| 다음 | 위 화면들의 필터·표 | FilterBar(URL 유지) · DataGrid — 표 동작(정렬·선택)이 바뀌므로 화면별로 검증하며 |
 
 ## 4. 검증
 `server/commonUi.test.ts` — 상태 사전 문구·예외, URL 필터 읽기/쓰기, 표 정렬·페이지·정렬 순환, use-toast → sonner 전달, 헤더 도구 배치.
