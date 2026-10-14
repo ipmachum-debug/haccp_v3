@@ -40,7 +40,7 @@ import { useIndustryFeatures, type ModuleKey } from "@/hooks/useIndustryFeatures
 // Phase Plugin-3: Menu Engine — Plugin 기반 사이드바 동적 생성
 import { useDomainPlugin } from "@/domain/useDomainPlugin";
 import { buildMenuFromPlugin, getIcon } from "@/domain/engines/clientMenuEngine";
-import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, buildHubMenu, type MenuPlacement } from "@shared/navigation/menuRegistry";
+import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, buildHubMenu, CONSOLIDATED_PLACEMENTS, type MenuPlacement } from "@shared/navigation/menuRegistry";
 import HubSidebarMenu, { type HubMenuEntry } from "./HubSidebarMenu";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import { cn } from "@/lib/utils";
@@ -661,8 +661,10 @@ function DashboardLayoutContent({
   })();
   
   // 즐겨찾기 메뉴 항목 생성
+  // 2-b-2: 통합으로 사이드바에서 빠진 항목(경로는 유지)도 즐겨찾기에서는 계속 보이게 한다
+  const favoriteLookup = [...allMenuItems, ...toMenuItems(CONSOLIDATED_PLACEMENTS)];
   const favoriteMenuItems = favorites.map((fav: FavoriteItem) => {
-    const menuItem = allMenuItems.find(item => item.path === fav.menuPath);
+    const menuItem = favoriteLookup.find(item => item.path === fav.menuPath);
     return menuItem ? { ...menuItem, favoriteId: fav.id } : null;
    }).filter(Boolean);
 
@@ -934,7 +936,8 @@ function DashboardLayoutContent({
             el.addEventListener("scroll", handler, { passive: true });
             return () => el.removeEventListener("scroll", handler);
           }}>
-            <SidebarMenu className="px-3 py-1">
+            {/* shrink-0: 메뉴가 화면보다 길 때 flex 축소로 즐겨찾기가 겹치지 않게 (2-b-1 허브 사이드바 겹침 수정) */}
+            <SidebarMenu className="px-3 py-1 shrink-0">
               {hubMode ? (
                 <HubSidebarMenu
                   sections={hubSections}

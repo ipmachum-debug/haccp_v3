@@ -10,7 +10,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   selectTabMenu, selectAllMenus, CHILD_ROUTES, DEMO_ALLOWED_PATHS, PLUGIN_COMMON_GROUPS, MENU_PLACEMENTS,
-  isChildRouteOf,
+  isChildRouteOf, CONSOLIDATED_PLACEMENTS, HUB_BY_PATH,
 } from "../shared/navigation/menuRegistry";
 import { ROUTES } from "../client/src/lib/routePaths";
 
@@ -87,5 +87,31 @@ describe("2-a 메뉴 레지스트리 — 정합성", () => {
     const ENUM = ["super_admin", "admin", "accountant", "worker", "monitor", "inspector", "employee"];
     const bad = MENU_PLACEMENTS.flatMap((p) => p.roles.filter((r) => !ENUM.includes(r)).map((r) => `${p.label} → ${r}`));
     expect(bad).toEqual([]);
+  });
+});
+
+describe("2-b-2 통합 — 메뉴에서 빠져도 경로·즐겨찾기는 산다", () => {
+  it("통합 항목은 사이드바에 없고, 허브 매핑과 즐겨찾기용 목록에는 있다", () => {
+    const menuPaths = new Set(MENU_PLACEMENTS.map((p) => p.path));
+    expect(CONSOLIDATED_PLACEMENTS.map((p) => p.path)).toEqual([
+      "/dashboard/accounting/purchases/create", "/dashboard/accounting/sales/create", "/dashboard/haccp/f3-trends",
+    ]);
+    for (const p of CONSOLIDATED_PLACEMENTS) {
+      expect(menuPaths.has(p.path), p.path).toBe(false);
+      expect(HUB_BY_PATH[p.path], p.path).toBeTruthy();
+    }
+  });
+
+  it("통합 진입점(버튼·링크)이 상위 화면에 있다", () => {
+    const read = (f: string) => readFileSync(join(__dirname, "..", f), "utf-8");
+    expect(read("client/src/pages/accounting/PurchasesList.tsx")).toContain('navigate("/dashboard/accounting/purchases/create")');
+    expect(read("client/src/pages/accounting/SalesList.tsx")).toContain('navigate("/dashboard/accounting/sales/create")');
+    expect(read("client/src/pages/haccp/F3Dashboard.tsx")).toContain('href="/dashboard/haccp/f3-trends"');
+  });
+
+  it("허브 사이드바 겹침 회귀 — 허브 블록과 메뉴 목록은 flex 축소 금지", () => {
+    const read = (f: string) => readFileSync(join(__dirname, "..", f), "utf-8");
+    expect(read("client/src/components/dashboard/HubSidebarMenu.tsx")).toContain('className="flex flex-col gap-1 shrink-0"');
+    expect(read("client/src/components/dashboard/DashboardLayout.tsx")).toContain('<SidebarMenu className="px-3 py-1 shrink-0">');
   });
 });

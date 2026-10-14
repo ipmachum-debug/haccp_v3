@@ -163,6 +163,16 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   { tab: "superAdmin", icon: "Activity", label: "서버 모니터링", path: "/dashboard/server-monitor", roles: ["super_admin"] },
 ];
 
+/**
+ * 2-b-2 통합으로 사이드바에서 빠진 항목 (경로는 살아 있음).
+ * 사이드바에는 그리지 않고, 이미 즐겨찾기한 사용자의 즐겨찾기 표시에만 쓴다 — 통합 때문에 즐겨찾기가 사라지지 않게.
+ */
+export const CONSOLIDATED_PLACEMENTS: readonly MenuPlacement[] = [
+  { tab: "finance", icon: "PackageMinus", label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매" },
+  { tab: "finance", icon: "PackagePlus", label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"], group: "매출·판매" },
+  { tab: "haccp", icon: "TrendingUp", label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
+];
+
 /** 사이드바 active 판별용 — 페이지 내부 탭으로 접근하는 하위 경로 */
 export const CHILD_ROUTES: Readonly<Record<string, readonly string[]>> = {
   "/dashboard/production-management": ["/dashboard/batch-management", "/dashboard/batch/new", "/dashboard/batch", "/dashboard/pipeline", "/dashboard/production/prediction"],

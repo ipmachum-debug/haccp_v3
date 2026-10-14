@@ -52,7 +52,9 @@ export default function HubSidebarMenu({
   const activeHub = useMemo(() => sections.find((s) => s.items.some((i) => isActivePath(i.path)))?.hub.id ?? null, [sections, location, isActivePath]);
 
   return (
-    <div className="flex flex-col gap-1">
+    // shrink-0: 사이드바(SidebarMenu = flex-col) 높이가 화면보다 길면 이 블록이 flex 축소되어
+    // 아래 즐겨찾기가 허브 목록 위에 겹쳐 그려졌다 (2026-10-14 대표 화면). 축소 금지 → 사이드바가 스크롤된다.
+    <div className="flex flex-col gap-1 shrink-0">
       {sections.map(({ hub, items }, idx) => {
         const tone = TONE[hub.tone];
         const HubIcon = getIcon(hub.icon);
