@@ -850,6 +850,10 @@ function SalesListContent() {
                 상태 일괄 복구
               </Button>
             )}
+            {/* 2-b-2 (2026-10-14): 사이드바 "매출 등록" 항목을 이 버튼으로 통합 — 경로는 그대로 */}
+            <Button onClick={() => navigate("/dashboard/accounting/sales/create")} size="sm" className="gap-1">
+              ＋ 매출 등록
+            </Button>
             <Button onClick={() => setBulkUploadOpen(true)} variant="outline" size="sm" className="gap-2">
               <FileSpreadsheet className="h-4 w-4" />
               엑셀 일괄등록

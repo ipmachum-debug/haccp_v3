@@ -58,7 +58,7 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   { tab: "haccp", icon: "FileWarning", label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
   { tab: "haccp", icon: "AlertTriangle", label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], group: "품질관리 (HACCP)", requireModule: "haccp" },
   { tab: "haccp", icon: "Activity", label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
-  { tab: "haccp", icon: "TrendingUp", label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
+  // 2-b-2 (2026-10-14) 통합: /dashboard/haccp/f3-trends → F-3 운영 현황의 [Deviation 트렌드 →] 링크. 경로·허브 매핑은 유지
   { tab: "haccp", icon: "GitBranch", label: "변경관리", path: "/dashboard/food/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
   { tab: "haccp", icon: "LayoutDashboard", label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], group: "화장품 GMP", requireModule: "gmp" },
   { tab: "haccp", icon: "Sparkles", label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], group: "화장품 GMP", requireModule: "gmp" },
@@ -125,10 +125,10 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   // ── 회계 탭 (순서는 ERP 전용 모드 기준, erpOnly 표시 항목은 통합 모드에서 제외) ──
   { tab: "finance", icon: "TrendingUp", label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"], group: "개요" },
   { tab: "finance", icon: "ClipboardList", label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },
-  { tab: "finance", icon: "PackageMinus", label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매" },
+  // 2-b-2 (2026-10-14) 통합: /dashboard/accounting/purchases/create → 매입 조회 화면의 [＋ 매입 등록] 버튼. 경로·허브 매핑은 유지
   { tab: "finance", icon: "FileText", label: "매입 조회", path: "/dashboard/accounting/purchases/list", roles: ["super_admin", "admin"], group: "매입·구매" },
   { tab: "finance", icon: "FileText", label: "견적서", path: "/dashboard/accounting/quotations", roles: ["super_admin", "admin"], group: "매출·판매" },
-  { tab: "finance", icon: "PackagePlus", label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"], group: "매출·판매" },
+  // 2-b-2 (2026-10-14) 통합: /dashboard/accounting/sales/create → 매출 조회 화면의 [＋ 매출 등록] 버튼. 경로·허브 매핑은 유지
   { tab: "finance", icon: "FileText", label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"], group: "매출·판매" },
   { tab: "finance", icon: "Receipt", label: "세금계산서", path: "/dashboard/accounting/tax-invoices", roles: ["super_admin", "admin"], group: "매출·판매" },
   { tab: "finance", icon: "Receipt", label: "B2C 플랫폼 정산", path: "/dashboard/accounting/b2c-platform", roles: ["super_admin", "admin"], group: "매출·판매" },
@@ -161,6 +161,16 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   { tab: "superAdmin", icon: "LayoutDashboard", label: "통합 대시보드", path: "/dashboard", roles: ["super_admin"] },
   { tab: "superAdmin", icon: "Clock", label: "Today", path: "/dashboard/today", roles: ["super_admin"] },
   { tab: "superAdmin", icon: "Activity", label: "서버 모니터링", path: "/dashboard/server-monitor", roles: ["super_admin"] },
+];
+
+/**
+ * 2-b-2 통합으로 사이드바에서 빠진 항목 (경로는 살아 있음).
+ * 사이드바에는 그리지 않고, 이미 즐겨찾기한 사용자의 즐겨찾기 표시에만 쓴다 — 통합 때문에 즐겨찾기가 사라지지 않게.
+ */
+export const CONSOLIDATED_PLACEMENTS: readonly MenuPlacement[] = [
+  { tab: "finance", icon: "PackageMinus", label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매" },
+  { tab: "finance", icon: "PackagePlus", label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"], group: "매출·판매" },
+  { tab: "haccp", icon: "TrendingUp", label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
 ];
 
 /** 사이드바 active 판별용 — 페이지 내부 탭으로 접근하는 하위 경로 */

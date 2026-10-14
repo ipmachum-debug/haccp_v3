@@ -130,9 +130,13 @@ export default function F3Dashboard() {
               특허 [0016] — CCP 이탈 → LOT HOLD → 손실분개 → 시정조치 자동화 5단계
             </p>
           </div>
-          <Badge variant={activeCount === 5 ? "default" : "secondary"} className="text-sm">
-            {activeCount}/5 단계 활성
-          </Badge>
+          <div className="flex items-center gap-3">
+            {/* 2-b-2 (2026-10-14): 사이드바 "Deviation 트렌드" 항목을 이 링크로 통합 — 경로는 그대로 */}
+            <Link href="/dashboard/haccp/f3-trends" className="text-sm text-primary underline underline-offset-4">Deviation 트렌드 →</Link>
+            <Badge variant={activeCount === 5 ? "default" : "secondary"} className="text-sm">
+              {activeCount}/5 단계 활성
+            </Badge>
+          </div>
         </div>
 
         {/* 5단계 활성화 카드 — 점진 활성화 시각화 */}
