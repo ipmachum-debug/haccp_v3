@@ -98,6 +98,19 @@ const NONCONFORMITY_TYPE_LABELS: Record<NonconformityType, string> = {
   other: "기타",
 };
 
+// 원인 분류 · 처리 방법 — drizzle/schema/coreMes/quality/nonconforming.ts 와 동기
+const CAUSE_CATEGORIES = ["material", "process", "equipment", "human_error", "environment", "method", "other"] as const;
+type CauseCategory = (typeof CAUSE_CATEGORIES)[number];
+const CAUSE_CATEGORY_LABELS: Record<CauseCategory, string> = {
+  material: "원재료", process: "공정", equipment: "설비", human_error: "작업자", environment: "환경", method: "방법", other: "기타",
+};
+const DISPOSAL_METHODS = ["rework", "downgrade", "alternative_use", "disposal", "return_to_supplier", "customer_return"] as const;
+type DisposalMethod = (typeof DISPOSAL_METHODS)[number];
+const DISPOSAL_METHOD_LABELS: Record<DisposalMethod, string> = {
+  rework: "재작업", downgrade: "등급 하향", alternative_use: "용도 전환", disposal: "폐기",
+  return_to_supplier: "공급업체 반품", customer_return: "고객 반품",
+};
+
 const ALLOWED_TRANSITIONS: Record<NonconformingStatus, readonly NonconformingStatus[]> = {
   detected: ["under_investigation", "cancelled"],
   under_investigation: ["pending_disposal", "cancelled"],
@@ -145,6 +158,31 @@ export default function NonconformingPage({ industry }: Props) {
       toast({ title: "상태 전이 실패", description: err.message, variant: "destructive" });
     },
   });
+
+  // 원인 분석 · 처리 기록 (2026-10-14 — 식품 구형 부적합 화면에 있던 입력. 서버 setRootCause/setDisposal 은 있었으나 화면이 없었다)
+  const [recordTarget, setRecordTarget] = useState<any | null>(null);
+  const rootCauseMut = trpc.nonconforming.setRootCause.useMutation();
+  const disposalMut = trpc.nonconforming.setDisposal.useMutation();
+  const saveRecord = async (v: RecordValues) => {
+    if (!recordTarget) return;
+    try {
+      if (v.rootCause.trim()) {
+        await rootCauseMut.mutateAsync({ industry, id: recordTarget.id, rootCause: v.rootCause.trim(), causeCategory: v.causeCategory });
+      }
+      if (v.disposalMethod) {
+        await disposalMut.mutateAsync({
+          industry, id: recordTarget.id, disposalMethod: v.disposalMethod,
+          disposalDate: v.disposalDate || undefined, disposalDetails: v.disposalDetails || undefined,
+          disposalCost: v.disposalCost ? Number(v.disposalCost) : undefined, preventiveActions: v.preventiveActions || undefined,
+        });
+      }
+      toast({ title: `${recordTarget.code} 원인·처리 저장` });
+      setRecordTarget(null);
+      utils.nonconforming.list.invalidate();
+    } catch (err: any) {
+      toast({ title: "저장 실패", description: err?.message ?? String(err), variant: "destructive" });
+    }
+  };
 
   return (
     <DashboardLayout>
@@ -237,13 +275,18 @@ export default function NonconformingPage({ industry }: Props) {
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <TransitionActions
-                          currentStatus={nc.status as NonconformingStatus}
-                          onTransition={(toStatus) =>
-                            transitionMut.mutate({ industry, id: nc.id, toStatus })
-                          }
-                          disabled={transitionMut.isPending}
-                        />
+                        <div className="flex flex-wrap items-center gap-1">
+                          {nc.status !== "closed" && nc.status !== "cancelled" && (
+                            <Button size="sm" variant="outline" onClick={() => setRecordTarget(nc)}>원인·처리</Button>
+                          )}
+                          <TransitionActions
+                            currentStatus={nc.status as NonconformingStatus}
+                            onTransition={(toStatus) =>
+                              transitionMut.mutate({ industry, id: nc.id, toStatus })
+                            }
+                            disabled={transitionMut.isPending}
+                          />
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -252,8 +295,93 @@ export default function NonconformingPage({ industry }: Props) {
             )}
           </CardContent>
         </Card>
+        <Dialog open={!!recordTarget} onOpenChange={(v) => !v && setRecordTarget(null)}>
+          {recordTarget && (
+            <RecordDialog key={recordTarget.id} target={recordTarget} loading={rootCauseMut.isPending || disposalMut.isPending} onSubmit={saveRecord} />
+          )}
+        </Dialog>
       </div>
     </DashboardLayout>
+  );
+}
+
+type RecordValues = {
+  rootCause: string; causeCategory: CauseCategory;
+  disposalMethod: DisposalMethod | ""; disposalDate: string; disposalDetails: string; disposalCost: string; preventiveActions: string;
+};
+
+/* ─────────────────────────────────────────────────────────────
+ * 원인 분석 · 처리 기록 다이얼로그
+ * ───────────────────────────────────────────────────────────── */
+function RecordDialog({ target, loading, onSubmit }: { target: any; loading: boolean; onSubmit: (v: RecordValues) => void }) {
+  const [v, setV] = useState<RecordValues>({
+    rootCause: target.rootCause ?? "",
+    causeCategory: (target.causeCategory as CauseCategory) ?? "process",
+    disposalMethod: (target.disposalMethod && target.disposalMethod !== "pending" ? target.disposalMethod : "") as DisposalMethod | "",
+    disposalDate: target.disposalDate ?? "",
+    disposalDetails: target.disposalDetails ?? "",
+    disposalCost: target.disposalCost != null ? String(target.disposalCost) : "",
+    preventiveActions: target.preventiveActions ?? "",
+  });
+  const set = <K extends keyof RecordValues>(k: K, val: RecordValues[K]) => setV((p) => ({ ...p, [k]: val }));
+  return (
+    <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogHeader>
+        <DialogTitle>원인 분석 · 처리 — {target.code} {target.itemName}</DialogTitle>
+      </DialogHeader>
+      <div className="space-y-5">
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold">원인 분석</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground">원인 분류</label>
+              <Select value={v.causeCategory} onValueChange={(x) => set("causeCategory", x as CauseCategory)}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{CAUSE_CATEGORIES.map((c) => <SelectItem key={c} value={c}>{CAUSE_CATEGORY_LABELS[c]}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div className="sm:col-span-2">
+              <label className="text-xs text-muted-foreground">근본 원인</label>
+              <Textarea rows={2} value={v.rootCause} onChange={(e) => set("rootCause", e.target.value)} placeholder="왜 발생했는지" />
+            </div>
+          </div>
+        </section>
+        <section className="space-y-3">
+          <h3 className="text-sm font-semibold">처리</h3>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs text-muted-foreground">처리 방법</label>
+              <Select value={v.disposalMethod || undefined} onValueChange={(x) => set("disposalMethod", x as DisposalMethod)}>
+                <SelectTrigger><SelectValue placeholder="선택" /></SelectTrigger>
+                <SelectContent>{DISPOSAL_METHODS.map((d) => <SelectItem key={d} value={d}>{DISPOSAL_METHOD_LABELS[d]}</SelectItem>)}</SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">처리일</label>
+              <Input type="date" value={v.disposalDate} onChange={(e) => set("disposalDate", e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs text-muted-foreground">처리 비용 (원)</label>
+              <Input type="number" min={0} value={v.disposalCost} onChange={(e) => set("disposalCost", e.target.value)} />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">처리 내용</label>
+            <Textarea rows={2} value={v.disposalDetails} onChange={(e) => set("disposalDetails", e.target.value)} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground">예방 조치</label>
+            <Textarea rows={2} value={v.preventiveActions} onChange={(e) => set("preventiveActions", e.target.value)} />
+          </div>
+        </section>
+        <p className="text-xs text-muted-foreground">처리 완료(승인)·종결은 목록의 상태 버튼으로 진행합니다 — 관리자 권한.</p>
+      </div>
+      <DialogFooter>
+        <Button onClick={() => onSubmit(v)} disabled={loading || (!v.rootCause.trim() && !v.disposalMethod)}>
+          {loading ? "저장 중…" : "저장"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
   );
 }
 

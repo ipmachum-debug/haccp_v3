@@ -1,31 +1,4 @@
 {
-  "generatedFrom": "2-c (2026-10-14) 화면이 부르지만 런타임 appRouter 에 없는 tRPC 프로시저. 이름 충돌·삭제·미구현. 별도 PR 에서 하나씩 정리하고 이 목록에서 지운다.",
-  "missing": [
-    "accountingClose.getDailyList",
-    "accountingClose.getMonthlyList",
-    "accountingClose.lockDaily",
-    "accountingClose.lockMonthly",
-    "accountingClose.performDaily",
-    "accountingClose.performMonthly",
-    "bankAccounts.create",
-    "bankAccounts.list",
-    "bankTransactions.autoMatch",
-    "bankTransactions.autoMatchAdvanced",
-    "bankTransactions.getMatchCandidates",
-    "bankTransactions.list",
-    "bankTransactions.manualMatch",
-    "bankTransactions.stats",
-    "bankTransactions.upload",
-    "ccpMonitoring.saveProductCcpSpec",
-    "checklistCalibration.listEquipment",
-    "checklists.getStats",
-    "intermediate.addComponent",
-    "inventory.getProductOutboundByProduct",
-    "monthlyLog.deleteHygiene",
-    "monthlyLog.rejectHygiene",
-    "system.getRecentActivities",
-    "system.getStats",
-    "weeklyLog.deleteHygiene",
-    "weeklyLog.rejectHygiene"
-  ]
+  "generatedFrom": "화면이 부르지만 런타임 appRouter 에 없는 tRPC 프로시저. 2-c 에서 36 → 26, 2026-10-14 끊긴 API 정리로 26 → 0. 새 끊김은 테스트가 막는다.",
+  "missing": []
 }

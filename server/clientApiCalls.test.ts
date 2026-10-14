@@ -19,7 +19,8 @@ function clientCalls(): Map<string, Set<string>> {
   walk(join(ROOT, "client", "src"));
   const calls = new Map<string, Set<string>>();
   for (const f of files) {
-    const s = readFileSync(f, "utf-8");
+    // 주석 줄은 건너뛴다 (주석 처리된 호출을 끊김으로 세지 않게)
+    const s = readFileSync(f, "utf-8").split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
     for (const m of s.matchAll(/trpc\.((?:[a-zA-Z0-9_]+\.)+?)(useQuery|useMutation|useInfiniteQuery|useSuspenseQuery)\b/g)) {
       const p = m[1].slice(0, -1);
       if (!calls.has(p)) calls.set(p, new Set());

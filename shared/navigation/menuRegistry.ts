@@ -80,7 +80,8 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   { tab: "haccp", icon: "Database", label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
   { tab: "haccp", icon: "Package", label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
   { tab: "haccp", icon: "ClipboardCheck", label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"], group: "마스터", requireModule: "haccp" },
-  { tab: "haccp", icon: "FileWarning", label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
+  { tab: "haccp", icon: "FileWarning", label: "부적합제품관리", path: "/quality/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" }, // 2026-10-14 공통 부적합으로 이전 (14c)
+  { tab: "haccp", icon: "RotateCcw", label: "회수 시뮬레이션", path: "/recall-simulation", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
   { tab: "haccp", icon: "AlertTriangle", label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], group: "품질관리 (HACCP)", requireModule: "haccp" },
   { tab: "haccp", icon: "Activity", label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
   // 2-b-2 (2026-10-14) 통합: /dashboard/haccp/f3-trends → F-3 운영 현황의 [Deviation 트렌드 →] 링크. 경로·허브 매핑은 유지
@@ -459,6 +460,7 @@ export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
   "/dashboard/document-output": "quality",
   "/mobile-quick-check": "quality",
   "/dashboard/nonconforming-management": "quality",
+  "/recall-simulation": "quality",
   "/corrective-actions": "quality",
   "/dashboard/haccp/f3-dashboard": "quality",
   "/dashboard/haccp/f3-trends": "quality",
@@ -768,6 +770,13 @@ export const LEGACY_REDIRECTS: ReadonlyArray<{ from: string; to: string; note: s
   { from: "/batch/new", to: "/dashboard/batch-management?tab=create", note: "구 배치 생성 경로 (기존 리다이렉트 이전)" },
   { from: "/dashboard/excel-import", to: "/dashboard/data-import", note: "엑셀 가져오기 → 데이터 가져오기 통합 (기존 리다이렉트 이전)" },
   { from: "/dashboard/simplified-import", to: "/dashboard/data-import", note: "간편 가져오기 → 데이터 가져오기 통합 (기존 리다이렉트 이전)" },
+  // 끊긴 API 정리 (2026-10-14): 서버 연결이 없어 동작하지 않던 구형 중복 화면 → 같은 기능의 현행 메뉴 화면
+  { from: "/accounting-close", to: "/dashboard/accounting/closing-management", note: "구형 회계 마감(accountingClose API 없음) → 마감 관리(일·월 마감 탭)" },
+  { from: "/dashboard/accounting/bank-matching", to: "/dashboard/accounting/bank-management", note: "구형 은행 매칭(bankTransactions API 없음) → 은행 관리(계좌·거래·매칭 탭)" },
+  { from: "/dashboard/intermediates", to: "/dashboard/manufacturing/intermediates", note: "구형 중간재(이름 충돌로 구성품 추가 끊김) → 중간재 관리" },
+  // 2026-10-14 식품 부적합 → 공통 부적합 (14c). 회수 시뮬레이션은 독립 메뉴 /recall-simulation
+  { from: "/dashboard/nonconforming-management", to: "/quality/nonconforming", note: "식품 구형 부적합제품관리 → 공통 부적합" },
+  { from: "/nonconforming-products", to: "/quality/nonconforming", note: "식품 구형 부적합 단독 화면 → 공통 부적합" },
   // 2-c: 업종 품질 48개 → 공통 경로 (업종은 쿼리로 전달, 공통 화면이 테넌트 업종과 대조)
   ...INDUSTRY_KEYS.flatMap((ind) => QUALITY_FUNCTIONS.map((fn) => ({
     from: `/dashboard/${ind}/${fn}`, to: `${qualityPath(fn)}?industry=${ind}`, note: "2-c 업종 품질 공통 경로",

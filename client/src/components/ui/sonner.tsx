@@ -8,6 +8,10 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={theme as ToasterProps["theme"]}
       className="toaster group"
+      // 3-a (2026-10-14): 성공 초록 · 경고 주황 · 실패 빨강 (명세 §5). 모바일 하단바에 가리지 않게 상단.
+      richColors
+      closeButton
+      position="top-right"
       style={
         {
           "--normal-bg": "var(--popover)",

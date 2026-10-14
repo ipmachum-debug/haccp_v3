@@ -38,7 +38,6 @@ const BatchCostAnalysisDashboard = lazy(() => import("./pages/production/BatchCo
 const UserManagement = lazy(() => import("./pages/system/UserManagement"));
 const AccountingManagement = lazy(() => import("./pages/accounting/AccountingManagement"));
 const AccountingMonthlyClose = lazy(() => import("./pages/accounting/AccountingMonthlyClose"));
-const AccountingCloseManagement = lazy(() => import("./pages/accounting/AccountingCloseManagement"));
 const ChecklistTemplates = lazy(() => import("./pages/checklist/ChecklistTemplates"));
 const ChecklistTemplateForm = lazy(() => import("./pages/checklist/ChecklistTemplateForm"));
 const ChecklistInstance = lazy(() => import("./pages/checklist/ChecklistInstance"));
@@ -82,7 +81,6 @@ const InventoryTurnoverDashboard = lazy(() => import("./pages/inventory/Inventor
 const BatchProfitabilityDashboard = lazy(() => import("./pages/production/BatchProfitabilityDashboard"));
 const SupplierManagement = lazy(() => import("./pages/master/SupplierManagement"));
 const SupplierEvaluation = lazy(() => import("./pages/master/SupplierEvaluation"));
-const IntermediateManagement = lazy(() => import("./pages/production/IntermediateManagement"));
 const InventoryAnalytics = lazy(() => import("./pages/inventory/InventoryAnalytics"));
 const CostSavingAI = lazy(() => import("./pages/production/CostSavingAI"));
 const MfReportCreate = lazy(() => import("./pages/production/MfReportCreate"));
@@ -91,7 +89,6 @@ const MfReportEdit = lazy(() => import("./pages/production/MfReportEdit"));
 const MfReportModify = lazy(() => import("./pages/production/MfReportModify"));
 const ManufacturingStandards = lazy(() => import("./pages/production/ManufacturingStandards"));
 const AuditManagement = lazy(() => import("./pages/haccp/AuditManagement"));
-const NonconformingManagement = lazy(() => import("./pages/haccp/NonconformingManagement"));
 const HaccpVerification = lazy(() => import("./pages/haccp/HaccpVerification"));
 const ProductionOperations = lazy(() => import("./pages/production/ProductionOperations"));
 const ProductionManagement = lazy(() => import("./pages/production/ProductionManagement"));
@@ -152,7 +149,6 @@ const Traceability = lazy(() => import("./pages/haccp/Traceability"));
 const HazardAnalysis = lazy(() => import("./pages/haccp/HazardAnalysis"));
 const HaccpPlanVerification = lazy(() => import("./pages/haccp/HaccpPlanVerification"));
 const InternalAuditPlan = lazy(() => import("./pages/haccp/InternalAuditPlan"));
-const NonconformingProduct = lazy(() => import("./pages/haccp/NonconformingProduct"));
 const RecallSimulation = lazy(() => import("./pages/haccp/RecallSimulation"));
 const SupplierAudit = lazy(() => import("./pages/haccp/SupplierAudit"));
 const InternalAudit = lazy(() => import("./pages/haccp/InternalAudit"));
@@ -419,7 +415,6 @@ function Router() {
       <Route path="/dashboard/recipes" component={RecipeList} />
       <Route path="/dashboard/recipes/:id" component={RecipeDetail} />
       <Route path="/dashboard/materials" component={MaterialManagement} />
-      <Route path="/dashboard/intermediates" component={IntermediateManagement} />
       <Route path="/dashboard/ccp-stats" component={CcpStats} />
       <Route path="/ccp-deviation-dashboard" component={CcpDeviationDashboard} />
       <Route path="/inventory-turnover-dashboard" component={InventoryTurnoverDashboard} />
@@ -467,7 +462,6 @@ function Router() {
       <Route path="/dashboard/accounting/sales/create" component={lazy(() => import("@/pages/accounting/SalesManagement"))} />
       <Route path="/dashboard/accounting/sales/list" component={lazy(() => import("@/pages/accounting/SalesList"))} />
       <Route path="/dashboard/accounting/sales/:id" component={lazy(() => import("@/pages/accounting/SaleDetail"))} />
-      <Route path="/dashboard/accounting/bank-matching" component={lazy(() => import("@/pages/accounting/BankTransactionMatching"))} />
       {/* 2-b-3: 중복 matching-rules → MatchingRulesManagement 줄 제거 (앞 줄 BankMatchingRuleManagement 가 항상 먼저 잡아 도달 불가였음) */}
       <Route path={ROUTES.ACCOUNTING_ACCOUNTS} component={lazy(() => import("@/pages/accounting/AccountingAccounts"))} />
       <Route path="/dashboard/accounting/daily-close" component={lazy(() => import("@/pages/accounting/AccountingDailyClose"))} />
@@ -489,7 +483,6 @@ function Router() {
       <Route path="/dashboard/accounting/payroll" component={lazy(() => import("@/pages/accounting/PayrollManagement"))} />
       <Route path="/dashboard/accounting/hr" component={lazy(() => import("@/pages/accounting/HRManagement"))} />
       <Route path="/dashboard/accounting/monthly-close" component={AccountingMonthlyClose} />
-      <Route path="/accounting-close" component={AccountingCloseManagement} />
       <Route path="/accounting/monthly-summary" component={lazy(() => import("@/pages/accounting/AccountingMonthlySummary"))} />
       <Route path="/accounting/monthly-summary/new" component={lazy(() => import("@/pages/accounting/AccountingMonthlySummaryNew"))} />
       <Route path="/accounting/monthly-summary/:year/:month" component={lazy(() => import("@/pages/accounting/AccountingMonthlySummaryDetail"))} />
@@ -579,11 +572,9 @@ function Router() {
       <Route path="/dashboard/haccp/plan-verification" component={HaccpPlanVerification} />
       <Route path="/dashboard/haccp/audit-plan" component={InternalAuditPlan} />
       <Route path="/dashboard/haccp/internal-audit" component={InternalAudit} />
-      <Route path="/nonconforming-products" component={NonconformingProduct} />
       <Route path="/recall-simulation" component={RecallSimulation} />
       <Route path="/supplier-audit" component={SupplierAudit} />
       <Route path="/dashboard/audit-management" component={AuditManagement} />
-      <Route path="/dashboard/nonconforming-management" component={NonconformingManagement} />
       <Route path="/dashboard/haccp-verification" component={HaccpVerification} />
       <Route path="/haccp-plan-verification" component={HaccpPlanVerification} />
       <Route path="/internal-audit" component={InternalAudit} />

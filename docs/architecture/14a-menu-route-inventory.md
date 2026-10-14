@@ -13,7 +13,7 @@
 | 처리 | 수 |
 |---|---:|
 | 유지 | 55 (2-b-2 재분류 +3: 마스터 데이터 · 거래처 피드 · 커뮤니케이션 로그 / 2026-10-14 매입·매출 허브 개편으로 매입 입력·매출 입력 메뉴 복귀 +2) |
-| 통합 | 52 — **완료 42** (Deviation 트렌드 2-b-2 · 업종 품질 41 2-c) · 2-c 보류 2 (식품 부적합·시정조치 — 14c 결정) · 3-b 6 · P-2 2 |
+| 통합 | 52 — **완료 43** (Deviation 트렌드 2-b-2 · 업종 품질 41 2-c · 식품 부적합 → 공통) · 유지 결정 1 (식품 시정조치 CAR — 14c) · 3-b 6 · P-2 2 |
 | 이동 | 2 |
 
 **CEO 조건부 승인 (2026-10-14)**: 메뉴 통합은 승인, 업무 기능 통합은 별도 검증. 본문 §3-1 의 8개 분리 항목은 같은 허브 안에서도 업무·정본을 나눈다.
@@ -91,7 +91,7 @@
 | 품질·규정 | 통합 | /dashboard/medical-device/risk-assessment | 위험관리 ISO 14971 | admin, inspector, monitor | HACCP탭(legacy), p:medical-device | MedicalDeviceRiskAssessment | 위험평가 공통 1벌 (/quality/risk-assessment) — 업종은 테넌트 설정, 차이는 정책 데이터. 이미 공통 페이지 래퍼 | 품질·규정 → 위험관리 ISO 14971 — 공통 경로 /quality/risk-assessment (업종은 테넌트 설정에서 자동, 옛 경로는 리다이렉트) (2-c 완료) | 같은 공통 페이지에 같은 업종 값 — 필드·승인 흐름·기록 보존·출력 동일 ✓ |
 | 품질·규정 | 통합 | /dashboard/medical-device/supplier | 공급업체 (ISO 13485) | admin, inspector, monitor | HACCP탭(legacy), p:medical-device | MedicalDeviceSupplier | 공급업체 평가 공통 1벌 (/quality/supplier) — 업종은 테넌트 설정, 차이는 정책 데이터. 이미 공통 페이지 래퍼 | 품질·규정 → 공급업체 (ISO 13485) — 공통 경로 /quality/supplier (업종은 테넌트 설정에서 자동, 옛 경로는 리다이렉트) (2-c 완료) | 같은 공통 페이지에 같은 업종 값 — 필드·승인 흐름·기록 보존·출력 동일 ✓ |
 | 품질·규정 | 통합 | /dashboard/medical-device/training | 교육 (ISO 13485) | admin, inspector, monitor | HACCP탭(legacy), p:medical-device | MedicalDeviceTraining | 교육 공통 1벌 (/quality/training) — 업종은 테넌트 설정, 차이는 정책 데이터. 이미 공통 페이지 래퍼 | 품질·규정 → 교육 (ISO 13485) — 공통 경로 /quality/training (업종은 테넌트 설정에서 자동, 옛 경로는 리다이렉트) (2-c 완료) | 같은 공통 페이지에 같은 업종 값 — 필드·승인 흐름·기록 보존·출력 동일 ✓ |
-| 품질·규정 | 통합 | /dashboard/nonconforming-management | 부적합제품관리 | admin, inspector, monitor | HACCP탭(legacy), p:food | NonconformingManagement | 식품 전용 부적합 → 공통 부적합 1벌로 (업종 정책 데이터) | 보류 — 식품 구형 부적합(h_nonconforming_products, 배치·첨부·승인)과 공통 부적합의 차이 3가지. 14c §3-1 대표 결정 후 별도 PR | 14c 비교표 참조 |
+| 품질·규정 | 통합 | /dashboard/nonconforming-management | 부적합제품관리 | admin, inspector, monitor | HACCP탭(legacy), p:food | NonconformingManagement | 식품 전용 부적합 → 공통 부적합 1벌로 (업종 정책 데이터) | 품질·규정 → 부적합제품관리 — 공통 /quality/nonconforming (식품 업종 자동). 회수 시뮬레이션은 독립 메뉴 (2026-10-14 완료) | 필드 동일 + 원인·처리 입력 공통 화면에 추가, 승인 = '처리 완료' 전이(admin) ✓ — 14c §3-1 |
 | 품질·규정 | 통합 | /dashboard/pharmaceutical/audit | 감사 (KGMP) | admin, inspector, monitor | HACCP탭(legacy), p:pharmaceutical | PharmaceuticalAudit | 감사 공통 1벌 (/quality/audit) — 업종은 테넌트 설정, 차이는 정책 데이터. 이미 공통 페이지 래퍼 | 품질·규정 → 감사 (KGMP) — 공통 경로 /quality/audit (업종은 테넌트 설정에서 자동, 옛 경로는 리다이렉트) (2-c 완료) | 같은 공통 페이지에 같은 업종 값 — 필드·승인 흐름·기록 보존·출력 동일 ✓ |
 | 품질·규정 | 통합 | /dashboard/pharmaceutical/calibration | 검교정 IQ/OQ/PQ (KGMP) | admin, inspector, monitor | HACCP탭(legacy), p:pharmaceutical | PharmaceuticalCalibration | 검교정 공통 1벌 (/quality/calibration) — 업종은 테넌트 설정, 차이는 정책 데이터. 이미 공통 페이지 래퍼 | 품질·규정 → 검교정 IQ/OQ/PQ (KGMP) — 공통 경로 /quality/calibration (업종은 테넌트 설정에서 자동, 옛 경로는 리다이렉트) (2-c 완료) | 같은 공통 페이지에 같은 업종 값 — 필드·승인 흐름·기록 보존·출력 동일 ✓ |
 | 품질·규정 | 통합 | /dashboard/pharmaceutical/change-control | 변경관리 (KGMP) | admin, inspector, monitor | HACCP탭(legacy), p:pharmaceutical | PharmaceuticalChangeControl | 변경관리 공통 1벌 (/quality/change-control) — 업종은 테넌트 설정, 차이는 정책 데이터. 이미 공통 페이지 래퍼 | 품질·규정 → 변경관리 (KGMP) — 공통 경로 /quality/change-control (업종은 테넌트 설정에서 자동, 옛 경로는 리다이렉트) (2-c 완료) | 같은 공통 페이지에 같은 업종 값 — 필드·승인 흐름·기록 보존·출력 동일 ✓ |

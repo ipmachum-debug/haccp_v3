@@ -68,7 +68,8 @@ describe("업종 판정", () => {
 
 describe("메뉴·즐겨찾기", () => {
   it("업종 품질 메뉴 41개 — 경로는 공통, 업종은 industry 값 (업종별 항목 수는 이전과 같다)", () => {
-    const q = MENU_PLACEMENTS.filter((p) => (QUALITY_FUNCTIONS as readonly string[]).some((fn) => p.path === qualityPath(fn as any)));
+    // 업종 전용 항목(industry 지정)만 — HACCP 폴백의 식품 '부적합제품관리'(2026-10-14 공통 이전)는 업종 지정 없이 별도
+    const q = MENU_PLACEMENTS.filter((p) => !!p.industry && (QUALITY_FUNCTIONS as readonly string[]).some((fn) => p.path === qualityPath(fn as any)));
     expect(q.length).toBe(41);
     expect(q.every((p) => !!p.industry)).toBe(true);
     const per = Object.fromEntries(INDUSTRY_KEYS.map((k) => [k, q.filter((p) => p.industry === k).length]));
@@ -94,11 +95,36 @@ describe("메뉴·즐겨찾기", () => {
   });
 });
 
-describe("식품 구형 품질 화면 — 이번에는 그대로 (비교표 14c, 대표 결정 대기)", () => {
-  it("식품 메뉴의 부적합제품관리·시정조치 관리는 구형 화면 유지", () => {
+describe("식품 부적합 → 공통 부적합 이전 (2026-10-14 대표 결정, 14c)", () => {
+  it("식품 메뉴: 부적합제품관리 = /quality/nonconforming, 회수 시뮬레이션 독립 메뉴, 시정조치(CAR)는 유지", () => {
     const food = readFileSync(join(__dirname, "..", "server/domain/plugins/food.ts"), "utf-8");
-    expect(food).toContain('path: "/dashboard/nonconforming-management"');
+    expect(food).toContain('label: "부적합제품관리", path: "/quality/nonconforming"');
+    expect(food).toContain('label: "회수 시뮬레이션", path: "/recall-simulation"');
+    expect(food).not.toContain('"/dashboard/nonconforming-management"');
     expect(food).toContain('path: "/corrective-actions"');
+    const legacy = MENU_PLACEMENTS.find((p) => p.label === "부적합제품관리");
+    expect(legacy?.path).toBe("/quality/nonconforming");
+  });
+
+  it("구형 부적합 경로는 공통 부적합으로 리다이렉트, 구형 화면 라우트는 없다", () => {
+    const routes = readAppRoutes();
+    for (const from of ["/dashboard/nonconforming-management", "/nonconforming-products"]) {
+      expect(firstMatch(routes, from)?.kind, from).toBe("redirect");
+      expect(resolveLegacyPath(from)).toBe("/quality/nonconforming");
+    }
+    expect(firstMatch(routes, "/recall-simulation")?.kind).toBe("component");
+  });
+
+  it("공통 부적합 화면에 원인 분석·처리 입력 (식품 구형 화면에 있던 기능)", () => {
+    const page = readFileSync(join(__dirname, "..", "client/src/pages/nonconforming/NonconformingPage.tsx"), "utf-8");
+    expect(page).toContain("trpc.nonconforming.setRootCause.useMutation");
+    expect(page).toContain("trpc.nonconforming.setDisposal.useMutation");
+  });
+
+  it("AI 컨텍스트의 부적합은 공통 테이블의 실제 칸을 읽는다", () => {
+    const ai = readFileSync(join(__dirname, "..", "server/db/ai/aiContextLayer.ts"), "utf-8");
+    expect(ai).toContain("FROM h_nonconformings");
+    expect(ai).not.toContain("FROM h_nonconforming_products");
   });
 
   it("구형 시정조치 화면은 식품 CAR API(food.correctiveAction)로 연결", () => {

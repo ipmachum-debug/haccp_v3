@@ -366,14 +366,15 @@ export async function getDeviationHistory(
     [tenantId, startDate, endDate + " 23:59:59", limit]
   );
 
-  // 부적합 제품
+  // 부적합 — 정본은 공통 부적합(h_nonconformings, 전 업종). 2026-10-14 식품도 공통 화면으로 이전.
+  //   이전 쿼리는 h_nonconforming_products 에 없는 칸(severity·batch_code·detected_date·disposition_date)을 읽어 실패했다.
   const [ncs] = await conn.execute(
     `SELECT id, 'nonconforming' as type, 'product' as source,
-            COALESCE(description, product_name) as description,
-            severity, status,
-            batch_code as batchCode, NULL as ccpType,
-            detected_date as occurredAt, disposition_date as resolvedAt
-     FROM h_nonconforming_products
+            COALESCE(description, item_name) as description,
+            NULL as severity, status,
+            lot_number as batchCode, NULL as ccpType,
+            detection_date as occurredAt, disposal_date as resolvedAt
+     FROM h_nonconformings
      WHERE tenant_id = ? AND created_at BETWEEN ? AND ?
      ORDER BY created_at DESC LIMIT ?`,
     [tenantId, startDate, endDate + " 23:59:59", limit]
