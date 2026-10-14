@@ -11,7 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { getIcon } from "@/domain/engines/clientMenuEngine";
-import type { HubSection, HubId } from "@shared/navigation/menuRegistry";
+import { HUB_TABS, hubTabOf, type HubSection, type HubId, type HubTabId } from "@shared/navigation/menuRegistry";
 
 export type HubMenuEntry = HubSection<React.ComponentType<{ className?: string }>>["items"][number];
 export type HubMenuSection = HubSection<React.ComponentType<{ className?: string }>>;
@@ -29,6 +29,11 @@ const TONE: Record<HubSection["hub"]["tone"], { icon: string; active: string; ba
 };
 
 const STORAGE_KEY = "sidebar-hubs-open";
+const TAB_STORAGE_KEY = "sidebar-hub-tabs";
+
+function loadTabs(): Partial<Record<HubId, HubTabId>> {
+  try { const r = localStorage.getItem(TAB_STORAGE_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; }
+}
 
 function loadOpen(): Partial<Record<HubId, boolean>> {
   try { const r = localStorage.getItem(STORAGE_KEY); return r ? JSON.parse(r) : {}; } catch { return {}; }
@@ -48,6 +53,16 @@ export default function HubSidebarMenu({
   const [open, setOpen] = useState<Partial<Record<HubId, boolean>>>(loadOpen);
   useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(open)); } catch {} }, [open]);
 
+  // 허브 안 탭 (매입·매출 관리의 [매입|매출]) — 선택은 이 브라우저에 기억, 매입·매출 화면으로 이동하면 그 탭으로 자동 전환
+  const [tabs, setTabs] = useState<Partial<Record<HubId, HubTabId>>>(loadTabs);
+  useEffect(() => { try { localStorage.setItem(TAB_STORAGE_KEY, JSON.stringify(tabs)); } catch {} }, [tabs]);
+  useEffect(() => {
+    const t = hubTabOf(location);
+    if (!t) return;
+    const owner = sections.find((s) => s.items.some((i) => i.hubTab === t))?.hub.id;
+    if (owner) setTabs((cur) => (cur[owner] === t ? cur : { ...cur, [owner]: t }));
+  }, [location, sections]);
+
   // 현재 경로가 속한 허브는 **화면을 이동했을 때만** 펼친다. 그 뒤에는 사용자가 접을 수 있어야 한다
   // (이전: 항상 강제로 펼쳐서 매입 조회 화면에서 구매·입고 허브가 접히지 않았다 — 2026-10-14 대표 보고)
   const activeHub = useMemo(() => sections.find((s) => s.items.some((i) => isActivePath(i.path)))?.hub.id ?? null, [sections, location, isActivePath]);
@@ -63,6 +78,10 @@ export default function HubSidebarMenu({
         const tone = TONE[hub.tone];
         const HubIcon = getIcon(hub.icon);
         const isOpen = open[hub.id] ?? (hub.id === activeHub || idx === 0);
+        const hubTabs = HUB_TABS[hub.id];
+        const currentTab: HubTabId | undefined = hubTabs ? (tabs[hub.id] ?? hubTabs[0].id) : undefined;
+        // 접힌(아이콘) 사이드바에서는 탭 없이 전부 보인다
+        const visible = hubTabs && !isCollapsed ? items.filter((i) => !i.hubTab || i.hubTab === currentTab) : items;
         return (
           <Collapsible key={hub.id} open={isCollapsed ? true : isOpen} onOpenChange={(v) => setOpen((s) => ({ ...s, [hub.id]: v }))}>
             {!isCollapsed && (
@@ -86,11 +105,24 @@ export default function HubSidebarMenu({
             )}
             <CollapsibleContent>
               <div className={cn("flex flex-col gap-0.5", !isCollapsed && "pl-2 pb-1")}>
-                {items.map((item, i) => {
+                {hubTabs && !isCollapsed && (
+                  <div role="tablist" aria-label={`${hub.label} 구분`} className="grid gap-1 rounded-lg bg-sidebar-accent/60 p-0.5 my-1"
+                    style={{ gridTemplateColumns: `repeat(${hubTabs.length}, minmax(0, 1fr))` }}>
+                    {hubTabs.map((t) => (
+                      <button key={t.id} type="button" role="tab" aria-selected={currentTab === t.id} data-testid={`hub-tab-${t.id}`}
+                        onClick={() => setTabs((cur) => ({ ...cur, [hub.id]: t.id }))}
+                        className={cn("h-7 rounded-md text-[12px] font-semibold transition-colors",
+                          currentTab === t.id ? cn("bg-background shadow-sm", tone.icon) : "text-sidebar-foreground/55 hover:text-sidebar-foreground")}>
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {visible.map((item, i, list) => {
                   const active = isActivePath(item.path);
                   const fav = isFavorite(item.path);
                   // 소구역 제목 (예: 플랫폼 허브의 'AI·자동화') — 앞 항목과 소구역이 바뀔 때만
-                  const showSection = !isCollapsed && !!item.section && item.section !== items[i - 1]?.section;
+                  const showSection = !isCollapsed && !!item.section && item.section !== list[i - 1]?.section;
                   return (
                     <div key={item.path}>
                     {showSection && (

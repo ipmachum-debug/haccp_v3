@@ -91,11 +91,11 @@ describe("2-a 메뉴 레지스트리 — 정합성", () => {
 });
 
 describe("2-b-2 통합 — 메뉴에서 빠져도 경로·즐겨찾기는 산다", () => {
-  it("통합 항목은 사이드바에 없고, 허브 매핑과 즐겨찾기용 목록에는 있다", () => {
+  it("통합 항목은 사이드바에 없고, 허브 매핑과 즐겨찾기용 목록에는 있다 (매입·매출 입력은 2026-10-14 허브 개편으로 메뉴 복귀)", () => {
     const menuPaths = new Set(MENU_PLACEMENTS.map((p) => p.path));
-    expect(CONSOLIDATED_PLACEMENTS.map((p) => p.path)).toEqual([
-      "/dashboard/accounting/purchases/create", "/dashboard/accounting/sales/create", "/dashboard/haccp/f3-trends",
-    ]);
+    expect(CONSOLIDATED_PLACEMENTS.map((p) => p.path)).toEqual(["/dashboard/haccp/f3-trends"]);
+    expect(MENU_PLACEMENTS.find((p) => p.path === "/dashboard/accounting/purchases/create")?.label).toBe("매입 입력");
+    expect(MENU_PLACEMENTS.find((p) => p.path === "/dashboard/accounting/sales/create")?.label).toBe("매출 입력");
     for (const p of CONSOLIDATED_PLACEMENTS) {
       expect(menuPaths.has(p.path), p.path).toBe(false);
       expect(HUB_BY_PATH[p.path], p.path).toBeTruthy();

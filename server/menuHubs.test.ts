@@ -42,7 +42,7 @@ describe("2-b-1 허브 — 경로 전부 허브를 가진다", () => {
 
   it("허브 순서 = 명세 §3", () => {
     expect([...HUBS].sort((a, b) => a.order - b.order).map((h) => h.label)).toEqual([
-      "오늘 할 일", "구매·입고", "품목·재고", "생산관리", "품질·규정", "판매·출고", "회계·경영", "환경설정", "플랫폼 관리",
+      "오늘 할 일", "매입·매출 관리", "품목·재고", "생산관리", "품질·규정", "회계·경영", "환경설정", "플랫폼 관리",
     ]);
     expect(HUBS.find((h) => h.id === "platform")?.superAdminOnly).toBe(true);
   });
@@ -113,5 +113,49 @@ describe("사이드바 하단 정리 (2026-10-14 대표 지시)", () => {
     const src = read("client/src/components/dashboard/HeaderAttendance.tsx");
     const calls = [...new Set([...src.matchAll(/trpc\.hr\.(\w+)/g)].map((m) => m[1]))].sort();
     expect(calls).toEqual(["clockIn", "clockOut", "myToday"]);
+  });
+});
+
+describe("매입·매출 관리 허브 (2026-10-14 대표 결정)", () => {
+  it("구매·입고 + 판매·출고 → 허브 하나, 안에 [매입 | 매출] 탭", async () => {
+    const { HUB_TABS } = await import("../shared/navigation/menuRegistry");
+    expect(HUBS.map((h) => h.id)).not.toContain("purchase");
+    expect(HUBS.map((h) => h.id)).not.toContain("sales");
+    expect(HUB_TABS.trade?.map((t) => t.label)).toEqual(["매입", "매출"]);
+  });
+
+  it("탭별 항목: 매입 = 발주서 → 매입 입력 → 매입 조회 / 매출 = 견적서 → 매출 입력 → 매출 조회 + 정산 / 거래처는 두 탭 공통", () => {
+    const ctx = { isErpOnly: false };
+    const trade = buildHubMenu([...selectTabMenu("finance", ctx)]).find((s) => s.hub.id === "trade")!;
+    const inTab = (t: string) => trade.items.filter((i) => !i.hubTab || i.hubTab === t).map((i) => `${i.section ?? ""}:${i.label}`);
+    expect(inTab("purchase")).toEqual([
+      ":발주서", ":매입 입력", ":매입 조회",
+      "거래처:거래처 피드 (CRM)", "거래처:거래처", "거래처:커뮤니케이션 로그", "거래처:단가표",
+    ]);
+    expect(inTab("sales")).toEqual([
+      ":견적서", ":매출 입력", ":매출 조회", "정산:세금계산서", "정산:B2C 플랫폼 정산",
+      "거래처:거래처 피드 (CRM)", "거래처:거래처", "거래처:커뮤니케이션 로그", "거래처:단가표",
+    ]);
+  });
+
+  it("상세·작성 화면도 같은 탭으로 (현재 화면 따라 탭 자동 전환)", async () => {
+    const { hubTabOf } = await import("../shared/navigation/menuRegistry");
+    expect(hubTabOf("/dashboard/accounting/purchase-orders/create")).toBe("purchase");
+    expect(hubTabOf("/dashboard/accounting/purchases/123")).toBe("purchase");
+    expect(hubTabOf("/dashboard/accounting/quotations/create")).toBe("sales");
+    expect(hubTabOf("/dashboard/accounting/sales/77")).toBe("sales");
+    expect(hubTabOf("/dashboard/accounting/partners")).toBeNull();
+    expect(hubTabOf("/dashboard/accounting/journal-entries")).toBeNull();
+  });
+
+  it("권한·라우트 불변 — 6개 모두 super_admin·admin, 경로 그대로", () => {
+    const six = ["/dashboard/accounting/purchase-orders", "/dashboard/accounting/purchases/create", "/dashboard/accounting/purchases/list",
+      "/dashboard/accounting/quotations", "/dashboard/accounting/sales/create", "/dashboard/accounting/sales/list"];
+    for (const p of six) {
+      const m = MENU_PLACEMENTS.find((x) => x.path === p)!;
+      expect(m, p).toBeTruthy();
+      expect([...m.roles], p).toEqual(["super_admin", "admin"]);
+      expect(hubOf(p), p).toBe("trade");
+    }
   });
 });

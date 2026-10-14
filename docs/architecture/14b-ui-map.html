@@ -58,6 +58,12 @@ header .meta{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:12px;color:var(-
 .hub li::before{content:"";position:absolute;left:0;top:.6em;width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.6}
 .hub li.sep{color:var(--muted);font-size:11.5px}
 .hub li.sep::before{background:none;border:1px solid currentColor}
+.hub .tabs{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:10px 12px 0}
+.hub .tabs>div{border:1px solid var(--line);border-radius:8px;padding:6px 8px 8px;background:var(--surface)}
+.hub .tabs>div>b{display:block;font-size:11.5px;color:var(--h2);margin-bottom:4px}
+.hub .tabs ul{padding:0;gap:3px;font-size:12px}
+.hub.wide{grid-column:span 2}
+@media (max-width:520px){.hub.wide{grid-column:auto}.hub .tabs{grid-template-columns:1fr}}
 .hub .roles{padding:8px 12px 10px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)}
 .h1 .head{background:var(--h1)} .h2 .head{background:var(--h2)} .h3 .head{background:var(--h3)} .h4 .head{background:var(--h4)}
 .h5 .head{background:var(--h5)} .h6 .head{background:var(--h6)} .h7 .head{background:var(--h7)} .h8 .head{background:var(--h8)} .h9 .head{background:var(--h9)}
@@ -112,7 +118,7 @@ a{color:var(--accent)}
 <div class="wrap">
 <header>
   <span class="eyebrow">Millio AI · UI/UX 개편 전체 맵</span>
-  <h1>업무 허브 8개, 역할별 첫 화면 5개, 작업자는 한 화면</h1>
+  <h1>업무 허브 7개, 역할별 첫 화면 5개, 작업자는 한 화면</h1>
   <p class="muted">기능을 더 만드는 게 아니라, 이미 있는 기능을 업무 순서대로 다시 묶는다. 사용자가 메뉴 109개의 존재를 몰라도 자기 일을 끝내면 성공이다.</p>
   <div class="meta"><span>기준 소스 main cd3fcbbb (2026-10-14)</span><span>명세 docs/architecture/14-ui-ux-restructure-spec.md</span><span>부록 14a 메뉴·라우트 인벤토리</span><span>CEO 결정 반영 2026-10-14</span></div>
   <p class="principle">화면은 통합하되, 데이터의 정본과 업무 처리 권한은 절대 무너뜨리지 않는다.</p>
@@ -122,7 +128,7 @@ a{color:var(--accent)}
   <h2>지금 → 개편 뒤 <small>실측 기준</small></h2>
   <div class="strip" style="margin-top:12px">
     <div class="cell"><span class="eyebrow">메뉴를 만드는 곳</span><b>5곳 <span class="arrow">→</span> 1곳</b><span class="muted">사이드바 배열 4 + 공통 엔진 + 업종 플러그인 6 → 메뉴 레지스트리 하나</span></div>
-    <div class="cell"><span class="eyebrow">사이드바 구조</span><b>탭 3개 <span class="arrow">→</span> 허브 8개</b><span class="muted">WORK · 회계 · HACCP 탭 → 업무 순서 허브 + 플랫폼(슈퍼관리자)</span></div>
+    <div class="cell"><span class="eyebrow">사이드바 구조</span><b>탭 3개 <span class="arrow">→</span> 허브 7개</b><span class="muted">WORK · 회계 · HACCP 탭 → 업무 순서 허브 + 플랫폼(슈퍼관리자)</span></div>
     <div class="cell"><span class="eyebrow">메뉴 정의 / 경로 / 라우트</span><b>190 / 109 / 411</b><span class="muted">같은 경로 2곳 이상 정의 71 · 메뉴 밖 독립 화면 151 — 411개 전부 접근 검증</span></div>
     <div class="cell"><span class="eyebrow">첫 화면</span><b>1종 <span class="arrow">→</span> 역할별 5종</b><span class="muted">작업자 · 품질 · 회계 · 관리자(대표) · 일반 직원</span></div>
     <div class="cell"><span class="eyebrow">노출 판정</span><b>탭별 분기 <span class="arrow">→</span> 업종 ∩ 모듈 ∩ 권한</b><span class="muted">메뉴 숨김은 권한이 아니다. 서버는 테넌트·역할·소유권·상태를 검사</span></div>
@@ -130,17 +136,21 @@ a{color:var(--accent)}
 </section>
 
 <section>
-  <h2>업무 허브 <small>사다 → 들이다 → 만들다 → 기록하다 → 팔다 → 맞추다</small></h2>
-  <p class="muted" style="margin:6px 0 12px">각 허브의 <b>입구</b>는 "지금 처리할 것"을 보여주는 화면이다. 아래 업무 목록은 허브 안에 탭으로 나열하지 않고, 입구에서 고르면 그 업무 화면으로 간다. 목록은 전부 지금 있는 화면이다.</p>
+  <h2>업무 허브 <small>사고팔다 → 쌓다 → 만들다 → 기록하다 → 맞추다</small></h2>
+  <p class="muted" style="margin:6px 0 12px">각 허브의 <b>입구</b>는 "지금 처리할 것"을 보여주는 화면이다. 아래 업무 목록은 허브 안에 탭으로 나열하지 않고, 입구에서 고르면 그 업무 화면으로 간다 (예외: 매입·매출 관리의 [매입 | 매출] 두 탭). 목록은 전부 지금 있는 화면이다.</p>
   <div class="hubs">
     <div class="hub h1"><div class="head"><span class="n">1</span>오늘 할 일</div>
       <div class="entry"><span class="eyebrow">입구</span>역할별 첫 화면. 승인 대기와 미처리 알림을 합친 <b>업무함</b></div>
-      <ul><li>업무함 (승인 처리 · 알림)</li><li>진행 상황</li><li>공지사항</li><li>출퇴근</li></ul>
+      <ul><li>업무함 (승인 처리 · 알림)</li><li>진행 상황</li><li>공지사항</li><li class="sep">출퇴근 — 상단 헤더 (전역 도구)</li></ul>
       <div class="roles">전원 · 통합 대시보드/Today/승인/알림 → 여기로</div></div>
-    <div class="hub h2"><div class="head"><span class="n">2</span>구매·입고</div>
-      <div class="entry"><span class="eyebrow">입구</span>입고 예정 · 미입고 발주 · 승인 대기 매입</div>
-      <ul><li>발주</li><li>매입 (조회 → 등록 버튼)</li><li>원재료 입고</li><li>거래처 (상세: CRM · 커뮤니케이션 탭)</li><li>단가표</li></ul>
-      <div class="roles">admin · accountant</div></div>
+    <div class="hub h2 wide"><div class="head"><span class="n">2</span>매입·매출 관리</div>
+      <div class="entry"><span class="eyebrow">입구</span>입고 예정 · 미입고 발주 · 확정 대기 매입 · 매출</div>
+      <div class="tabs">
+        <div><b>[매입] 탭</b><ul><li>발주서</li><li>매입 입력</li><li>매입 조회</li></ul></div>
+        <div><b>[매출] 탭</b><ul><li>견적서</li><li>매출 입력 (엑셀 6단계 · 묶음)</li><li>매출 조회</li><li class="sep">정산: 세금계산서 · B2C 정산</li></ul></div>
+      </div>
+      <ul><li class="sep">거래처 (두 탭 공통): 피드 · 거래처 · 커뮤니케이션 로그 · 단가표</li><li class="sep">탐색 순서일 뿐 — 발주서 없이 매입, 견적서 없이 매출 입력 가능. 입고·출고는 재고 관리 화면 안</li></ul>
+      <div class="roles">admin · accountant · 구매·입고 + 판매·출고 통합 (2026-10-14)</div></div>
     <div class="hub h3"><div class="head"><span class="n">3</span>품목·재고</div>
       <div class="entry"><span class="eyebrow">입구</span>재고 부족 · 음수 · 유통기한 임박</div>
       <ul><li>품목 등록 · SKU (품목 마스터)</li><li class="sep">기준정보 (원재료·제품·카테고리) — 분리</li><li>재고 현황</li><li>LOT</li><li>수불부</li><li class="sep">실사 · 조정 — 권한 분리</li></ul>
@@ -153,21 +163,17 @@ a{color:var(--accent)}
       <div class="entry"><span class="eyebrow">입구</span><b>오늘 쓸 기록지</b> — 미작성 · 미측정 · 이탈</div>
       <ul><li>CCP 기록지 (공식 기록지가 정본)</li><li>검사 (원재료 · 위생 · 출하 · 육안)</li><li>점검일지 · 체크리스트</li><li>부적합 · CAPA · 변경 · 교육 · 검교정 · 공급업체 · 위험평가 — 공통 1벌</li><li>감사 · 검증 (감사관리 · HACCP 검증 · F-3)</li><li>문서 출력 (승인 문서 인쇄)</li><li class="sep">업종 전용: 알레르겐 · 환경 모니터링 · 식품방어 / 화장품 GMP</li></ul>
       <div class="roles">inspector · monitor · admin · worker(기록 작성)</div></div>
-    <div class="hub h6"><div class="head"><span class="n">6</span>판매·출고</div>
-      <div class="entry"><span class="eyebrow">입구</span>확정 대기 매출 · 오늘 출고</div>
-      <ul><li>견적</li><li>매출 (엑셀 업로드 6단계 · 묶음 지정)</li><li>출고 · 거래명세</li><li>세금계산서</li><li>B2C 플랫폼 정산</li><li class="sep">거래처는 구매·입고에 두고 바로가기</li></ul>
-      <div class="roles">admin · accountant</div></div>
-    <div class="hub h7"><div class="head"><span class="n">7</span>회계·경영</div>
+    <div class="hub h7"><div class="head"><span class="n">6</span>회계·경영</div>
       <div class="entry"><span class="eyebrow">입구</span><b>회계 받은편지함</b> — 미매칭 은행거래 · 마감 남은 것 · 미수 · 미지급</div>
       <ul><li>전표 · 비용</li><li>은행 · 매칭</li><li>자금 · 예산</li><li>세무 (부가세)</li><li>마감 · 반복거래 · 변경이력</li><li>재무보고</li><li>계정과목 · 고정자산 · 신용관리</li><li>인사 · 급여</li><li>회계 문서함</li></ul>
       <div class="roles">accountant · admin</div></div>
-    <div class="hub h8"><div class="head"><span class="n">8</span>환경설정</div>
+    <div class="hub h8"><div class="head"><span class="n">7</span>환경설정</div>
       <div class="entry"><span class="eyebrow">입구</span>사용자 · 권한</div>
       <ul><li>회사정보</li><li>업종 설정</li><li>사내공지</li><li>데이터 임포트</li><li>외부 연동</li><li>시스템 관리</li></ul>
       <div class="roles">admin</div></div>
     <div class="hub h9 plat"><div class="head"><span class="n">★</span>플랫폼</div>
       <div class="entry"><span class="eyebrow">슈퍼관리자 전용</span>테넌트 업무 메뉴와 분리</div>
-      <ul><li>플랫폼 대시보드</li><li>테넌트 관리</li><li>사용자 승인</li><li>서버 모니터링</li></ul>
+      <ul><li>플랫폼 대시보드</li><li>테넌트 관리</li><li>사용자 승인</li><li>서버 모니터링</li><li class="sep">AI·자동화: 자동화 에이전트 (허용 계정)</li></ul>
       <div class="roles">super_admin</div></div>
   </div>
   <div class="legend" style="margin-top:10px"><span>업무 (기존 화면)</span><span class="s">같은 허브 안에서도 업무 · 정본을 나누는 항목</span></div>
@@ -187,9 +193,9 @@ a{color:var(--accent)}
     <div class="role"><div class="head"><b>회계 담당자</b><code>accountant</code></div>
       <div class="screen"><span class="eyebrow">회계 받은편지함</span><p>승인 대기 매입·매출, 미매칭 은행거래, 이번 달 마감 남은 것.</p>
       <ul><li>조회 · 작성 · 수정 · 전표 · 재무보고 · 내보내기</li><li>매출·매입 <b>확정은 관리자</b> (선행 조건 뒤 확장)</li></ul></div>
-      <div class="side">구매 · 판매 · 회계·경영 허브.</div></div>
+      <div class="side">매입·매출 관리 · 회계·경영 허브.</div></div>
     <div class="role"><div class="head"><b>관리자 · 대표</b><code>admin</code></div>
-      <div class="screen"><span class="eyebrow">운영 현황 + 결재함</span><p>허브 8개를 열지 않고 한 화면에서: 오늘 생산 정상? 재고 문제? 승인할 문서? 미수금?</p>
+      <div class="screen"><span class="eyebrow">운영 현황 + 결재함</span><p>허브를 하나씩 열지 않고 한 화면에서: 오늘 생산 정상? 재고 문제? 승인할 문서? 미수금?</p>
       <ul><li>오늘 생산 · 재고 부족 · 음수 · 미측정</li><li>승인 대기 (배치 · 매출 · 매입 · 기록지)</li><li>이번 달 매출 · 미수금</li></ul></div>
       <div class="side">전체 허브. 대표는 별도 역할이 아니라 admin 이다.</div></div>
     <div class="role"><div class="head"><b>일반 직원</b><code>employee</code></div>
@@ -247,14 +253,15 @@ a{color:var(--accent)}
 <section>
   <h2>단계 <small>독립 PR · 롤백 가능 · 숫자가 나빠지면 되돌린다</small></h2>
   <div class="phases" style="margin-top:12px">
-    <div class="phase now"><span class="k">0-1 · 0-3</span><span>Today 데이터 연결 (업무일자 · 공식 기록지 · 실제 이탈) + 없는 역할 정리 · employee 첫 화면</span></div>
+    <div class="phase"><span class="k">0-1 · 0-3</span><span>Today 데이터 연결 (업무일자 · 공식 기록지 · 실제 이탈) + 없는 역할 정리 · employee 첫 화면</span></div>
     <div class="phase"><span class="k">P-1</span><span>작업자 "오늘의 생산" 읽기 전용</span></div>
     <div class="phase"><span class="k">P-2</span><span>오늘의 생산 쓰기 — 테스트 환경 검증 후</span></div>
     <div class="phase"><span class="k">2-a</span><span>메뉴 레지스트리 한 곳 (화면은 아직 그대로, 스냅샷 일치)</span></div>
-    <div class="phase"><span class="k">2-b</span><span>허브 사이드바 전환 · 옛 URL 리다이렉트 · 메뉴 밖 151 화면 귀속 · 통합 검증표</span></div>
+    <div class="phase now"><span class="k">2-b</span><span>허브 사이드바 전환 · 옛 URL 리다이렉트 · 메뉴 밖 151 화면 귀속 · 통합 검증표 · 매입·매출 허브 · 헤더 출퇴근</span></div>
     <div class="phase"><span class="k">2-c</span><span>업종 품질 48 → 공통 8 (식품 구형 화면 비교 후)</span></div>
     <div class="phase"><span class="k">0-2</span><span>회계 담당자 서버 권한 — 선행 조건 5개 뒤 별도 PR</span></div>
     <div class="phase"><span class="k">3</span><span>공통 UI (헤더 · 필터 · 표 · 상태 · 알림 · 폼 · 상세) · 허브 입구 화면 · 화면 적용</span></div>
+    <div class="phase"><span class="k">3-d</span><span>거래 이력 통합 — 매입·매출 조회에서 발주·입고·견적·출고·전표를 기존 관계로 연결</span></div>
     <div class="phase"><span class="k">4</span><span>역할별 측정: 작업자 → 품질 → 회계 → 관리자</span></div>
   </div>
 </section>
