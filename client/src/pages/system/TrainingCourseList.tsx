@@ -73,7 +73,7 @@ export default function TrainingCourseList() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle>교육 과정 관리</CardTitle>
-            <Button onClick={() => setLocation("/training/courses/new")}>
+            <Button onClick={() => setLocation("/dashboard/haccp/training?new=course")}>
               <Plus className="w-4 h-4 mr-2" />
               새 과정 등록
             </Button>
@@ -172,13 +172,7 @@ export default function TrainingCourseList() {
                     </TableCell>
                     <TableCell className="text-right"><div className="flex flex-wrap gap-1 justify-end">
                       <div className="flex justify-end gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => setLocation(`/training/courses/${course.id}`)}
-                        >
-                          <Edit className="w-4 h-4" />
-                        </Button>
+                        {/* 수정 버튼 제거 (2026-10-14) — 과정 수정 화면이 없어 404 였다. 서버 updateCourse 는 있음 → 화면은 별도 결정 */}
                         <Button
                           variant="outline"
                           size="sm"

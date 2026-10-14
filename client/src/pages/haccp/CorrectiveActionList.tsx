@@ -167,7 +167,7 @@ export default function CorrectiveActionList() {
                             : "-"}
                         </TableCell>
                         <TableCell>
-                          <Link href={`/corrective-action/${action.id}`}>
+                          <Link href={`/dashboard/haccp/corrective-action?id=${action.id}`}>
                             <Button variant="outline" size="sm">
                               <FileText className="h-4 w-4 mr-1" />
                               상세
@@ -218,7 +218,7 @@ export default function CorrectiveActionList() {
                           <span>{new Date(action.actionDueDate).toLocaleDateString("ko-KR")}</span>
                         </div>
                       )}
-                      <Link href={`/corrective-action/${action.id}`}>
+                      <Link href={`/dashboard/haccp/corrective-action?id=${action.id}`}>
                         <Button variant="outline" size="sm" className="w-full">
                           <FileText className="h-4 w-4 mr-1" />
                           상세 보기

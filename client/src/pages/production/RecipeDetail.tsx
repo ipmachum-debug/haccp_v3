@@ -73,13 +73,13 @@ export default function RecipeDetail() {
               </p>
             </div>
             <div className="flex gap-2">
-              <Link href={`/dashboard/recipes/${recipeId}/versions`}>
+              <Link href={`/master/recipe?versions=${recipeId}`}>
                 <Button variant="outline">
                   <History className="mr-2 h-4 w-4" />
                   버전 이력
                 </Button>
               </Link>
-              <Link href={`/dashboard/recipes/${recipeId}/edit`}>
+              <Link href={`/master/recipe?edit=${recipeId}`}>
                 <Button>
                   <Edit className="mr-2 h-4 w-4" />
                   수정

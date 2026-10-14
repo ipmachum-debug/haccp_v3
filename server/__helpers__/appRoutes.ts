@@ -126,15 +126,36 @@ function resolveImport(from: string, spec: string): string | null {
   return null;
 }
 
-/** App.tsx·main.tsx 에서 import(정적·동적)로 닿는 클라이언트 파일 (저장소 기준 상대 경로) */
+/**
+ * 사용자가 실제로 열 수 있는 클라이언트 파일 (저장소 기준 상대 경로).
+ * App.tsx 의 lazy 선언은 **라우트에 연결된 것만** 따라간다 — 선언만 있고 라우트가 없는 화면은 열 수 없다 (2026-10-14).
+ */
 export function reachableClientFiles(): Set<string> {
+  const appFile = join(CLIENT_SRC, "App.tsx");
+  const appSrc = readFileSync(appFile, "utf-8");
+  const lazies = readLazyDeclarations(appSrc);
+  const routedLazyPaths = new Set<string>();
+  for (const r of readAppRoutes(appSrc)) if (r.importPath) routedLazyPaths.add(r.importPath);
+  // 라우트 밖 JSX 에서 직접 쓰는 lazy 컴포넌트 (<HubHome /> 처럼 children 라우트 안 등)
+  for (const [name, spec] of Object.entries(lazies)) if (new RegExp(`<${name}[\\s/>]`).test(appSrc)) routedLazyPaths.add(spec);
+  const unroutedLazy = new Set(Object.values(lazies).filter((spec) => !routedLazyPaths.has(spec)));
+
   const seen = new Set<string>();
-  const queue = [join(CLIENT_SRC, "main.tsx"), join(CLIENT_SRC, "App.tsx")];
+  const queue = [join(CLIENT_SRC, "main.tsx"), appFile];
   while (queue.length) {
     const f = queue.pop()!;
     if (seen.has(f) || !existsSync(f)) continue;
     seen.add(f);
     const s = readFileSync(f, "utf-8");
+    if (f === appFile) {
+      for (const m of s.matchAll(/(?:import|export)[^'"]*?from\s*["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g)) {
+        const spec = m[1] ?? m[2];
+        if (m[2] && unroutedLazy.has(spec)) continue; // 라우트 없는 lazy 화면
+        const r = resolveImport(f, spec);
+        if (r && !seen.has(r)) queue.push(r);
+      }
+      continue;
+    }
     for (const m of s.matchAll(/(?:import|export)[^'"]*?from\s*["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g)) {
       const r = resolveImport(f, m[1] ?? m[2]);
       if (r && !seen.has(r)) queue.push(r);
