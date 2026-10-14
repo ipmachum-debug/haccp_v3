@@ -20,3 +20,37 @@ export function resolveApprovalNames(_designated: Record<string, unknown>, store
   }
   return out;
 }
+
+export type Assignee = { id: number | null; name: string };
+export type Designated = { writer?: Assignee; reviewer?: Assignee; approver?: Assignee };
+
+/**
+ * 현재 담당자 — 문서 결재 설정(작성/검토/승인 직원 id) 우선, 없으면 직원의 결재 역할(reviewer/approver).
+ * 저장된 과거 직인과 무관하게 계산한다 (재작성 때 다음 결재자로만 쓴다).
+ */
+export function designatedApprovers(
+  setting: { authorEmployeeId?: number | null; reviewerEmployeeId?: number | null; approverEmployeeId?: number | null } | null | undefined,
+  employees: ReadonlyArray<{ id: number; name: string; approvalRole?: string | null }>,
+): Designated {
+  const byId = (id?: number | null) => (id ? employees.find((e) => e.id === id) : undefined);
+  const byRole = (role: string) => employees.find((e) => e.approvalRole === role);
+  const pick = (e?: { id: number; name: string }) => (e ? { id: e.id, name: e.name } : undefined);
+  return {
+    writer: pick(byId(setting?.authorEmployeeId)),
+    reviewer: pick(byId(setting?.reviewerEmployeeId) ?? (setting ? undefined : byRole("reviewer"))),
+    approver: pick(byId(setting?.approverEmployeeId) ?? (setting ? undefined : byRole("approver"))),
+  };
+}
+
+/**
+ * 재작성(승인 절차가 진행된 문서 수정) 시 결재란 — 작성자는 그대로, 검토·승인 직인과 날짜는 지우고,
+ * 다음 검토자·승인자는 현재 담당자(있으면). 현재 담당자가 없으면 기존 이름 유지.
+ */
+export function approvalOnRewrite<T extends Record<string, unknown>>(current: T, designated: Designated): T {
+  return {
+    ...current,
+    reviewerApproved: false, approverApproved: false, reviewerDate: undefined, approverDate: undefined,
+    ...(designated.reviewer ? { reviewerId: designated.reviewer.id, reviewerName: designated.reviewer.name } : {}),
+    ...(designated.approver ? { approverId: designated.approver.id, approverName: designated.approver.name } : {}),
+  };
+}
