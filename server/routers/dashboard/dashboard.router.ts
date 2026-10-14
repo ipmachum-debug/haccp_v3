@@ -10,7 +10,7 @@ export const dashboardRouter = router({
     getStats: tenantRequiredProcedure
       .query(async ({ ctx }) => {
         const { getDashboardStats } = await import("../../db");
-        return await getDashboardStats(ctx.tenantId);
+        return await getDashboardStats(ctx.tenantId, ctx.user?.id);
       }),
     
     // 회계 요약 데이터 조회

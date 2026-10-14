@@ -52,12 +52,12 @@ export default function TrainingManagement() {
   const [selectedSchedule, setSelectedSchedule] = useState<any>(null);
 
   // 데이터 조회
-  const { data: courses, isLoading: coursesLoading, refetch: refetchCourses } = trpc.training.listCourses.useQuery();
-  const { data: schedules, refetch: refetchSchedules } = trpc.training.listUpcomingSchedules.useQuery({});
-  const { data: participants, refetch: refetchParticipants } = trpc.training.listParticipantsByUser.useQuery({});
+  const { data: courses, isLoading: coursesLoading, refetch: refetchCourses } = trpc.haccpTraining.listCourses.useQuery();
+  const { data: schedules, refetch: refetchSchedules } = trpc.haccpTraining.listUpcomingSchedules.useQuery({});
+  const { data: participants, refetch: refetchParticipants } = trpc.haccpTraining.listParticipantsByUser.useQuery({});
 
   // 교육 과정 생성
-  const createCourseMutation = trpc.training.createCourse.useMutation({
+  const createCourseMutation = trpc.haccpTraining.createCourse.useMutation({
     onSuccess: () => {
       alert("교육 과정이 성공적으로 등록되었습니다.");
       setIsCreateCourseOpen(false);
@@ -69,7 +69,7 @@ export default function TrainingManagement() {
   });
 
   // 교육 일정 생성
-  const createScheduleMutation = trpc.training.createSchedule.useMutation({
+  const createScheduleMutation = trpc.haccpTraining.createSchedule.useMutation({
     onSuccess: () => {
       alert("교육 일정이 성공적으로 등록되었습니다.");
       setIsCreateScheduleOpen(false);
@@ -78,7 +78,7 @@ export default function TrainingManagement() {
   });
 
   // 참가자 등록
-  const addParticipantMutation = trpc.training.registerParticipant.useMutation({
+  const addParticipantMutation = trpc.haccpTraining.registerParticipant.useMutation({
     onSuccess: () => {
       alert("참가자가 등록되었습니다.");
       refetchParticipants();
@@ -86,7 +86,7 @@ export default function TrainingManagement() {
   });
 
   // 출석 처리
-  const recordAttendanceMutation = trpc.training.recordAttendance.useMutation({
+  const recordAttendanceMutation = trpc.haccpTraining.recordAttendance.useMutation({
     onSuccess: () => {
       alert("출석이 처리되었습니다.");
       refetchParticipants();
@@ -94,7 +94,7 @@ export default function TrainingManagement() {
   });
 
   // 평가 점수 등록
-  const recordAssessmentMutation = trpc.training.recordAssessment.useMutation({
+  const recordAssessmentMutation = trpc.haccpTraining.recordAssessment.useMutation({
     onSuccess: () => {
       alert("평가 점수가 등록되었습니다.");
       refetchParticipants();
@@ -102,7 +102,7 @@ export default function TrainingManagement() {
   });
 
   // 수료증 발급
-  const issueCertificateMutation = trpc.training.issueCertificate.useMutation({
+  const issueCertificateMutation = trpc.haccpTraining.issueCertificate.useMutation({
     onSuccess: () => {
       alert("수료증이 발급되었습니다.");
       refetchParticipants();

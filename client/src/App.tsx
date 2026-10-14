@@ -16,6 +16,7 @@ function LegacyRedirect({ to }: { to: string }) {
 }
 
 // Lazy load pages
+const IndustryQualityRoute = lazy(() => import("@/pages/quality/IndustryQualityRoute"));
 const LandingPage = lazy(() => import("@/pages/landing/LandingPage"));
 const OnboardingPage = lazy(() => import("@/pages/landing/OnboardingPage"));
 const NotFound = lazy(() => import("@/pages/NotFound"));
@@ -100,7 +101,7 @@ const SupplierPerformance = lazy(() => import("./pages/master/SupplierPerformanc
 const ApprovalManagement = lazy(() => import("./pages/system/ApprovalManagement"));
 const SystemManagement = lazy(() => import("./pages/system/SystemManagement"));
 const NotificationSettings = lazy(() => import("./pages/system/NotificationSettings"));
-const NotificationCenter = lazy(() => import("./pages/system/NotificationCenter"));
+const NotificationCenterPage = lazy(() => import("./pages/system/NotificationCenterPage"));
 const NotificationStatistics = lazy(() => import("./pages/system/NotificationStatistics"));
 const ProductionMonitor = lazy(() => import("./pages/production/ProductionMonitor"));
 const InventoryPredictionDashboard = lazy(() => import("./pages/inventory/InventoryPredictionDashboard"));
@@ -117,19 +118,9 @@ const CosmeticLabelDetail = lazy(() => import("./pages/cosmetic/CosmeticLabelDet
 const CosmeticReleaseList = lazy(() => import("./pages/cosmetic/CosmeticReleaseList"));
 const CosmeticReleaseDetail = lazy(() => import("./pages/cosmetic/CosmeticReleaseDetail"));
 const CosmeticStabilityList = lazy(() => import("./pages/cosmetic/CosmeticStabilityList"));
-const CosmeticChangeControl = lazy(() => import("./pages/changeControl/CosmeticChangeControl"));
-const FoodChangeControl = lazy(() => import("./pages/changeControl/FoodChangeControl"));
-const CosmeticAudit = lazy(() => import("./pages/audit/CosmeticAudit"));
-const FoodAudit = lazy(() => import("./pages/audit/FoodAudit"));
 // Phase Y-4: Calibration (검교정/설비 자격)
-const CosmeticCalibration = lazy(() => import("./pages/calibration/CosmeticCalibration"));
-const FoodCalibration = lazy(() => import("./pages/calibration/FoodCalibration"));
 // Phase Y-5: Supplier (공급업체 관리 AVL)
-const CosmeticSupplier = lazy(() => import("./pages/supplier/CosmeticSupplier"));
-const FoodSupplier = lazy(() => import("./pages/supplier/FoodSupplier"));
 // Phase Y-6: Risk Assessment (ICH Q9 / ISO 14971 / Codex / KGMP §3.5)
-const CosmeticRiskAssessment = lazy(() => import("./pages/riskAssessment/CosmeticRiskAssessment"));
-const FoodRiskAssessment = lazy(() => import("./pages/riskAssessment/FoodRiskAssessment"));
 // Phase Y-7: Food Defense (식품방어 TACCP — FSSC 22000 v6 §2.5.3 / PAS 96)
 const FoodDefense = lazy(() => import("./pages/foodDefense/FoodDefense"));
 // Phase Y-8: Food Fraud (식품사기 완화 VACCP — FSSC 22000 v6 §2.5.4 / GFSI)
@@ -143,48 +134,10 @@ const FoodAllergen = lazy(() => import("./pages/allergen/FoodAllergen"));
 // Phase Y-12: Environmental Monitoring (환경 모니터링 EMP — FSSC / Codex)
 const FoodEnvironmentalMonitoring = lazy(() => import("./pages/environmentalMonitoring/FoodEnvironmentalMonitoring"));
 // Phase 3 — Pharmaceutical KGMP industry 활성화 (8 Y-시리즈 entity)
-const PharmaceuticalChangeControl = lazy(() => import("./pages/changeControl/PharmaceuticalChangeControl"));
-const PharmaceuticalNonconforming = lazy(() => import("./pages/nonconforming/PharmaceuticalNonconforming"));
-const PharmaceuticalCorrectiveAction = lazy(() => import("./pages/correctiveAction/PharmaceuticalCorrectiveAction"));
-const PharmaceuticalAudit = lazy(() => import("./pages/audit/PharmaceuticalAudit"));
-const PharmaceuticalTraining = lazy(() => import("./pages/training/PharmaceuticalTraining"));
-const PharmaceuticalCalibration = lazy(() => import("./pages/calibration/PharmaceuticalCalibration"));
-const PharmaceuticalSupplier = lazy(() => import("./pages/supplier/PharmaceuticalSupplier"));
-const PharmaceuticalRiskAssessment = lazy(() => import("./pages/riskAssessment/PharmaceuticalRiskAssessment"));
 // Phase 3 — Medical Device (ISO 13485) industry 활성화 (8 Y-시리즈 entity)
-const MedicalDeviceChangeControl = lazy(() => import("./pages/changeControl/MedicalDeviceChangeControl"));
-const MedicalDeviceNonconforming = lazy(() => import("./pages/nonconforming/MedicalDeviceNonconforming"));
-const MedicalDeviceCorrectiveAction = lazy(() => import("./pages/correctiveAction/MedicalDeviceCorrectiveAction"));
-const MedicalDeviceAudit = lazy(() => import("./pages/audit/MedicalDeviceAudit"));
-const MedicalDeviceTraining = lazy(() => import("./pages/training/MedicalDeviceTraining"));
-const MedicalDeviceCalibration = lazy(() => import("./pages/calibration/MedicalDeviceCalibration"));
-const MedicalDeviceSupplier = lazy(() => import("./pages/supplier/MedicalDeviceSupplier"));
-const MedicalDeviceRiskAssessment = lazy(() => import("./pages/riskAssessment/MedicalDeviceRiskAssessment"));
 // PR-239 — Health Functional Food industry 활성화 (8 Y-시리즈 entity)
-const HealthFunctionalChangeControl = lazy(() => import("./pages/changeControl/HealthFunctionalChangeControl"));
-const HealthFunctionalNonconforming = lazy(() => import("./pages/nonconforming/HealthFunctionalNonconforming"));
-const HealthFunctionalCorrectiveAction = lazy(() => import("./pages/correctiveAction/HealthFunctionalCorrectiveAction"));
-const HealthFunctionalAudit = lazy(() => import("./pages/audit/HealthFunctionalAudit"));
-const HealthFunctionalTraining = lazy(() => import("./pages/training/HealthFunctionalTraining"));
-const HealthFunctionalCalibration = lazy(() => import("./pages/calibration/HealthFunctionalCalibration"));
-const HealthFunctionalSupplier = lazy(() => import("./pages/supplier/HealthFunctionalSupplier"));
-const HealthFunctionalRiskAssessment = lazy(() => import("./pages/riskAssessment/HealthFunctionalRiskAssessment"));
 // Phase 3 — General Manufacturing (ISO 9001) industry 활성화 (8 Y-시리즈 entity)
-const GeneralMfgChangeControl = lazy(() => import("./pages/changeControl/GeneralMfgChangeControl"));
-const GeneralMfgNonconforming = lazy(() => import("./pages/nonconforming/GeneralMfgNonconforming"));
-const GeneralMfgCorrectiveAction = lazy(() => import("./pages/correctiveAction/GeneralMfgCorrectiveAction"));
-const GeneralMfgAudit = lazy(() => import("./pages/audit/GeneralMfgAudit"));
-const GeneralMfgTraining = lazy(() => import("./pages/training/GeneralMfgTraining"));
-const GeneralMfgCalibration = lazy(() => import("./pages/calibration/GeneralMfgCalibration"));
-const GeneralMfgSupplier = lazy(() => import("./pages/supplier/GeneralMfgSupplier"));
-const GeneralMfgRiskAssessment = lazy(() => import("./pages/riskAssessment/GeneralMfgRiskAssessment"));
-const CosmeticCorrectiveAction = lazy(() => import("./pages/correctiveAction/CosmeticCorrectiveAction"));
-const FoodCorrectiveAction = lazy(() => import("./pages/correctiveAction/FoodCorrectiveAction"));
-const CosmeticNonconforming = lazy(() => import("./pages/nonconforming/CosmeticNonconforming"));
-const FoodNonconforming = lazy(() => import("./pages/nonconforming/FoodNonconforming"));
 // Phase Y-3: Training (교육/훈련) — cross-cutting
-const CosmeticTraining = lazy(() => import("./pages/training/CosmeticTraining"));
-const FoodTraining = lazy(() => import("./pages/training/FoodTraining"));
 const CosmeticFormulaList = lazy(() => import("./pages/cosmetic/CosmeticFormulaList"));
 const CosmeticFormulaDetail = lazy(() => import("./pages/cosmetic/CosmeticFormulaDetail"));
 const DeviationTrends = lazy(() => import("./pages/haccp/DeviationTrends"));
@@ -563,7 +516,7 @@ function Router() {
       <Route path="/dashboard/checklist/employee-health" component={EmployeeHealthChecklist} />
       <Route path="/stock-alerts" component={StockAlerts} />
       <Route path="/inventory-lots" component={InventoryLots} />
-      <Route path="/notifications" component={NotificationCenter} />
+      <Route path="/notifications" component={NotificationCenterPage} />
       <Route path="/notification-statistics" component={NotificationStatistics} />
       <Route path="/production-monitor" component={ProductionMonitor} />
       <Route path="/dashboard/checklist" component={ChecklistDashboard} />
@@ -576,18 +529,15 @@ function Router() {
       <Route path="/dashboard/cosmetic/dashboard" component={CosmeticDashboard} />
       <Route path="/dashboard/cosmetic/bmr" component={CosmeticBmrList} />
       <Route path="/dashboard/cosmetic/stability" component={CosmeticStabilityList} />
-      <Route path="/dashboard/cosmetic/change-control" component={CosmeticChangeControl} />
-      <Route path="/dashboard/food/change-control" component={FoodChangeControl} />
-      <Route path="/dashboard/cosmetic/audit" component={CosmeticAudit} />
-      <Route path="/dashboard/food/audit" component={FoodAudit} />
-      <Route path="/dashboard/cosmetic/training" component={CosmeticTraining} />
-      <Route path="/dashboard/food/training" component={FoodTraining} />
-      <Route path="/dashboard/cosmetic/calibration" component={CosmeticCalibration} />
-      <Route path="/dashboard/food/calibration" component={FoodCalibration} />
-      <Route path="/dashboard/cosmetic/supplier" component={CosmeticSupplier} />
-      <Route path="/dashboard/food/supplier" component={FoodSupplier} />
-      <Route path="/dashboard/cosmetic/risk-assessment" component={CosmeticRiskAssessment} />
-      <Route path="/dashboard/food/risk-assessment" component={FoodRiskAssessment} />
+      {/* 2-c (2026-10-14): 업종 품질 8종 공통 경로 — 업종은 테넌트 설정에서 판별. 옛 /dashboard/{업종}/{기능} 48개는 LEGACY_REDIRECTS */}
+      <Route path="/quality/change-control">{() => <IndustryQualityRoute fn="change-control" />}</Route>
+      <Route path="/quality/nonconforming">{() => <IndustryQualityRoute fn="nonconforming" />}</Route>
+      <Route path="/quality/corrective-action">{() => <IndustryQualityRoute fn="corrective-action" />}</Route>
+      <Route path="/quality/audit">{() => <IndustryQualityRoute fn="audit" />}</Route>
+      <Route path="/quality/training">{() => <IndustryQualityRoute fn="training" />}</Route>
+      <Route path="/quality/calibration">{() => <IndustryQualityRoute fn="calibration" />}</Route>
+      <Route path="/quality/supplier">{() => <IndustryQualityRoute fn="supplier" />}</Route>
+      <Route path="/quality/risk-assessment">{() => <IndustryQualityRoute fn="risk-assessment" />}</Route>
       {/* Phase Y-7 — Food Defense (식품방어 TACCP) */}
       <Route path="/dashboard/food/food-defense" component={FoodDefense} />
       {/* Phase Y-8 — Food Fraud (식품사기 완화 VACCP) */}
@@ -601,45 +551,9 @@ function Router() {
       {/* Phase Y-12 — Environmental Monitoring (환경 모니터링 EMP) */}
       <Route path="/dashboard/food/environmental-monitoring" component={FoodEnvironmentalMonitoring} />
       {/* Phase 3 — Pharmaceutical KGMP routes (8 Y-시리즈 entity) */}
-      <Route path="/dashboard/pharmaceutical/change-control" component={PharmaceuticalChangeControl} />
-      <Route path="/dashboard/pharmaceutical/nonconforming" component={PharmaceuticalNonconforming} />
-      <Route path="/dashboard/pharmaceutical/corrective-action" component={PharmaceuticalCorrectiveAction} />
-      <Route path="/dashboard/pharmaceutical/audit" component={PharmaceuticalAudit} />
-      <Route path="/dashboard/pharmaceutical/training" component={PharmaceuticalTraining} />
-      <Route path="/dashboard/pharmaceutical/calibration" component={PharmaceuticalCalibration} />
-      <Route path="/dashboard/pharmaceutical/supplier" component={PharmaceuticalSupplier} />
-      <Route path="/dashboard/pharmaceutical/risk-assessment" component={PharmaceuticalRiskAssessment} />
       {/* Phase 3 — Medical Device (ISO 13485) routes */}
-      <Route path="/dashboard/medical-device/change-control" component={MedicalDeviceChangeControl} />
-      <Route path="/dashboard/medical-device/nonconforming" component={MedicalDeviceNonconforming} />
-      <Route path="/dashboard/medical-device/corrective-action" component={MedicalDeviceCorrectiveAction} />
-      <Route path="/dashboard/medical-device/audit" component={MedicalDeviceAudit} />
-      <Route path="/dashboard/medical-device/training" component={MedicalDeviceTraining} />
-      <Route path="/dashboard/medical-device/calibration" component={MedicalDeviceCalibration} />
-      <Route path="/dashboard/medical-device/supplier" component={MedicalDeviceSupplier} />
-      <Route path="/dashboard/medical-device/risk-assessment" component={MedicalDeviceRiskAssessment} />
       {/* PR-239 — Health Functional Food routes */}
-      <Route path="/dashboard/health-functional/change-control" component={HealthFunctionalChangeControl} />
-      <Route path="/dashboard/health-functional/nonconforming" component={HealthFunctionalNonconforming} />
-      <Route path="/dashboard/health-functional/corrective-action" component={HealthFunctionalCorrectiveAction} />
-      <Route path="/dashboard/health-functional/audit" component={HealthFunctionalAudit} />
-      <Route path="/dashboard/health-functional/training" component={HealthFunctionalTraining} />
-      <Route path="/dashboard/health-functional/calibration" component={HealthFunctionalCalibration} />
-      <Route path="/dashboard/health-functional/supplier" component={HealthFunctionalSupplier} />
-      <Route path="/dashboard/health-functional/risk-assessment" component={HealthFunctionalRiskAssessment} />
       {/* Phase 3 — General Manufacturing (ISO 9001) routes */}
-      <Route path="/dashboard/general-manufacturing/change-control" component={GeneralMfgChangeControl} />
-      <Route path="/dashboard/general-manufacturing/nonconforming" component={GeneralMfgNonconforming} />
-      <Route path="/dashboard/general-manufacturing/corrective-action" component={GeneralMfgCorrectiveAction} />
-      <Route path="/dashboard/general-manufacturing/audit" component={GeneralMfgAudit} />
-      <Route path="/dashboard/general-manufacturing/training" component={GeneralMfgTraining} />
-      <Route path="/dashboard/general-manufacturing/calibration" component={GeneralMfgCalibration} />
-      <Route path="/dashboard/general-manufacturing/supplier" component={GeneralMfgSupplier} />
-      <Route path="/dashboard/general-manufacturing/risk-assessment" component={GeneralMfgRiskAssessment} />
-      <Route path="/dashboard/cosmetic/corrective-action" component={CosmeticCorrectiveAction} />
-      <Route path="/dashboard/food/corrective-action" component={FoodCorrectiveAction} />
-      <Route path="/dashboard/cosmetic/nonconforming" component={CosmeticNonconforming} />
-      <Route path="/dashboard/food/nonconforming" component={FoodNonconforming} />
       <Route path="/dashboard/cosmetic/formula" component={CosmeticFormulaList} />
       <Route path="/dashboard/cosmetic/formula/:id" component={CosmeticFormulaDetail} />
       <Route path="/dashboard/cosmetic/label" component={CosmeticLabelList} />
