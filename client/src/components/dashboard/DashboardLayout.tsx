@@ -781,13 +781,14 @@ function DashboardLayoutContent({
   // WORK 탭 메뉴 정의 (activeMenuItem보다 먼저 정의해야 함)
   // ERP 전용 모드: HACCP 관련 메뉴 숨기고 회계 관련만 표시
   const workMenuItems = isErpOnly ? [
-    { icon: LayoutDashboard, label: "대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
-    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
+    // 2026-10-14 (0-3): 존재하지 않는 역할 "user" 제거 (노출 범위는 그대로 — 확대는 2단계 메뉴 레지스트리에서)
+    { icon: LayoutDashboard, label: "대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector"] },
+    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector"] },
     { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
     { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "worker"] },
   ] : [
-    { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
-    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector", "user"] },
+    { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector"] },
+    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector"] },
     { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
     { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"] },
     { icon: Bell, label: "사내공지관리", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
