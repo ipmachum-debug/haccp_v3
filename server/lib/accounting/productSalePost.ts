@@ -205,8 +205,34 @@ export async function postProductSale(
     //   해결: is_default 필터 제거. 대신 sku_bundles 에 parent 로 등록된
     //   product_skus 만 후보로 선택. 같은 item_id 에 번들 등록된 SKU 가
     //   여러 개일 경우 is_default=1 우선, 그 다음 id ASC.
+    // ★ 2026-10-14: 제품 출고 화면(createProductOutbound) 에서 만든 매출은 출고 시점에 이미 LOT 을 차감했다.
+    //   여기서 다시 FEFO 차감하면 이중 차감 → 출고 기록의 LOT 으로 원가만 계산하고 재고는 건드리지 않는다.
+    //   (배치 기반 레거시 출고는 lot_id 가 없고 LOT 을 차감하지 않았으므로 기존대로 차감)
+    let alreadyDeductedByOutbound = false;
+    const saleSourceType = (sale as any).sourceType as string | null;
+    const saleSourceId = (sale as any).sourceId as number | null;
+    if (saleSourceType === "product_outbound" && saleSourceId) {
+      const [obRows] = await conn.execute(
+        `SELECT o.lot_id, o.quantity, o.status, l.unit_price
+         FROM h_product_outbound o
+         LEFT JOIN h_inventory_lots l ON l.id = o.lot_id AND l.tenant_id = o.tenant_id
+         WHERE o.id = ? AND o.tenant_id = ?
+         LIMIT 1`,
+        [saleSourceId, tenantId],
+      );
+      const ob = (obRows as any[])[0];
+      if (ob && ob.lot_id && ob.status !== "cancelled") {
+        alreadyDeductedByOutbound = true;
+        const obQty = Number(ob.quantity || 0);
+        const obUnitCost = Number(ob.unit_price || 0);
+        usedLots.push({ lotId: Number(ob.lot_id), qty: obQty, unitCost: obUnitCost });
+        totalCogs += obQty * obUnitCost;
+        console.log(`[${docId}] 제품 출고 #${saleSourceId} 에서 LOT #${ob.lot_id} 이미 차감 — 재고 차감 생략, 원가만 계산`);
+      }
+    }
+
     let bundleParentSkuId: number | null = null;
-    if (isProductSale && resolvedProductId && saleQty > 0) {
+    if (!alreadyDeductedByOutbound && isProductSale && resolvedProductId && saleQty > 0) {
       try {
         const [bundleRows] = await conn.execute(
           `SELECT ps.id AS parent_sku_id
@@ -266,7 +292,7 @@ export async function postProductSale(
           `[${docId}] BUNDLE 부족: ${result.warnings.join("; ")}`,
         );
       }
-    } else if (lotFilterColumn && lotFilterValue && saleQty > 0) {
+    } else if (!alreadyDeductedByOutbound && lotFilterColumn && lotFilterValue && saleQty > 0) {
       // (A-1) FEFO 순으로 사용 가능 LOT 조회 + 각 LOT 잠금
       const [lotRows] = await conn.execute(
         `SELECT id, available_quantity, current_quantity, unit_price, expiry_date
