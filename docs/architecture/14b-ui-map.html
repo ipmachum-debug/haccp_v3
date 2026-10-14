@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MILLIO AI 업무 허브 전체 맵</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap">
+<style>
+/* 레이아웃: 상단 요약 띠 → 허브 9열 카드(줄바꿈) → 역할 첫 화면 → 작업자 한 화면 → 지키는 것 → 단계. 흰 바탕에 허브별 옅은 색띠, 글자는 한 서체. */
+:root{
+  --bg:#f7f8f6; --surface:#ffffff; --fg:#17201d; --muted:#5b6660; --line:#d9ded9; --accent:#0d5c63; --accent-fg:#ffffff;
+  --h1:#2b58a8; --h2:#b4631c; --h3:#2f7d4e; --h4:#5f49a8; --h5:#b03a3a; --h6:#8a6a12; --h7:#0f7a82; --h8:#596470; --h9:#8c6a0e;
+  --t1:#e9effb; --t2:#fbf0e4; --t3:#e6f4ea; --t4:#efeafb; --t5:#fbe9e9; --t6:#f8f1dc; --t7:#e2f3f4; --t8:#eef0f2; --t9:#f8f0d6;
+  --ok:#2f7d4e; --warn:#b4631c; --bad:#b03a3a;
+  --font:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#141917; --surface:#1d2321; --fg:#e8ece9; --muted:#a3ada7; --line:#334039; --accent:#5fc3cb; --accent-fg:#0c1a1c;
+  --h1:#8fb0f0; --h2:#e6a26a; --h3:#86c9a0; --h4:#b4a4ec; --h5:#ee9494; --h6:#dcc072; --h7:#79d2d8; --h8:#aab4bd; --h9:#dcbb60;
+  --t1:#1c2638; --t2:#332519; --t3:#1a2f22; --t4:#27213a; --t5:#3a1f1f; --t6:#342c17; --t7:#17302f; --t8:#262c31; --t9:#342c14;
+  --ok:#86c9a0; --warn:#e6a26a; --bad:#ee9494; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#141917; --surface:#1d2321; --fg:#e8ece9; --muted:#a3ada7; --line:#334039; --accent:#5fc3cb; --accent-fg:#0c1a1c;
+  --h1:#8fb0f0; --h2:#e6a26a; --h3:#86c9a0; --h4:#b4a4ec; --h5:#ee9494; --h6:#dcc072; --h7:#79d2d8; --h8:#aab4bd; --h9:#dcbb60;
+  --t1:#1c2638; --t2:#332519; --t3:#1a2f22; --t4:#27213a; --t5:#3a1f1f; --t6:#342c17; --t7:#17302f; --t8:#262c31; --t9:#342c14;
+  --ok:#86c9a0; --warn:#e6a26a; --bad:#ee9494; color-scheme:dark }
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--font);font-size:14px;line-height:1.55;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:24px 48px}
+.wrap{max-width:1360px;margin:0 auto;display:grid;gap:36px}
+h1,h2,h3{margin:0;text-wrap:balance;line-height:1.25}
+h1{font-size:26px;font-weight:700}
+h2{font-size:18px;font-weight:700;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+h2 small{font-size:12px;font-weight:500;color:var(--muted)}
+h3{font-size:14px;font-weight:700}
+p{margin:0}
+.muted{color:var(--muted)}
+.eyebrow{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+header{display:grid;gap:10px}
+header .meta{display:flex;flex-wrap:wrap;gap:8px 18px;font-size:12px;color:var(--muted)}
+.rule{border:0;border-top:1px solid var(--line);margin:0}
+.principle{border-left:4px solid var(--accent);padding:10px 14px;background:var(--surface);font-weight:600}
+/* 요약 띠 */
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px}
+.strip .cell{background:var(--surface);border:1px solid var(--line);padding:12px 14px;display:grid;gap:4px}
+.strip .cell b{font-size:20px;font-variant-numeric:tabular-nums}
+.strip .cell .arrow{color:var(--accent);font-weight:700}
+/* 허브 */
+.hubs{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.hub{border:1px solid var(--line);background:var(--surface);display:grid;grid-template-rows:auto auto 1fr auto;min-width:0}
+.hub .head{padding:10px 12px;color:#fff;font-weight:700;display:flex;gap:8px;align-items:baseline}
+.hub .head .n{font-size:11px;opacity:.85;font-weight:600}
+.hub .entry{padding:10px 12px;font-size:12px;border-bottom:1px solid var(--line)}
+.hub .entry .eyebrow{display:block;margin-bottom:3px}
+.hub ul{list-style:none;margin:0;padding:10px 12px;display:grid;gap:5px;font-size:12.5px}
+.hub li{padding-left:12px;position:relative}
+.hub li::before{content:"";position:absolute;left:0;top:.6em;width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.6}
+.hub li.sep{color:var(--muted);font-size:11.5px}
+.hub li.sep::before{background:none;border:1px solid currentColor}
+.hub .roles{padding:8px 12px 10px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)}
+.h1 .head{background:var(--h1)} .h2 .head{background:var(--h2)} .h3 .head{background:var(--h3)} .h4 .head{background:var(--h4)}
+.h5 .head{background:var(--h5)} .h6 .head{background:var(--h6)} .h7 .head{background:var(--h7)} .h8 .head{background:var(--h8)} .h9 .head{background:var(--h9)}
+.h1 .entry{background:var(--t1)} .h2 .entry{background:var(--t2)} .h3 .entry{background:var(--t3)} .h4 .entry{background:var(--t4)}
+.h5 .entry{background:var(--t5)} .h6 .entry{background:var(--t6)} .h7 .entry{background:var(--t7)} .h8 .entry{background:var(--t8)} .h9 .entry{background:var(--t9)}
+.hub.plat{border-style:dashed}
+.legend{font-size:12px;color:var(--muted);display:flex;gap:16px;flex-wrap:wrap}
+.legend span::before{content:"";display:inline-block;width:9px;height:9px;margin-right:6px;vertical-align:middle;border-radius:2px;background:var(--accent)}
+.legend span.s::before{background:none;border:1px solid var(--muted);border-radius:50%}
+/* 역할 카드 */
+.roles-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px}
+.role{background:var(--surface);border:1px solid var(--line);display:grid;gap:0;min-width:0}
+.role .head{padding:10px 12px;border-bottom:1px solid var(--line);display:grid;gap:2px}
+.role .head b{font-size:15px}
+.role .head code{font-size:11px;color:var(--muted);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.role .screen{padding:10px 12px;display:grid;gap:6px;font-size:12.5px}
+.role .screen .eyebrow{color:var(--accent)}
+.role ul{margin:0;padding-left:16px;display:grid;gap:3px}
+.role .side{padding:8px 12px;border-top:1px solid var(--line);font-size:11.5px;color:var(--muted)}
+/* 작업자 한 화면 */
+.flow{display:grid;grid-template-columns:minmax(0,2fr) minmax(240px,1fr);gap:16px}
+@media (max-width:760px){.flow{grid-template-columns:1fr}}
+.screen-mock{background:var(--surface);border:1px solid var(--line);padding:12px;display:grid;gap:8px}
+.screen-mock .bar{display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);padding-bottom:8px;border-bottom:1px solid var(--line)}
+.step{display:grid;grid-template-columns:28px 1fr auto;gap:10px;align-items:start;padding:8px 10px;background:var(--t4);border-left:3px solid var(--h4)}
+.step .num{font-weight:700;color:var(--h4);font-variant-numeric:tabular-nums}
+.step .what{font-size:13px}
+.step .what small{display:block;color:var(--muted);font-size:11.5px}
+.chip{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap;color:var(--muted)}
+.chip.ok{color:var(--ok);border-color:var(--ok)} .chip.warn{color:var(--warn);border-color:var(--warn)} .chip.bad{color:var(--bad);border-color:var(--bad)}
+.criteria{background:var(--surface);border:1px solid var(--line);padding:12px 14px;display:grid;gap:8px;font-size:13px}
+.criteria ul{margin:0;padding-left:18px;display:grid;gap:4px}
+/* 표 */
+.two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.panel{background:var(--surface);border:1px solid var(--line);padding:12px 14px;display:grid;gap:8px;min-width:0}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;color:var(--muted);font-size:11.5px}
+.tw{overflow-x:auto}
+/* 단계 */
+.phases{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:8px}
+.phase{background:var(--surface);border:1px solid var(--line);padding:10px 12px;display:grid;gap:4px;font-size:12.5px;min-width:0}
+.phase .k{font-weight:700;color:var(--accent)}
+.phase.now{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+footer{font-size:12px;color:var(--muted);display:grid;gap:4px}
+@media (prefers-reduced-motion:no-preference){a{transition:color .15s}}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">Millio AI · UI/UX 개편 전체 맵</span>
+  <h1>업무 허브 8개, 역할별 첫 화면 5개, 작업자는 한 화면</h1>
+  <p class="muted">기능을 더 만드는 게 아니라, 이미 있는 기능을 업무 순서대로 다시 묶는다. 사용자가 메뉴 109개의 존재를 몰라도 자기 일을 끝내면 성공이다.</p>
+  <div class="meta"><span>기준 소스 main cd3fcbbb (2026-10-14)</span><span>명세 docs/architecture/14-ui-ux-restructure-spec.md</span><span>부록 14a 메뉴·라우트 인벤토리</span><span>CEO 결정 반영 2026-10-14</span></div>
+  <p class="principle">화면은 통합하되, 데이터의 정본과 업무 처리 권한은 절대 무너뜨리지 않는다.</p>
+</header>
+
+<section>
+  <h2>지금 → 개편 뒤 <small>실측 기준</small></h2>
+  <div class="strip" style="margin-top:12px">
+    <div class="cell"><span class="eyebrow">메뉴를 만드는 곳</span><b>5곳 <span class="arrow">→</span> 1곳</b><span class="muted">사이드바 배열 4 + 공통 엔진 + 업종 플러그인 6 → 메뉴 레지스트리 하나</span></div>
+    <div class="cell"><span class="eyebrow">사이드바 구조</span><b>탭 3개 <span class="arrow">→</span> 허브 8개</b><span class="muted">WORK · 회계 · HACCP 탭 → 업무 순서 허브 + 플랫폼(슈퍼관리자)</span></div>
+    <div class="cell"><span class="eyebrow">메뉴 정의 / 경로 / 라우트</span><b>190 / 109 / 411</b><span class="muted">같은 경로 2곳 이상 정의 71 · 메뉴 밖 독립 화면 151 — 411개 전부 접근 검증</span></div>
+    <div class="cell"><span class="eyebrow">첫 화면</span><b>1종 <span class="arrow">→</span> 역할별 5종</b><span class="muted">작업자 · 품질 · 회계 · 관리자(대표) · 일반 직원</span></div>
+    <div class="cell"><span class="eyebrow">노출 판정</span><b>탭별 분기 <span class="arrow">→</span> 업종 ∩ 모듈 ∩ 권한</b><span class="muted">메뉴 숨김은 권한이 아니다. 서버는 테넌트·역할·소유권·상태를 검사</span></div>
+  </div>
+</section>
+
+<section>
+  <h2>업무 허브 <small>사다 → 들이다 → 만들다 → 기록하다 → 팔다 → 맞추다</small></h2>
+  <p class="muted" style="margin:6px 0 12px">각 허브의 <b>입구</b>는 "지금 처리할 것"을 보여주는 화면이다. 아래 업무 목록은 허브 안에 탭으로 나열하지 않고, 입구에서 고르면 그 업무 화면으로 간다. 목록은 전부 지금 있는 화면이다.</p>
+  <div class="hubs">
+    <div class="hub h1"><div class="head"><span class="n">1</span>오늘 할 일</div>
+      <div class="entry"><span class="eyebrow">입구</span>역할별 첫 화면. 승인 대기와 미처리 알림을 합친 <b>업무함</b></div>
+      <ul><li>업무함 (승인 처리 · 알림)</li><li>진행 상황</li><li>공지사항</li><li>출퇴근</li></ul>
+      <div class="roles">전원 · 통합 대시보드/Today/승인/알림 → 여기로</div></div>
+    <div class="hub h2"><div class="head"><span class="n">2</span>구매·입고</div>
+      <div class="entry"><span class="eyebrow">입구</span>입고 예정 · 미입고 발주 · 승인 대기 매입</div>
+      <ul><li>발주</li><li>매입 (조회 → 등록 버튼)</li><li>원재료 입고</li><li>거래처 (상세: CRM · 커뮤니케이션 탭)</li><li>단가표</li></ul>
+      <div class="roles">admin · accountant</div></div>
+    <div class="hub h3"><div class="head"><span class="n">3</span>품목·재고</div>
+      <div class="entry"><span class="eyebrow">입구</span>재고 부족 · 음수 · 유통기한 임박</div>
+      <ul><li>품목 등록 · SKU (품목 마스터)</li><li class="sep">기준정보 (원재료·제품·카테고리) — 분리</li><li>재고 현황</li><li>LOT</li><li>수불부</li><li class="sep">실사 · 조정 — 권한 분리</li></ul>
+      <div class="roles">admin · accountant · worker(읽기)</div></div>
+    <div class="hub h4"><div class="head"><span class="n">4</span>생산관리</div>
+      <div class="entry"><span class="eyebrow">입구</span>오늘 생산계획 + 진행 중 생산지시</div>
+      <ul><li>생산계획</li><li>생산지시 · 실적</li><li>생산일지</li><li class="sep">배합 · BOM · 품목제조보고 — 기준정보, 분리</li></ul>
+      <div class="roles">admin · worker · 생산관리/생산운영/제조기준관리 → 여기로</div></div>
+    <div class="hub h5"><div class="head"><span class="n">5</span>품질·규정</div>
+      <div class="entry"><span class="eyebrow">입구</span><b>오늘 쓸 기록지</b> — 미작성 · 미측정 · 이탈</div>
+      <ul><li>CCP 기록지 (공식 기록지가 정본)</li><li>검사 (원재료 · 위생 · 출하 · 육안)</li><li>점검일지 · 체크리스트</li><li>부적합 · CAPA · 변경 · 교육 · 검교정 · 공급업체 · 위험평가 — 공통 1벌</li><li>감사 · 검증 (감사관리 · HACCP 검증 · F-3)</li><li>문서 출력 (승인 문서 인쇄)</li><li class="sep">업종 전용: 알레르겐 · 환경 모니터링 · 식품방어 / 화장품 GMP</li></ul>
+      <div class="roles">inspector · monitor · admin · worker(기록 작성)</div></div>
+    <div class="hub h6"><div class="head"><span class="n">6</span>판매·출고</div>
+      <div class="entry"><span class="eyebrow">입구</span>확정 대기 매출 · 오늘 출고</div>
+      <ul><li>견적</li><li>매출 (엑셀 업로드 6단계 · 묶음 지정)</li><li>출고 · 거래명세</li><li>세금계산서</li><li>B2C 플랫폼 정산</li><li class="sep">거래처는 구매·입고에 두고 바로가기</li></ul>
+      <div class="roles">admin · accountant</div></div>
+    <div class="hub h7"><div class="head"><span class="n">7</span>회계·경영</div>
+      <div class="entry"><span class="eyebrow">입구</span><b>회계 받은편지함</b> — 미매칭 은행거래 · 마감 남은 것 · 미수 · 미지급</div>
+      <ul><li>전표 · 비용</li><li>은행 · 매칭</li><li>자금 · 예산</li><li>세무 (부가세)</li><li>마감 · 반복거래 · 변경이력</li><li>재무보고</li><li>계정과목 · 고정자산 · 신용관리</li><li>인사 · 급여</li><li>회계 문서함</li></ul>
+      <div class="roles">accountant · admin</div></div>
+    <div class="hub h8"><div class="head"><span class="n">8</span>환경설정</div>
+      <div class="entry"><span class="eyebrow">입구</span>사용자 · 권한</div>
+      <ul><li>회사정보</li><li>업종 설정</li><li>사내공지</li><li>데이터 임포트</li><li>외부 연동</li><li>시스템 관리</li></ul>
+      <div class="roles">admin</div></div>
+    <div class="hub h9 plat"><div class="head"><span class="n">★</span>플랫폼</div>
+      <div class="entry"><span class="eyebrow">슈퍼관리자 전용</span>테넌트 업무 메뉴와 분리</div>
+      <ul><li>플랫폼 대시보드</li><li>테넌트 관리</li><li>사용자 승인</li><li>서버 모니터링</li></ul>
+      <div class="roles">super_admin</div></div>
+  </div>
+  <div class="legend" style="margin-top:10px"><span>업무 (기존 화면)</span><span class="s">같은 허브 안에서도 업무 · 정본을 나누는 항목</span></div>
+</section>
+
+<section>
+  <h2>역할별 첫 화면 <small>같은 허브 구조, 역할마다 다른 입구</small></h2>
+  <div class="roles-grid" style="margin-top:12px">
+    <div class="role"><div class="head"><b>작업자</b><code>worker</code></div>
+      <div class="screen"><span class="eyebrow">오늘의 생산</span><p>오늘 무엇을 만들고, 지금 어느 단계이고, 막힌 게 뭔가.</p>
+      <ul><li>오늘 배치 카드 (업무일자 기준)</li><li>단계별 진행 · 막힘 표시</li><li>내가 써야 할 기록지</li></ul></div>
+      <div class="side">사이드바 접힘. 필요 시 품목·재고, 현장 기록 두 개만. 회계 메뉴의 존재를 알 필요가 없다.</div></div>
+    <div class="role"><div class="head"><b>품질</b><code>inspector · monitor</code></div>
+      <div class="screen"><span class="eyebrow">오늘의 기록</span><p>오늘 써야 할 CCP · 체크리스트 · 검사 중 안 쓴 것, 미측정 · 이탈.</p>
+      <ul><li>미작성 기록지 목록</li><li>미해결 이탈</li><li>검토 대기 기록지 (monitor)</li></ul></div>
+      <div class="side">품질·규정 허브. 회계·재고·생산 승인 권한은 없다.</div></div>
+    <div class="role"><div class="head"><b>회계 담당자</b><code>accountant</code></div>
+      <div class="screen"><span class="eyebrow">회계 받은편지함</span><p>승인 대기 매입·매출, 미매칭 은행거래, 이번 달 마감 남은 것.</p>
+      <ul><li>조회 · 작성 · 수정 · 전표 · 재무보고 · 내보내기</li><li>매출·매입 <b>확정은 관리자</b> (선행 조건 뒤 확장)</li></ul></div>
+      <div class="side">구매 · 판매 · 회계·경영 허브.</div></div>
+    <div class="role"><div class="head"><b>관리자 · 대표</b><code>admin</code></div>
+      <div class="screen"><span class="eyebrow">운영 현황 + 결재함</span><p>허브 8개를 열지 않고 한 화면에서: 오늘 생산 정상? 재고 문제? 승인할 문서? 미수금?</p>
+      <ul><li>오늘 생산 · 재고 부족 · 음수 · 미측정</li><li>승인 대기 (배치 · 매출 · 매입 · 기록지)</li><li>이번 달 매출 · 미수금</li></ul></div>
+      <div class="side">전체 허브. 대표는 별도 역할이 아니라 admin 이다.</div></div>
+    <div class="role"><div class="head"><b>일반 직원</b><code>employee</code></div>
+      <div class="screen"><span class="eyebrow">공지 · 출퇴근 · 내 교육</span><p>본인 정보만. 다른 사람의 출퇴근 · 급여는 서버에서 차단.</p>
+      <ul><li>공지사항</li><li>출퇴근 · 근무</li><li>본인 교육 현황</li></ul></div>
+      <div class="side">지금은 보이는 메뉴가 0개 — 0단계에서 정리.</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>작업자 "오늘의 생산" <small>첫 파일럿 · 화면 하나에 6단계</small></h2>
+  <p class="muted" style="margin:6px 0 12px">화면 7장을 넘기는 게 아니다. 한 화면에서 위에서 아래로 펼쳐지고, 각 단계는 이미 있는 기능을 쓴다. 새 업무 처리 엔진은 만들지 않는다.</p>
+  <div class="flow">
+    <div class="screen-mock">
+      <div class="bar"><span>오늘의 생산 · 2026-10-15 (수)</span><span>작업자 김OO</span></div>
+      <div class="step"><span class="num">①</span><div class="what">오늘 생산할 제품 · 수량<small>업무일자(planned_date) 기준 배치 카드. 없으면 "생산지시 추가" 버튼 하나</small></div><span class="chip">배치 3</span></div>
+      <div class="step"><span class="num">②</span><div class="what">생산지시 선택 · 시작<small>카드를 누르면 아래가 펼쳐진다. 시작하면 자동출고</small></div><span class="chip ok">진행 중</span></div>
+      <div class="step"><span class="num">③</span><div class="what">배합비 · 원재료 재고 확인<small>투입 계획표: 자재 · 필요량 · 가용량 · LOT</small></div><span class="chip warn">입고 대기 1</span></div>
+      <div class="step"><span class="num">④</span><div class="what">투입 · 진행<small>자동출고 결과(LOT · 수량) 확인. 수동 보정은 여기서</small></div><span class="chip ok">9/9 출고</span></div>
+      <div class="step"><span class="num">⑤</span><div class="what">HACCP 기록<small>이 배치의 CCP 기록지 · 일일일지 상태 칩. 누르면 그 기록지로</small></div><span class="chip bad">미측정 2</span></div>
+      <div class="step"><span class="num">⑥</span><div class="what">생산 완료 · 재고 반영<small>실적 수량 입력 → 완료 → 완제품 LOT → 승인 요청 자동</small></div><span class="chip">승인 대기</span></div>
+    </div>
+    <div class="criteria">
+      <h3>성공 기준 (CEO 확정)</h3>
+      <ul><li>기존보다 클릭 수 · 화면 이동 감소</li><li>기존 데이터 정본 유지</li><li>생산실적과 원재료 수불 일치</li><li>CCP 공식 기록지 연결 정상</li><li>생산완료 중복 처리 방지</li><li>기존 기능 손실 없음</li></ul>
+      <h3>진행 방식</h3>
+      <p>P-1 읽기 전용 표시부터 검증 → P-2 쓰기(시작 · 투입 · 완료)는 테스트 환경에서 재고 · LOT · 회계 반영 확인 뒤 운영. 기존 생산관리 화면은 파일럿이 끝날 때까지 유지.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>지키는 것 <small>메뉴는 묶되 업무와 정본은 나눈다</small></h2>
+  <div class="two" style="margin-top:12px">
+    <div class="panel"><h3>같은 허브 안에서도 분리 유지</h3>
+      <div class="tw"><table><thead><tr><th>분리</th><th>이유</th></tr></thead><tbody>
+      <tr><td>품목 마스터 ↔ 원재료·제품 기준정보</td><td>정체성 정본 vs 수량 세계 물리 키</td></tr>
+      <tr><td>생산계획·지시 ↔ 생산실적</td><td>의도 vs 결과 기록</td></tr>
+      <tr><td>배합·BOM ↔ 실제 원재료 투입</td><td>기준정보 vs 투입 기록(LOT·수량)</td></tr>
+      <tr><td>입고·출고 ↔ 실사·조정</td><td>조정은 재고를 직접 바꿈 — 별도 권한·승인</td></tr>
+      <tr><td>CCP 기록 작성 ↔ 검토·승인</td><td>작성자·검토자·승인자 분리</td></tr>
+      <tr><td>매출 등록 ↔ 매출 확정</td><td>확정 시 재고 차감·분개</td></tr>
+      <tr><td>회계 제외(B2C) ↔ 회계 포함 매출</td><td>이중 회계 방지</td></tr>
+      <tr><td>회계 전표 ↔ 재고 수불 원장</td><td>서로 다른 정본</td></tr>
+      </tbody></table></div></div>
+    <div class="panel"><h3>개편 PR 이 바꾸지 않는 정본</h3>
+      <ul style="margin:0;padding-left:18px;display:grid;gap:4px;font-size:13px"><li>품목 식별 (item_master · ItemIdentityService)</li><li>재고 수불 · 재고 관문 · 음수 정책</li><li>LOT</li><li>CCP 공식 기록지</li><li>회계 분개</li></ul>
+      <h3 style="margin-top:6px">권한</h3>
+      <p style="font-size:13px">메뉴 표시는 권한이 아니다. 서버가 테넌트 · 역할 · 대상 데이터 소유권 · 업무 상태를 함께 검사한다. 기존 권한표는 검증된 적이 없으므로 재검토 뒤에만 적용한다 (품질검토자의 회계 승인, 회계 담당자의 재고 수정 제거). 작성 · 확정 · 취소 · 역분개는 별도 권한.</p>
+      <h3 style="margin-top:6px">보존</h3>
+      <p style="font-size:13px">기존 URL 411개, 즐겨찾기, 쿼리 파라미터 전부 동작. 이번 범위에서 화면을 지우지 않는다. 폐기는 측정 뒤 별도 결정.</p></div>
+  </div>
+</section>
+
+<section>
+  <h2>단계 <small>독립 PR · 롤백 가능 · 숫자가 나빠지면 되돌린다</small></h2>
+  <div class="phases" style="margin-top:12px">
+    <div class="phase now"><span class="k">0-1 · 0-3</span><span>Today 데이터 연결 (업무일자 · 공식 기록지 · 실제 이탈) + 없는 역할 정리 · employee 첫 화면</span></div>
+    <div class="phase"><span class="k">P-1</span><span>작업자 "오늘의 생산" 읽기 전용</span></div>
+    <div class="phase"><span class="k">P-2</span><span>오늘의 생산 쓰기 — 테스트 환경 검증 후</span></div>
+    <div class="phase"><span class="k">2-a</span><span>메뉴 레지스트리 한 곳 (화면은 아직 그대로, 스냅샷 일치)</span></div>
+    <div class="phase"><span class="k">2-b</span><span>허브 사이드바 전환 · 옛 URL 리다이렉트 · 메뉴 밖 151 화면 귀속 · 통합 검증표</span></div>
+    <div class="phase"><span class="k">2-c</span><span>업종 품질 48 → 공통 8 (식품 구형 화면 비교 후)</span></div>
+    <div class="phase"><span class="k">0-2</span><span>회계 담당자 서버 권한 — 선행 조건 5개 뒤 별도 PR</span></div>
+    <div class="phase"><span class="k">3</span><span>공통 UI (헤더 · 필터 · 표 · 상태 · 알림 · 폼 · 상세) · 허브 입구 화면 · 화면 적용</span></div>
+    <div class="phase"><span class="k">4</span><span>역할별 측정: 작업자 → 품질 → 회계 → 관리자</span></div>
+  </div>
+</section>
+
+<footer>
+  <span>개발 기준 문서: docs/architecture/14-ui-ux-restructure-spec.md · 부록 14a-menu-route-inventory.md (메뉴 109 행선지, 메뉴 밖 라우트 151) · 13-role-workflow-screens-step7.md</span>
+  <span>이 맵은 명세의 요약이다. 메뉴 항목 · 권한 · 처리 구분이 어긋나면 명세와 부록이 우선한다.</span>
+</footer>
+</div>
+</body>
+</html>
