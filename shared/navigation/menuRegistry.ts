@@ -124,11 +124,11 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
 
   // ── 회계 탭 (순서는 ERP 전용 모드 기준, erpOnly 표시 항목은 통합 모드에서 제외) ──
   { tab: "finance", icon: "TrendingUp", label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"], group: "개요" },
-  { tab: "finance", icon: "ClipboardList", label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },
-  // 2-b-2 (2026-10-14) 통합: /dashboard/accounting/purchases/create → 매입 조회 화면의 [＋ 매입 등록] 버튼. 경로·허브 매핑은 유지
+  { tab: "finance", icon: "ClipboardList", label: "발주서", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },
+  { tab: "finance", icon: "PackageMinus", label: "매입 입력", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매" }, // 2026-10-14 매입·매출 허브 개편으로 메뉴 복귀 (이전 '매입 등록')
   { tab: "finance", icon: "FileText", label: "매입 조회", path: "/dashboard/accounting/purchases/list", roles: ["super_admin", "admin"], group: "매입·구매" },
   { tab: "finance", icon: "FileText", label: "견적서", path: "/dashboard/accounting/quotations", roles: ["super_admin", "admin"], group: "매출·판매" },
-  // 2-b-2 (2026-10-14) 통합: /dashboard/accounting/sales/create → 매출 조회 화면의 [＋ 매출 등록] 버튼. 경로·허브 매핑은 유지
+  { tab: "finance", icon: "PackagePlus", label: "매출 입력", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"], group: "매출·판매" }, // 2026-10-14 메뉴 복귀 (이전 '매출 등록')
   { tab: "finance", icon: "FileText", label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"], group: "매출·판매" },
   { tab: "finance", icon: "Receipt", label: "세금계산서", path: "/dashboard/accounting/tax-invoices", roles: ["super_admin", "admin"], group: "매출·판매" },
   { tab: "finance", icon: "Receipt", label: "B2C 플랫폼 정산", path: "/dashboard/accounting/b2c-platform", roles: ["super_admin", "admin"], group: "매출·판매" },
@@ -168,8 +168,6 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
  * 사이드바에는 그리지 않고, 이미 즐겨찾기한 사용자의 즐겨찾기 표시에만 쓴다 — 통합 때문에 즐겨찾기가 사라지지 않게.
  */
 export const CONSOLIDATED_PLACEMENTS: readonly MenuPlacement[] = [
-  { tab: "finance", icon: "PackageMinus", label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매" },
-  { tab: "finance", icon: "PackagePlus", label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"], group: "매출·판매" },
   { tab: "haccp", icon: "TrendingUp", label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
 ];
 
@@ -286,7 +284,7 @@ export function isChildRouteOf(menuPath: string, location: string): boolean {
 // 2-b-1 의 약속: 사용자가 보는 메뉴 항목의 **집합은 같고 배치만 바뀐다**. 항목 제거·통합은 2-b-2 (검증표와 함께).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type HubId = "today" | "purchase" | "items" | "production" | "quality" | "sales" | "finance" | "settings" | "platform";
+export type HubId = "today" | "trade" | "items" | "production" | "quality" | "finance" | "settings" | "platform";
 
 export interface HubDef {
   id: HubId;
@@ -304,15 +302,45 @@ export interface HubDef {
 
 export const HUBS: readonly HubDef[] = [
   { id: "today", label: "오늘 할 일", order: 1, icon: "Home", tone: "blue" },
-  { id: "purchase", label: "구매·입고", order: 2, icon: "ShoppingCart", requireModule: "erp", tone: "orange" },
+  // 2026-10-14 대표 결정: 구매·입고 + 판매·출고 → 매입·매출 관리 (허브 안 [매입|매출] 탭). 업무 허브 8 → 7
+  { id: "trade", label: "매입·매출 관리", order: 2, icon: "ArrowLeftRight", requireModule: "erp", tone: "orange" },
   { id: "items", label: "품목·재고", order: 3, icon: "Boxes", tone: "green" },
   { id: "production", label: "생산관리", order: 4, icon: "Factory", tone: "violet" },
   { id: "quality", label: "품질·규정", order: 5, icon: "ShieldCheck", tone: "red" },
-  { id: "sales", label: "판매·출고", order: 6, icon: "Truck", requireModule: "erp", tone: "amber" },
   { id: "finance", label: "회계·경영", order: 7, icon: "Landmark", requireModule: "erp", tone: "teal" },
   { id: "settings", label: "환경설정", order: 8, icon: "Settings", tone: "slate" },
   { id: "platform", label: "플랫폼 관리", order: 9, icon: "Crown", superAdminOnly: true, tone: "yellow" },
 ];
+
+/**
+ * 허브 안 탭 — 매입·매출 관리 허브의 [매입 | 매출] (2026-10-14 대표 결정).
+ * 탭은 **사이드바 탐색 단위**일 뿐이다. 발주서·견적서·매입·매출의 화면·API·데이터·권한은 각자 그대로다.
+ */
+export type HubTabId = "purchase" | "sales";
+export const HUB_TABS: Partial<Readonly<Record<HubId, ReadonlyArray<{ id: HubTabId; label: string }>>>> = {
+  trade: [{ id: "purchase", label: "매입" }, { id: "sales", label: "매출" }],
+};
+
+/**
+ * 허브 안 배치 — 탭(없으면 모든 탭 공통) · 소구역 제목 · 순서.
+ * 매입 탭: 발주서 → 매입 입력 → 매입 조회 / 매출 탭: 견적서 → 매출 입력 → 매출 조회 (+ 정산)
+ * 거래처 소구역은 매입·매출 양쪽에서 쓰므로 탭과 무관하게 항상 보인다.
+ * 화면 탐색 순서일 뿐 업무 강제 순서가 아니다 — 발주서 없이 매입, 견적서 없이 매출 입력 가능.
+ */
+export const HUB_ITEM_LAYOUT: Readonly<Record<string, { tab?: HubTabId; section?: string; order: number }>> = {
+  "/dashboard/accounting/purchase-orders": { tab: "purchase", order: 1 },
+  "/dashboard/accounting/purchases/create": { tab: "purchase", order: 2 },
+  "/dashboard/accounting/purchases/list": { tab: "purchase", order: 3 },
+  "/dashboard/accounting/quotations": { tab: "sales", order: 1 },
+  "/dashboard/accounting/sales/create": { tab: "sales", order: 2 },
+  "/dashboard/accounting/sales/list": { tab: "sales", order: 3 },
+  "/dashboard/accounting/tax-invoices": { tab: "sales", section: "정산", order: 4 },
+  "/dashboard/accounting/b2c-platform": { tab: "sales", section: "정산", order: 5 },
+  "/dashboard/partners/feed": { section: "거래처", order: 10 },
+  "/dashboard/accounting/partners": { section: "거래처", order: 11 },
+  "/dashboard/accounting/communication-log": { section: "거래처", order: 12 },
+  "/dashboard/accounting/partner-prices": { section: "거래처", order: 13 },
+};
 
 /** 경로 → 허브. 부록 14a 의 행선지 그대로. 업종 품질(/dashboard/{업종}/{기능}) 과 화장품 GMP 는 전부 품질·규정 */
 export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
@@ -321,14 +349,14 @@ export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
   "/dashboard/notifications": "today",
   "/dashboard/approval": "today",
   "/dashboard/today": "today",
-  // purchase
-  "/dashboard/accounting/purchase-orders": "purchase",
-  "/dashboard/accounting/purchases/create": "purchase",
-  "/dashboard/accounting/purchases/list": "purchase",
-  "/dashboard/partners/feed": "purchase",
-  "/dashboard/accounting/partners": "purchase",
-  "/dashboard/accounting/communication-log": "purchase",
-  "/dashboard/accounting/partner-prices": "purchase",
+  // trade — 매입 탭
+  "/dashboard/accounting/purchase-orders": "trade",
+  "/dashboard/accounting/purchases/create": "trade",
+  "/dashboard/accounting/purchases/list": "trade",
+  "/dashboard/partners/feed": "trade",
+  "/dashboard/accounting/partners": "trade",
+  "/dashboard/accounting/communication-log": "trade",
+  "/dashboard/accounting/partner-prices": "trade",
   // items
   "/inventory-management": "items",
   "/dashboard/master-data": "items",
@@ -401,12 +429,12 @@ export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
   "/dashboard/food/allergen": "quality",
   "/dashboard/food/environmental-monitoring": "quality",
   "/dashboard/food/food-protection": "quality",
-  // sales
-  "/dashboard/accounting/quotations": "sales",
-  "/dashboard/accounting/sales/create": "sales",
-  "/dashboard/accounting/sales/list": "sales",
-  "/dashboard/accounting/tax-invoices": "sales",
-  "/dashboard/accounting/b2c-platform": "sales",
+  // trade — 매출 탭
+  "/dashboard/accounting/quotations": "trade",
+  "/dashboard/accounting/sales/create": "trade",
+  "/dashboard/accounting/sales/list": "trade",
+  "/dashboard/accounting/tax-invoices": "trade",
+  "/dashboard/accounting/b2c-platform": "trade",
   // finance
   "/dashboard/accounting": "finance",
   "/dashboard/accounting/expense": "finance",
@@ -487,14 +515,14 @@ export const ROUTE_HUB_RULES: ReadonlyArray<{ match: string; hub: HubId }> = [
   { match: "/document-approval", hub: "today" },
   { match: "/dashboard/writer-review", hub: "today" },
   { match: "/dashboard/ai-assistant", hub: "today" },
-  // 구매·입고
-  { match: "/dashboard/material-receipt", hub: "purchase" },
-  { match: "/inventory/receipt", hub: "purchase" },
-  { match: "/dashboard/purchase-proposal-history", hub: "purchase" },
-  { match: "/dashboard/suppliers", hub: "purchase" },
-  { match: "/dashboard/supplier-performance", hub: "purchase" },
-  { match: "/dashboard/partners", hub: "purchase" },
-  { match: "/dashboard/accounting/purchases", hub: "purchase" }, // 매입 상세 /:id (접두사로 두면 회계로 잡힌다)
+  // 매입·매출 관리 — 매입 쪽
+  { match: "/dashboard/material-receipt", hub: "trade" },
+  { match: "/inventory/receipt", hub: "trade" },
+  { match: "/dashboard/purchase-proposal-history", hub: "trade" },
+  { match: "/dashboard/suppliers", hub: "trade" },
+  { match: "/dashboard/supplier-performance", hub: "trade" },
+  { match: "/dashboard/partners", hub: "trade" },
+  { match: "/dashboard/accounting/purchases", hub: "trade" }, // 매입 상세 /:id (접두사로 두면 회계로 잡힌다)
   // 품목·재고
   { match: "/dashboard/inventory-management", hub: "items" },
   { match: "/dashboard/inventory-forecast", hub: "items" },
@@ -529,9 +557,9 @@ export const ROUTE_HUB_RULES: ReadonlyArray<{ match: string; hub: HubId }> = [
   { match: "/batch-schedule-calendar", hub: "production" },
   { match: "/batch-profitability-dashboard", hub: "production" },
   { match: "/batch", hub: "production" },
-  // 판매·출고
-  { match: "/inventory/release", hub: "sales" },
-  { match: "/dashboard/accounting/sales", hub: "sales" }, // 매출 상세 /:id
+  // 매입·매출 관리 — 매출 쪽
+  { match: "/inventory/release", hub: "trade" },
+  { match: "/dashboard/accounting/sales", hub: "trade" }, // 매출 상세 /:id
   // 회계·경영
   { match: "/accounting-close", hub: "finance" },
   { match: "/accounting", hub: "finance" },
@@ -654,6 +682,8 @@ export interface HubMenuItem<I = string> {
   hub: HubId;
   /** 허브 안 소구역 제목 (예: 플랫폼 허브의 'AI·자동화'). 없으면 제목 없이 이어서 그린다 */
   section?: string;
+  /** 허브 안 탭 (HUB_TABS). 없으면 모든 탭에서 보인다 */
+  hubTab?: HubTabId;
 }
 
 export interface HubSection<I = string> {
@@ -666,12 +696,29 @@ export interface HubSection<I = string> {
  *  - 같은 경로는 하나로: 라벨·아이콘은 먼저 온 것, roles 는 합집합(아무도 메뉴를 잃지 않게), requireModule 은 전부 같을 때만 유지
  *  - 허브 순서 → 입력 순서
  */
+function layoutFields(path: string, section?: string): { section?: string; hubTab?: HubTabId } {
+  const l = HUB_ITEM_LAYOUT[path];
+  const out: { section?: string; hubTab?: HubTabId } = {};
+  const sec = l?.section ?? section;
+  if (sec) out.section = sec;
+  if (l?.tab) out.hubTab = l.tab;
+  return out;
+}
+
+/** 경로가 속한 허브 안 탭 (상세 화면 /purchases/:id 등도 목록과 같은 탭으로) */
+export function hubTabOf(path: string): HubTabId | null {
+  if (HUB_ITEM_LAYOUT[path]?.tab) return HUB_ITEM_LAYOUT[path].tab!;
+  if (/^\/dashboard\/accounting\/(purchase-orders|purchases)(\/|$)/.test(path)) return "purchase";
+  if (/^\/dashboard\/accounting\/(quotations|sales|tax-invoices|b2c-platform)(\/|$)/.test(path)) return "sales";
+  return null;
+}
+
 export function buildHubMenu<I = string>(items: readonly { icon: I; label: string; path: string; roles: readonly string[]; requireModule?: string; highlight?: boolean; section?: string }[]): HubSection<I>[] {
   const byPath = new Map<string, HubMenuItem<I> & { _modules: Set<string | undefined> }>();
   for (const it of items) {
     const cur = byPath.get(it.path);
     if (!cur) {
-      byPath.set(it.path, { icon: it.icon, label: it.label, path: it.path, roles: [...it.roles], requireModule: it.requireModule, highlight: !!it.highlight, hub: hubOf(it.path), ...(it.section ? { section: it.section } : {}), _modules: new Set([it.requireModule]) });
+      byPath.set(it.path, { icon: it.icon, label: it.label, path: it.path, roles: [...it.roles], requireModule: it.requireModule, highlight: !!it.highlight, hub: hubOf(it.path), ...layoutFields(it.path, it.section), _modules: new Set([it.requireModule]) });
     } else {
       for (const r of it.roles) if (!cur.roles.includes(r)) (cur.roles as string[]).push(r);
       cur.highlight = cur.highlight || !!it.highlight;
@@ -685,7 +732,9 @@ export function buildHubMenu<I = string>(items: readonly { icon: I; label: strin
     if (!sections.has(item.hub)) sections.set(item.hub, []);
     sections.get(item.hub)!.push(item);
   }
+  // 허브 안 순서: HUB_ITEM_LAYOUT 의 order 가 있으면 그 순서, 없으면 들어온 순서 (안정 정렬)
+  const rank = (path: string, idx: number) => HUB_ITEM_LAYOUT[path]?.order ?? 1000 + idx;
   return [...HUBS].sort((a, b) => a.order - b.order)
-    .map((hub) => ({ hub, items: sections.get(hub.id) ?? [] }))
+    .map((hub) => ({ hub, items: (sections.get(hub.id) ?? []).map((it, i) => ({ it, r: rank(it.path, i) })).sort((a, b) => a.r - b.r).map((x) => x.it) }))
     .filter((s) => s.items.length > 0);
 }

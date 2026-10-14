@@ -1,5 +1,5 @@
 {
- "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지) | 2-b-3: childRoutes /dashboard/document-output/daily-log 제거 (라우트 없음)",
+ "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지) | 2-b-3: childRoutes /dashboard/document-output/daily-log 제거 (라우트 없음) | 2026-10-14 매입·매출 허브: 발주·구매→발주서, 매입 입력·매출 입력 메뉴 복귀",
  "haccpLegacy": {
   "base": [
    {
@@ -1923,8 +1923,18 @@
    },
    {
     "icon": "ClipboardList",
-    "label": "발주·구매",
+    "label": "발주서",
     "path": "/dashboard/accounting/purchase-orders",
+    "roles": [
+     "super_admin",
+     "admin"
+    ],
+    "group": "매입·구매"
+   },
+   {
+    "icon": "PackageMinus",
+    "label": "매입 입력",
+    "path": "/dashboard/accounting/purchases/create",
     "roles": [
      "super_admin",
      "admin"
@@ -1945,6 +1955,16 @@
     "icon": "FileText",
     "label": "견적서",
     "path": "/dashboard/accounting/quotations",
+    "roles": [
+     "super_admin",
+     "admin"
+    ],
+    "group": "매출·판매"
+   },
+   {
+    "icon": "PackagePlus",
+    "label": "매출 입력",
+    "path": "/dashboard/accounting/sales/create",
     "roles": [
      "super_admin",
      "admin"
@@ -2236,8 +2256,18 @@
    },
    {
     "icon": "ClipboardList",
-    "label": "발주·구매",
+    "label": "발주서",
     "path": "/dashboard/accounting/purchase-orders",
+    "roles": [
+     "super_admin",
+     "admin"
+    ],
+    "group": "매입·구매"
+   },
+   {
+    "icon": "PackageMinus",
+    "label": "매입 입력",
+    "path": "/dashboard/accounting/purchases/create",
     "roles": [
      "super_admin",
      "admin"
@@ -2258,6 +2288,16 @@
     "icon": "FileText",
     "label": "견적서",
     "path": "/dashboard/accounting/quotations",
+    "roles": [
+     "super_admin",
+     "admin"
+    ],
+    "group": "매출·판매"
+   },
+   {
+    "icon": "PackagePlus",
+    "label": "매출 입력",
+    "path": "/dashboard/accounting/sales/create",
     "roles": [
      "super_admin",
      "admin"

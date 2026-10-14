@@ -94,8 +94,8 @@ describe("③ 라우트 411 전부 허브 귀속", () => {
   });
 
   it("대표 사례 — 상세·하위·기록 양식·공개 화면", () => {
-    expect(routeHubOf("/dashboard/accounting/purchases/:id")?.hub).toBe("purchase");
-    expect(routeHubOf("/dashboard/accounting/sales/:id")?.hub).toBe("sales");
+    expect(routeHubOf("/dashboard/accounting/purchases/:id")?.hub).toBe("trade");
+    expect(routeHubOf("/dashboard/accounting/sales/:id")?.hub).toBe("trade");
     expect(routeHubOf("/dashboard/batch/:id")?.hub).toBe("production");
     expect(routeHubOf("/dashboard/haccp")?.hub).toBe("production");
     expect(routeHubOf("/dashboard/haccp/training")?.hub).toBe("quality");

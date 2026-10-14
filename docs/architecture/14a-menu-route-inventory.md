@@ -12,12 +12,14 @@
 
 | 처리 | 수 |
 |---|---:|
-| 유지 | 53 (2-b-2 재분류 +3: 마스터 데이터 · 거래처 피드 · 커뮤니케이션 로그) |
-| 통합 | 54 — **완료 3** (매입 등록·매출 등록·Deviation 트렌드, 2-b-2) · 2-c 43 (업종 품질 40 + 식품 3) · 3-b 6 · P-2 2 |
+| 유지 | 55 (2-b-2 재분류 +3: 마스터 데이터 · 거래처 피드 · 커뮤니케이션 로그 / 2026-10-14 매입·매출 허브 개편으로 매입 입력·매출 입력 메뉴 복귀 +2) |
+| 통합 | 52 — **완료 1** (Deviation 트렌드, 2-b-2) · 2-c 43 (업종 품질 40 + 식품 3) · 3-b 6 · P-2 2 |
 | 이동 | 2 |
 
 **CEO 조건부 승인 (2026-10-14)**: 메뉴 통합은 승인, 업무 기능 통합은 별도 검증. 본문 §3-1 의 8개 분리 항목은 같은 허브 안에서도 업무·정본을 나눈다.
-"통합" 행은 2-b·2-c PR 에서 아래 두 열을 채워야 머지한다 — **통합 후 접근 위치** (새 허브 → 화면 → 탭·버튼, 1:1) · **기능 손실 확인** (필드 / 승인 흐름 / 기록 보존 / 출력 각각 동일 여부). 2-b-2 (2026-10-14) 에서 전 행에 예정 위치를 적었고, 완료 3건은 ✓.
+"통합" 행은 2-b·2-c PR 에서 아래 두 열을 채워야 머지한다 — **통합 후 접근 위치** (새 허브 → 화면 → 탭·버튼, 1:1) · **기능 손실 확인** (필드 / 승인 흐름 / 기록 보존 / 출력 각각 동일 여부). 2-b-2 (2026-10-14) 에서 전 행에 예정 위치를 적었고, 완료 건은 ✓.
+
+**허브 개편 (2026-10-14 CEO)**: 구매·입고 + 판매·출고 → **매입·매출 관리** (허브 안 [매입 | 매출] 탭). 아래 표의 허브 열은 개편 후 기준. 매입·매출 6개 화면의 기능·라우트·권한은 그대로다.
 
 ## A. 메뉴 경로 109개
 
@@ -27,13 +29,13 @@
 | 오늘 할 일 | 통합 | /dashboard/approval | 승인 관리 | admin, inspector, monitor, worker | HACCP탭(legacy), 공통(plugin엔진) | ApprovalManagement | 승인 → 업무함 탭 | 3-b 업무함 — 승인 처리 흐름 포함 후 메뉴 제거 | 통합 시점에 확인 |
 | 오늘 할 일 | 통합 | /dashboard/notifications | 알림 관리 | accountant, admin, inspector, monitor, worker | HACCP탭(legacy), WORK탭, 공통(plugin엔진) | NotificationManagement,NotificationHisto | 알림 → 업무함(받은편지함) 탭 | 3-b 업무함 | 통합 시점에 확인 |
 | 오늘 할 일 | 통합 | /dashboard/today | Today | admin, inspector, user, worker | WORK탭, 슈퍼관리자 | Today | Today → "오늘 할 일" 으로 흡수. createdAt→planned_date 버그 선수정(§2-3) | 3-b 역할별 첫 화면 — 0-1 로 데이터 정합성은 확보 | 통합 시점에 확인 |
-| 구매·입고 | 유지 | /dashboard/accounting/communication-log | 커뮤니케이션 로그 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Co | 거래처 상세의 탭으로 — 거래처 상세 "활동" 탭은 CRM 활동(partnerCrm)이고 커뮤니케이션 로그는 별도 테이블·전 거래처 조회라 탭으로 흡수 불가. 유지 (2-b-2 재분류) | (유지) | - |
-| 구매·입고 | 유지 | /dashboard/accounting/partner-prices | 단가표 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Pa | 단가표 |  |  |
-| 구매·입고 | 유지 | /dashboard/accounting/partners | 거래처 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Pa | 거래처 — 구매·판매 공용. 메뉴는 구매·입고에 두고 판매에서 바로가기 |  |  |
-| 구매·입고 | 유지 | /dashboard/accounting/purchase-orders | 발주·구매 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Pu | 발주 |  |  |
-| 구매·입고 | 통합 | /dashboard/accounting/purchases/create | 매입 등록 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Pu | 매입 조회 화면의 [등록] 버튼으로 (메뉴 항목 제거, 경로 유지) | 구매·입고 → 매입 조회 → [＋ 매입 등록] 버튼 (2-b-2 완료) | 동일 페이지로 이동 — 필드·승인·보존·출력 변화 없음 ✓ |
-| 구매·입고 | 유지 | /dashboard/accounting/purchases/list | 매입 조회 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Pu | 매입 (조회가 입구, 등록은 버튼) |  |  |
-| 구매·입고 | 유지 | /dashboard/partners/feed | 거래처 피드 (CRM) | admin | 회계탭 | lazy(() => import("@/pages/partners/Part | 거래처 상세의 탭으로 — 거래처 **목록**의 SNS 식 뷰(PartnerFeedPage) 라 거래처 상세 탭이 될 수 없음. 구매·입고 허브에 유지, 향후 거래처 목록의 뷰 토글로 (2-b-2 재분류) | (유지) | - |
+| 매입·매출 | 유지 | /dashboard/accounting/communication-log | 커뮤니케이션 로그 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Co | 거래처 상세의 탭으로 — 거래처 상세 "활동" 탭은 CRM 활동(partnerCrm)이고 커뮤니케이션 로그는 별도 테이블·전 거래처 조회라 탭으로 흡수 불가. 유지 (2-b-2 재분류) | (유지) | - |
+| 매입·매출 | 유지 | /dashboard/accounting/partner-prices | 단가표 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Pa | 단가표 |  |  |
+| 매입·매출 | 유지 | /dashboard/accounting/partners | 거래처 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Pa | 거래처 — 매입·매출 공용. 매입·매출 관리 허브의 거래처 소구역(두 탭 모두 표시) |  |  |
+| 매입·매출 | 유지 | /dashboard/accounting/purchase-orders | 발주서 (이전 '발주·구매') | admin | 회계탭 | lazy(() => import("@/pages/accounting/Pu | 발주 |  |  |
+| 매입·매출 | 유지 | /dashboard/accounting/purchases/create | 매입 입력 (이전 '매입 등록') | admin | 회계탭 | lazy(() => import("@/pages/accounting/Pu | 2-b-2 에서 조회 화면 버튼으로 통합했다가 매입·매출 허브 개편으로 메뉴 복귀 (조회 화면 [＋ 입력] 바로가기는 유지) | 매입·매출 관리 → [매입] 탭 → 매입 입력 | 동일 페이지 ✓ |
+| 매입·매출 | 유지 | /dashboard/accounting/purchases/list | 매입 조회 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Pu | 매입 (조회가 입구, 등록은 버튼) |  |  |
+| 매입·매출 | 유지 | /dashboard/partners/feed | 거래처 피드 (CRM) | admin | 회계탭 | lazy(() => import("@/pages/partners/Part | 거래처 상세의 탭으로 — 거래처 **목록**의 SNS 식 뷰(PartnerFeedPage) 라 거래처 상세 탭이 될 수 없음. 구매·입고 허브에 유지, 향후 거래처 목록의 뷰 토글로 (2-b-2 재분류) | (유지) | - |
 | 품목·재고 | 유지 | /dashboard/item-master | 품목 마스터 | accountant, admin | HACCP탭(legacy), 공통(plugin엔진), 회계탭 | lazy(() => import("@/pages/master/ItemMa | 품목 등록·SKU — 품목 정본(item_master) |  |  |
 | 품목·재고 | 유지 | /dashboard/master-data | 마스터 데이터 | accountant, admin | HACCP탭(legacy), 공통(plugin엔진), 회계탭 | MasterDataManagement | 품목 마스터와 중복 영역 정리 후 기준정보 탭으로 (원재료·제품·카테고리) — 품목·재고 허브의 "기준정보(원재료·제품·카테고리·공급업체·매핑)". CEO 분리 항목 1: 품목 마스터(정체성) ↔ 기준정보(수량 세계) 는 통합하지 않는다 (2-b-2 재분류) | (유지) | - |
 | 품목·재고 | 유지 | /inventory-management | 재고 관리 | accountant, admin, worker | HACCP탭(legacy), 공통(plugin엔진), 회계탭 | InventoryManagementIntegrated | 재고 현황·LOT·수불·입출고·실사·조정 (실사·조정은 권한 분리 유지) |  |  |
@@ -102,11 +104,11 @@
 | 품질·규정 | 통합 | /mobile-quick-check | 모바일 빠른 점검 | admin, inspector, worker | HACCP탭(legacy) | MobileQuickCheck | "오늘 쓸 기록지" 목록의 모바일 진입으로 | 3-b "오늘 쓸 기록지" 모바일 진입 | 통합 시점에 확인 |
 | 품질·규정 | 유지 | /quality/ccp-monitoring | CCP 관리 | admin, inspector, monitor, worker | HACCP탭(legacy), p:food | CCPMonitoring | CCP 기록지 (정본 = 공식 기록지) |  |  |
 | 품질·규정 | 유지 | /quality/checklists | HACCP 체크리스트 | admin, inspector, monitor, worker | HACCP탭(legacy), p:food | ChecklistDashboard | 점검일지·체크리스트 |  |  |
-| 판매·출고 | 유지 | /dashboard/accounting/b2c-platform | B2C 플랫폼 정산 | admin | 회계탭 | lazy(() => import("@/pages/accounting/B2 | B2C 플랫폼 정산 (회계 제외 매출의 세무 정리) |  |  |
-| 판매·출고 | 유지 | /dashboard/accounting/quotations | 견적서 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Qu | 견적 |  |  |
-| 판매·출고 | 통합 | /dashboard/accounting/sales/create | 매출 등록 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Sa | 매출 조회의 [등록] 버튼으로 (메뉴 항목 제거, 경로 유지) | 판매·출고 → 매출 조회 → [＋ 매출 등록] 버튼 (2-b-2 완료) | 동일 페이지로 이동 ✓ |
-| 판매·출고 | 유지 | /dashboard/accounting/sales/list | 매출 조회 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Sa | 매출 (엑셀 업로드 6단계 포함) |  |  |
-| 판매·출고 | 유지 | /dashboard/accounting/tax-invoices | 세금계산서 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Ta | 세금계산서 |  |  |
+| 매입·매출 | 유지 | /dashboard/accounting/b2c-platform | B2C 플랫폼 정산 | admin | 회계탭 | lazy(() => import("@/pages/accounting/B2 | B2C 플랫폼 정산 (회계 제외 매출의 세무 정리) |  |  |
+| 매입·매출 | 유지 | /dashboard/accounting/quotations | 견적서 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Qu | 견적 |  |  |
+| 매입·매출 | 유지 | /dashboard/accounting/sales/create | 매출 입력 (이전 '매출 등록') | admin | 회계탭 | lazy(() => import("@/pages/accounting/Sa | 2-b-2 에서 조회 화면 버튼으로 통합했다가 매입·매출 허브 개편으로 메뉴 복귀 (조회 화면 [＋ 입력] 바로가기는 유지) | 매입·매출 관리 → [매출] 탭 → 매출 입력 | 동일 페이지 ✓ |
+| 매입·매출 | 유지 | /dashboard/accounting/sales/list | 매출 조회 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Sa | 매출 (엑셀 업로드 6단계 포함) |  |  |
+| 매입·매출 | 유지 | /dashboard/accounting/tax-invoices | 세금계산서 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Ta | 세금계산서 |  |  |
 | 회계·경영 | 유지 | /accounting/documents | 문서함 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Ac | 회계 문서함 |  |  |
 | 회계·경영 | 유지 | /dashboard/accounting | 대시보드 | admin | 회계탭 | AccountingManagement | 회계 허브 첫 화면 = 회계 받은편지함 |  |  |
 | 회계·경영 | 유지 | /dashboard/accounting/accounts | 계정 과목 | admin | 회계탭 | lazy(() => import("@/pages/accounting/Ac | 계정과목 (기준정보) |  |  |
@@ -209,8 +211,8 @@
 | /inventory-lots | InventoryLots | items |
 | /inventory-prediction | InventoryPredictionDashboard | items |
 | /inventory-turnover-dashboard | InventoryTurnoverDashboard | items |
-| /inventory/receipt | InventoryReceipt | purchase |
-| /inventory/release | InventoryRelease | sales |
+| /inventory/receipt | InventoryReceipt | trade |
+| /inventory/release | InventoryRelease | trade |
 | /legal | LegalPage | public |
 | /login | Login | public |
 | /master/recipe | RecipeManagement | production |
