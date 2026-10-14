@@ -7,7 +7,6 @@
  ],
  "purchase": [
   "/dashboard/accounting/purchase-orders | 발주·구매",
-  "/dashboard/accounting/purchases/create | 매입 등록",
   "/dashboard/accounting/purchases/list | 매입 조회",
   "/dashboard/partners/feed | 거래처 피드 (CRM)",
   "/dashboard/accounting/partners | 거래처",
@@ -35,7 +34,6 @@
   "/dashboard/nonconforming-management | 부적합제품관리",
   "/corrective-actions | 시정조치 관리",
   "/dashboard/haccp/f3-dashboard | F-3 운영 현황",
-  "/dashboard/haccp/f3-trends | Deviation 트렌드",
   "/dashboard/food/change-control | 변경관리",
   "/dashboard/cosmetic/dashboard | GMP 운영 현황",
   "/dashboard/cosmetic/bmr | BMR (제조기록)",
@@ -88,7 +86,6 @@
  ],
  "sales": [
   "/dashboard/accounting/quotations | 견적서",
-  "/dashboard/accounting/sales/create | 매출 등록",
   "/dashboard/accounting/sales/list | 매출 조회",
   "/dashboard/accounting/tax-invoices | 세금계산서",
   "/dashboard/accounting/b2c-platform | B2C 플랫폼 정산"

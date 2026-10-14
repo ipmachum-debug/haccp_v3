@@ -1,5 +1,5 @@
 {
- "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전)",
+ "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지)",
  "haccpLegacy": {
   "base": [
    {
@@ -252,19 +252,6 @@
     "icon": "Activity",
     "label": "F-3 운영 현황",
     "path": "/dashboard/haccp/f3-dashboard",
-    "roles": [
-     "super_admin",
-     "admin",
-     "inspector",
-     "monitor"
-    ],
-    "group": "품질관리 (HACCP)",
-    "requireModule": "haccp"
-   },
-   {
-    "icon": "TrendingUp",
-    "label": "Deviation 트렌드",
-    "path": "/dashboard/haccp/f3-trends",
     "roles": [
      "super_admin",
      "admin",
@@ -1175,19 +1162,6 @@
     "requireModule": "haccp"
    },
    {
-    "icon": "TrendingUp",
-    "label": "Deviation 트렌드",
-    "path": "/dashboard/haccp/f3-trends",
-    "roles": [
-     "super_admin",
-     "admin",
-     "inspector",
-     "monitor"
-    ],
-    "group": "품질관리 (HACCP)",
-    "requireModule": "haccp"
-   },
-   {
     "icon": "GitBranch",
     "label": "변경관리",
     "path": "/dashboard/food/change-control",
@@ -1958,16 +1932,6 @@
     "group": "매입·구매"
    },
    {
-    "icon": "PackageMinus",
-    "label": "매입 등록",
-    "path": "/dashboard/accounting/purchases/create",
-    "roles": [
-     "super_admin",
-     "admin"
-    ],
-    "group": "매입·구매"
-   },
-   {
     "icon": "FileText",
     "label": "매입 조회",
     "path": "/dashboard/accounting/purchases/list",
@@ -1981,16 +1945,6 @@
     "icon": "FileText",
     "label": "견적서",
     "path": "/dashboard/accounting/quotations",
-    "roles": [
-     "super_admin",
-     "admin"
-    ],
-    "group": "매출·판매"
-   },
-   {
-    "icon": "PackagePlus",
-    "label": "매출 등록",
-    "path": "/dashboard/accounting/sales/create",
     "roles": [
      "super_admin",
      "admin"
@@ -2291,16 +2245,6 @@
     "group": "매입·구매"
    },
    {
-    "icon": "PackageMinus",
-    "label": "매입 등록",
-    "path": "/dashboard/accounting/purchases/create",
-    "roles": [
-     "super_admin",
-     "admin"
-    ],
-    "group": "매입·구매"
-   },
-   {
     "icon": "FileText",
     "label": "매입 조회",
     "path": "/dashboard/accounting/purchases/list",
@@ -2314,16 +2258,6 @@
     "icon": "FileText",
     "label": "견적서",
     "path": "/dashboard/accounting/quotations",
-    "roles": [
-     "super_admin",
-     "admin"
-    ],
-    "group": "매출·판매"
-   },
-   {
-    "icon": "PackagePlus",
-    "label": "매출 등록",
-    "path": "/dashboard/accounting/sales/create",
     "roles": [
      "super_admin",
      "admin"

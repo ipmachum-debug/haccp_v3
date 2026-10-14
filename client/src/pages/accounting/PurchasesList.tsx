@@ -508,10 +508,16 @@ function PurchasesListContent() {
             <p className="text-sm text-muted-foreground">매입 거래 내역을 조회하고 관리합니다.</p>
           </div>
         </div>
-        <Button onClick={() => setBulkUploadOpen(true)} variant="outline" size="sm" className="gap-2">
-          <FileSpreadsheet className="h-4 w-4" />
-          엑셀 일괄등록
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* 2-b-2 (2026-10-14): 사이드바 "매입 등록" 항목을 이 버튼으로 통합 — 경로는 그대로 */}
+          <Button onClick={() => navigate("/dashboard/accounting/purchases/create")} size="sm" className="gap-1">
+            ＋ 매입 등록
+          </Button>
+          <Button onClick={() => setBulkUploadOpen(true)} variant="outline" size="sm" className="gap-2">
+            <FileSpreadsheet className="h-4 w-4" />
+            엑셀 일괄등록
+          </Button>
+        </div>
       </div>
 
       {/* KPI 요약 카드 */}
