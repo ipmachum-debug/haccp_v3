@@ -209,9 +209,16 @@ export const hrManagementRouter = router({
       const startDate = `${input.year}-${String(input.month).padStart(2, "0")}-01`;
       const endDate = `${input.year}-${String(input.month).padStart(2, "0")}-31`;
 
+      // 2026-10-14 (0-3 후속, Codex 지적): attendanceList 와 같은 범위 규칙 — 관리자가 아니면 employeeId 를 넘겨도 본인 요약만
+      const isAdminRole = ctx.user.role === "admin" || ctx.user.role === "super_admin";
+      const scopedEmployeeId = resolveAttendanceScope({
+        role: ctx.user.role,
+        requestedEmployeeId: input.employeeId,
+        myEmployeeId: isAdminRole ? 0 : await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id),
+      });
       let empFilter = "";
       const params: any[] = [ctx.tenantId, startDate, endDate];
-      if (input.employeeId) { empFilter = ` AND employee_id = ?`; params.push(input.employeeId); }
+      if (scopedEmployeeId != null) { empFilter = ` AND employee_id = ?`; params.push(scopedEmployeeId); }
 
       const [rows]: any = await pool.execute(
         `SELECT employee_id,
