@@ -27,11 +27,49 @@ export interface CreateAuditLogInput {
   description?: string;
   ipAddress?: string;
   userAgent?: string;
+  tenantId?: number;
 }
 
+/**
+ * 감사 로그 기록 (2026-10-14 재활성화)
+ *
+ * 이전: "schema mismatch" 로 no-op 이었다 — 그 사이 배치 승인 요청·완료·재고 조정·사용자 역할 변경 등
+ *       호출 15개 파일의 기록이 하나도 남지 않았다.
+ * 운영 audit_logs 실측 컬럼 = drizzle/schema/audit.ts (entity_type·user_id·changes …) 와 일치.
+ * (어긋난 쪽은 control-plane 정의 schema_control_plane_ops.ts — utils/auditLogger 가 쓰던 것)
+ *
+ * 테넌트: 인자 → input.tenantId → 사용자 소속 테넌트 → 0(시스템).
+ * 기록 실패가 본 작업을 막지 않는다 (예외를 던지지 않음).
+ */
 export async function createAuditLog(input: CreateAuditLogInput, tenantId?: number) {
-  // Temporarily disabled due to schema mismatch
-  return;
+  try {
+    const conn = await getRawConnection();
+    let tid = Number(tenantId ?? input.tenantId ?? 0) || 0;
+    if (!tid && input.userId) {
+      const [rows]: any = await conn.execute(`SELECT tenant_id FROM users WHERE id = ? LIMIT 1`, [input.userId]);
+      tid = Number(rows?.[0]?.tenant_id ?? 0) || 0;
+    }
+    await conn.execute(
+      `INSERT INTO audit_logs
+         (tenant_id, action, entity_type, entity_id, user_id, user_email, user_role, changes, description, ip_address, user_agent, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        tid,
+        String(input.action).slice(0, 100),
+        String(input.entityType ?? "").slice(0, 50),
+        input.entityId != null && Number.isFinite(Number(input.entityId)) ? Number(input.entityId) : null,
+        Number(input.userId) || 0,
+        input.userEmail ? String(input.userEmail).slice(0, 255) : null,
+        input.userRole ? String(input.userRole).slice(0, 50) : null,
+        input.changes != null ? JSON.stringify(input.changes) : null,
+        input.description ?? null,
+        input.ipAddress ? String(input.ipAddress).slice(0, 45) : null,
+        input.userAgent ?? null,
+      ],
+    );
+  } catch (e: any) {
+    console.error(`[AuditLog] 기록 실패 (${input?.action}):`, e?.message || e);
+  }
 }
 
 export async function getAuditLogs(limit: number = 100, tenantId?: number) {

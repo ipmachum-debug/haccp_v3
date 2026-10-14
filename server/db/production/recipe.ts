@@ -584,9 +584,11 @@ export async function duplicateRecipe(
 }
 
 /**
- * 감사 로그 (호환성 스텁)
+ * 감사 로그 — 공용 기록 함수로 위임 (2026-10-14, 이전에는 아무것도 기록하지 않는 스텁)
  */
-export async function createAuditLog(_data: any, _tenantId?: number) {
+export async function createAuditLog(data: any, tenantId?: number) {
+  const { createAuditLog: write } = await import("../system/auditApprovalSupplier");
+  await write(data, tenantId);
   return { success: true };
 }
 

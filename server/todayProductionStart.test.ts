@@ -9,10 +9,14 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const state = vi.hoisted(() => ({
   batch: { id: 7, status: "planned", plannedDate: "2026-10-14", createdBy: 4 } as any,
-  check: { totalLines: 3, pendingLines: 3, issuedLines: 0, shortages: [] as any[], allowNegative: true },
+  check: { totalLines: 3, pendingLines: 3, issuedLines: 0, unissuedLines: 0, shortages: [] as any[], allowNegative: true } as any,
+  locked: true,
+  dispatchResult: { success: true, warnings: [], errors: [] } as any,
+  dispatchThrows: false,
   affectedRows: 1,
   executed: [] as Array<{ sql: string; params: unknown[] }>,
   dispatchCalls: 0,
+  audits: [] as any[],
 }));
 
 vi.mock("./db", () => ({ getBatchById: vi.fn(async () => state.batch) }));
@@ -30,8 +34,16 @@ vi.mock("./lib/production/batchStartValidation", async (orig) => {
   return { ...real, validateBatchStart: vi.fn(async () => state.check) };
 });
 vi.mock("./lib/production/autoMaterialIssueDispatcher", () => ({
-  autoIssueMaterialsDispatch: vi.fn(async () => { state.dispatchCalls++; return { success: true, warnings: [], errors: [] }; }),
+  autoIssueMaterialsDispatch: vi.fn(async () => {
+    state.dispatchCalls++;
+    if (state.dispatchThrows) throw new Error("DB 끊김");
+    return state.dispatchResult;
+  }),
 }));
+vi.mock("./lib/production/batchIssueLock", () => ({
+  withBatchIssueLock: vi.fn(async (_t: number, _b: number, fn: () => Promise<any>) => (state.locked ? { locked: true, value: await fn() } : { locked: false })),
+}));
+vi.mock("./db/system/auditApprovalSupplier", () => ({ createAuditLog: vi.fn(async (i: any) => { state.audits.push(i); }) }));
 vi.mock("./lib/production/autoProductionDaily", () => ({ autoRegenerateProductionDaily: vi.fn(async () => undefined) }));
 
 import { todayProductionRouter } from "./routers/production/todayProduction.router";
@@ -47,10 +59,14 @@ const SHORT = [{ materialId: 579, materialName: "간장", unit: "kg", required: 
 
 beforeEach(() => {
   state.batch = { id: 7, status: "planned", plannedDate: "2026-10-14", createdBy: 4 };
-  state.check = { totalLines: 3, pendingLines: 3, issuedLines: 0, shortages: [], allowNegative: true };
+  state.check = { totalLines: 3, pendingLines: 3, issuedLines: 0, unissuedLines: 0, shortages: [], allowNegative: true };
+  state.locked = true;
+  state.dispatchResult = { success: true, warnings: [], errors: [] };
+  state.dispatchThrows = false;
   state.affectedRows = 1;
   state.executed = [];
   state.dispatchCalls = 0;
+  state.audits = [];
 });
 
 describe("생산 시작", () => {
@@ -88,6 +104,8 @@ describe("생산 시작", () => {
     const note = state.executed.find((e) => /SET notes/.test(e.sql))!;
     expect(String(note.params[0])).toContain("간장 부족 1.28kg");
     expect(String(note.params[0])).toContain("한상갑(#4)");
+    expect(state.audits).toHaveLength(1);
+    expect(state.audits[0]).toMatchObject({ action: "batch.start", entityId: 7, userId: 4, changes: { from: "planned", to: "in_progress", shortages: SHORT } });
   });
 
   it("동시 요청: 조건부 UPDATE 를 잃으면(0행) 자동출고 하지 않고 already_started", async () => {
@@ -99,6 +117,7 @@ describe("생산 시작", () => {
     })();
     expect(r.status).toBe("already_started");
     expect(state.dispatchCalls).toBe(0);
+    expect(state.audits).toHaveLength(0);
   });
 
   it("이미 진행 중 → 아무것도 하지 않는다 (재검증·자동출고 없음)", async () => {
@@ -123,6 +142,75 @@ describe("생산 시작", () => {
   });
 });
 
+describe("시작 실패 복구 (Codex #501 검토)", () => {
+  it("시작 후 자동출고가 실패하면 started + 오류 + 미출고 줄 수 → 안내 문구", async () => {
+    state.dispatchThrows = true;
+    state.check = { ...state.check, unissuedLines: 3 };
+    const r: any = await caller().start({ batchId: 7 });
+    expect(r.status).toBe("started");
+    expect(r.autoIssue.success).toBe(false);
+    expect(r.autoIssue.errors[0]).toContain("DB 끊김");
+    expect(r.unissuedLines).toBe(3);
+    expect(r.message).toContain("누락 출고 다시 실행");
+  });
+
+  it("dispatcher 가 success 여도 남은 미출고 줄이 있으면 알린다 (부분 성공)", async () => {
+    state.check = { ...state.check, unissuedLines: 1 };
+    const r: any = await caller().start({ batchId: 7 });
+    expect(r.unissuedLines).toBe(1);
+    expect(r.message).toContain("1줄이 출고되지 않았습니다");
+  });
+
+  it("이미 진행 중인 배치를 다시 시작하면 출고는 안 하고 누락 줄 수를 알려 준다", async () => {
+    state.batch = { ...state.batch, status: "in_progress" };
+    state.check = { ...state.check, unissuedLines: 2 };
+    const r: any = await caller().start({ batchId: 7 });
+    expect(r).toMatchObject({ status: "already_started", unissuedLines: 2 });
+    expect(r.message).toContain("누락 출고 다시 실행");
+    expect(state.dispatchCalls).toBe(0);
+  });
+
+  it("retryIssue: 진행 중이 아니면 거부", async () => {
+    await expect(caller().retryIssue({ batchId: 7 })).rejects.toThrow(/생산 중인 배치만/);
+    expect(state.dispatchCalls).toBe(0);
+  });
+
+  it("retryIssue: 남은 줄이 없으면 출고하지 않음", async () => {
+    state.batch = { ...state.batch, status: "in_progress" };
+    const r: any = await caller().retryIssue({ batchId: 7 });
+    expect(r.status).toBe("nothing_to_issue");
+    expect(state.dispatchCalls).toBe(0);
+  });
+
+  it("retryIssue: 다른 출고가 잠금을 잡고 있으면 busy (출고 0)", async () => {
+    state.batch = { ...state.batch, status: "in_progress" };
+    state.check = { ...state.check, unissuedLines: 2 };
+    state.locked = false;
+    const r: any = await caller().retryIssue({ batchId: 7 });
+    expect(r.status).toBe("busy");
+    expect(state.dispatchCalls).toBe(0);
+    expect(state.audits).toHaveLength(0);
+  });
+
+  it("retryIssue: 남은 줄 출고 + 감사 로그", async () => {
+    state.batch = { ...state.batch, status: "in_progress" };
+    state.check = { ...state.check, unissuedLines: 2 };
+    // 출고 전 확인 2줄 → 출고 뒤 재확인 0줄
+    const { validateBatchStart } = await import("./lib/production/batchStartValidation");
+    (validateBatchStart as any).mockImplementationOnce(async () => state.check)
+      .mockImplementationOnce(async () => ({ ...state.check, unissuedLines: 0 }));
+    const r: any = await caller().retryIssue({ batchId: 7 });
+    expect(state.dispatchCalls).toBe(1);
+    expect(r).toMatchObject({ status: "reissued", unissuedLines: 0, message: "남은 원료를 모두 출고했습니다." });
+    expect(state.audits[0]).toMatchObject({ action: "batch.reissue", entityId: 7 });
+  });
+
+  it("작업자 권한 밖(inspector)은 재출고 불가", async () => {
+    const c = todayProductionRouter.createCaller({ user: { id: 9, role: "inspector", tenantId: 2 }, tenantId: 2 } as any);
+    await expect(c.retryIssue({ batchId: 7 })).rejects.toThrow(/작업자 권한/);
+  });
+});
+
 describe("재검증 계산 (computeShortages)", () => {
   const L = (o: Partial<StartLine>): StartLine => ({ inputId: 1, canonicalMaterialId: 1, materialName: "찹쌀", unit: "kg", required: 1, alreadyIssued: false, isWater: false, ...o });
 
@@ -135,7 +223,7 @@ describe("재검증 계산 (computeShortages)", () => {
     ];
     const r = computeShortages(lines, new Map([[10, 45], [11, 0], [12, 0]]));
     expect(r.shortages).toEqual([{ materialId: 10, materialName: "찹쌀", unit: "kg", required: 50, available: 45, shortage: 5 }]);
-    expect(r).toMatchObject({ pendingLines: 3, issuedLines: 1 });
+    expect(r).toMatchObject({ pendingLines: 3, issuedLines: 1, unissuedLines: 2 });
   });
 
   it("오차 0.001 이하는 부족 아님, 가용 정보가 없으면 0 으로", () => {
