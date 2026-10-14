@@ -9,6 +9,7 @@
  */
 import type * as React from "react";
 import { toast as sonner } from "sonner";
+import { humanizeErrorText } from "@/lib/notify";
 
 type ToastInput = {
   title?: React.ReactNode;
@@ -20,7 +21,9 @@ type ToastInput = {
 };
 
 function toast({ title, description, variant, duration }: ToastInput) {
-  const opts = { ...(description != null ? { description } : {}), ...(duration ? { duration } : {}) };
+  // 서버 HTML 오류 페이지(502 등)의 브라우저 오류 문구는 알아들을 말로
+  const desc = typeof description === "string" ? humanizeErrorText(description) : description;
+  const opts = { ...(desc != null ? { description: desc } : {}), ...(duration ? { duration } : {}) };
   const id = variant === "destructive"
     ? sonner.error(title ?? "오류가 발생했습니다", { duration: 8000, ...opts })
     : sonner(title ?? "", opts);
