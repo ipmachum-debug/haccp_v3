@@ -268,3 +268,215 @@ export function isChildRouteOf(menuPath: string, location: string): boolean {
   if (!children) return false;
   return children.some((cp) => location === cp || location.startsWith(cp + "/"));
 }
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 허브 (UI/UX 개편 2-b-1, 2026-10-14) — 14-ui-ux-restructure-spec.md §3
+// 사이드바를 WORK/회계/HACCP 탭 대신 업무 허브 8개 + 플랫폼으로 그린다.
+// 2-b-1 의 약속: 사용자가 보는 메뉴 항목의 **집합은 같고 배치만 바뀐다**. 항목 제거·통합은 2-b-2 (검증표와 함께).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type HubId = "today" | "purchase" | "items" | "production" | "quality" | "sales" | "finance" | "settings" | "platform";
+
+export interface HubDef {
+  id: HubId;
+  label: string;
+  order: number;
+  /** lucide 아이콘 이름 */
+  icon: string;
+  /** 허브 전체가 요구하는 구독 모듈 (erp 허브는 ERP 모듈 없으면 숨김 — 이전 회계 탭 가림과 같은 효과) */
+  requireModule?: "erp" | "haccp";
+  /** 슈퍼관리자 전용 */
+  superAdminOnly?: boolean;
+  /** 허브 색 토큰 (tailwind 색 이름) — 참고 이미지(14b)의 허브별 색 */
+  tone: "blue" | "orange" | "green" | "violet" | "red" | "amber" | "teal" | "slate" | "yellow";
+}
+
+export const HUBS: readonly HubDef[] = [
+  { id: "today", label: "오늘 할 일", order: 1, icon: "Home", tone: "blue" },
+  { id: "purchase", label: "구매·입고", order: 2, icon: "ShoppingCart", requireModule: "erp", tone: "orange" },
+  { id: "items", label: "품목·재고", order: 3, icon: "Boxes", tone: "green" },
+  { id: "production", label: "생산관리", order: 4, icon: "Factory", tone: "violet" },
+  { id: "quality", label: "품질·규정", order: 5, icon: "ShieldCheck", tone: "red" },
+  { id: "sales", label: "판매·출고", order: 6, icon: "Truck", requireModule: "erp", tone: "amber" },
+  { id: "finance", label: "회계·경영", order: 7, icon: "Landmark", requireModule: "erp", tone: "teal" },
+  { id: "settings", label: "환경설정", order: 8, icon: "Settings", tone: "slate" },
+  { id: "platform", label: "플랫폼 관리", order: 9, icon: "Crown", superAdminOnly: true, tone: "yellow" },
+];
+
+/** 경로 → 허브. 부록 14a 의 행선지 그대로. 업종 품질(/dashboard/{업종}/{기능}) 과 화장품 GMP 는 전부 품질·규정 */
+export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
+  // today
+  "/dashboard": "today",
+  "/dashboard/notifications": "today",
+  "/dashboard/approval": "today",
+  "/dashboard/today": "today",
+  // purchase
+  "/dashboard/accounting/purchase-orders": "purchase",
+  "/dashboard/accounting/purchases/create": "purchase",
+  "/dashboard/accounting/purchases/list": "purchase",
+  "/dashboard/partners/feed": "purchase",
+  "/dashboard/accounting/partners": "purchase",
+  "/dashboard/accounting/communication-log": "purchase",
+  "/dashboard/accounting/partner-prices": "purchase",
+  // items
+  "/inventory-management": "items",
+  "/dashboard/master-data": "items",
+  "/dashboard/item-master": "items",
+  // production
+  "/dashboard/production/today": "production",
+  "/dashboard/production-management": "production",
+  "/dashboard/production-operations": "production",
+  "/dashboard/manufacturing-standards": "production",
+  // quality
+  "/quality/ccp-monitoring": "quality",
+  "/dashboard/inspections": "quality",
+  "/quality/checklists": "quality",
+  "/dashboard/document-output": "quality",
+  "/mobile-quick-check": "quality",
+  "/dashboard/nonconforming-management": "quality",
+  "/corrective-actions": "quality",
+  "/dashboard/haccp/f3-dashboard": "quality",
+  "/dashboard/haccp/f3-trends": "quality",
+  "/dashboard/food/change-control": "quality",
+  "/dashboard/cosmetic/dashboard": "quality",
+  "/dashboard/cosmetic/bmr": "quality",
+  "/dashboard/cosmetic/formula": "quality",
+  "/dashboard/cosmetic/label": "quality",
+  "/dashboard/cosmetic/release": "quality",
+  "/dashboard/cosmetic/stability": "quality",
+  "/dashboard/cosmetic/change-control": "quality",
+  "/dashboard/cosmetic/nonconforming": "quality",
+  "/dashboard/cosmetic/audit": "quality",
+  "/dashboard/cosmetic/corrective-action": "quality",
+  "/dashboard/cosmetic/training": "quality",
+  "/dashboard/cosmetic/calibration": "quality",
+  "/dashboard/cosmetic/supplier": "quality",
+  "/dashboard/cosmetic/risk-assessment": "quality",
+  "/dashboard/medical-device/change-control": "quality",
+  "/dashboard/medical-device/nonconforming": "quality",
+  "/dashboard/medical-device/corrective-action": "quality",
+  "/dashboard/medical-device/audit": "quality",
+  "/dashboard/medical-device/training": "quality",
+  "/dashboard/medical-device/calibration": "quality",
+  "/dashboard/medical-device/supplier": "quality",
+  "/dashboard/medical-device/risk-assessment": "quality",
+  "/dashboard/general-manufacturing/change-control": "quality",
+  "/dashboard/general-manufacturing/nonconforming": "quality",
+  "/dashboard/general-manufacturing/corrective-action": "quality",
+  "/dashboard/general-manufacturing/audit": "quality",
+  "/dashboard/general-manufacturing/training": "quality",
+  "/dashboard/general-manufacturing/calibration": "quality",
+  "/dashboard/general-manufacturing/supplier": "quality",
+  "/dashboard/general-manufacturing/risk-assessment": "quality",
+  "/dashboard/pharmaceutical/change-control": "quality",
+  "/dashboard/pharmaceutical/nonconforming": "quality",
+  "/dashboard/pharmaceutical/corrective-action": "quality",
+  "/dashboard/pharmaceutical/audit": "quality",
+  "/dashboard/pharmaceutical/training": "quality",
+  "/dashboard/pharmaceutical/calibration": "quality",
+  "/dashboard/pharmaceutical/supplier": "quality",
+  "/dashboard/pharmaceutical/risk-assessment": "quality",
+  "/dashboard/health-functional/change-control": "quality",
+  "/dashboard/health-functional/nonconforming": "quality",
+  "/dashboard/health-functional/corrective-action": "quality",
+  "/dashboard/health-functional/audit": "quality",
+  "/dashboard/health-functional/training": "quality",
+  "/dashboard/health-functional/calibration": "quality",
+  "/dashboard/health-functional/supplier": "quality",
+  "/dashboard/health-functional/risk-assessment": "quality",
+  "/dashboard/audit-management": "quality",
+  "/dashboard/haccp-verification": "quality",
+  "/dashboard/scan-checklist": "quality",
+  "/dashboard/food/allergen": "quality",
+  "/dashboard/food/environmental-monitoring": "quality",
+  "/dashboard/food/food-protection": "quality",
+  // sales
+  "/dashboard/accounting/quotations": "sales",
+  "/dashboard/accounting/sales/create": "sales",
+  "/dashboard/accounting/sales/list": "sales",
+  "/dashboard/accounting/tax-invoices": "sales",
+  "/dashboard/accounting/b2c-platform": "sales",
+  // finance
+  "/dashboard/accounting": "finance",
+  "/dashboard/accounting/expense": "finance",
+  "/dashboard/accounting/bank-management": "finance",
+  "/dashboard/accounting/journal-entries": "finance",
+  "/dashboard/accounting/vat-management": "finance",
+  "/dashboard/accounting/financial-reports": "finance",
+  "/dashboard/accounting/cash-flow": "finance",
+  "/dashboard/accounting/budget": "finance",
+  "/dashboard/accounting/payroll": "finance",
+  "/dashboard/accounting/hr": "finance",
+  "/dashboard/accounting/partner-credit": "finance",
+  "/dashboard/accounting/accounts": "finance",
+  "/dashboard/accounting/fixed-assets": "finance",
+  "/dashboard/accounting/recurring": "finance",
+  "/dashboard/accounting/closing-management": "finance",
+  "/dashboard/accounting/change-log": "finance",
+  "/accounting/documents": "finance",
+  // settings
+  "/admin/settings": "settings",
+  "/admin/opscore-sync": "settings",
+  "/dashboard/data-import": "settings",
+  "/dashboard/accounting/notice-board": "settings",
+  // platform
+  "/dashboard/super-admin": "platform",
+  "/dashboard/user-approval": "platform",
+  "/dashboard/tenants": "platform",
+  "/dashboard/server-monitor": "platform",
+};
+
+const INDUSTRY_QUALITY_RE = /^\/dashboard\/(food|cosmetic|pharmaceutical|health-functional|medical-device|general-manufacturing)\//;
+
+/** 경로의 허브. 등록이 없으면 업종 경로는 품질·규정, 그 외는 환경설정(미분류를 숨기지 않기 위해) */
+export function hubOf(path: string): HubId {
+  const h = HUB_BY_PATH[path];
+  if (h) return h;
+  if (INDUSTRY_QUALITY_RE.test(path)) return "quality";
+  return "settings";
+}
+
+export interface HubMenuItem<I = string> {
+  icon: I;
+  label: string;
+  path: string;
+  roles: readonly string[];
+  requireModule?: string;
+  highlight?: boolean;
+  hub: HubId;
+}
+
+export interface HubSection<I = string> {
+  hub: HubDef;
+  items: HubMenuItem<I>[];
+}
+
+/**
+ * 메뉴 항목(여러 탭·플러그인에서 온 것)을 허브별로 묶는다.
+ *  - 같은 경로는 하나로: 라벨·아이콘은 먼저 온 것, roles 는 합집합(아무도 메뉴를 잃지 않게), requireModule 은 전부 같을 때만 유지
+ *  - 허브 순서 → 입력 순서
+ */
+export function buildHubMenu<I = string>(items: readonly { icon: I; label: string; path: string; roles: readonly string[]; requireModule?: string; highlight?: boolean }[]): HubSection<I>[] {
+  const byPath = new Map<string, HubMenuItem<I> & { _modules: Set<string | undefined> }>();
+  for (const it of items) {
+    const cur = byPath.get(it.path);
+    if (!cur) {
+      byPath.set(it.path, { icon: it.icon, label: it.label, path: it.path, roles: [...it.roles], requireModule: it.requireModule, highlight: !!it.highlight, hub: hubOf(it.path), _modules: new Set([it.requireModule]) });
+    } else {
+      for (const r of it.roles) if (!cur.roles.includes(r)) (cur.roles as string[]).push(r);
+      cur.highlight = cur.highlight || !!it.highlight;
+      cur._modules.add(it.requireModule);
+    }
+  }
+  const sections = new Map<HubId, HubMenuItem<I>[]>();
+  for (const v of byPath.values()) {
+    const { _modules, ...item } = v;
+    if (_modules.size > 1) delete (item as { requireModule?: string }).requireModule;
+    if (!sections.has(item.hub)) sections.set(item.hub, []);
+    sections.get(item.hub)!.push(item);
+  }
+  return [...HUBS].sort((a, b) => a.order - b.order)
+    .map((hub) => ({ hub, items: sections.get(hub.id) ?? [] }))
+    .filter((s) => s.items.length > 0);
+}

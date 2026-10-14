@@ -40,7 +40,8 @@ import { useIndustryFeatures, type ModuleKey } from "@/hooks/useIndustryFeatures
 // Phase Plugin-3: Menu Engine — Plugin 기반 사이드바 동적 생성
 import { useDomainPlugin } from "@/domain/useDomainPlugin";
 import { buildMenuFromPlugin, getIcon } from "@/domain/engines/clientMenuEngine";
-import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, type MenuPlacement } from "@shared/navigation/menuRegistry";
+import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, buildHubMenu, type MenuPlacement } from "@shared/navigation/menuRegistry";
+import HubSidebarMenu, { type HubMenuEntry } from "./HubSidebarMenu";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import { cn } from "@/lib/utils";
 
@@ -692,6 +693,18 @@ function DashboardLayoutContent({
     // HACCP 탭: plugin 기반 메뉴 (plugin 없으면 legacy menuItems 폴백)
     : (domainPlugin ? pluginBasedMenu : menuItems);
 
+  // ★ 2-b-1 허브 사이드바 (2026-10-14): 탭 대신 세 탭의 항목을 합쳐 허브로 묶는다. 탭별 가림(HACCP 모듈 없음 → HACCP 탭 숨김,
+  //   ERP 모듈 없음·데모 → 회계 탭 숨김)은 합칠 때 같은 조건으로 적용 → 보이는 항목 집합은 탭 사이드바와 동일.
+  const hubMode = FEATURES.HUB_SIDEBAR;
+  if (hubMode) {
+    displayedMenuItems = [
+      ...workMenuItems,
+      ...(moduleHACCP ? (domainPlugin ? pluginBasedMenu : menuItems) : []),
+      ...(moduleERP && !isDemo ? accountingMenuItems : []),
+      ...(user?.role === "super_admin" ? superAdminMenuItems : []),
+    ];
+  }
+
   // ★ 2026-05-09 (PR #279): super_admin 도 기본적으로 필터 적용
   // (식품 테넌트 진입 시 화장품/의약품 메뉴 혼재 문제 해결)
   // super_admin 이 명시적으로 "전체 메뉴 보기" 토글 시에만 우회.
@@ -755,6 +768,26 @@ function DashboardLayoutContent({
     );
   }
   
+  // 2-b-1: 활성 판정 (탭 사이드바와 같은 규칙) + 허브 묶음 + 즐겨찾기 토글
+  const isActivePath = (path: string) => {
+    const exact = location === path;
+    const child = isChildRoute(path);
+    const hasOtherExact = displayedMenuItems.some((o: MenuItem) => o.path !== path && (location === o.path || isChildRoute(o.path)));
+    return exact || child || (!hasOtherExact && location.startsWith(path + "/"));
+  };
+  const hubSections = hubMode
+    ? buildHubMenu(displayedMenuItems.filter((item: MenuItem) => user && item.roles?.includes(user.role)).map((i: MenuItem) => ({ ...i, roles: i.roles ?? [] })))
+    : [];
+  const toggleFavorite = (entry: HubMenuEntry) => {
+    const fav = favorites.find((f: FavoriteItem) => f.menuPath === entry.path);
+    if (fav) removeFavoriteMutation.mutate({ favoriteId: fav.id });
+    else addFavoriteMutation.mutate({
+      menuPath: entry.path,
+      menuLabel: entry.label,
+      menuIcon: (entry.icon as any).displayName || (entry.icon as any).name || "FileText",
+    });
+  };
+
   // 자동 탭 전환 로직 제거 - 사용자가 수동으로 탭을 선택할 수 있도록 함
   const isMobile = useIsMobile();
 
@@ -849,6 +882,7 @@ function DashboardLayoutContent({
             {/* WORK/회계/HACCP tabs - Premium */}
             {!isCollapsed && (
               <div className="px-3 mb-2">
+                {!hubMode && (
                 <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as "work" | "finance" | "haccp")} className="w-full">
                   <TabsList className={`grid w-full grid-cols-${1 + (moduleERP && !isDemo ? 1 : 0) + (moduleHACCP ? 1 : 0)} text-[11px] h-8 bg-sidebar-accent/60`}>
                     <TabsTrigger value="work" className="text-[11px] h-6 data-[state=active]:bg-emerald-600 data-[state=active]:text-white">
@@ -867,6 +901,7 @@ function DashboardLayoutContent({
                     )}
                   </TabsList>
                 </Tabs>
+                )}
 
                 {/* ★ 2026-05-09 (PR #279): super_admin 전용 — 전체 메뉴 보기 토글
                     기본은 industry 격리 (food 테넌트면 cosmetic 메뉴 hide).
@@ -900,7 +935,17 @@ function DashboardLayoutContent({
             return () => el.removeEventListener("scroll", handler);
           }}>
             <SidebarMenu className="px-3 py-1">
-              {(() => {
+              {hubMode ? (
+                <HubSidebarMenu
+                  sections={hubSections}
+                  location={location}
+                  isCollapsed={isCollapsed}
+                  isActivePath={isActivePath}
+                  isFavorite={(path) => favorites.some((fav: FavoriteItem) => fav.menuPath === path)}
+                  onToggleFavorite={toggleFavorite}
+                  onNavigate={(path) => setLocation(path)}
+                />
+              ) : (() => {
                 const visibleItems = displayedMenuItems.filter((item: MenuItem) => user && item.roles?.includes(user.role));
                 let prevGroup: string | undefined;
 
@@ -986,7 +1031,7 @@ function DashboardLayoutContent({
 
 
               {/* Super Admin - Premium */}
-              {user?.role === "super_admin" && activeTab === "work" && !isCollapsed && (
+              {user?.role === "super_admin" && (hubMode || activeTab === "work") && !isCollapsed && (
                 <div className="px-3 py-2 mt-2">
                   <button
                     onClick={() => setLocation("/dashboard/super-admin")}
@@ -1014,7 +1059,7 @@ function DashboardLayoutContent({
                      어색한 상황 발생. 즐겨찾기는 사용자가 원래 WORK 탭에서 한 곳에서
                      관리하도록 설계됨. 다른 탭에서 Star 클릭 시 toast 로 WORK 탭
                      안내 메시지 표시. */}
-              {activeTab === "work" && favoriteMenuItems.length > 0 && !isCollapsed && (
+              {(hubMode || activeTab === "work") && favoriteMenuItems.length > 0 && !isCollapsed && (
                 <>
                   <div className="px-3 py-2 mt-2">
                     <div className="h-px bg-sidebar-border" />
