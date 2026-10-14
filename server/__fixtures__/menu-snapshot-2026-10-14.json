@@ -1,5 +1,5 @@
 {
- "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지) | 2-b-3: childRoutes /dashboard/document-output/daily-log 제거 (라우트 없음) | 2026-10-14 매입·매출 허브: 발주·구매→발주서, 매입 입력·매출 입력 메뉴 복귀",
+ "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지) | 2-b-3: childRoutes /dashboard/document-output/daily-log 제거 (라우트 없음) | 2026-10-14 매입·매출 허브: 발주·구매→발주서, 매입 입력·매출 입력 메뉴 복귀 | 2-c: 업종 품질 8종 경로 → /quality/{기능} (업종은 항목 industry 로 격리)",
  "haccpLegacy": {
   "base": [
    {
@@ -264,7 +264,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리",
-    "path": "/dashboard/food/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -355,7 +355,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리",
-    "path": "/dashboard/cosmetic/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -368,7 +368,7 @@
    {
     "icon": "AlertCircle",
     "label": "부적합 관리",
-    "path": "/dashboard/cosmetic/nonconforming",
+    "path": "/quality/nonconforming",
     "roles": [
      "super_admin",
      "admin",
@@ -381,7 +381,7 @@
    {
     "icon": "ClipboardCheck",
     "label": "감사 (Audit)",
-    "path": "/dashboard/cosmetic/audit",
+    "path": "/quality/audit",
     "roles": [
      "super_admin",
      "admin",
@@ -394,7 +394,7 @@
    {
     "icon": "AlertTriangle",
     "label": "CAPA (시정·예방)",
-    "path": "/dashboard/cosmetic/corrective-action",
+    "path": "/quality/corrective-action",
     "roles": [
      "super_admin",
      "admin",
@@ -407,7 +407,7 @@
    {
     "icon": "GraduationCap",
     "label": "교육 / 훈련",
-    "path": "/dashboard/cosmetic/training",
+    "path": "/quality/training",
     "roles": [
      "super_admin",
      "admin",
@@ -420,7 +420,7 @@
    {
     "icon": "Sliders",
     "label": "검교정 / 설비 자격",
-    "path": "/dashboard/cosmetic/calibration",
+    "path": "/quality/calibration",
     "roles": [
      "super_admin",
      "admin",
@@ -433,7 +433,7 @@
    {
     "icon": "Building",
     "label": "공급업체 (AVL)",
-    "path": "/dashboard/cosmetic/supplier",
+    "path": "/quality/supplier",
     "roles": [
      "super_admin",
      "admin",
@@ -446,7 +446,7 @@
    {
     "icon": "AlertTriangle",
     "label": "위험 평가 (ICH Q9)",
-    "path": "/dashboard/cosmetic/risk-assessment",
+    "path": "/quality/risk-assessment",
     "roles": [
      "super_admin",
      "admin",
@@ -459,7 +459,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리 (ISO 13485)",
-    "path": "/dashboard/medical-device/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -471,7 +471,7 @@
    {
     "icon": "AlertCircle",
     "label": "부적합 관리 (ISO 13485)",
-    "path": "/dashboard/medical-device/nonconforming",
+    "path": "/quality/nonconforming",
     "roles": [
      "super_admin",
      "admin",
@@ -483,7 +483,7 @@
    {
     "icon": "AlertTriangle",
     "label": "CAPA (ISO 13485)",
-    "path": "/dashboard/medical-device/corrective-action",
+    "path": "/quality/corrective-action",
     "roles": [
      "super_admin",
      "admin",
@@ -495,7 +495,7 @@
    {
     "icon": "ClipboardCheck",
     "label": "감사 (ISO 13485)",
-    "path": "/dashboard/medical-device/audit",
+    "path": "/quality/audit",
     "roles": [
      "super_admin",
      "admin",
@@ -507,7 +507,7 @@
    {
     "icon": "GraduationCap",
     "label": "교육 (ISO 13485)",
-    "path": "/dashboard/medical-device/training",
+    "path": "/quality/training",
     "roles": [
      "super_admin",
      "admin",
@@ -519,7 +519,7 @@
    {
     "icon": "Sliders",
     "label": "검교정 (ISO 13485)",
-    "path": "/dashboard/medical-device/calibration",
+    "path": "/quality/calibration",
     "roles": [
      "super_admin",
      "admin",
@@ -531,7 +531,7 @@
    {
     "icon": "Building",
     "label": "공급업체 (ISO 13485)",
-    "path": "/dashboard/medical-device/supplier",
+    "path": "/quality/supplier",
     "roles": [
      "super_admin",
      "admin",
@@ -543,7 +543,7 @@
    {
     "icon": "AlertTriangle",
     "label": "위험관리 ISO 14971",
-    "path": "/dashboard/medical-device/risk-assessment",
+    "path": "/quality/risk-assessment",
     "roles": [
      "super_admin",
      "admin",
@@ -555,7 +555,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리 (일반제조)",
-    "path": "/dashboard/general-manufacturing/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -568,7 +568,7 @@
    {
     "icon": "AlertCircle",
     "label": "부적합 관리 (일반제조)",
-    "path": "/dashboard/general-manufacturing/nonconforming",
+    "path": "/quality/nonconforming",
     "roles": [
      "super_admin",
      "admin",
@@ -581,7 +581,7 @@
    {
     "icon": "AlertTriangle",
     "label": "CAPA (일반제조)",
-    "path": "/dashboard/general-manufacturing/corrective-action",
+    "path": "/quality/corrective-action",
     "roles": [
      "super_admin",
      "admin",
@@ -594,7 +594,7 @@
    {
     "icon": "ClipboardCheck",
     "label": "감사 (일반제조)",
-    "path": "/dashboard/general-manufacturing/audit",
+    "path": "/quality/audit",
     "roles": [
      "super_admin",
      "admin",
@@ -607,7 +607,7 @@
    {
     "icon": "GraduationCap",
     "label": "교육 (일반제조)",
-    "path": "/dashboard/general-manufacturing/training",
+    "path": "/quality/training",
     "roles": [
      "super_admin",
      "admin",
@@ -620,7 +620,7 @@
    {
     "icon": "Sliders",
     "label": "검교정 (일반제조)",
-    "path": "/dashboard/general-manufacturing/calibration",
+    "path": "/quality/calibration",
     "roles": [
      "super_admin",
      "admin",
@@ -633,7 +633,7 @@
    {
     "icon": "Building",
     "label": "공급업체 (일반제조)",
-    "path": "/dashboard/general-manufacturing/supplier",
+    "path": "/quality/supplier",
     "roles": [
      "super_admin",
      "admin",
@@ -646,7 +646,7 @@
    {
     "icon": "AlertTriangle",
     "label": "위험 평가 (일반제조)",
-    "path": "/dashboard/general-manufacturing/risk-assessment",
+    "path": "/quality/risk-assessment",
     "roles": [
      "super_admin",
      "admin",
@@ -659,7 +659,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리 (KGMP)",
-    "path": "/dashboard/pharmaceutical/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -672,7 +672,7 @@
    {
     "icon": "AlertCircle",
     "label": "부적합 관리 (KGMP)",
-    "path": "/dashboard/pharmaceutical/nonconforming",
+    "path": "/quality/nonconforming",
     "roles": [
      "super_admin",
      "admin",
@@ -685,7 +685,7 @@
    {
     "icon": "AlertTriangle",
     "label": "CAPA (KGMP)",
-    "path": "/dashboard/pharmaceutical/corrective-action",
+    "path": "/quality/corrective-action",
     "roles": [
      "super_admin",
      "admin",
@@ -698,7 +698,7 @@
    {
     "icon": "ClipboardCheck",
     "label": "감사 (KGMP)",
-    "path": "/dashboard/pharmaceutical/audit",
+    "path": "/quality/audit",
     "roles": [
      "super_admin",
      "admin",
@@ -711,7 +711,7 @@
    {
     "icon": "GraduationCap",
     "label": "교육 / 훈련 (KGMP)",
-    "path": "/dashboard/pharmaceutical/training",
+    "path": "/quality/training",
     "roles": [
      "super_admin",
      "admin",
@@ -724,7 +724,7 @@
    {
     "icon": "Sliders",
     "label": "검교정 IQ/OQ/PQ (KGMP)",
-    "path": "/dashboard/pharmaceutical/calibration",
+    "path": "/quality/calibration",
     "roles": [
      "super_admin",
      "admin",
@@ -737,7 +737,7 @@
    {
     "icon": "Building",
     "label": "공급업체 AVL (KGMP)",
-    "path": "/dashboard/pharmaceutical/supplier",
+    "path": "/quality/supplier",
     "roles": [
      "super_admin",
      "admin",
@@ -750,7 +750,7 @@
    {
     "icon": "AlertTriangle",
     "label": "위험 평가 ICH Q9 (KGMP)",
-    "path": "/dashboard/pharmaceutical/risk-assessment",
+    "path": "/quality/risk-assessment",
     "roles": [
      "super_admin",
      "admin",
@@ -763,7 +763,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리 (건기식)",
-    "path": "/dashboard/health-functional/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -776,7 +776,7 @@
    {
     "icon": "AlertCircle",
     "label": "부적합 관리 (건기식)",
-    "path": "/dashboard/health-functional/nonconforming",
+    "path": "/quality/nonconforming",
     "roles": [
      "super_admin",
      "admin",
@@ -789,7 +789,7 @@
    {
     "icon": "AlertTriangle",
     "label": "CAPA (건기식)",
-    "path": "/dashboard/health-functional/corrective-action",
+    "path": "/quality/corrective-action",
     "roles": [
      "super_admin",
      "admin",
@@ -802,7 +802,7 @@
    {
     "icon": "ClipboardCheck",
     "label": "감사 (건기식)",
-    "path": "/dashboard/health-functional/audit",
+    "path": "/quality/audit",
     "roles": [
      "super_admin",
      "admin",
@@ -815,7 +815,7 @@
    {
     "icon": "GraduationCap",
     "label": "교육 (건기식)",
-    "path": "/dashboard/health-functional/training",
+    "path": "/quality/training",
     "roles": [
      "super_admin",
      "admin",
@@ -828,7 +828,7 @@
    {
     "icon": "Sliders",
     "label": "검교정 (건기식)",
-    "path": "/dashboard/health-functional/calibration",
+    "path": "/quality/calibration",
     "roles": [
      "super_admin",
      "admin",
@@ -841,7 +841,7 @@
    {
     "icon": "Building",
     "label": "공급업체 (건기식)",
-    "path": "/dashboard/health-functional/supplier",
+    "path": "/quality/supplier",
     "roles": [
      "super_admin",
      "admin",
@@ -854,7 +854,7 @@
    {
     "icon": "AlertTriangle",
     "label": "위험 평가 (건기식)",
-    "path": "/dashboard/health-functional/risk-assessment",
+    "path": "/quality/risk-assessment",
     "roles": [
      "super_admin",
      "admin",
@@ -1164,7 +1164,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리",
-    "path": "/dashboard/food/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -1255,7 +1255,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리",
-    "path": "/dashboard/cosmetic/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -1268,7 +1268,7 @@
    {
     "icon": "AlertCircle",
     "label": "부적합 관리",
-    "path": "/dashboard/cosmetic/nonconforming",
+    "path": "/quality/nonconforming",
     "roles": [
      "super_admin",
      "admin",
@@ -1281,7 +1281,7 @@
    {
     "icon": "ClipboardCheck",
     "label": "감사 (Audit)",
-    "path": "/dashboard/cosmetic/audit",
+    "path": "/quality/audit",
     "roles": [
      "super_admin",
      "admin",
@@ -1294,7 +1294,7 @@
    {
     "icon": "AlertTriangle",
     "label": "CAPA (시정·예방)",
-    "path": "/dashboard/cosmetic/corrective-action",
+    "path": "/quality/corrective-action",
     "roles": [
      "super_admin",
      "admin",
@@ -1307,7 +1307,7 @@
    {
     "icon": "GraduationCap",
     "label": "교육 / 훈련",
-    "path": "/dashboard/cosmetic/training",
+    "path": "/quality/training",
     "roles": [
      "super_admin",
      "admin",
@@ -1320,7 +1320,7 @@
    {
     "icon": "Sliders",
     "label": "검교정 / 설비 자격",
-    "path": "/dashboard/cosmetic/calibration",
+    "path": "/quality/calibration",
     "roles": [
      "super_admin",
      "admin",
@@ -1333,7 +1333,7 @@
    {
     "icon": "Building",
     "label": "공급업체 (AVL)",
-    "path": "/dashboard/cosmetic/supplier",
+    "path": "/quality/supplier",
     "roles": [
      "super_admin",
      "admin",
@@ -1346,7 +1346,7 @@
    {
     "icon": "AlertTriangle",
     "label": "위험 평가 (ICH Q9)",
-    "path": "/dashboard/cosmetic/risk-assessment",
+    "path": "/quality/risk-assessment",
     "roles": [
      "super_admin",
      "admin",
@@ -1359,7 +1359,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리 (ISO 13485)",
-    "path": "/dashboard/medical-device/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -1371,7 +1371,7 @@
    {
     "icon": "AlertCircle",
     "label": "부적합 관리 (ISO 13485)",
-    "path": "/dashboard/medical-device/nonconforming",
+    "path": "/quality/nonconforming",
     "roles": [
      "super_admin",
      "admin",
@@ -1383,7 +1383,7 @@
    {
     "icon": "AlertTriangle",
     "label": "CAPA (ISO 13485)",
-    "path": "/dashboard/medical-device/corrective-action",
+    "path": "/quality/corrective-action",
     "roles": [
      "super_admin",
      "admin",
@@ -1395,7 +1395,7 @@
    {
     "icon": "ClipboardCheck",
     "label": "감사 (ISO 13485)",
-    "path": "/dashboard/medical-device/audit",
+    "path": "/quality/audit",
     "roles": [
      "super_admin",
      "admin",
@@ -1407,7 +1407,7 @@
    {
     "icon": "GraduationCap",
     "label": "교육 (ISO 13485)",
-    "path": "/dashboard/medical-device/training",
+    "path": "/quality/training",
     "roles": [
      "super_admin",
      "admin",
@@ -1419,7 +1419,7 @@
    {
     "icon": "Sliders",
     "label": "검교정 (ISO 13485)",
-    "path": "/dashboard/medical-device/calibration",
+    "path": "/quality/calibration",
     "roles": [
      "super_admin",
      "admin",
@@ -1431,7 +1431,7 @@
    {
     "icon": "Building",
     "label": "공급업체 (ISO 13485)",
-    "path": "/dashboard/medical-device/supplier",
+    "path": "/quality/supplier",
     "roles": [
      "super_admin",
      "admin",
@@ -1443,7 +1443,7 @@
    {
     "icon": "AlertTriangle",
     "label": "위험관리 ISO 14971",
-    "path": "/dashboard/medical-device/risk-assessment",
+    "path": "/quality/risk-assessment",
     "roles": [
      "super_admin",
      "admin",
@@ -1455,7 +1455,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리 (일반제조)",
-    "path": "/dashboard/general-manufacturing/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -1468,7 +1468,7 @@
    {
     "icon": "AlertCircle",
     "label": "부적합 관리 (일반제조)",
-    "path": "/dashboard/general-manufacturing/nonconforming",
+    "path": "/quality/nonconforming",
     "roles": [
      "super_admin",
      "admin",
@@ -1481,7 +1481,7 @@
    {
     "icon": "AlertTriangle",
     "label": "CAPA (일반제조)",
-    "path": "/dashboard/general-manufacturing/corrective-action",
+    "path": "/quality/corrective-action",
     "roles": [
      "super_admin",
      "admin",
@@ -1494,7 +1494,7 @@
    {
     "icon": "ClipboardCheck",
     "label": "감사 (일반제조)",
-    "path": "/dashboard/general-manufacturing/audit",
+    "path": "/quality/audit",
     "roles": [
      "super_admin",
      "admin",
@@ -1507,7 +1507,7 @@
    {
     "icon": "GraduationCap",
     "label": "교육 (일반제조)",
-    "path": "/dashboard/general-manufacturing/training",
+    "path": "/quality/training",
     "roles": [
      "super_admin",
      "admin",
@@ -1520,7 +1520,7 @@
    {
     "icon": "Sliders",
     "label": "검교정 (일반제조)",
-    "path": "/dashboard/general-manufacturing/calibration",
+    "path": "/quality/calibration",
     "roles": [
      "super_admin",
      "admin",
@@ -1533,7 +1533,7 @@
    {
     "icon": "Building",
     "label": "공급업체 (일반제조)",
-    "path": "/dashboard/general-manufacturing/supplier",
+    "path": "/quality/supplier",
     "roles": [
      "super_admin",
      "admin",
@@ -1546,7 +1546,7 @@
    {
     "icon": "AlertTriangle",
     "label": "위험 평가 (일반제조)",
-    "path": "/dashboard/general-manufacturing/risk-assessment",
+    "path": "/quality/risk-assessment",
     "roles": [
      "super_admin",
      "admin",
@@ -1559,7 +1559,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리 (KGMP)",
-    "path": "/dashboard/pharmaceutical/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -1572,7 +1572,7 @@
    {
     "icon": "AlertCircle",
     "label": "부적합 관리 (KGMP)",
-    "path": "/dashboard/pharmaceutical/nonconforming",
+    "path": "/quality/nonconforming",
     "roles": [
      "super_admin",
      "admin",
@@ -1585,7 +1585,7 @@
    {
     "icon": "AlertTriangle",
     "label": "CAPA (KGMP)",
-    "path": "/dashboard/pharmaceutical/corrective-action",
+    "path": "/quality/corrective-action",
     "roles": [
      "super_admin",
      "admin",
@@ -1598,7 +1598,7 @@
    {
     "icon": "ClipboardCheck",
     "label": "감사 (KGMP)",
-    "path": "/dashboard/pharmaceutical/audit",
+    "path": "/quality/audit",
     "roles": [
      "super_admin",
      "admin",
@@ -1611,7 +1611,7 @@
    {
     "icon": "GraduationCap",
     "label": "교육 / 훈련 (KGMP)",
-    "path": "/dashboard/pharmaceutical/training",
+    "path": "/quality/training",
     "roles": [
      "super_admin",
      "admin",
@@ -1624,7 +1624,7 @@
    {
     "icon": "Sliders",
     "label": "검교정 IQ/OQ/PQ (KGMP)",
-    "path": "/dashboard/pharmaceutical/calibration",
+    "path": "/quality/calibration",
     "roles": [
      "super_admin",
      "admin",
@@ -1637,7 +1637,7 @@
    {
     "icon": "Building",
     "label": "공급업체 AVL (KGMP)",
-    "path": "/dashboard/pharmaceutical/supplier",
+    "path": "/quality/supplier",
     "roles": [
      "super_admin",
      "admin",
@@ -1650,7 +1650,7 @@
    {
     "icon": "AlertTriangle",
     "label": "위험 평가 ICH Q9 (KGMP)",
-    "path": "/dashboard/pharmaceutical/risk-assessment",
+    "path": "/quality/risk-assessment",
     "roles": [
      "super_admin",
      "admin",
@@ -1663,7 +1663,7 @@
    {
     "icon": "GitBranch",
     "label": "변경관리 (건기식)",
-    "path": "/dashboard/health-functional/change-control",
+    "path": "/quality/change-control",
     "roles": [
      "super_admin",
      "admin",
@@ -1676,7 +1676,7 @@
    {
     "icon": "AlertCircle",
     "label": "부적합 관리 (건기식)",
-    "path": "/dashboard/health-functional/nonconforming",
+    "path": "/quality/nonconforming",
     "roles": [
      "super_admin",
      "admin",
@@ -1689,7 +1689,7 @@
    {
     "icon": "AlertTriangle",
     "label": "CAPA (건기식)",
-    "path": "/dashboard/health-functional/corrective-action",
+    "path": "/quality/corrective-action",
     "roles": [
      "super_admin",
      "admin",
@@ -1702,7 +1702,7 @@
    {
     "icon": "ClipboardCheck",
     "label": "감사 (건기식)",
-    "path": "/dashboard/health-functional/audit",
+    "path": "/quality/audit",
     "roles": [
      "super_admin",
      "admin",
@@ -1715,7 +1715,7 @@
    {
     "icon": "GraduationCap",
     "label": "교육 (건기식)",
-    "path": "/dashboard/health-functional/training",
+    "path": "/quality/training",
     "roles": [
      "super_admin",
      "admin",
@@ -1728,7 +1728,7 @@
    {
     "icon": "Sliders",
     "label": "검교정 (건기식)",
-    "path": "/dashboard/health-functional/calibration",
+    "path": "/quality/calibration",
     "roles": [
      "super_admin",
      "admin",
@@ -1741,7 +1741,7 @@
    {
     "icon": "Building",
     "label": "공급업체 (건기식)",
-    "path": "/dashboard/health-functional/supplier",
+    "path": "/quality/supplier",
     "roles": [
      "super_admin",
      "admin",
@@ -1754,7 +1754,7 @@
    {
     "icon": "AlertTriangle",
     "label": "위험 평가 (건기식)",
-    "path": "/dashboard/health-functional/risk-assessment",
+    "path": "/quality/risk-assessment",
     "roles": [
      "super_admin",
      "admin",

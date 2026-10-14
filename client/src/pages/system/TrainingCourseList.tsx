@@ -45,9 +45,9 @@ export default function TrainingCourseList() {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("active");
 
-  const { data: courses, isLoading, refetch } = trpc.training.listCourses.useQuery();
+  const { data: courses, isLoading, refetch } = trpc.haccpTraining.listCourses.useQuery();
 
-  const deleteMutation = trpc.training.deleteCourse.useMutation({
+  const deleteMutation = trpc.haccpTraining.deleteCourse.useMutation({
     onSuccess: () => {
       toast.success("교육 과정이 삭제되었습니다");
       refetch();

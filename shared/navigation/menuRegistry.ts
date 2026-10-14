@@ -33,6 +33,31 @@ export interface MenuPlacement {
   requireModule?: string;
   highlight?: boolean;
   category?: string;
+  /** 업종 전용 항목 (2-c) — 경로가 업종 공통(/quality/{기능})이라 경로로 업종을 알 수 없을 때 이 값으로 업종 격리 */
+  industry?: IndustryKey;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2-c (2026-10-14): 업종 품질 8종 공통 경로 — /quality/{기능} 한 벌
+// 화면은 이미 공통 페이지(<NonconformingPage industry=…/> 등)였다. 경로만 업종별 48개 → 공통 8개로 합치고,
+// 업종은 테넌트 설정에서 판별한다. 옛 경로 48개는 LEGACY_REDIRECTS (쿼리 industry 로 업종 전달).
+// ─────────────────────────────────────────────────────────────────────────────
+export const INDUSTRY_KEYS = ["food", "cosmetic", "pharmaceutical", "health-functional", "medical-device", "general-manufacturing"] as const;
+export type IndustryKey = (typeof INDUSTRY_KEYS)[number];
+export const QUALITY_FUNCTIONS = ["change-control", "nonconforming", "corrective-action", "audit", "training", "calibration", "supplier", "risk-assessment"] as const;
+export type QualityFunction = (typeof QUALITY_FUNCTIONS)[number];
+export const qualityPath = (fn: QualityFunction) => `/quality/${fn}`;
+
+/**
+ * 테넌트 업종 카테고리(industryConfig) → 업종 키. 레이아웃의 메뉴 업종 격리와 같은 표에
+ * 의료기기 플러그인의 임시 카테고리 electronics 를 더했다 (medical-device.ts: category "electronics").
+ */
+export function industryKeyOfCategory(category: string | null | undefined): IndustryKey | null {
+  const map: Record<string, IndustryKey> = {
+    food: "food", cosmetics: "cosmetic", pharma: "pharmaceutical", supplement: "health-functional",
+    general: "general-manufacturing", electronics: "medical-device",
+  };
+  return category ? map[category] ?? null : null;
 }
 
 export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
@@ -59,53 +84,53 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   { tab: "haccp", icon: "AlertTriangle", label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], group: "품질관리 (HACCP)", requireModule: "haccp" },
   { tab: "haccp", icon: "Activity", label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
   // 2-b-2 (2026-10-14) 통합: /dashboard/haccp/f3-trends → F-3 운영 현황의 [Deviation 트렌드 →] 링크. 경로·허브 매핑은 유지
-  { tab: "haccp", icon: "GitBranch", label: "변경관리", path: "/dashboard/food/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (HACCP)", requireModule: "haccp" },
+  { tab: "haccp", icon: "GitBranch", label: "변경관리", path: "/quality/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "food", group: "품질관리 (HACCP)", requireModule: "haccp" },
   { tab: "haccp", icon: "LayoutDashboard", label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], group: "화장품 GMP", requireModule: "gmp" },
   { tab: "haccp", icon: "Sparkles", label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], group: "화장품 GMP", requireModule: "gmp" },
   { tab: "haccp", icon: "FlaskConical", label: "배합표 (Formula)", path: "/dashboard/cosmetic/formula", roles: ["super_admin", "admin", "inspector", "monitor"], group: "화장품 GMP", requireModule: "gmp" },
   { tab: "haccp", icon: "Tag", label: "라벨 / 전성분", path: "/dashboard/cosmetic/label", roles: ["super_admin", "admin", "inspector", "monitor"], group: "화장품 GMP", requireModule: "gmp" },
   { tab: "haccp", icon: "Truck", label: "QA 출고 (Release)", path: "/dashboard/cosmetic/release", roles: ["super_admin", "admin", "inspector", "monitor"], group: "화장품 GMP", requireModule: "gmp" },
   { tab: "haccp", icon: "Thermometer", label: "안정성시험", path: "/dashboard/cosmetic/stability", roles: ["super_admin", "admin", "inspector", "monitor"], group: "화장품 GMP", requireModule: "gmp" },
-  { tab: "haccp", icon: "GitBranch", label: "변경관리", path: "/dashboard/cosmetic/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (GMP)", requireModule: "gmp" },
-  { tab: "haccp", icon: "AlertCircle", label: "부적합 관리", path: "/dashboard/cosmetic/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (GMP)", requireModule: "gmp" },
-  { tab: "haccp", icon: "ClipboardCheck", label: "감사 (Audit)", path: "/dashboard/cosmetic/audit", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (GMP)", requireModule: "gmp" },
-  { tab: "haccp", icon: "AlertTriangle", label: "CAPA (시정·예방)", path: "/dashboard/cosmetic/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (GMP)", requireModule: "gmp" },
-  { tab: "haccp", icon: "GraduationCap", label: "교육 / 훈련", path: "/dashboard/cosmetic/training", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (GMP)", requireModule: "gmp" },
-  { tab: "haccp", icon: "Sliders", label: "검교정 / 설비 자격", path: "/dashboard/cosmetic/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (GMP)", requireModule: "gmp" },
-  { tab: "haccp", icon: "Building", label: "공급업체 (AVL)", path: "/dashboard/cosmetic/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (GMP)", requireModule: "gmp" },
-  { tab: "haccp", icon: "AlertTriangle", label: "위험 평가 (ICH Q9)", path: "/dashboard/cosmetic/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], group: "품질관리 (GMP)", requireModule: "gmp" },
-  { tab: "haccp", icon: "GitBranch", label: "변경관리 (ISO 13485)", path: "/dashboard/medical-device/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { tab: "haccp", icon: "AlertCircle", label: "부적합 관리 (ISO 13485)", path: "/dashboard/medical-device/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { tab: "haccp", icon: "AlertTriangle", label: "CAPA (ISO 13485)", path: "/dashboard/medical-device/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { tab: "haccp", icon: "ClipboardCheck", label: "감사 (ISO 13485)", path: "/dashboard/medical-device/audit", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { tab: "haccp", icon: "GraduationCap", label: "교육 (ISO 13485)", path: "/dashboard/medical-device/training", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { tab: "haccp", icon: "Sliders", label: "검교정 (ISO 13485)", path: "/dashboard/medical-device/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { tab: "haccp", icon: "Building", label: "공급업체 (ISO 13485)", path: "/dashboard/medical-device/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { tab: "haccp", icon: "AlertTriangle", label: "위험관리 ISO 14971", path: "/dashboard/medical-device/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { tab: "haccp", icon: "GitBranch", label: "변경관리 (일반제조)", path: "/dashboard/general-manufacturing/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], group: "일반제조 ISO 9001", requireModule: "quality" },
-  { tab: "haccp", icon: "AlertCircle", label: "부적합 관리 (일반제조)", path: "/dashboard/general-manufacturing/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], group: "일반제조 ISO 9001", requireModule: "quality" },
-  { tab: "haccp", icon: "AlertTriangle", label: "CAPA (일반제조)", path: "/dashboard/general-manufacturing/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], group: "일반제조 ISO 9001", requireModule: "quality" },
-  { tab: "haccp", icon: "ClipboardCheck", label: "감사 (일반제조)", path: "/dashboard/general-manufacturing/audit", roles: ["super_admin", "admin", "inspector", "monitor"], group: "일반제조 ISO 9001", requireModule: "quality" },
-  { tab: "haccp", icon: "GraduationCap", label: "교육 (일반제조)", path: "/dashboard/general-manufacturing/training", roles: ["super_admin", "admin", "inspector", "monitor"], group: "일반제조 ISO 9001", requireModule: "quality" },
-  { tab: "haccp", icon: "Sliders", label: "검교정 (일반제조)", path: "/dashboard/general-manufacturing/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], group: "일반제조 ISO 9001", requireModule: "quality" },
-  { tab: "haccp", icon: "Building", label: "공급업체 (일반제조)", path: "/dashboard/general-manufacturing/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], group: "일반제조 ISO 9001", requireModule: "quality" },
-  { tab: "haccp", icon: "AlertTriangle", label: "위험 평가 (일반제조)", path: "/dashboard/general-manufacturing/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], group: "일반제조 ISO 9001", requireModule: "quality" },
-  { tab: "haccp", icon: "GitBranch", label: "변경관리 (KGMP)", path: "/dashboard/pharmaceutical/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의약품 KGMP", requireModule: "gmp" },
-  { tab: "haccp", icon: "AlertCircle", label: "부적합 관리 (KGMP)", path: "/dashboard/pharmaceutical/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의약품 KGMP", requireModule: "gmp" },
-  { tab: "haccp", icon: "AlertTriangle", label: "CAPA (KGMP)", path: "/dashboard/pharmaceutical/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의약품 KGMP", requireModule: "gmp" },
-  { tab: "haccp", icon: "ClipboardCheck", label: "감사 (KGMP)", path: "/dashboard/pharmaceutical/audit", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의약품 KGMP", requireModule: "gmp" },
-  { tab: "haccp", icon: "GraduationCap", label: "교육 / 훈련 (KGMP)", path: "/dashboard/pharmaceutical/training", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의약품 KGMP", requireModule: "gmp" },
-  { tab: "haccp", icon: "Sliders", label: "검교정 IQ/OQ/PQ (KGMP)", path: "/dashboard/pharmaceutical/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의약품 KGMP", requireModule: "gmp" },
-  { tab: "haccp", icon: "Building", label: "공급업체 AVL (KGMP)", path: "/dashboard/pharmaceutical/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의약품 KGMP", requireModule: "gmp" },
-  { tab: "haccp", icon: "AlertTriangle", label: "위험 평가 ICH Q9 (KGMP)", path: "/dashboard/pharmaceutical/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의약품 KGMP", requireModule: "gmp" },
-  { tab: "haccp", icon: "GitBranch", label: "변경관리 (건기식)", path: "/dashboard/health-functional/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], group: "건강기능식품", requireModule: "haccp" },
-  { tab: "haccp", icon: "AlertCircle", label: "부적합 관리 (건기식)", path: "/dashboard/health-functional/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], group: "건강기능식품", requireModule: "haccp" },
-  { tab: "haccp", icon: "AlertTriangle", label: "CAPA (건기식)", path: "/dashboard/health-functional/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], group: "건강기능식품", requireModule: "haccp" },
-  { tab: "haccp", icon: "ClipboardCheck", label: "감사 (건기식)", path: "/dashboard/health-functional/audit", roles: ["super_admin", "admin", "inspector", "monitor"], group: "건강기능식품", requireModule: "haccp" },
-  { tab: "haccp", icon: "GraduationCap", label: "교육 (건기식)", path: "/dashboard/health-functional/training", roles: ["super_admin", "admin", "inspector", "monitor"], group: "건강기능식품", requireModule: "haccp" },
-  { tab: "haccp", icon: "Sliders", label: "검교정 (건기식)", path: "/dashboard/health-functional/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], group: "건강기능식품", requireModule: "haccp" },
-  { tab: "haccp", icon: "Building", label: "공급업체 (건기식)", path: "/dashboard/health-functional/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], group: "건강기능식품", requireModule: "haccp" },
-  { tab: "haccp", icon: "AlertTriangle", label: "위험 평가 (건기식)", path: "/dashboard/health-functional/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], group: "건강기능식품", requireModule: "haccp" },
+  { tab: "haccp", icon: "GitBranch", label: "변경관리", path: "/quality/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "cosmetic", group: "품질관리 (GMP)", requireModule: "gmp" },
+  { tab: "haccp", icon: "AlertCircle", label: "부적합 관리", path: "/quality/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "cosmetic", group: "품질관리 (GMP)", requireModule: "gmp" },
+  { tab: "haccp", icon: "ClipboardCheck", label: "감사 (Audit)", path: "/quality/audit", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "cosmetic", group: "품질관리 (GMP)", requireModule: "gmp" },
+  { tab: "haccp", icon: "AlertTriangle", label: "CAPA (시정·예방)", path: "/quality/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "cosmetic", group: "품질관리 (GMP)", requireModule: "gmp" },
+  { tab: "haccp", icon: "GraduationCap", label: "교육 / 훈련", path: "/quality/training", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "cosmetic", group: "품질관리 (GMP)", requireModule: "gmp" },
+  { tab: "haccp", icon: "Sliders", label: "검교정 / 설비 자격", path: "/quality/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "cosmetic", group: "품질관리 (GMP)", requireModule: "gmp" },
+  { tab: "haccp", icon: "Building", label: "공급업체 (AVL)", path: "/quality/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "cosmetic", group: "품질관리 (GMP)", requireModule: "gmp" },
+  { tab: "haccp", icon: "AlertTriangle", label: "위험 평가 (ICH Q9)", path: "/quality/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "cosmetic", group: "품질관리 (GMP)", requireModule: "gmp" },
+  { tab: "haccp", icon: "GitBranch", label: "변경관리 (ISO 13485)", path: "/quality/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "medical-device", group: "의료기기 ISO 13485" },
+  { tab: "haccp", icon: "AlertCircle", label: "부적합 관리 (ISO 13485)", path: "/quality/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "medical-device", group: "의료기기 ISO 13485" },
+  { tab: "haccp", icon: "AlertTriangle", label: "CAPA (ISO 13485)", path: "/quality/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "medical-device", group: "의료기기 ISO 13485" },
+  { tab: "haccp", icon: "ClipboardCheck", label: "감사 (ISO 13485)", path: "/quality/audit", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "medical-device", group: "의료기기 ISO 13485" },
+  { tab: "haccp", icon: "GraduationCap", label: "교육 (ISO 13485)", path: "/quality/training", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "medical-device", group: "의료기기 ISO 13485" },
+  { tab: "haccp", icon: "Sliders", label: "검교정 (ISO 13485)", path: "/quality/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "medical-device", group: "의료기기 ISO 13485" },
+  { tab: "haccp", icon: "Building", label: "공급업체 (ISO 13485)", path: "/quality/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "medical-device", group: "의료기기 ISO 13485" },
+  { tab: "haccp", icon: "AlertTriangle", label: "위험관리 ISO 14971", path: "/quality/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "medical-device", group: "의료기기 ISO 13485" },
+  { tab: "haccp", icon: "GitBranch", label: "변경관리 (일반제조)", path: "/quality/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "general-manufacturing", group: "일반제조 ISO 9001", requireModule: "quality" },
+  { tab: "haccp", icon: "AlertCircle", label: "부적합 관리 (일반제조)", path: "/quality/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "general-manufacturing", group: "일반제조 ISO 9001", requireModule: "quality" },
+  { tab: "haccp", icon: "AlertTriangle", label: "CAPA (일반제조)", path: "/quality/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "general-manufacturing", group: "일반제조 ISO 9001", requireModule: "quality" },
+  { tab: "haccp", icon: "ClipboardCheck", label: "감사 (일반제조)", path: "/quality/audit", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "general-manufacturing", group: "일반제조 ISO 9001", requireModule: "quality" },
+  { tab: "haccp", icon: "GraduationCap", label: "교육 (일반제조)", path: "/quality/training", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "general-manufacturing", group: "일반제조 ISO 9001", requireModule: "quality" },
+  { tab: "haccp", icon: "Sliders", label: "검교정 (일반제조)", path: "/quality/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "general-manufacturing", group: "일반제조 ISO 9001", requireModule: "quality" },
+  { tab: "haccp", icon: "Building", label: "공급업체 (일반제조)", path: "/quality/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "general-manufacturing", group: "일반제조 ISO 9001", requireModule: "quality" },
+  { tab: "haccp", icon: "AlertTriangle", label: "위험 평가 (일반제조)", path: "/quality/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "general-manufacturing", group: "일반제조 ISO 9001", requireModule: "quality" },
+  { tab: "haccp", icon: "GitBranch", label: "변경관리 (KGMP)", path: "/quality/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "pharmaceutical", group: "의약품 KGMP", requireModule: "gmp" },
+  { tab: "haccp", icon: "AlertCircle", label: "부적합 관리 (KGMP)", path: "/quality/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "pharmaceutical", group: "의약품 KGMP", requireModule: "gmp" },
+  { tab: "haccp", icon: "AlertTriangle", label: "CAPA (KGMP)", path: "/quality/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "pharmaceutical", group: "의약품 KGMP", requireModule: "gmp" },
+  { tab: "haccp", icon: "ClipboardCheck", label: "감사 (KGMP)", path: "/quality/audit", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "pharmaceutical", group: "의약품 KGMP", requireModule: "gmp" },
+  { tab: "haccp", icon: "GraduationCap", label: "교육 / 훈련 (KGMP)", path: "/quality/training", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "pharmaceutical", group: "의약품 KGMP", requireModule: "gmp" },
+  { tab: "haccp", icon: "Sliders", label: "검교정 IQ/OQ/PQ (KGMP)", path: "/quality/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "pharmaceutical", group: "의약품 KGMP", requireModule: "gmp" },
+  { tab: "haccp", icon: "Building", label: "공급업체 AVL (KGMP)", path: "/quality/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "pharmaceutical", group: "의약품 KGMP", requireModule: "gmp" },
+  { tab: "haccp", icon: "AlertTriangle", label: "위험 평가 ICH Q9 (KGMP)", path: "/quality/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "pharmaceutical", group: "의약품 KGMP", requireModule: "gmp" },
+  { tab: "haccp", icon: "GitBranch", label: "변경관리 (건기식)", path: "/quality/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "health-functional", group: "건강기능식품", requireModule: "haccp" },
+  { tab: "haccp", icon: "AlertCircle", label: "부적합 관리 (건기식)", path: "/quality/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "health-functional", group: "건강기능식품", requireModule: "haccp" },
+  { tab: "haccp", icon: "AlertTriangle", label: "CAPA (건기식)", path: "/quality/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "health-functional", group: "건강기능식품", requireModule: "haccp" },
+  { tab: "haccp", icon: "ClipboardCheck", label: "감사 (건기식)", path: "/quality/audit", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "health-functional", group: "건강기능식품", requireModule: "haccp" },
+  { tab: "haccp", icon: "GraduationCap", label: "교육 (건기식)", path: "/quality/training", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "health-functional", group: "건강기능식품", requireModule: "haccp" },
+  { tab: "haccp", icon: "Sliders", label: "검교정 (건기식)", path: "/quality/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "health-functional", group: "건강기능식품", requireModule: "haccp" },
+  { tab: "haccp", icon: "Building", label: "공급업체 (건기식)", path: "/quality/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "health-functional", group: "건강기능식품", requireModule: "haccp" },
+  { tab: "haccp", icon: "AlertTriangle", label: "위험 평가 (건기식)", path: "/quality/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], industry: "health-functional", group: "건강기능식품", requireModule: "haccp" },
   { tab: "haccp", icon: "Building2", label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"], group: "감사·검증", requireModule: "haccp" },
   { tab: "haccp", icon: "ClipboardCheck", label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], group: "감사·검증", requireModule: "haccp" },
   { tab: "haccp", icon: "Settings", label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"], group: "시스템" },
@@ -488,6 +513,15 @@ export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
   "/dashboard/haccp-verification": "quality",
   "/dashboard/scan-checklist": "quality",
   "/dashboard/food/allergen": "quality",
+  // 2-c 공통 품질 경로
+  "/quality/change-control": "quality",
+  "/quality/nonconforming": "quality",
+  "/quality/corrective-action": "quality",
+  "/quality/audit": "quality",
+  "/quality/training": "quality",
+  "/quality/calibration": "quality",
+  "/quality/supplier": "quality",
+  "/quality/risk-assessment": "quality",
   "/dashboard/food/environmental-monitoring": "quality",
   "/dashboard/food/food-protection": "quality",
   // trade — 매출 탭
@@ -734,7 +768,17 @@ export const LEGACY_REDIRECTS: ReadonlyArray<{ from: string; to: string; note: s
   { from: "/batch/new", to: "/dashboard/batch-management?tab=create", note: "구 배치 생성 경로 (기존 리다이렉트 이전)" },
   { from: "/dashboard/excel-import", to: "/dashboard/data-import", note: "엑셀 가져오기 → 데이터 가져오기 통합 (기존 리다이렉트 이전)" },
   { from: "/dashboard/simplified-import", to: "/dashboard/data-import", note: "간편 가져오기 → 데이터 가져오기 통합 (기존 리다이렉트 이전)" },
+  // 2-c: 업종 품질 48개 → 공통 경로 (업종은 쿼리로 전달, 공통 화면이 테넌트 업종과 대조)
+  ...INDUSTRY_KEYS.flatMap((ind) => QUALITY_FUNCTIONS.map((fn) => ({
+    from: `/dashboard/${ind}/${fn}`, to: `${qualityPath(fn)}?industry=${ind}`, note: "2-c 업종 품질 공통 경로",
+  }))),
 ];
+
+/** 옛 경로 → 새 경로(쿼리 제외). 즐겨찾기 해석용 — 레지스트리 legacyPaths 역할 */
+export function resolveLegacyPath(path: string): string {
+  const r = LEGACY_REDIRECTS.find((x) => x.from === path);
+  return r ? r.to.split("?")[0] : path;
+}
 
 /** 리다이렉트 목적지 + 원래 쿼리. 같은 키는 목적지 값이 우선 (예: tab=create 고정) */
 export function buildRedirectTarget(to: string, search: string): string {

@@ -42,6 +42,8 @@ export const haccpRouterMap = {
   nonconformingProduct: nonconformingProductRouter,
   recallSimulation: recallSimulationRouter,
   supplierAudit: supplierAuditRouter,
+  // ⚠️ 'correctiveAction' 키는 _root 에서 뒤에 펼치는 coreMesMap(공통 CAPA h_corrective_actions) 이 덮어쓴다 — 이 줄은 런타임에 쓰이지 않는다.
+  //    식품 CAR(h_corrective_action_requests, CCP 이탈 연동) 화면은 trpc.food.correctiveAction 으로 연결 (2-c, 2026-10-14)
   correctiveAction: correctiveActionRouter,
   traceability: traceabilityRouter,
   metalDetection: metalDetectionRouter,

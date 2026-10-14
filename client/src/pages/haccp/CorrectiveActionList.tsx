@@ -50,11 +50,11 @@ const priorityColors: Record<string, string> = {
 export default function CorrectiveActionList() {
   const [selectedStatus, setSelectedStatus] = useState<string | null>(null);
   
-  const { data: allActions, isLoading: allLoading } = trpc.correctiveAction.list.useQuery(undefined, {
+  const { data: allActions, isLoading: allLoading } = trpc.food.correctiveAction.list.useQuery(undefined, {
     enabled: !selectedStatus,
   });
   
-  const { data: filteredActions, isLoading: filteredLoading } = trpc.correctiveAction.listByStatus.useQuery(
+  const { data: filteredActions, isLoading: filteredLoading } = trpc.food.correctiveAction.listByStatus.useQuery(
     { status: selectedStatus as any },
     { enabled: !!selectedStatus }
   );

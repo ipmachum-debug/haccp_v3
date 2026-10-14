@@ -229,3 +229,12 @@ describe("2-b-4 모바일 하단바 — 레지스트리 기반 역할별", () =>
     }
   });
 });
+
+describe("사이드바 로고 = 홈 (2026-10-14 대표 요청)", () => {
+  it("펼친 사이드바의 로고를 누르면 통합 대시보드(/dashboard)로", () => {
+    const layout = readFileSync(join(__dirname, "..", "client/src/components/dashboard/DashboardLayout.tsx"), "utf-8");
+    const i = layout.indexOf('data-testid="sidebar-logo-home"');
+    expect(i).toBeGreaterThan(0);
+    expect(layout.slice(i - 400, i)).toContain('onClick={() => setLocation("/dashboard")}');
+  });
+});

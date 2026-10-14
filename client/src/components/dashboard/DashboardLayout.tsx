@@ -42,7 +42,7 @@ import { useIndustryFeatures, type ModuleKey } from "@/hooks/useIndustryFeatures
 // Phase Plugin-3: Menu Engine — Plugin 기반 사이드바 동적 생성
 import { useDomainPlugin } from "@/domain/useDomainPlugin";
 import { buildMenuFromPlugin, getIcon } from "@/domain/engines/clientMenuEngine";
-import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, buildHubMenu, CONSOLIDATED_PLACEMENTS, AGENT_PLACEMENT, canSeeAgent, AI_ASSISTANT_PLACEMENT, canSeeAiAssistant, mobileNavFor, MENU_PLACEMENTS, type MenuPlacement } from "@shared/navigation/menuRegistry";
+import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, buildHubMenu, CONSOLIDATED_PLACEMENTS, AGENT_PLACEMENT, canSeeAgent, AI_ASSISTANT_PLACEMENT, canSeeAiAssistant, mobileNavFor, MENU_PLACEMENTS, resolveLegacyPath, type MenuPlacement } from "@shared/navigation/menuRegistry";
 import HubSidebarMenu, { type HubMenuEntry } from "./HubSidebarMenu";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import { cn } from "@/lib/utils";
@@ -61,6 +61,7 @@ function toMenuItems(placements: readonly MenuPlacement[]): MenuItem[] {
     ...(p.requireModule ? { requireModule: p.requireModule as ModuleKey } : {}),
     ...(p.highlight ? { highlight: true } : {}),
     ...(p.category ? { category: p.category } : {}),
+    ...(p.industry ? { industry: p.industry } : {}),
   }));
 }
 
@@ -77,6 +78,8 @@ type MenuItem = {
   category?: string;
   /** 허브 안 소구역 제목 (허브 사이드바 전용) */
   section?: string;
+  /** 업종 전용 항목 (2-c — 경로가 공통 /quality/{기능} 이라 경로 대신 이 값으로 업종 격리) */
+  industry?: string;
 };
 import {
   DndContext,
@@ -676,7 +679,9 @@ function DashboardLayoutContent({
   // 2-b-2: 통합으로 사이드바에서 빠진 항목(경로는 유지)도 즐겨찾기에서는 계속 보이게 한다
   const favoriteLookup = [...allMenuItems, ...toMenuItems(CONSOLIDATED_PLACEMENTS)];
   const favoriteMenuItems = favorites.map((fav: FavoriteItem) => {
-    const menuItem = favoriteLookup.find(item => item.path === fav.menuPath);
+    // 2-c: 옛 경로로 저장된 즐겨찾기(/dashboard/{업종}/{기능})는 새 경로로 해석
+    const favPath = resolveLegacyPath(fav.menuPath);
+    const menuItem = favoriteLookup.find(item => item.path === fav.menuPath || item.path === favPath);
     return menuItem ? { ...menuItem, favoriteId: fav.id } : null;
    }).filter(Boolean);
 
@@ -749,7 +754,7 @@ function DashboardLayoutContent({
   if (applyMenuFilters) {
     const tenantIndustry = mapCategoryToIndustryKey(industryCategory);
     displayedMenuItems = displayedMenuItems.filter((item: any) => {
-      const required = getMenuRequiredIndustry(item.path);
+      const required = item.industry ?? getMenuRequiredIndustry(item.path);
       if (!required) return true; // industry-specific 패턴 아님 → 표시
       return tenantIndustry === required;
     });
@@ -793,7 +798,7 @@ function DashboardLayoutContent({
     ? buildHubMenu([...displayedMenuItems, ...aiMenuItems, ...agentMenuItems].filter((item: MenuItem) => user && item.roles?.includes(user.role)).map((i: MenuItem) => ({ ...i, roles: i.roles ?? [] })))
     : [];
   const toggleFavorite = (entry: HubMenuEntry) => {
-    const fav = favorites.find((f: FavoriteItem) => f.menuPath === entry.path);
+    const fav = favorites.find((f: FavoriteItem) => f.menuPath === entry.path || resolveLegacyPath(f.menuPath) === entry.path);
     if (fav) removeFavoriteMutation.mutate({ favoriteId: fav.id });
     else addFavoriteMutation.mutate({
       menuPath: entry.path,
@@ -858,15 +863,23 @@ function DashboardLayoutContent({
             {/* Premium Logo */}
             <div className="flex items-center gap-2.5 px-3 transition-all w-full mb-4">
               {!isCollapsed ? (
-                <div className="flex items-center gap-2.5 w-full">
+                // 로고 = 홈(통합 대시보드)으로 (2026-10-14 대표 요청). 접힌 사이드바에서는 기존대로 펼치기 버튼
+                <button
+                  type="button"
+                  onClick={() => setLocation("/dashboard")}
+                  title="통합 대시보드로"
+                  aria-label="Millio AI — 통합 대시보드로 이동"
+                  data-testid="sidebar-logo-home"
+                  className="flex items-center gap-2.5 w-full text-left rounded-xl -m-1 p-1 hover:bg-sidebar-accent/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                >
                   <div className="relative shrink-0">
                     <div className="absolute inset-0 bg-gradient-to-br from-orange-300/40 via-amber-200/20 to-blue-300/30 rounded-xl blur-md" />
                     <MillioMark className="relative w-10 h-10" />
                   </div>
                   <div className="flex flex-col leading-tight">
-                    <h1 className="text-[16px] font-bold tracking-tight text-sidebar-foreground whitespace-nowrap font-serif">
+                    <span className="text-[16px] font-bold tracking-tight text-sidebar-foreground whitespace-nowrap font-serif">
                       Millio<span className="text-orange-500"> AI</span>
-                    </h1>
+                    </span>
                     <span className="text-[9px] text-sidebar-foreground/50 font-semibold tracking-[0.18em] uppercase -mt-0.5">
                       Manufacturing · AI
                     </span>
@@ -882,7 +895,7 @@ function DashboardLayoutContent({
                       </span>
                     )}
                   </div>
-                </div>
+                </button>
               ) : (
                 <button
                   onClick={toggleSidebar}
@@ -961,7 +974,7 @@ function DashboardLayoutContent({
                   location={location}
                   isCollapsed={isCollapsed}
                   isActivePath={isActivePath}
-                  isFavorite={(path) => favorites.some((fav: FavoriteItem) => fav.menuPath === path)}
+                  isFavorite={(path) => favorites.some((fav: FavoriteItem) => fav.menuPath === path || resolveLegacyPath(fav.menuPath) === path)}
                   onToggleFavorite={toggleFavorite}
                   onNavigate={(path) => setLocation(path)}
                 />

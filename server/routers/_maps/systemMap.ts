@@ -71,7 +71,10 @@ export const systemRouterMap = {
   organization: organizationRouter,
   reports: reportsRouter,
   serverMonitor: serverMonitorRouter,
+  // ⚠️ 'training' 키는 _root 에서 뒤에 펼치는 coreMesMap(공통 교육 h_trainings) 이 덮어쓴다 — 이 줄은 런타임에 쓰이지 않는다.
+  //    구형 HACCP 교육과정·일정·참가자 화면(TrainingManagement, TrainingCourseList)은 아래 haccpTraining 으로 연결 (2-c, 2026-10-14)
   training: trainingRouter,
+  haccpTraining: trainingRouter,
   dailyTraining: dailyTrainingRouter,
   industry: industryRouter,
   tenantIsolationAudit: tenantIsolationAuditRouter, // PR-W (2026-05-21)

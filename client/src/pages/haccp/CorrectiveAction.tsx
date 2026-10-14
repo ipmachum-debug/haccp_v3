@@ -51,15 +51,15 @@ export default function CorrectiveAction() {
   const [selectedAction, setSelectedAction] = useState<any>(null);
 
   // 데이터 조회
-  const { data: actionList, isLoading, refetch } = trpc.correctiveAction.listByStatus.useQuery(
+  const { data: actionList, isLoading, refetch } = trpc.food.correctiveAction.listByStatus.useQuery(
     { status: selectedStatus === "all" ? "open" : selectedStatus as any },
     { enabled: selectedStatus !== "all" }
   );
 
-  const { data: allActions } = trpc.correctiveAction.listByStatus.useQuery({ status: "open" });
+  const { data: allActions } = trpc.food.correctiveAction.listByStatus.useQuery({ status: "open" });
 
   // 생성 mutation
-  const createMutation = trpc.correctiveAction.create.useMutation({
+  const createMutation = trpc.food.correctiveAction.create.useMutation({
     onSuccess: () => {
       alert("시정 조치가 성공적으로 등록되었습니다.");
       setIsCreateOpen(false);
@@ -71,7 +71,7 @@ export default function CorrectiveAction() {
   });
 
   // 즉시 조치 등록
-  const immediateActionMutation = trpc.correctiveAction.recordImmediateAction.useMutation({
+  const immediateActionMutation = trpc.food.correctiveAction.recordImmediateAction.useMutation({
     onSuccess: () => {
       alert("즉시 조치가 등록되었습니다.");
       refetch();
@@ -79,7 +79,7 @@ export default function CorrectiveAction() {
   });
 
   // 근본 원인 분석
-  const rootCauseAnalysisMutation = trpc.correctiveAction.recordRootCause.useMutation({
+  const rootCauseAnalysisMutation = trpc.food.correctiveAction.recordRootCause.useMutation({
     onSuccess: () => {
       alert("근본 원인 분석이 등록되었습니다.");
       refetch();
@@ -87,7 +87,7 @@ export default function CorrectiveAction() {
   });
 
   // 시정 조치 실행
-  const correctiveActionMutation = trpc.correctiveAction.recordCorrectiveAction.useMutation({
+  const correctiveActionMutation = trpc.food.correctiveAction.recordCorrectiveAction.useMutation({
     onSuccess: () => {
       alert("시정 조치가 실행되었습니다.");
       refetch();
@@ -95,7 +95,7 @@ export default function CorrectiveAction() {
   });
 
   // 효과 검증
-  const verificationMutation = trpc.correctiveAction.verifyEffectiveness.useMutation({
+  const verificationMutation = trpc.food.correctiveAction.verifyEffectiveness.useMutation({
     onSuccess: () => {
       alert("효과 검증이 완료되었습니다.");
       refetch();
