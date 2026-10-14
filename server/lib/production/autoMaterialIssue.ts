@@ -31,6 +31,7 @@ import { reconcileNegativeLots, createNegativePlaceholderLot } from "../inventor
 import { NoLotsForNegativeError, type FefoAllocation } from "../inventory/fefoLotAllocation";
 import { eq, and, sql } from "drizzle-orm";
 import { toInventoryMaterialId, resolvePriceFallback } from "../identity/itemIdentityService";
+import { getIssuedBatchLineIds } from "./issuedBatchLines";
 import {
   ensureProductionLogForBatch,
   insertInventoryDeductionLog,
@@ -154,6 +155,14 @@ export async function autoIssueMaterialsForBatch(
     if (!batchInputs || batchInputs.length === 0) {
       result.warnings.push(`배치 #${batchId}에 원재료 투입 계획이 없습니다.`);
       return result;
+    }
+
+    // 2026-10-14: 이미 출고 기록(h_inventory_transactions BATCH usage)이 있는 투입은 다시 출고하지 않는다.
+    //   inventory_deducted 는 "LOT 실제 차감" 플래그라, LOT 없이 출고 기록만 남긴 과거 투입(덤프 10/14 기준 755건,
+    //   음수 허용 정책 10/8 이전)은 0 으로 남아 있다. 플래그만 보면 재실행 시 같은 투입이 두 번 출고된다.
+    const alreadyIssuedLineIds = await getIssuedBatchLineIds(batchId, tenantId);
+    for (const bi of batchInputs) {
+      if (alreadyIssuedLineIds.has(Number(bi.id))) bi.inventory_deducted = 1;
     }
 
     // 이미 전부 출고 완료인지 체크

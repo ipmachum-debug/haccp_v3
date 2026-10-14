@@ -10,7 +10,9 @@
  *   6. h_inventory_transactions 기록 (각 child + parent 가상 LOT)
  *
  * 정책:
- *   - child 재고 부족 → 경고 + 부분 차감 허용 (block 아님, 사용자 승인 정책)
+ *   - child 재고 부족 → 음수 허용(기본, 2026-10-14) 이면 최근 LOT 에 음수 차감 + 경고,
+ *     금지 테넌트면 경고 + 부분 차감 (block 아님)
+ *   - child LOT 후보: sku_id 일치 LOT 우선, 그다음 같은 단품의 SKU 미지정 LOT (2026-10-14)
  *   - 트랜잭션 보장: 한 child 라도 SQL 실패 시 전체 ROLLBACK
  *   - 멱등성 X (출고는 1회성 이벤트)
  *
@@ -20,6 +22,7 @@
  */
 
 import type { PoolConnection } from "mysql2/promise";
+import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
 
 export interface DecomposeBundleParams {
   /** parent SKU id (sku_bundles.parent_sku_id) */
@@ -94,9 +97,11 @@ export async function decomposeBundleOutbound(
     `SELECT
        sb.child_sku_id, sb.default_ratio, sb.child_pieces, sb.child_piece_weight_g,
        ps.sku_code AS child_sku_code, ps.sku_name AS child_sku_name,
-       ps.kg_per_sales_unit AS child_kg_per_unit
+       ps.kg_per_sales_unit AS child_kg_per_unit,
+       im.legacy_product_id AS child_product_id
      FROM sku_bundles sb
      JOIN product_skus ps ON ps.id = sb.child_sku_id
+     LEFT JOIN item_master im ON im.id = ps.item_id AND im.tenant_id = ps.tenant_id
      WHERE sb.tenant_id = ? AND sb.parent_sku_id = ?
      ORDER BY sb.sort_order, sb.id`,
     [tenantId, parentSkuId],
@@ -168,14 +173,19 @@ export async function decomposeBundleOutbound(
 
     // FEFO 차감: expiry_date 빠른 LOT 우선
     // ★ PR-C2 (2026-05-11): unit_price 함께 SELECT — COGS 계산용
+    // ★ 2026-10-14: 같은 단품(product_id) 이면서 SKU 미지정(sku_id NULL) LOT 도 후보로 포함.
+    //   배치 완료 LOT 일부는 SKU 없이 생성돼(덤프 10/14: 제품 LOT 341개) 묶음 차감에서 빠지고 있었다.
+    //   SKU 지정 LOT 을 먼저, 미지정 LOT 을 나중에 (FEFO 는 각 그룹 안에서).
+    const childProductId = b.child_product_id ? Number(b.child_product_id) : null;
     const [lots]: any = await conn.execute(
       `SELECT id, lot_number, available_quantity, expiry_date, unit_price
          FROM h_inventory_lots
          WHERE tenant_id = ?
-           AND sku_id = ?
+           AND (sku_id = ? OR (sku_id IS NULL AND product_id = ?))
            AND COALESCE(available_quantity, 0) > 0
-         ORDER BY expiry_date ASC, id ASC`,
-      [tenantId, childSkuId],
+         ORDER BY CASE WHEN sku_id = ? THEN 0 ELSE 1 END, expiry_date ASC, id ASC
+         FOR UPDATE`,
+      [tenantId, childSkuId, childProductId ?? -1, childSkuId],
     );
 
     let remaining = requiredKg;
@@ -232,6 +242,69 @@ export async function decomposeBundleOutbound(
         childTotalCost += lotCost;
         remaining -= take;
       }
+    }
+
+    // ★ 2026-10-14 음수 재고 허용 (CEO 결정): 부족분을 이 단품의 가장 최근 LOT 에 음수로 차감한다.
+    //   이전: 있는 만큼만 빼고 경고 → 판매는 됐는데 재고에 남아 실사 뒤 다시 어긋남.
+    //   LOT 이 하나도 없으면 NEG-S{sku} 자리표시 LOT 을 만든다. 금지 테넌트는 기존 부분 차감 유지.
+    if (remaining > 0.001 && isNegativeStockAllowed(tenantId)) {
+      const [sinkRows]: any = await conn.execute(
+        `SELECT id, lot_number, unit_price FROM h_inventory_lots
+           WHERE tenant_id = ? AND (sku_id = ? OR (sku_id IS NULL AND product_id = ?))
+           ORDER BY COALESCE(production_date, receipt_date) DESC, id DESC
+           LIMIT 1
+           FOR UPDATE`,
+        [tenantId, childSkuId, childProductId ?? -1],
+      );
+      let sink = (sinkRows as any[])[0] as { id: number; lot_number: string; unit_price: any } | undefined;
+      if (!sink) {
+        const negLotNumber = `NEG-S${childSkuId}-${dateKey}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+        const [ins]: any = await conn.execute(
+          `INSERT INTO h_inventory_lots
+             (tenant_id, product_id, sku_id, sku_name, lot_number, quantity, current_quantity, available_quantity,
+              unit, unit_price, production_date, status)
+           VALUES (?, ?, ?, ?, ?, 0, 0, 0, 'kg', 0, ?, 'available')`,
+          [tenantId, childProductId, childSkuId, b.child_sku_name, negLotNumber, outboundDate],
+        );
+        sink = { id: Number((ins as any).insertId), lot_number: negLotNumber, unit_price: 0 };
+      }
+      const sinkUnitCost = Number(sink.unit_price || 0);
+      const sinkCost = remaining * sinkUnitCost;
+      await conn.execute(
+        `UPDATE h_inventory_lots
+           SET available_quantity = available_quantity - ?,
+               current_quantity = COALESCE(current_quantity, quantity) - ?,
+               status = 'available'
+           WHERE id = ? AND tenant_id = ?`,
+        [remaining, remaining, sink.id, tenantId],
+      );
+      await conn.execute(
+        `INSERT INTO h_inventory_transactions
+           (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+            source_type, source_id, action_type, purpose, unit_cost, amount,
+            performed_by, created_by, notes)
+         VALUES (?, ?, 'usage', ?, 'kg', ?, 'BUNDLE_OUTBOUND', ?, 'POST', 'sales_decompose', ?, ?, ?, ?, ?)`,
+        [
+          tenantId, sink.id, remaining, outboundDate, parentLotId,
+          sinkUnitCost, sinkCost, userId, userId,
+          `${b.child_sku_name} 묶음 출고 — 재고 부족분 음수 차감 (실사 때 정리)`,
+        ],
+      );
+      await conn.execute(
+        `INSERT INTO bundle_lots (tenant_id, parent_lot_id, child_lot_id, deducted_qty_kg, mapped_at, notes)
+         VALUES (?, ?, ?, ?, NOW(), ?)`,
+        [tenantId, parentLotId, sink.id, remaining, referenceType && referenceId ? `${referenceType}:${referenceId}` : null],
+      );
+      usedLots.push({
+        lotId: Number(sink.id),
+        lotNumber: String(sink.lot_number),
+        deductedKg: Math.round(remaining * 1000) / 1000,
+        unitCost: sinkUnitCost,
+        cost: Math.round(sinkCost * 100) / 100,
+      });
+      childTotalCost += sinkCost;
+      warnings.push(`${b.child_sku_name}: 재고 부족 ${remaining.toFixed(3)} kg 음수 차감`);
+      remaining = 0;
     }
 
     const deductedKg = requiredKg - remaining;

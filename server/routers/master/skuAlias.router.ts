@@ -17,6 +17,77 @@ function normalizeAlias(s: string): string {
 }
 
 export const skuAliasRouter = router({
+  /**
+   * 매칭 학습 — 매출 엑셀 업로드에서 사용자가 확정한 "엑셀 품목명 → 품목/묶음" 을 별칭으로 저장 (2026-10-14, CEO 요청)
+   * 다음 업로드 때 bulkMatchPreview 가 이 별칭으로 바로 매칭한다.
+   *  - skuId 가 오면 그 SKU (묶음 대표 SKU 등) 로 저장
+   *  - itemMasterId 만 오면 그 품목의 기본 SKU (is_default 우선, 없으면 첫 활성 SKU) 로 저장
+   *  - 같은 별칭이 다른 SKU 에 있으면 최신 선택으로 갱신 (사용자가 고친 매칭이 정답)
+   *  - SKU 가 없는 품목(원재료 등) 은 건너뛴다
+   */
+  learnAliases: adminProcedure
+    .input(
+      z.object({
+        entries: z
+          .array(z.object({ text: z.string().min(1).max(200), skuId: z.number().optional(), itemMasterId: z.number().optional() }))
+          .max(2000),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { getRawConnection } = await import("../../db/connection");
+      const conn = await getRawConnection();
+      let learned = 0;
+      let updated = 0;
+      let skipped = 0;
+      const seen = new Set<string>();
+      for (const e of input.entries) {
+        const alias = normalizeAlias(e.text);
+        if (!alias || seen.has(alias)) continue;
+        seen.add(alias);
+
+        let skuId = e.skuId ?? null;
+        if (skuId) {
+          const [own] = await conn.execute<any[]>(
+            `SELECT id FROM product_skus WHERE id = ? AND tenant_id = ? LIMIT 1`,
+            [skuId, ctx.tenantId],
+          );
+          if (!(own as any[])[0]) skuId = null;
+        }
+        if (!skuId && e.itemMasterId) {
+          const [rows] = await conn.execute<any[]>(
+            `SELECT id FROM product_skus
+             WHERE item_id = ? AND tenant_id = ? AND is_active = 1
+             ORDER BY is_default DESC, id ASC LIMIT 1`,
+            [e.itemMasterId, ctx.tenantId],
+          );
+          skuId = (rows as any[])[0]?.id != null ? Number((rows as any[])[0].id) : null;
+        }
+        if (!skuId) { skipped++; continue; }
+
+        const [existing] = await conn.execute<any[]>(
+          `SELECT id, sku_id FROM sku_aliases WHERE tenant_id = ? AND alias = ? LIMIT 1`,
+          [ctx.tenantId, alias],
+        );
+        const ex = (existing as any[])[0];
+        if (ex) {
+          if (Number(ex.sku_id) !== skuId) {
+            await conn.execute(
+              `UPDATE sku_aliases SET sku_id = ?, note = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+              [skuId, "엑셀 업로드 매칭 학습 (갱신)", ex.id, ctx.tenantId],
+            );
+            updated++;
+          }
+          continue;
+        }
+        await conn.execute(
+          `INSERT INTO sku_aliases (tenant_id, sku_id, alias, is_primary, note) VALUES (?, ?, ?, 0, ?)`,
+          [ctx.tenantId, skuId, alias, "엑셀 업로드 매칭 학습"],
+        );
+        learned++;
+      }
+      return { learned, updated, skipped };
+    }),
+
   /** 특정 SKU 의 alias 목록 */
   listBySku: tenantRequiredProcedure
     .input(z.object({ skuId: z.number() }))
