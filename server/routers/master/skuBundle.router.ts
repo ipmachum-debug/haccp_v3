@@ -18,6 +18,84 @@ import { productSkus, itemMaster } from "../../../drizzle/schema/schema_dual_uni
 
 export const skuBundleRouter = router({
   /**
+   * 묶음(번들) 목록 + 구성 — 매출 엑셀 업로드 "검증/매칭" 단계의 묶음 선택용 (2026-10-14)
+   * itemMasterId / productId(legacy_product_id) 를 함께 돌려준다. 매출 행 제품을 이 productId 로
+   * 지정하면 매출 확정(postProductSale) 이 sku_bundles 를 찾아 단품으로 분해 차감한다.
+   */
+  listBundleParents: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const { getRawConnection } = await import("../../db/connection");
+    const conn = await getRawConnection();
+    const [rows] = await conn.execute<any[]>(
+      `SELECT p.id AS parentSkuId, p.sku_name AS parentSkuName, p.sku_code AS parentSkuCode,
+              p.item_id AS itemMasterId, im.item_name AS itemName, im.legacy_product_id AS productId,
+              sb.child_sku_id AS childSkuId, c.sku_name AS childSkuName,
+              sb.default_ratio AS ratio, sb.child_pieces AS pieces
+       FROM sku_bundles sb
+       JOIN product_skus p ON p.id = sb.parent_sku_id AND p.tenant_id = sb.tenant_id
+       JOIN product_skus c ON c.id = sb.child_sku_id AND c.tenant_id = sb.tenant_id
+       LEFT JOIN item_master im ON im.id = p.item_id AND im.tenant_id = p.tenant_id
+       WHERE sb.tenant_id = ? AND p.is_active = 1
+       ORDER BY p.sku_name, sb.sort_order, sb.id`,
+      [ctx.tenantId],
+    );
+    const map = new Map<number, {
+      parentSkuId: number; parentSkuName: string; parentSkuCode: string | null;
+      itemMasterId: number | null; itemName: string | null; productId: number | null;
+      children: Array<{ childSkuId: number; childSkuName: string; ratio: number; pieces: number | null }>;
+    }>();
+    for (const r of rows as any[]) {
+      const id = Number(r.parentSkuId);
+      if (!map.has(id)) {
+        map.set(id, {
+          parentSkuId: id,
+          parentSkuName: String(r.parentSkuName ?? ""),
+          parentSkuCode: r.parentSkuCode ?? null,
+          itemMasterId: r.itemMasterId != null ? Number(r.itemMasterId) : null,
+          itemName: r.itemName ?? null,
+          productId: r.productId != null ? Number(r.productId) : null,
+          children: [],
+        });
+      }
+      map.get(id)!.children.push({
+        childSkuId: Number(r.childSkuId),
+        childSkuName: String(r.childSkuName ?? ""),
+        ratio: Number(r.ratio ?? 0),
+        pieces: r.pieces != null ? Number(r.pieces) : null,
+      });
+    }
+    return Array.from(map.values());
+  }),
+
+  /**
+   * 묶음 만들기용 SKU 후보 — 자사 제품(own_product) 의 활성 SKU (2026-10-14)
+   * hasProduct=false 인 SKU 는 생산 제품(h_products_v2) 과 연결이 없어 묶음 대표(parent) 로 쓸 수 없다.
+   */
+  listSkuOptions: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const { getRawConnection } = await import("../../db/connection");
+    const conn = await getRawConnection();
+    const [rows] = await conn.execute<any[]>(
+      `SELECT ps.id AS skuId, ps.sku_name AS skuName, ps.sku_code AS skuCode, ps.item_id AS itemMasterId,
+              im.item_name AS itemName, im.legacy_product_id AS productId,
+              EXISTS (SELECT 1 FROM sku_bundles sb WHERE sb.parent_sku_id = ps.id AND sb.tenant_id = ps.tenant_id) AS isBundle
+       FROM product_skus ps
+       JOIN item_master im ON im.id = ps.item_id AND im.tenant_id = ps.tenant_id
+       WHERE ps.tenant_id = ? AND ps.is_active = 1 AND im.item_type = 'own_product' AND im.is_active = 1
+       ORDER BY im.item_name, ps.sku_name`,
+      [ctx.tenantId],
+    );
+    return (rows as any[]).map((r) => ({
+      skuId: Number(r.skuId),
+      skuName: String(r.skuName ?? ""),
+      skuCode: r.skuCode ?? null,
+      itemMasterId: Number(r.itemMasterId),
+      itemName: String(r.itemName ?? ""),
+      productId: r.productId != null ? Number(r.productId) : null,
+      hasProduct: r.productId != null,
+      isBundle: Number(r.isBundle) === 1,
+    }));
+  }),
+
+  /**
    * 특정 parent SKU 의 번들 구성 조회.
    * child SKU 정보 (skuName, skuCode, salesUnit) JOIN.
    */

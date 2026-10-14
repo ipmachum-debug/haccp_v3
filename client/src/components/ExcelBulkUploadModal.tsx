@@ -38,6 +38,7 @@ import * as XLSX from "xlsx";
 import { fuzzyMatchItem, fuzzyMatchPartner, autoMatchHeaders, type FuzzyMatchResult } from "@/lib/fuzzyMatch";
 
 import { formatLocalDate, todayLocal } from "../lib/dateUtils";
+import BundleSkuDialog, { type BundleChoice } from "./accounting/BundleSkuDialog";
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 타입 정의
@@ -70,6 +71,15 @@ type ParsedRow = {
   memo: string;
   status: RowStatus;
   statusMessage: string;
+  /** ★ 2026-10-14: 묶음(혼합) 지정 — 매출 확정 시 단품으로 분해 차감 */
+  bundleSkuId?: number | null;
+  bundleName?: string | null;
+  /** 묶음 지정 시 매출 productId (묶음 대표 품목의 생산 제품 id) */
+  productIdOverride?: number | null;
+  /** 사용자가 직접 확정한 매칭 → 업로드 성공 시 별칭으로 학습 */
+  userConfirmed?: boolean;
+  /** 지난 업로드에서 학습한 별칭으로 매칭됨 */
+  learned?: boolean;
 };
 
 type Step = 'upload' | 'mapping' | 'review' | 'result';
@@ -180,6 +190,68 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
   //   - 재고 차감은 그대로 (HACCP), 매출 분개는 skip
   //   - 수금 처리도 차단 → [플랫폼 정산] 메뉴로 안내
   const [accountingExcluded, setAccountingExcluded] = useState(false);
+
+  // ★ 2026-10-14: 묶음(혼합) 지정 + 매칭 학습 (매출 모드 전용, CEO 요청)
+  const [bundleDialogRowId, setBundleDialogRowId] = useState<string | null>(null);
+  const { data: bundleParents } = trpc.skuBundle.listBundleParents.useQuery(undefined, { enabled: open && !isPurchase });
+  const bundleByItemId = useMemo(() => {
+    const m = new Map<number, { parentSkuId: number; parentSkuName: string; productId: number | null; childCount: number }>();
+    for (const p of (bundleParents ?? []) as Array<{ parentSkuId: number; parentSkuName: string; itemMasterId: number | null; productId: number | null; children: unknown[] }>) {
+      if (p.itemMasterId && !m.has(p.itemMasterId)) {
+        m.set(p.itemMasterId, { parentSkuId: p.parentSkuId, parentSkuName: p.parentSkuName, productId: p.productId, childCount: p.children.length });
+      }
+    }
+    return m;
+  }, [bundleParents]);
+  const bundleBySkuId = useMemo(() => {
+    const m = new Map<number, { parentSkuName: string; itemMasterId: number | null; productId: number | null }>();
+    for (const p of (bundleParents ?? []) as Array<{ parentSkuId: number; parentSkuName: string; itemMasterId: number | null; productId: number | null }>) {
+      m.set(p.parentSkuId, { parentSkuName: p.parentSkuName, itemMasterId: p.itemMasterId, productId: p.productId });
+    }
+    return m;
+  }, [bundleParents]);
+  const learnAliasesMutation = trpc.skuAlias.learnAliases.useMutation();
+
+  /** 행 상태 재계산 (매칭 변경 후) */
+  const recomputeRowStatus = (row: ParsedRow): ParsedRow => {
+    if (row.status === 'error') return row;
+    if (!row.partnerId) return { ...row, status: 'warning', statusMessage: '거래처 매칭 실패' };
+    if (!row.itemMasterId) return { ...row, status: 'warning', statusMessage: '품목 매칭 미확인' };
+    if (row.itemMatchScore < 0.9 || row.partnerMatchScore < 0.9) return { ...row, status: 'warning', statusMessage: '유사도 확인 필요' };
+    return { ...row, status: 'matched', statusMessage: row.learned ? '학습된 매칭' : '매칭 완료' };
+  };
+
+  /** 지난 업로드에서 학습한 별칭(sku_aliases) 을 퍼지 매칭보다 우선 적용 — 매출 모드 */
+  const applyLearnedAliases = async (rows: ParsedRow[]) => {
+    const texts = Array.from(new Set(rows.map((r) => r.itemName).filter(Boolean)));
+    if (texts.length === 0) return;
+    try {
+      const res = await utils.skuAlias.bulkMatchPreview.fetch({ texts: texts.slice(0, 2000) });
+      const byText = new Map<string, { skuId: number; itemId: number; matchSource: string }>();
+      for (const m of (res?.matches ?? []) as Array<{ text: string; skuId: number; itemId: number; matchSource: string }>) byText.set(m.text, m);
+      if (byText.size === 0) return;
+      setParsedRows((prev) => prev.map((row) => {
+        const m = byText.get(row.itemName.trim().replace(/\s+/g, ' '));
+        if (!m) return row;
+        // 학습 별칭은 항상 우선, SKU 이름·코드 완전일치는 퍼지 결과가 불확실할 때만
+        if (m.matchSource !== 'alias' && row.itemMatchScore >= 0.9) return row;
+        const item = allItems.find((i) => i.id === m.itemId);
+        const bundle = bundleBySkuId.get(m.skuId);
+        return recomputeRowStatus({
+          ...row,
+          itemMasterId: m.itemId,
+          itemType: (item?.itemType ?? 'own_product') as ParsedRow['itemType'],
+          itemMatchScore: 1,
+          learned: m.matchSource === 'alias',
+          bundleSkuId: bundle ? m.skuId : null,
+          bundleName: bundle ? bundle.parentSkuName : null,
+          productIdOverride: bundle?.productId ?? null,
+        });
+      }));
+    } catch (e) {
+      console.warn('[ExcelBulkUpload] 학습 별칭 조회 실패 (퍼지 매칭 유지):', e);
+    }
+  };
 
   // ─── 리셋 ───
   const resetAll = useCallback(() => {
@@ -429,7 +501,10 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
     setStep('review');
     // 중복 검사 비동기 실행 (매입/매출 모두)
     setTimeout(() => { void runDuplicateCheck(rows); }, 100);
-  }, [excelRawRows, excelHeaders, headerMapping, partners, allItems, mode]);
+    // ★ 2026-10-14: 매출 — 학습된 별칭 우선 적용
+    if (mode !== 'purchase') void applyLearnedAliases(rows);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [excelRawRows, excelHeaders, headerMapping, partners, allItems, mode, bundleBySkuId]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Step 3: 매칭 수정
@@ -446,7 +521,20 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
       if (row.id !== rowId) return row;
       
       if (type === 'item') {
-        const updated = { ...row, itemMasterId: selected.id, itemMatchScore: 1.0 };
+        // ★ 2026-10-14: 직접 고른 매칭은 업로드 성공 시 학습. 묶음 품목을 골랐으면 묶음으로 표시
+        const sel = selected as ItemMasterRow;
+        const bundle = bundleByItemId.get(sel.id);
+        const updated = {
+          ...row,
+          itemMasterId: sel.id,
+          itemType: sel.itemType ?? row.itemType,
+          itemMatchScore: 1.0,
+          userConfirmed: true,
+          learned: false,
+          bundleSkuId: bundle ? bundle.parentSkuId : null,
+          bundleName: bundle ? bundle.parentSkuName : null,
+          productIdOverride: bundle?.productId ?? null,
+        };
         if (updated.partnerId && updated.transactionDate && updated.quantity > 0 && updated.unitPrice > 0) {
           updated.status = 'matched';
           updated.statusMessage = '매칭 완료';
@@ -648,12 +736,14 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         .filter(r => r.partnerId && r.itemName && r.quantity > 0 && r.unitPrice > 0)
         .map(r => {
           const legacy = r.itemMasterId ? itemLegacyMap.get(r.itemMasterId) : undefined;
+          // ★ 2026-10-14: 묶음 지정 행은 묶음 대표 품목의 생산 제품 id → 매출 확정 시 단품 분해 차감
+          const productId = r.productIdOverride ?? legacy?.productId;
           return {
             transactionDate: r.transactionDate,
             partnerId: r.partnerId!,
             itemName: r.itemName,
-            productId: legacy?.productId,
-            materialId: legacy?.materialId,
+            productId,
+            materialId: productId ? undefined : legacy?.materialId,
             quantity: r.quantity,
             unitPrice: r.unitPrice,
             amount: r.amount,
@@ -679,6 +769,21 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         utils.haccpIntegration.getAllSales.invalidate();
         setStep('result');
         toast({ title: `매출 일괄 등록 완료`, description: `성공: ${result.successCount}건, 실패: ${result.failCount}건` });
+
+        // ★ 2026-10-14: 직접 확정한 매칭(품목 선택·묶음 지정) 을 별칭으로 학습 → 다음 업로드부터 자동 매칭
+        const learnEntries = readyRows
+          .filter((r) => r.userConfirmed && r.itemMasterId && r.itemName)
+          .map((r) => ({ text: r.itemName, skuId: r.bundleSkuId ?? undefined, itemMasterId: r.itemMasterId ?? undefined }));
+        if (learnEntries.length > 0) {
+          try {
+            const lr = await learnAliasesMutation.mutateAsync({ entries: learnEntries });
+            if (lr.learned + lr.updated > 0) {
+              toast({ title: `매칭 학습 ${lr.learned + lr.updated}건`, description: '다음 업로드부터 같은 품목명은 자동으로 매칭됩니다.' });
+            }
+          } catch (le) {
+            console.warn('[ExcelBulkUpload] 매칭 학습 실패 (등록은 완료):', le);
+          }
+        }
       } catch (e) {
         const error = e as Error;
         toast({ title: "등록 오류", description: error.message, variant: "destructive" });
@@ -1217,7 +1322,26 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                                    row.itemType === 'external_product' ? '외부' : ''}
                                 </Badge>
                               )}
+                              {row.learned && (
+                                <Badge className="bg-sky-100 text-sky-700 text-[8px] px-1 py-0 h-3.5 ml-0.5" title="지난 업로드에서 확정한 매칭을 학습해 적용">학습</Badge>
+                              )}
                             </button>
+                            {/* ★ 2026-10-14: 묶음(혼합) 지정 — 매출 모드 */}
+                            {!isPurchase && (
+                              <div className="flex items-center gap-1 mt-0.5">
+                                {row.bundleSkuId ? (
+                                  <Badge className="bg-violet-100 text-violet-700 text-[8px] px-1 py-0 h-3.5" title="매출 확정 시 묶음 구성대로 단품 재고 차감">
+                                    묶음 · {row.bundleName}
+                                  </Badge>
+                                ) : null}
+                                <button
+                                  onClick={() => setBundleDialogRowId(row.id)}
+                                  className="text-[9px] text-violet-600 hover:underline"
+                                >
+                                  {row.bundleSkuId ? '묶음 변경' : '+ 묶음 지정'}
+                                </button>
+                              </div>
+                            )}
                           </TableCell>
                           <TableCell className="text-[11px] text-right tabular-nums py-1">{row.quantity.toLocaleString()}</TableCell>
                           <TableCell className="text-[11px] text-center py-1">
@@ -1300,6 +1424,40 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         </div>
 
         {/* ─── 매칭 서브 다이얼로그 ─── */}
+        {/* ★ 2026-10-14: 묶음(혼합) 지정 다이얼로그 */}
+        {!isPurchase && bundleDialogRowId && (() => {
+          const target = parsedRows.find((r) => r.id === bundleDialogRowId);
+          if (!target) return null;
+          const sameNameCount = parsedRows.filter((r) => r.itemName === target.itemName).length;
+          return (
+            <BundleSkuDialog
+              open
+              onOpenChange={(v) => { if (!v) setBundleDialogRowId(null); }}
+              rowItemName={target.itemName}
+              sameNameCount={sameNameCount}
+              onSelect={(choice: BundleChoice, applyToSameName: boolean) => {
+                setParsedRows((prev) => prev.map((r) => {
+                  const hit = r.id === target.id || (applyToSameName && r.itemName === target.itemName);
+                  if (!hit) return r;
+                  return recomputeRowStatus({
+                    ...r,
+                    itemMasterId: choice.itemMasterId,
+                    itemType: 'own_product',
+                    itemMatchScore: 1,
+                    userConfirmed: true,
+                    learned: false,
+                    bundleSkuId: choice.parentSkuId,
+                    bundleName: choice.parentSkuName,
+                    productIdOverride: choice.productId,
+                  });
+                }));
+                setBundleDialogRowId(null);
+                toast({ title: `묶음 지정: ${choice.parentSkuName}`, description: '업로드하면 이 품목명을 학습해 다음부터 자동 지정합니다.' });
+              }}
+            />
+          );
+        })()}
+
         <Dialog open={matchDialogOpen} onOpenChange={setMatchDialogOpen}>
           <DialogContent className="max-w-lg z-[60]">
             <DialogHeader>
