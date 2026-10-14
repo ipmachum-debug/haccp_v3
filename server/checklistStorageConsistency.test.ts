@@ -110,3 +110,19 @@ describe("resolveRecordDate / stripPrefillDates", () => {
     expect(out).toEqual({ rows: [1] });
   });
 });
+
+describe("목록 날짜 열 이름 = 양식 날짜 칸 이름 (기록일의 의미 구분)", () => {
+  for (const f of forms.filter((x) => x.dateField)) {
+    const r = firstMatch(routes, f.listPath);
+    if (!r?.importPath) continue;
+    const listSrc = readFileSync(resolveFile(r.importPath), "utf-8");
+    const label = listSrc.match(/dateLabel: "([^"]+)"/)?.[1];
+    if (!label) continue;
+    it(`${f.formType}: 목록 "${label}" ↔ 양식 날짜 칸`, () => {
+      const re = new RegExp(`htmlFor="${f.dateField}"[^>]*>\\s*([^<*]+?)\\s*\\*?\\s*<`);
+      // Label htmlFor 가 없는 표 형식 양식은 표 머리 글자로 확인
+      const formLabel = f.src.match(re)?.[1]?.trim() ?? (new RegExp(`>\\s*${label}\\s*<`).test(f.src) ? label : undefined);
+      expect(formLabel, `${f.file} 의 ${f.dateField} Label`).toBe(label);
+    });
+  }
+});

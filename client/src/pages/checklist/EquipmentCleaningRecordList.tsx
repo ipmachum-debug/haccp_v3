@@ -16,6 +16,7 @@ export default function EquipmentCleaningRecordList() {
         icon: <Sparkles className="h-5 w-5 text-teal-600" />,
         basePath: "/equipment-cleaning-record",
         backPath: "/quality/checklists",
+        dateLabel: "세척일",
       }}
     />
   );

@@ -9,6 +9,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 
 import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
+import { convertLegacyPestItems } from "../../lib/checklist/pestControlCompat";
 
 const config: ChecklistFormConfig = {
   formType: "pest_control_checklist",
@@ -58,6 +59,8 @@ function createEmptyRow(): PestControlRow {
 export default function PestControlChecklistForm() {
   const [checkDate, setCheckDate] = useState(todayLocal());
   const [specialNotes, setSpecialNotes] = useState("");
+  // 옛 형식(items) 기록을 변환해 보여 줄 때의 안내 — 부분 변환을 성공처럼 숨기지 않는다
+  const [legacyNotices, setLegacyNotices] = useState<string[]>([]);
   const [rows, setRows] = useState<PestControlRow[]>([
     createEmptyRow(), createEmptyRow(), createEmptyRow(), createEmptyRow(), createEmptyRow(),
   ]);
@@ -78,6 +81,17 @@ export default function PestControlChecklistForm() {
         flyingPests: { ...createEmptyRow().flyingPests, ...(r.flyingPests || {}) },
         crawlingPests: { ...createEmptyRow().crawlingPests, ...(r.crawlingPests || {}) },
       })));
+      setLegacyNotices([]);
+      return;
+    }
+    // 옛 형식: form_data.items (공통 기록 #91 등)
+    const legacy = convertLegacyPestItems(data);
+    if (legacy.converted) {
+      setRows(legacy.rows.map((r) => ({ ...createEmptyRow(), ...r })));
+      if (legacy.specialNotesAppend) {
+        setSpecialNotes((prev) => [data.specialNotes || prev, legacy.specialNotesAppend].filter(Boolean).join("\n"));
+      }
+      setLegacyNotices(legacy.notices);
     }
   };
 
@@ -124,6 +138,11 @@ export default function PestControlChecklistForm() {
       }
     >
       <div className="px-4 pb-6 space-y-4">
+        {legacyNotices.length > 0 && (
+          <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 print:hidden" data-testid="pest-legacy-notice">
+            {legacyNotices.map((n) => <p key={n}>{n}</p>)}
+          </div>
+        )}
         {/* 점검일자 */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 print:hidden">
           <div className="space-y-2">

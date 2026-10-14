@@ -16,6 +16,7 @@ export default function PackagingStorageRecordList() {
         icon: <Package className="h-5 w-5 text-indigo-600" />,
         basePath: "/packaging-storage-record",
         backPath: "/quality/checklists",
+        dateLabel: "입고일",
       }}
     />
   );

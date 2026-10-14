@@ -16,6 +16,7 @@ export default function CapaRecordList() {
         icon: <Wrench className="h-5 w-5 text-orange-600" />,
         basePath: "/capa-record",
         backPath: "/quality/checklists",
+        dateLabel: "발생일",
       }}
     />
   );

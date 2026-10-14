@@ -22,6 +22,8 @@ export interface ChecklistListConfig {
   icon: ReactNode;            // 아이콘
   basePath: string;           // 기본 경로 (예: "/employee-health-check")
   backPath: string;           // 뒤로가기 경로 (예: "/quality/checklists")
+  /** 날짜 열 이름 — 기록일(form_date)의 실제 의미 (점검일·발생일·교육일…). 기본 "작성일" (2026-10-15) */
+  dateLabel?: string;
   // 각 폼별 추가 컬럼 (선택)
   extraColumns?: {
     header: string;
@@ -299,7 +301,7 @@ export default function ChecklistListPage({ config }: { config: ChecklistListCon
                         />
                       </TableHead>
                       <TableHead className="w-12 text-center">No.</TableHead>
-                      <TableHead className="w-28">작성일</TableHead>
+                      <TableHead className="w-28">{config.dateLabel ?? "작성일"}</TableHead>
                       <TableHead>제목</TableHead>
                       <TableHead className="w-20 text-center">작성자</TableHead>
                       {config.extraColumns?.map((col, idx) => (

@@ -16,6 +16,7 @@ export default function ValidityEvaluationList() {
         icon: <BadgeCheck className="h-5 w-5 text-emerald-600" />,
         basePath: "/validity-evaluation",
         backPath: "/quality/checklists",
+        dateLabel: "평가일",
       }}
     />
   );

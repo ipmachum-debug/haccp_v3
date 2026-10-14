@@ -16,6 +16,7 @@ export default function PestControlChecklistList() {
         icon: <Bug className="h-5 w-5 text-amber-600" />,
         basePath: "/pest-control/checklists",
         backPath: "/quality/checklists",
+        dateLabel: "점검 일자",
       }}
     />
   );

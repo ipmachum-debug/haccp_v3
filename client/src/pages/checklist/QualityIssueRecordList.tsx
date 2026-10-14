@@ -16,6 +16,7 @@ export default function QualityIssueRecordList() {
         icon: <AlertTriangle className="h-5 w-5 text-red-600" />,
         basePath: "/quality-issue-record",
         backPath: "/quality/checklists",
+        dateLabel: "발생일",
       }}
     />
   );

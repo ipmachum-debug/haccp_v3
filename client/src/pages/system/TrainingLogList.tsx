@@ -129,7 +129,7 @@ export default function TrainingLogList() {
                   <TableHeader>
                     <TableRow className="bg-muted/50">
                       <TableHead className="w-12 text-center">No.</TableHead>
-                      <TableHead className="w-32">작성일</TableHead>
+                      <TableHead className="w-32">교육일</TableHead>
                       <TableHead>제목</TableHead>
                       <TableHead className="text-center w-24">상태</TableHead>
                       <TableHead className="w-56 text-center">작업</TableHead>

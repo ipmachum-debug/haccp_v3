@@ -16,6 +16,7 @@ export default function HygieneChecklistList() {
         icon: <ClipboardCheck className="h-5 w-5 text-green-600" />,
         basePath: "/hygiene/checklists",
         backPath: "/quality/checklists",
+        dateLabel: "점검 일자",
       }}
     />
   );

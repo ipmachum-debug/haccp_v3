@@ -16,6 +16,7 @@ export default function RefrigerationCheckList() {
         icon: <Snowflake className="h-5 w-5 text-sky-600" />,
         basePath: "/refrigeration-check",
         backPath: "/quality/checklists",
+        dateLabel: "점검일",
       }}
     />
   );
