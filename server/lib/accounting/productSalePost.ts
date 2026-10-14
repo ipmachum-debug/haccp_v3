@@ -4,6 +4,7 @@ import { eq, and, sql } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 import { formatLocalDate } from "../../utils/timezone";
+import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
 
 /**
  * 제품 매출 POST — 완전 통합 (Module 2, 2026-04-14)
@@ -23,7 +24,8 @@ import { formatLocalDate } from "../../utils/timezone";
  * 안전장치:
  *   - withTransaction + FOR UPDATE (sale + lot 2중 잠금)
  *   - 멱등성: 이미 received 면 조용히 반환
- *   - 재고 음수 금지: 가용 재고 부족 시 명시적 에러
+ *   - 재고 부족: 음수 허용(기본, 2026-10-14) 이면 부족분을 최근 LOT 에 음수 차감,
+ *     금지 테넌트면 명시적 에러 (negativeStockPolicy)
  *   - 필수 계정 사전 검증 (누락 시 HALT)
  */
 export async function postProductSale(
@@ -288,7 +290,11 @@ export async function postProductSale(
         (sum, lot) => sum + Number(lot.available_quantity || 0),
         0,
       );
-      if (totalAvailable + 0.001 < saleQty) {
+      // ★ 2026-10-14 음수 재고 허용 (CEO 결정, negativeStockPolicy): 재고가 모자라도 판매는 사실대로 차감한다.
+      //   이전: 부족하면 throw → 매출이 'pending' 에 남고 재고도 안 빠짐 → 실사 후 다시 어긋남.
+      //   현재: 있는 LOT 은 FEFO 로 다 빼고, 모자란 나머지는 아래 (A-3b) 에서 최근 LOT 에 음수로.
+      const allowNegative = isNegativeStockAllowed(tenantId);
+      if (totalAvailable + 0.001 < saleQty && !allowNegative) {
         throw new Error(
           `[${docId}] ${itemTypeLabel} #${lotFilterValue} 재고 부족: ` +
             `요청 ${saleQty}, 가용 ${totalAvailable.toFixed(3)}`,
@@ -342,6 +348,59 @@ export async function postProductSale(
         usedLots.push({ lotId: lot.id, qty: takeQty, unitCost: lotUnitCost });
         totalCogs += lotCost;
         remaining -= takeQty;
+      }
+
+      // (A-3b) 부족분 음수 차감 — 가장 최근 LOT (없으면 자리표시 LOT) 에 음수로.
+      //   재고 = LOT 합계이므로 음수 LOT 이 "팔았는데 장부에 없던 수량" 을 드러낸다. 실사 때 맞춘다.
+      if (remaining > 0.001 && allowNegative) {
+        const [sinkRows] = await conn.execute(
+          `SELECT id, unit_price FROM h_inventory_lots
+           WHERE tenant_id = ? AND ${lotFilterColumn} = ?
+           ORDER BY COALESCE(production_date, receipt_date) DESC, id DESC
+           LIMIT 1
+           FOR UPDATE`,
+          [tenantId, lotFilterValue],
+        );
+        let sink = (sinkRows as any[])[0] as { id: number; unit_price: any } | undefined;
+        if (!sink) {
+          const ymd = entryDate.replace(/-/g, "");
+          const lotNumber = `NEG-${isProductSale ? "P" : "M"}${lotFilterValue}-${ymd}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+          const [ins] = await conn.execute(
+            `INSERT INTO h_inventory_lots
+               (tenant_id, ${lotFilterColumn}, lot_number, quantity, current_quantity, available_quantity,
+                unit, unit_price, ${isProductSale ? "production_date" : "receipt_date"}, status, created_at, updated_at)
+             VALUES (?, ?, ?, 0, 0, 0, ?, 0, ?, 'available', NOW(), NOW())`,
+            [tenantId, lotFilterValue, lotNumber, sale.unit || "EA", entryDate],
+          );
+          sink = { id: Number((ins as any).insertId), unit_price: 0 };
+          console.warn(`[negative-stock] sale_placeholder_lot ${docId} ${lotFilterColumn}=${lotFilterValue} lot=${lotNumber}`);
+        }
+        const sinkUnitCost = Number(sink.unit_price || 0);
+        await conn.execute(
+          `UPDATE h_inventory_lots
+           SET available_quantity = available_quantity - ?,
+               current_quantity = COALESCE(current_quantity, quantity) - ?,
+               status = 'available',
+               updated_at = NOW()
+           WHERE id = ? AND tenant_id = ?`,
+          [remaining, remaining, sink.id, tenantId],
+        );
+        await conn.execute(
+          `INSERT INTO h_inventory_transactions
+             (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+              reference_type, source_type, source_id, unit_cost, amount, notes, created_by)
+           VALUES (?, ?, 'usage', ?, ?, ?, 'SALE', 'SALE', ?, ?, ?, ?, ?)`,
+          [
+            tenantId, sink.id, remaining, sale.unit || "EA", entryDate, saleId,
+            sinkUnitCost, remaining * sinkUnitCost,
+            `[매출] ${docId} ${sale.itemName || ""} — 재고 부족분 음수 차감 (실사 때 정리)`,
+            userId,
+          ],
+        );
+        console.warn(`[negative-stock] sale_sink ${docId} ${lotFilterColumn}=${lotFilterValue} lot=${sink.id} short=${remaining.toFixed(3)}`);
+        usedLots.push({ lotId: sink.id, qty: remaining, unitCost: sinkUnitCost });
+        totalCogs += remaining * sinkUnitCost;
+        remaining = 0;
       }
 
       // (A-4) 원재료 수불부 (material_ledger_daily) — 원재료/부자재/외부제품 매출만.
