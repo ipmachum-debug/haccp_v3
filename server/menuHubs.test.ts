@@ -83,3 +83,35 @@ describe("2-b-1 허브 — 항목 집합 불변", () => {
     for (const i of platform.items) expect(i.roles).toEqual(["super_admin"]);
   });
 });
+
+describe("사이드바 하단 정리 (2026-10-14 대표 지시)", () => {
+  const read = (f: string) => readFileSync(join(__dirname, "..", f), "utf-8");
+
+  it("자동화 에이전트: 플랫폼 허브 'AI·자동화', 노출 조건(허용 이메일 5개)은 그대로", async () => {
+    const { AGENT_ALLOWED_EMAILS, AGENT_PLACEMENT, canSeeAgent } = await import("../shared/navigation/menuRegistry");
+    expect([...AGENT_ALLOWED_EMAILS]).toEqual(["ipmachum@gmail.com", "sokoorymall@naver.com", "dduckdanji@naver.com", "danjimall@naver.com", "sokoorymall1@naver.com"]);
+    expect(hubOf("/dashboard/agent")).toBe("platform");
+    expect(canSeeAgent("ipmachum@gmail.com")).toBe(true);
+    expect(canSeeAgent("someone@example.com")).toBe(false);
+    // admin 인 허용 사용자: 플랫폼 허브에 에이전트 한 항목만, 소구역 제목 유지
+    const sections = buildHubMenu([{ ...AGENT_PLACEMENT, roles: ["admin"] }]);
+    expect(sections.map((s) => s.hub.id)).toEqual(["platform"]);
+    expect(sections[0].items[0].section).toBe("AI·자동화");
+  });
+
+  it("레이아웃: 하단 에이전트 버튼은 탭 사이드바(플래그 off)에서만, 사이드바 출퇴근 위젯은 제거, 헤더 출퇴근은 기존 역할 그대로", async () => {
+    const layout = read("client/src/components/dashboard/DashboardLayout.tsx");
+    expect(layout).toContain("{!hubMode && user && canSeeAgent(user.email) && (");
+    expect(layout).not.toContain("ClockInOutWidget");
+    expect(layout).toContain("<HeaderAttendance />");
+    expect(layout).toContain("<HeaderAttendance compact />");
+    const { ATTENDANCE_ROLES } = await import("../client/src/components/dashboard/HeaderAttendance");
+    expect([...ATTENDANCE_ROLES]).toEqual(["worker", "admin", "super_admin", "inspector"]);
+  });
+
+  it("헤더 출퇴근은 기존 근태 API 만 쓴다 (myToday / clockIn / clockOut)", () => {
+    const src = read("client/src/components/dashboard/HeaderAttendance.tsx");
+    const calls = [...new Set([...src.matchAll(/trpc\.hr\.(\w+)/g)].map((m) => m[1]))].sort();
+    expect(calls).toEqual(["clockIn", "clockOut", "myToday"]);
+  });
+});

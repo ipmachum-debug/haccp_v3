@@ -86,7 +86,7 @@ export default function SelfQualityInspectionList() {
                   <CardDescription className="mt-1">작성된 기록을 관리합니다</CardDescription>
                 </div>
               </div>
-              <Button onClick={() => navigate("/self-quality-inspection/new")} className="gap-1">
+              <Button onClick={() => navigate("/quality/self-inspection/new")} className="gap-1">
                 <Plus className="h-4 w-4" />
                 신규 작성
               </Button>
@@ -121,7 +121,7 @@ export default function SelfQualityInspectionList() {
                   <TableBody>
                     {filteredRecords.length > 0 ? (
                       filteredRecords.map((record: any, index: number) => (
-                        <TableRow key={record.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => navigate(`/self-quality-inspection/${record.id}`)}>
+                        <TableRow key={record.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => navigate(`/quality/self-inspection/${record.id}`)}>
                           <TableCell className="text-center text-muted-foreground">{index + 1}</TableCell>
                           <TableCell className="font-medium">{record.formDate}</TableCell>
                           <TableCell>{record.title || "-"}</TableCell>
@@ -129,7 +129,7 @@ export default function SelfQualityInspectionList() {
                           <TableCell className="text-center" onClick={(e) => e.stopPropagation()}>
                             <div className="flex flex-wrap gap-1 justify-center">
                               {record.status === "draft" && <Button variant="default" size="sm" className="h-7 text-xs bg-blue-600 hover:bg-blue-700" onClick={(e) => handleApprovalRequest(record, e)}><Send className="h-3 w-3 mr-1" />승인요청</Button>}
-                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => navigate(`/self-quality-inspection/${record.id}`)}><Edit className="h-3 w-3 mr-1" />수정</Button>
+                              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => navigate(`/quality/self-inspection/${record.id}`)}><Edit className="h-3 w-3 mr-1" />수정</Button>
                               <Button variant="destructive" size="sm" className="h-7 text-xs" onClick={(e) => handleDelete(record.id, e)}><Trash2 className="h-3 w-3 mr-1" />삭제</Button>
                             </div>
                           </TableCell>
@@ -141,7 +141,7 @@ export default function SelfQualityInspectionList() {
                           <FileText className="h-8 w-8 mx-auto mb-2 opacity-50" />
                           등록된 기록이 없습니다.
                           <br />
-                          <Button variant="link" className="mt-2" onClick={() => navigate("/self-quality-inspection/new")}>
+                          <Button variant="link" className="mt-2" onClick={() => navigate("/quality/self-inspection/new")}>
                             새로운 기록 작성하기
                           </Button>
                         </TableCell>

@@ -159,7 +159,7 @@ export default function ChecklistTemplates() {
             <Sparkles className="w-4 h-4 mr-2" />
             배치 자동생성 기본 템플릿
           </Button>
-          <Button onClick={() => setLocation("/checklist-templates/new")}>
+          <Button onClick={() => setLocation("/dashboard/checklist/templates/new")}>
             <Plus className="w-4 h-4 mr-2" />
             새 템플릿 생성
           </Button>
@@ -265,7 +265,7 @@ export default function ChecklistTemplates() {
                           variant="ghost"
                           size="sm"
                           onClick={() =>
-                            setLocation(`/checklist-templates/${template.id}`)
+                            setLocation(`/dashboard/checklist/templates/${template.id}`)
                           }
                         >
                           <Edit className="w-4 h-4" />

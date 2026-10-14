@@ -47,7 +47,7 @@ export default function InventoryReceipt() {
       toast.success("매입 거래가 자동 생성되었습니다.", {
         action: {
           label: "보기",
-          onClick: () => navigate("/purchases"),
+          onClick: () => navigate("/dashboard/accounting/purchases/list"),
         },
       });
     },

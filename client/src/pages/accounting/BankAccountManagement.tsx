@@ -184,7 +184,7 @@ export default function BankAccountManagement() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => window.location.href = `/finance/bank-transactions?accountId=${account.id}`}
+                            onClick={() => window.location.href = `/dashboard/accounting/bank-transactions?accountId=${account.id}`}
                           >
                             거래내역
                           </Button>

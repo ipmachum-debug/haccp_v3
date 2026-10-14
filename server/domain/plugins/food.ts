@@ -89,7 +89,7 @@ export const foodPlugin: IndustryPlugin = {
           { icon: "FileWarning", label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
           { icon: "AlertTriangle", label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"] },
           { icon: "Activity", label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"] },
-          { icon: "TrendingUp", label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"] },
+          // 2-b-2 통합: Deviation 트렌드 → F-3 운영 현황의 [Deviation 트렌드 →] 링크 (경로 유지, 2-b-3 에서 식품 플러그인 누락분 제거)
           { icon: "GitBranch", label: "변경관리", path: "/dashboard/food/change-control", roles: ["super_admin", "admin", "inspector", "monitor"] },
           // 알레르겐 관리 — Phase Y-11. 식약처 표시기준(19품목) + 교차오염 + 표시문구. 신규.
           { icon: "Wheat", label: "알레르겐 관리", path: "/dashboard/food/allergen", roles: ["super_admin", "admin", "inspector", "monitor"] },

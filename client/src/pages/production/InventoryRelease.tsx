@@ -45,7 +45,7 @@ export default function InventoryRelease() {
       toast.success("매출 거래가 자동 생성되었습니다.", {
         action: {
           label: "보기",
-          onClick: () => navigate("/sales"),
+          onClick: () => navigate("/dashboard/accounting/sales/list"),
         },
       });
     },

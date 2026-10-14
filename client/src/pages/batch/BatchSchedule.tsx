@@ -101,7 +101,7 @@ export default function BatchSchedule() {
   // 일정 클릭 핸들러 - 배치 상세 페이지로 이동
   const handleSelectEvent = useCallback(
     (event: CalendarEvent) => {
-      setLocation(`/batch/${event.resource.batchId}`);
+      setLocation(`/dashboard/batch/${event.resource.batchId}`);
     },
     [setLocation]
   );

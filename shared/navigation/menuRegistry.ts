@@ -180,7 +180,7 @@ export const CHILD_ROUTES: Readonly<Record<string, readonly string[]>> = {
   "/quality/checklists": ["/dashboard/daily-logs", "/quality/templates", "/dashboard/checklist/employee-health"],
   "/dashboard/approval": ["/dashboard/approval/dashboard"],
   "/quality/ccp-monitoring": ["/dashboard/ccp"],
-  "/dashboard/document-output": ["/dashboard/document-output/approved", "/dashboard/document-output/daily-log"],
+  "/dashboard/document-output": ["/dashboard/document-output/approved"], // 2-b-3: 라우트 없는 /daily-log 제거
 };
 
 /** 데모 계정에 허용되는 메뉴 경로 (핵심 기능만) */
@@ -435,7 +435,20 @@ export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
   "/dashboard/user-approval": "platform",
   "/dashboard/tenants": "platform",
   "/dashboard/server-monitor": "platform",
+  "/dashboard/agent": "platform", // 사이드바 하단 → 플랫폼 허브 'AI·자동화' (2026-10-14 대표 지시). 노출은 AGENT_ALLOWED_EMAILS 그대로
 };
+
+/**
+ * 자동화 에이전트 — 역할이 아니라 **허용 이메일**로 노출한다 (기존 사이드바 하단 버튼과 같은 조건, 권한 변경 없음).
+ * 허브 사이드바에서는 플랫폼 허브의 'AI·자동화' 소구역에 그린다. 허용 사용자가 admin 이어도 플랫폼 허브에 이 항목 하나만 보인다.
+ */
+export const AGENT_ALLOWED_EMAILS: readonly string[] = [
+  "ipmachum@gmail.com", "sokoorymall@naver.com", "dduckdanji@naver.com", "danjimall@naver.com", "sokoorymall1@naver.com",
+];
+export const AGENT_PLACEMENT = { icon: "Bot", label: "자동화 에이전트", path: "/dashboard/agent", section: "AI·자동화" } as const;
+export function canSeeAgent(email: string | null | undefined): boolean {
+  return !!email && AGENT_ALLOWED_EMAILS.includes(email);
+}
 
 const INDUSTRY_QUALITY_RE = /^\/dashboard\/(food|cosmetic|pharmaceutical|health-functional|medical-device|general-manufacturing)\//;
 
@@ -447,6 +460,190 @@ export function hubOf(path: string): HubId {
   return "settings";
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// 2-b-3 (2026-10-14): 라우트 411개 전부의 허브 귀속 + 옛 URL 리다이렉트
+//
+// 메뉴에 없는 화면(상세·하위·독립 화면)도 어느 허브 소속인지 데이터로 정한다.
+// 메뉴 노출과는 무관하다 — 브레드크럼·허브 진입 화면(3-b)·접근 점검 리포트의 묶음 기준.
+// 판정 순서: 공개 화면 → 메뉴 경로(HUB_BY_PATH) → 메뉴 하위 경로(CHILD_ROUTES) → 아래 규칙 → 메뉴 경로의 하위(접두사) → 업종 품질
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 로그인 없이 여는 화면 (허브 없음) */
+export const PUBLIC_PATHS: readonly string[] = [
+  "/", "/faq", "/support", "/roadmap", "/legal", "/legal/:section", "/signup",
+  "/login", "/register", "/pending-approval", "/forgot-password", "/reset-password", "/verify-email", "/404",
+];
+
+/**
+ * 메뉴 밖 화면의 허브 규칙. `match` 와 같거나 `match + "/"` 로 시작하면 해당 (목록 → /new → /:id 가 한 줄로 묶인다).
+ * 위에서부터 처음 맞는 규칙. 구체적인 것을 위에 둔다.
+ */
+export const ROUTE_HUB_RULES: ReadonlyArray<{ match: string; hub: HubId }> = [
+  // 오늘 할 일 — 알림·결재·공지·AI
+  { match: "/dashboard/integrated", hub: "today" },
+  { match: "/notifications", hub: "today" },
+  { match: "/notification-statistics", hub: "today" },
+  { match: "/board", hub: "today" },
+  { match: "/document-approval", hub: "today" },
+  { match: "/dashboard/writer-review", hub: "today" },
+  { match: "/dashboard/ai-assistant", hub: "today" },
+  // 구매·입고
+  { match: "/dashboard/material-receipt", hub: "purchase" },
+  { match: "/inventory/receipt", hub: "purchase" },
+  { match: "/dashboard/purchase-proposal-history", hub: "purchase" },
+  { match: "/dashboard/suppliers", hub: "purchase" },
+  { match: "/dashboard/supplier-performance", hub: "purchase" },
+  { match: "/dashboard/partners", hub: "purchase" },
+  { match: "/dashboard/accounting/purchases", hub: "purchase" }, // 매입 상세 /:id (접두사로 두면 회계로 잡힌다)
+  // 품목·재고
+  { match: "/dashboard/inventory-management", hub: "items" },
+  { match: "/dashboard/inventory-forecast", hub: "items" },
+  { match: "/dashboard/inventory-forecast-new", hub: "items" },
+  { match: "/dashboard/inventory-analytics", hub: "items" },
+  { match: "/dashboard/inventory-trend", hub: "items" },
+  { match: "/dashboard/inventory", hub: "items" },
+  { match: "/dashboard/products", hub: "items" },
+  { match: "/dashboard/materials", hub: "items" },
+  { match: "/dashboard/intermediates", hub: "items" },
+  { match: "/dashboard/manufacturing/intermediates", hub: "items" },
+  { match: "/stock-alerts", hub: "items" },
+  { match: "/inventory-lots", hub: "items" },
+  { match: "/inventory-prediction", hub: "items" },
+  { match: "/inventory-turnover-dashboard", hub: "items" },
+  { match: "/category-management", hub: "items" },
+  // 생산관리
+  { match: "/dashboard/mf-reports", hub: "production" },
+  { match: "/dashboard/mf-report", hub: "production" },
+  { match: "/dashboard/haccp", hub: "production" }, // ProductionOperations 별칭. /dashboard/haccp/* 하위는 아래 품질 규칙이 먼저 잡는다
+  { match: "/dashboard/cost-saving-ai", hub: "production" },
+  { match: "/dashboard/batch-cost-analysis", hub: "production" },
+  { match: "/dashboard/production-schedule", hub: "production" },
+  { match: "/dashboard/production-efficiency", hub: "production" },
+  { match: "/dashboard/production-performance", hub: "production" },
+  { match: "/dashboard/recipes", hub: "production" },
+  { match: "/master/recipe", hub: "production" },
+  { match: "/daily-report", hub: "production" },
+  { match: "/production-dashboard", hub: "production" },
+  { match: "/production-monitor", hub: "production" },
+  { match: "/batch-schedule", hub: "production" },
+  { match: "/batch-schedule-calendar", hub: "production" },
+  { match: "/batch-profitability-dashboard", hub: "production" },
+  { match: "/batch", hub: "production" },
+  // 판매·출고
+  { match: "/inventory/release", hub: "sales" },
+  { match: "/dashboard/accounting/sales", hub: "sales" }, // 매출 상세 /:id
+  // 회계·경영
+  { match: "/accounting-close", hub: "finance" },
+  { match: "/accounting", hub: "finance" },
+  { match: "/account-categories", hub: "finance" },
+  { match: "/material-usage-report-print", hub: "finance" },
+  // 환경설정 (품질 규칙보다 먼저 — /quality/notification-settings 등)
+  { match: "/quality/notification-settings", hub: "settings" },
+  { match: "/dashboard/notification-settings", hub: "settings" },
+  { match: "/document-approval-settings", hub: "settings" },
+  { match: "/dashboard/users", hub: "settings" },
+  { match: "/dashboard/banners", hub: "settings" },
+  { match: "/dashboard/audit-logs", hub: "settings" },
+  { match: "/dashboard/audit-report", hub: "settings" },
+  { match: "/dashboard/upload-history", hub: "settings" },
+  { match: "/dashboard/excel-import", hub: "settings" },
+  { match: "/dashboard/simplified-import", hub: "settings" },
+  { match: "/system-settings", hub: "settings" },
+  { match: "/company-settings", hub: "settings" },
+  { match: "/organization", hub: "settings" },
+  { match: "/admin/employee-approval", hub: "settings" },
+  // 플랫폼 (슈퍼관리자)
+  { match: "/dashboard/support-manage", hub: "platform" },
+  { match: "/dashboard/tenant-management", hub: "platform" },
+  { match: "/dashboard/system-monitoring", hub: "platform" },
+  { match: "/dashboard/billing-management", hub: "platform" },
+  { match: "/admin/user-approval", hub: "platform" },
+  { match: "/admin/failed-tasks", hub: "platform" },
+  // 품질·규정 — HACCP 기록 양식·CCP·검증·교육
+  { match: "/dashboard/haccp/", hub: "quality" }, // 아래 resolve 에서 접두사로만 쓰인다
+  { match: "/dashboard/ccp-records", hub: "quality" },
+  { match: "/dashboard/ccp-calendar", hub: "quality" },
+  { match: "/dashboard/ccp-stats", hub: "quality" },
+  { match: "/dashboard/product-ccp-mapping", hub: "quality" },
+  { match: "/dashboard/checklist", hub: "quality" },
+  { match: "/dashboard/training-admin", hub: "quality" },
+  { match: "/ccp-deviation-dashboard", hub: "quality" },
+  { match: "/quality", hub: "quality" },
+  { match: "/hygiene", hub: "quality" },
+  { match: "/pest-control", hub: "quality" },
+  { match: "/training", hub: "quality" },
+  { match: "/training-log", hub: "quality" },
+  { match: "/calibration", hub: "quality" },
+  { match: "/checklist-instance", hub: "quality" },
+  { match: "/checklist-schedule", hub: "quality" },
+  { match: "/checklist-approval", hub: "quality" },
+  { match: "/daily-log", hub: "quality" },
+  { match: "/weekly-log", hub: "quality" },
+  { match: "/monthly-log", hub: "quality" },
+  { match: "/traceability", hub: "quality" },
+  { match: "/nonconforming-products", hub: "quality" },
+  { match: "/recall-simulation", hub: "quality" },
+  { match: "/supplier-audit", hub: "quality" },
+  { match: "/haccp-plan-verification", hub: "quality" },
+  { match: "/internal-audit", hub: "quality" },
+  { match: "/internal-audit-plan", hub: "quality" },
+  { match: "/print-preview", hub: "quality" },
+  // HACCP 기록 양식 (목록 · /new · /:id)
+  ...[
+    "/water-quality-test", "/air-compressor", "/air-compressor-maintenance", "/validity-evaluation", "/personal-hygiene-check",
+    "/water-usage-check", "/equipment-cleaning-record", "/foreign-material-record", "/refrigeration-check",
+    "/packaging-storage-record", "/quality-issue-record", "/capa-record", "/employee-health-check",
+    "/temperature-humidity-check", "/sanitation-record", "/surface-contamination-test", "/hygiene-facility-check",
+    "/workplace-hygiene-check", "/illumination-check", "/vehicle-temperature-check", "/equipment-history",
+    "/equipment-inspection", "/consumer-complaint", "/weight-quality-check", "/product-test-report", "/product-test-log",
+    "/finished-product-check", "/supplier-inspection", "/pest-control-checklist", "/airborne-bacteria-test",
+    "/food-recall-notice", "/water-management-check", "/handover-document", "/daily-disposal-record", "/waste-management",
+  ].map((match) => ({ match, hub: "quality" as HubId })),
+];
+
+export type RouteHubVia = "public" | "menu" | "child" | "rule" | "menu-prefix" | "industry";
+
+const pathUnder = (path: string, base: string) =>
+  base.endsWith("/") ? path.startsWith(base) : path === base || path.startsWith(base + "/");
+
+/** 라우트(패턴 그대로, 예: /capa-record/:id)의 허브와 판정 근거. 어느 것에도 해당하지 않으면 null (테스트가 0건을 강제) */
+export function routeHubOf(path: string): { hub: HubId | "public"; via: RouteHubVia } | null {
+  if (PUBLIC_PATHS.includes(path)) return { hub: "public", via: "public" };
+  if (HUB_BY_PATH[path]) return { hub: HUB_BY_PATH[path], via: "menu" };
+  for (const [parent, children] of Object.entries(CHILD_ROUTES)) {
+    if (children.some((c) => pathUnder(path, c)) && HUB_BY_PATH[parent]) return { hub: HUB_BY_PATH[parent], via: "child" };
+  }
+  // 품질 하위(/dashboard/haccp/...)는 생산 별칭(/dashboard/haccp)보다 먼저
+  const rules = [...ROUTE_HUB_RULES].sort((a, b) => Number(b.match.endsWith("/")) - Number(a.match.endsWith("/")));
+  const rule = rules.find((r) => pathUnder(path, r.match));
+  if (rule) return { hub: rule.hub, via: "rule" };
+  const menuParent = Object.keys(HUB_BY_PATH)
+    .filter((m) => m !== "/dashboard" && path.startsWith(m + "/"))
+    .sort((a, b) => b.length - a.length)[0];
+  if (menuParent) return { hub: HUB_BY_PATH[menuParent], via: "menu-prefix" };
+  if (INDUSTRY_QUALITY_RE.test(path)) return { hub: "quality", via: "industry" };
+  return null;
+}
+
+/**
+ * 옛 URL → 새 URL. App.tsx 가 이 목록으로 리다이렉트 라우트를 만든다 (쿼리 파라미터 보존, 전체 새로고침 없음).
+ * 2-c 에서 업종 품질 경로를 공통 경로로 옮길 때 여기에 추가한다.
+ */
+export const LEGACY_REDIRECTS: ReadonlyArray<{ from: string; to: string; note: string }> = [
+  { from: "/batch/new", to: "/dashboard/batch-management?tab=create", note: "구 배치 생성 경로 (기존 리다이렉트 이전)" },
+  { from: "/dashboard/excel-import", to: "/dashboard/data-import", note: "엑셀 가져오기 → 데이터 가져오기 통합 (기존 리다이렉트 이전)" },
+  { from: "/dashboard/simplified-import", to: "/dashboard/data-import", note: "간편 가져오기 → 데이터 가져오기 통합 (기존 리다이렉트 이전)" },
+];
+
+/** 리다이렉트 목적지 + 원래 쿼리. 같은 키는 목적지 값이 우선 (예: tab=create 고정) */
+export function buildRedirectTarget(to: string, search: string): string {
+  const [toPath, toQuery = ""] = to.split("?");
+  const merged = new URLSearchParams(search.startsWith("?") ? search.slice(1) : search);
+  new URLSearchParams(toQuery).forEach((v, k) => merged.set(k, v));
+  const q = merged.toString();
+  return q ? `${toPath}?${q}` : toPath;
+}
+
 export interface HubMenuItem<I = string> {
   icon: I;
   label: string;
@@ -455,6 +652,8 @@ export interface HubMenuItem<I = string> {
   requireModule?: string;
   highlight?: boolean;
   hub: HubId;
+  /** 허브 안 소구역 제목 (예: 플랫폼 허브의 'AI·자동화'). 없으면 제목 없이 이어서 그린다 */
+  section?: string;
 }
 
 export interface HubSection<I = string> {
@@ -467,12 +666,12 @@ export interface HubSection<I = string> {
  *  - 같은 경로는 하나로: 라벨·아이콘은 먼저 온 것, roles 는 합집합(아무도 메뉴를 잃지 않게), requireModule 은 전부 같을 때만 유지
  *  - 허브 순서 → 입력 순서
  */
-export function buildHubMenu<I = string>(items: readonly { icon: I; label: string; path: string; roles: readonly string[]; requireModule?: string; highlight?: boolean }[]): HubSection<I>[] {
+export function buildHubMenu<I = string>(items: readonly { icon: I; label: string; path: string; roles: readonly string[]; requireModule?: string; highlight?: boolean; section?: string }[]): HubSection<I>[] {
   const byPath = new Map<string, HubMenuItem<I> & { _modules: Set<string | undefined> }>();
   for (const it of items) {
     const cur = byPath.get(it.path);
     if (!cur) {
-      byPath.set(it.path, { icon: it.icon, label: it.label, path: it.path, roles: [...it.roles], requireModule: it.requireModule, highlight: !!it.highlight, hub: hubOf(it.path), _modules: new Set([it.requireModule]) });
+      byPath.set(it.path, { icon: it.icon, label: it.label, path: it.path, roles: [...it.roles], requireModule: it.requireModule, highlight: !!it.highlight, hub: hubOf(it.path), ...(it.section ? { section: it.section } : {}), _modules: new Set([it.requireModule]) });
     } else {
       for (const r of it.roles) if (!cur.roles.includes(r)) (cur.roles as string[]).push(r);
       cur.highlight = cur.highlight || !!it.highlight;
