@@ -1,8 +1,8 @@
 /**
- * 메뉴 정의의 역할 값 회귀 테스트 (2026-10-14, UI/UX 개편 0-3)
+ * 메뉴 정의의 역할 값 회귀 테스트 (2026-10-14, UI/UX 개편 0-3 → 2-a)
  *
- * 메뉴 정의 5곳(DashboardLayout 배열 · clientMenuEngine 공통 · 업종 플러그인)의 roles 에
- * 실제 users.role enum 에 없는 값("user" 등)이 들어가면 실패한다.
+ * 2-a 이후 메뉴 정의는 shared/navigation/menuRegistry.ts (사이드바 4탭 + 플러그인 공통) 와 업종 플러그인 6개 뿐이다.
+ * roles 에 실제 users.role enum 에 없는 값("user" 등)이 들어가면 실패한다.
  * 또한 관리자·작업자·품질 담당자가 보던 핵심 메뉴가 계속 보이는지 고정한다.
  */
 import { describe, it, expect } from "vitest";
@@ -13,8 +13,7 @@ const ROOT = join(__dirname, "..");
 const ROLE_ENUM = ["super_admin", "admin", "accountant", "worker", "monitor", "inspector", "employee"];
 
 const FILES = [
-  "client/src/components/dashboard/DashboardLayout.tsx",
-  "client/src/domain/engines/clientMenuEngine.ts",
+  "shared/navigation/menuRegistry.ts",
   "server/domain/plugins/food.ts",
   "server/domain/plugins/cosmetic.ts",
   "server/domain/plugins/general-manufacturing.ts",
@@ -50,7 +49,7 @@ describe("메뉴 roles 는 실제 역할 enum 값만 쓴다", () => {
 });
 
 describe("핵심 메뉴 노출 회귀 — 관리자·작업자·품질 담당자", () => {
-  const layout = readItems("client/src/components/dashboard/DashboardLayout.tsx");
+  const layout = readItems("shared/navigation/menuRegistry.ts");
   const byPath = (p: string) => layout.filter((i) => i.path === p);
 
   it("admin 은 생산관리·CCP 관리·재고 관리·매출 조회·시스템 관리를 본다", () => {
