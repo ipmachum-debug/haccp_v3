@@ -340,7 +340,68 @@ export const HUB_ITEM_LAYOUT: Readonly<Record<string, { tab?: HubTabId; section?
   "/dashboard/accounting/partners": { section: "거래처", order: 11 },
   "/dashboard/accounting/communication-log": { section: "거래처", order: 12 },
   "/dashboard/accounting/partner-prices": { section: "거래처", order: 13 },
+  // 플랫폼 허브 — 기존 항목 뒤에 'AI·자동화' 소구역
+  "/dashboard/ai-assistant": { section: "AI·자동화", order: 5000 },
+  "/dashboard/agent": { section: "AI·자동화", order: 5001 },
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 2-b-4 (2026-10-14): 모바일 하단바 — 역할별 핵심 화면 + 알림 + 메뉴(허브 사이드바 열기)
+//
+// 역할마다 후보 경로를 우선순위대로 두고, 그 사용자가 **메뉴에서 볼 수 있는 경로만** 앞에서부터 MOBILE_NAV_SLOTS 개 고른다
+// (선택은 레이아웃이 계산한 '보이는 메뉴 경로' 기준 → 업종·모듈·데모·권한 필터가 그대로 적용, 권한 없는 화면은 하단바에 못 나온다).
+// employee 는 사이드바가 없으므로 공지·알림만.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export const MOBILE_NAV_SLOTS = 3;
+
+/** 하단바에서 쓰는 짧은 이름 (5글자 안팎) */
+export const MOBILE_NAV_LABELS: Readonly<Record<string, string>> = {
+  "/dashboard/production/today": "오늘 생산",
+  "/dashboard/today": "오늘",
+  "/dashboard": "대시보드",
+  "/quality/ccp-monitoring": "CCP",
+  "/quality/checklists": "체크리스트",
+  "/dashboard/inspections": "검사",
+  "/inventory-management": "재고",
+  "/dashboard/production-management": "생산",
+  "/dashboard/approval": "승인",
+  "/dashboard/accounting/sales/list": "매출",
+  "/dashboard/accounting": "회계",
+};
+
+export const MOBILE_NAV_CANDIDATES: Readonly<Record<string, readonly string[]>> = {
+  super_admin: ["/dashboard", "/dashboard/production-management", "/dashboard/accounting/sales/list", "/inventory-management"],
+  admin: ["/dashboard", "/dashboard/production-management", "/dashboard/accounting/sales/list", "/inventory-management", "/quality/ccp-monitoring"],
+  worker: ["/dashboard/production/today", "/quality/ccp-monitoring", "/inventory-management", "/dashboard/today"],
+  inspector: ["/dashboard/today", "/quality/ccp-monitoring", "/quality/checklists", "/dashboard/inspections"],
+  monitor: ["/dashboard/today", "/dashboard/approval", "/quality/ccp-monitoring", "/quality/checklists"],
+  accountant: ["/dashboard", "/dashboard/accounting", "/dashboard/inspections", "/dashboard/today"],
+};
+
+export type MobileNavItem =
+  | { kind: "link"; path: string; label: string; icon: string }
+  | { kind: "alerts"; path: string; label: string; icon: string }
+  | { kind: "menu"; label: string; icon: string };
+
+/**
+ * 역할의 하단바 항목. visiblePaths = 이 사용자에게 실제로 보이는 메뉴 경로 (레이아웃의 필터 결과).
+ * iconOf = 경로 → 아이콘 이름 (레지스트리 항목의 아이콘)
+ */
+export function mobileNavFor(role: string, visiblePaths: ReadonlySet<string>, iconOf: (path: string) => string): MobileNavItem[] {
+  if (role === "employee") {
+    return [
+      { kind: "link", path: "/board", label: "공지", icon: "Home" },
+      { kind: "alerts", path: "/board/alerts", label: "알림", icon: "Bell" },
+    ];
+  }
+  const picks = (MOBILE_NAV_CANDIDATES[role] ?? []).filter((p) => visiblePaths.has(p)).slice(0, MOBILE_NAV_SLOTS);
+  return [
+    ...picks.map((path): MobileNavItem => ({ kind: "link", path, label: MOBILE_NAV_LABELS[path] ?? path, icon: iconOf(path) })),
+    { kind: "alerts", path: "/notifications", label: "알림", icon: "Bell" },
+    { kind: "menu", label: "메뉴", icon: "Menu" },
+  ];
+}
 
 /** 경로 → 허브. 부록 14a 의 행선지 그대로. 업종 품질(/dashboard/{업종}/{기능}) 과 화장품 GMP 는 전부 품질·규정 */
 export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
@@ -464,7 +525,20 @@ export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
   "/dashboard/tenants": "platform",
   "/dashboard/server-monitor": "platform",
   "/dashboard/agent": "platform", // 사이드바 하단 → 플랫폼 허브 'AI·자동화' (2026-10-14 대표 지시). 노출은 AGENT_ALLOWED_EMAILS 그대로
+  "/dashboard/ai-assistant": "platform", // 사이드바 하단 → 플랫폼 허브 'AI·자동화' (2026-10-14 대표 지시). 노출은 AI_ASSISTANT_PLACEMENT.roles 그대로
 };
+
+/**
+ * AI 어시스턴트 — 기존 사이드바 하단 버튼과 같은 노출 조건: super_admin · admin · inspector, 데모 계정 제외.
+ * 허브 사이드바에서는 플랫폼 허브 'AI·자동화' 소구역 (자동화 에이전트 위).
+ */
+export const AI_ASSISTANT_PLACEMENT = {
+  icon: "Sparkles", label: "AI 어시스턴트", path: "/dashboard/ai-assistant", section: "AI·자동화",
+  roles: ["super_admin", "admin", "inspector"] as readonly string[],
+} as const;
+export function canSeeAiAssistant(role: string | null | undefined, isDemo: boolean): boolean {
+  return !!role && !isDemo && AI_ASSISTANT_PLACEMENT.roles.includes(role);
+}
 
 /**
  * 자동화 에이전트 — 역할이 아니라 **허용 이메일**로 노출한다 (기존 사이드바 하단 버튼과 같은 조건, 권한 변경 없음).
@@ -514,7 +588,6 @@ export const ROUTE_HUB_RULES: ReadonlyArray<{ match: string; hub: HubId }> = [
   { match: "/board", hub: "today" },
   { match: "/document-approval", hub: "today" },
   { match: "/dashboard/writer-review", hub: "today" },
-  { match: "/dashboard/ai-assistant", hub: "today" },
   // 매입·매출 관리 — 매입 쪽
   { match: "/dashboard/material-receipt", hub: "trade" },
   { match: "/inventory/receipt", hub: "trade" },

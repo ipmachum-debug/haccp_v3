@@ -33,6 +33,7 @@ import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import NotificationDropdown from "./NotificationDropdown";
 import HeaderAttendance, { ATTENDANCE_ROLES } from "./HeaderAttendance";
+import { AppBottomNav } from "./MobileBottomNav";
 import { FEATURES, MODULES } from "@/lib/featureFlags";
 import { ROUTES } from "@/lib/routePaths";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -41,7 +42,7 @@ import { useIndustryFeatures, type ModuleKey } from "@/hooks/useIndustryFeatures
 // Phase Plugin-3: Menu Engine — Plugin 기반 사이드바 동적 생성
 import { useDomainPlugin } from "@/domain/useDomainPlugin";
 import { buildMenuFromPlugin, getIcon } from "@/domain/engines/clientMenuEngine";
-import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, buildHubMenu, CONSOLIDATED_PLACEMENTS, AGENT_PLACEMENT, canSeeAgent, type MenuPlacement } from "@shared/navigation/menuRegistry";
+import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, buildHubMenu, CONSOLIDATED_PLACEMENTS, AGENT_PLACEMENT, canSeeAgent, AI_ASSISTANT_PLACEMENT, canSeeAiAssistant, mobileNavFor, MENU_PLACEMENTS, type MenuPlacement } from "@shared/navigation/menuRegistry";
 import HubSidebarMenu, { type HubMenuEntry } from "./HubSidebarMenu";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import { cn } from "@/lib/utils";
@@ -650,7 +651,11 @@ function DashboardLayoutContent({
   const agentMenuItems: MenuItem[] = user && canSeeAgent(user.email)
     ? [{ icon: getIcon(AGENT_PLACEMENT.icon), label: AGENT_PLACEMENT.label, path: AGENT_PLACEMENT.path, roles: [user.role], section: AGENT_PLACEMENT.section }]
     : [];
-  const allMenuItems = [...menuItems, ...accountingMenuItems, ...workMenuItems, ...superAdminMenuItems, ...agentMenuItems];
+  // AI 어시스턴트 — 기존 하단 버튼과 같은 조건(super_admin·admin·inspector, 데모 제외). 허브 사이드바에서는 플랫폼 허브 'AI·자동화'
+  const aiMenuItems: MenuItem[] = user && canSeeAiAssistant(user.role, isDemo)
+    ? [{ icon: getIcon(AI_ASSISTANT_PLACEMENT.icon), label: AI_ASSISTANT_PLACEMENT.label, path: AI_ASSISTANT_PLACEMENT.path, roles: [user.role], section: AI_ASSISTANT_PLACEMENT.section }]
+    : [];
+  const allMenuItems = [...menuItems, ...accountingMenuItems, ...workMenuItems, ...superAdminMenuItems, ...aiMenuItems, ...agentMenuItems];
 
   // activeMenuItem: 모든 메뉴에서 정확한 경로 매칭을 먼저 시도하고, 없으면 가장 긴 접두사 매칭
   const activeMenuItem = (() => {
@@ -785,7 +790,7 @@ function DashboardLayoutContent({
     return exact || child || (!hasOtherExact && location.startsWith(path + "/"));
   };
   const hubSections = hubMode
-    ? buildHubMenu([...displayedMenuItems, ...agentMenuItems].filter((item: MenuItem) => user && item.roles?.includes(user.role)).map((i: MenuItem) => ({ ...i, roles: i.roles ?? [] })))
+    ? buildHubMenu([...displayedMenuItems, ...aiMenuItems, ...agentMenuItems].filter((item: MenuItem) => user && item.roles?.includes(user.role)).map((i: MenuItem) => ({ ...i, roles: i.roles ?? [] })))
     : [];
   const toggleFavorite = (entry: HubMenuEntry) => {
     const fav = favorites.find((f: FavoriteItem) => f.menuPath === entry.path);
@@ -799,6 +804,11 @@ function DashboardLayoutContent({
 
   // 자동 탭 전환 로직 제거 - 사용자가 수동으로 탭을 선택할 수 있도록 함
   const isMobile = useIsMobile();
+
+  // 2-b-4 모바일 하단바 — 역할별 핵심 화면(이 사용자에게 보이는 메뉴만) + 알림 + 메뉴
+  const visibleMenuPaths = new Set<string>(hubSections.flatMap((s) => s.items.map((i) => i.path)));
+  const mobileNavItems = user ? mobileNavFor(user.role, visibleMenuPaths, (p) => MENU_PLACEMENTS.find((m) => m.path === p)?.icon ?? "FileText") : [];
+  const showBottomNav = isMobile && hubMode && mobileNavItems.length > 0;
 
   useEffect(() => {
     if (isCollapsed) {
@@ -1113,8 +1123,8 @@ function DashboardLayoutContent({
           </SidebarContent>
 
           <SidebarFooter className="px-2 py-2 space-y-1">
-            {/* AI 어시스턴트 - 심플 한 줄 버튼 (데모 모드에서는 숨김) */}
-            {!isDemo && user && ["super_admin", "admin", "inspector"].includes(user.role) && (
+            {/* AI 어시스턴트 — 허브 사이드바에서는 플랫폼 허브 'AI·자동화' 로 이동 (2026-10-14), 탭 사이드바(플래그 off)에서만 하단 유지 */}
+            {!hubMode && user && canSeeAiAssistant(user.role, isDemo) && (
               <button
                 onClick={() => setLocation("/dashboard/ai-assistant")}
                 className={`w-full flex items-center gap-2 rounded-md px-2 py-1.5 text-[12px] font-medium transition-all ${
@@ -1268,7 +1278,8 @@ function DashboardLayoutContent({
         {/* ★ 2026-05-11: min-w-0 + w-full — flex-1 만으로는 자식 wide table 이
             viewport 를 밀어내는 사고. SidebarInset 와 함께 적용해 모바일 좌우
             스와이프 + Table 자체 overflow-x-auto 가 정상 작동하게 한다. */}
-        <main className="flex-1 min-w-0 w-full px-3 py-4 md:px-5 md:py-5">{children}</main>
+        <main className={cn("flex-1 min-w-0 w-full px-3 py-4 md:px-5 md:py-5", showBottomNav && "pb-24")}>{children}</main>
+        {showBottomNav && <AppBottomNav items={mobileNavItems} isActivePath={isActivePath} onOpenMenu={toggleSidebar} />}
       </SidebarInset>
     </>
   );
