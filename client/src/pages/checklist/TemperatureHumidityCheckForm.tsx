@@ -29,6 +29,7 @@ const config: ChecklistFormConfig = {
   title: "온·습도 점검표",
   listPath: "/temperature-humidity-check",
   documentTitle: "온·습도 점검표",
+  dateField: "checkDate",
 };
 
 interface SpaceRow {

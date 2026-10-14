@@ -1,93 +1,22 @@
-import { useState } from "react";
-import DashboardLayout from "@/components/dashboard/DashboardLayout";
-import { trpc } from "@/lib/trpc";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { useLocation } from "wouter";
-import { Plus, FileText } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
+/**
+ * 유효성 평가 목록 — 작성 화면이 저장하는 곳(공통 일지 h_generic_checklist_records, formType "validity_evaluation")을 그대로 읽는다.
+ * 2026-10-15 (Codex 일지 전수 점검 후속): 이전에는 쓰지 않는 옛 전용 테이블을 읽어, 저장한 기록이 목록에 나오지 않았다.
+ * 옛 전용 테이블은 덤프 10/14 기준 0건 — 옮길 기록 없음.
+ */
+import { BadgeCheck } from "lucide-react";
+import ChecklistListPage from "@/components/checklist/ChecklistListPage";
 
 export default function ValidityEvaluationList() {
-  const [, setLocation] = useLocation();
-  const navigate = (path: string) => setLocation(path);
-  const { toast } = useToast();
-
-  const { data: records, isLoading, refetch } = trpc.validityEvaluation.list.useQuery({});
-
-  const deleteMutation = trpc.validityEvaluation.delete.useMutation({
-    onSuccess: () => {
-      toast({ title: "삭제 완료", description: "유효성 평가 기록이 삭제되었습니다." });
-      refetch();
-    },
-    onError: (error: { message: string }) => {
-      toast({ title: "삭제 실패", description: error.message, variant: "destructive" });
-    },
-  });
-
-  const handleDelete = (id: number) => {
-    if (confirm("정말 삭제하시겠습니까?")) {
-      deleteMutation.mutate({ id });
-    }
-  };
-
   return (
-    <DashboardLayout>
-    <div className="space-y-6">
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5" />
-            유효성 평가
-          </CardTitle>
-          <Button onClick={() => navigate("/validity-evaluation/new")}>
-            <Plus className="h-4 w-4 mr-2" />
-            신규 등록
-          </Button>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <div className="text-center py-8">로딩 중...</div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>평가일</TableHead>
-                  <TableHead>평가 유형</TableHead>
-                  <TableHead>평가 범위</TableHead>
-                  <TableHead>평가 결과</TableHead>
-                  <TableHead>작업</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {records && records.length > 0 ? (
-                  records.map((record: any) => (
-                    <TableRow key={record.id}>
-                      <TableCell>{new Date(record.evaluationDate).toLocaleDateString()}</TableCell>
-                      <TableCell>{record.evaluationType || "-"}</TableCell>
-                      <TableCell>{record.evaluationScope || "-"}</TableCell>
-                      <TableCell>{record.evaluationResult || "-"}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button variant="outline" size="sm" onClick={() => navigate(`/validity-evaluation/${record.id}`)}>수정</Button>
-                          <Button variant="destructive" size="sm" onClick={() => handleDelete(record.id)}>삭제</Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                      등록된 유효성 평가 기록이 없습니다.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-    </div>
-    </DashboardLayout>
+    <ChecklistListPage
+      config={{
+        formType: "validity_evaluation",
+        title: "유효성 평가",
+        description: "유효성 평가 기록을 관리합니다",
+        icon: <BadgeCheck className="h-5 w-5 text-emerald-600" />,
+        basePath: "/validity-evaluation",
+        backPath: "/quality/checklists",
+      }}
+    />
   );
 }

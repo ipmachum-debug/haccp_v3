@@ -12,6 +12,7 @@ const config: ChecklistFormConfig = {
   title: "냉동·냉장 설비 점검",
   listPath: "/refrigeration-check",
   documentTitle: "냉동·냉장 설비 점검표",
+  dateField: "checkDate",
 };
 
 export default function RefrigerationCheckForm() {

@@ -31,6 +31,7 @@ const config: ChecklistFormConfig = {
   title: "자가품질검사 등록",
   listPath: "/quality/self-inspection",
   documentTitle: "자가품질검사서",
+  dateField: "inspectionDate",
 };
 
 interface InspectionItem {

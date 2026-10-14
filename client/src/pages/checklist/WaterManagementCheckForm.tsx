@@ -16,6 +16,7 @@ const config: ChecklistFormConfig = {
   title: "용수관리 점검표",
   listPath: "/water-management-check",
   documentTitle: "용수관리 점검표",
+  dateField: "checkDate",
 };
 
 interface CheckItem {

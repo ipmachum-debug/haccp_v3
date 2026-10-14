@@ -13,6 +13,7 @@ const config: ChecklistFormConfig = {
   title: "품질 이상 발생 기록",
   listPath: "/quality-issue-record",
   documentTitle: "품질 이상 발생 기록",
+  dateField: "issueDate",
 };
 
 export default function QualityIssueRecordForm() {

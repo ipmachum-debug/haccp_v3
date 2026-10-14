@@ -13,6 +13,7 @@ const config: ChecklistFormConfig = {
   title: "개선조치(CAPA) 기록",
   listPath: "/capa-record",
   documentTitle: "개선조치(CAPA) 기록",
+  dateField: "issueDate",
 };
 
 export default function CapaRecordForm() {

@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { todayLocal } from "../../lib/dateUtils";
+import { resolveRecordDate, stripPrefillDates } from "../../lib/checklistRecordDate";
 
 import {
   ArrowLeft,
@@ -48,6 +49,11 @@ export interface ChecklistFormConfig {
   title: string;              // 페이지 제목 (예: "종사자 건강상태 확인 일지")
   listPath: string;           // 리스트 페이지 경로 (예: "/employee-health-check")
   documentTitle: string;      // 문서 출력 제목 (예: "작업장 출입 전 종사자 건강상태 확인 일지")
+  /**
+   * 기록일로 쓸 양식 본문의 날짜 칸 이름 (collectFormData 결과의 키, 예: "checkDate").
+   * 있으면 그 값이 DB form_date·목록 작성일·승인 제목이 된다. 없으면 머리의 "작성일" 칸을 쓴다. (2026-10-15)
+   */
+  dateField?: string;
 }
 
 interface ChecklistFormLayoutProps {
@@ -183,6 +189,7 @@ export default function ChecklistFormLayout({
   onDataRestore,
   extraActions,
   children,
+  documentTitle,
 }: ChecklistFormLayoutProps) {
   const params = useParams();
   const [, setLocation] = useLocation();
@@ -383,13 +390,8 @@ export default function ChecklistFormLayout({
         // ★ 데이터 필드만 pre-fill 하기 위해 메타 필드를 제거한 복사본 생성
         // - formDate / checkDate / date: 현재 날짜 유지 (과거 날짜 덮어쓰기 방지)
         // - id / approval / status / createdAt / updatedAt: 새 레코드의 상태 유지
-        const prefillData = { ...fd };
-        delete prefillData.formDate;
-        delete prefillData.checkDate;
-        delete prefillData.date;
-        delete prefillData.inspectionDate;
-        delete prefillData.workDate;
-        delete prefillData.reportDate;
+        // 양식의 기록일 칸(config.dateField)도 지운다 — 이전에는 발생일·검사일 등이 지난 날짜로 따라왔다
+        const prefillData = stripPrefillDates({ ...fd }, config.dateField);
         delete prefillData.id;
         delete prefillData.approval;
         delete prefillData.status;
@@ -442,6 +444,9 @@ export default function ChecklistFormLayout({
     try {
       // 각 폼에서 고유 데이터 수집
       const customData = collectFormData();
+      // 기록일 = 양식의 날짜 칸(있으면) — 화면 날짜와 DB form_date 를 하나로 (2026-10-15)
+      const recordDate = resolveRecordDate(customData, config.dateField, formDate);
+      if (recordDate !== formDate) setFormDate(recordDate);
 
       // 이미 검토/승인 단계로 넘어간 문서를 수정하는 경우 → 재작성(재승인) 흐름
       //  · 검토/승인 직인 제거, 상태 draft 로 복귀, 연결된 승인요청 취소
@@ -450,7 +455,7 @@ export default function ChecklistFormLayout({
       // 전체 폼 데이터를 formData에 저장
       const formData = {
         ...customData,
-        formDate,
+        formDate: recordDate,
         approval: {
           writerId: approval.writerId,
           writerName: approval.writerName,
@@ -470,8 +475,8 @@ export default function ChecklistFormLayout({
       if (savedRecordId) {
         await gcUpdateMutation.mutateAsync({
           id: savedRecordId,
-          formDate,
-          title: `${config.title} - ${formDate}`,
+          formDate: recordDate,
+          title: `${config.title} - ${recordDate}`,
           formData,
           status: wasNonDraft ? "draft" : (approvalStatus === "draft" ? "draft" : approvalStatus),
         });
@@ -483,8 +488,8 @@ export default function ChecklistFormLayout({
       } else {
         const r = await gcSaveMutation.mutateAsync({
           formType: config.formType,
-          formDate,
-          title: `${config.title} - ${formDate}`,
+          formDate: recordDate,
+          title: `${config.title} - ${recordDate}`,
           formData,
           status: "draft",
         });
@@ -573,14 +578,14 @@ export default function ChecklistFormLayout({
           {/* 상단: 문서 제목(좌) + 결재란(우) — 제목이 결재란과 같은 높이에서 시작하도록 배치 */}
           <div className="flex justify-between items-center gap-4 px-4 pt-4">
             <div className="flex-1 text-center">
-              <h2 className="text-2xl font-bold tracking-wide">{config.documentTitle}</h2>
+              <h2 className="text-2xl font-bold tracking-wide">{documentTitle ?? config.documentTitle}</h2>
             </div>
             <ApprovalStampTable approval={approval} />
           </div>
 
           {/* 작성자 선택 - 인쇄 시 숨김 */}
           <div className="px-6 pt-2 print:hidden">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <label className="text-sm font-medium text-gray-600 whitespace-nowrap">
                 <User className="h-3.5 w-3.5 inline mr-1" />
                 작성자
@@ -593,6 +598,19 @@ export default function ChecklistFormLayout({
                   isAutoSet={approvalSettingApplied && !!approval.writerName}
                 />
               </div>
+              {!config.dateField && (
+                <>
+                  <label htmlFor="checklist-form-date" className="ml-4 text-sm font-medium text-gray-600 whitespace-nowrap">작성일</label>
+                  <input
+                    id="checklist-form-date"
+                    type="date"
+                    value={formDate}
+                    onChange={(e) => e.target.value && setFormDate(e.target.value)}
+                    className="h-9 rounded-md border px-2 text-sm"
+                    data-testid="checklist-form-date"
+                  />
+                </>
+              )}
             </div>
             {approvalSettingApplied && (
               <p className="text-xs text-gray-400 mt-1 ml-6">

@@ -12,6 +12,7 @@ const config: ChecklistFormConfig = {
   title: "이물 관리 기록",
   listPath: "/foreign-material-record",
   documentTitle: "이물 관리 기록",
+  dateField: "detectionDate",
 };
 
 const initialData = {
@@ -31,10 +32,12 @@ export default function ForeignMaterialRecordForm() {
 
   const onDataRestore = (data: any) => {
     if (data) {
-      setFormData({
+      setFormData((prev: typeof initialData) => ({
         ...initialData,
         ...data,
-      });
+        // 미리 채우기(이전 기록)에는 발견일이 없다 → 지금 칸의 날짜 유지
+        detectionDate: data.detectionDate || prev.detectionDate,
+      }));
     }
   };
 

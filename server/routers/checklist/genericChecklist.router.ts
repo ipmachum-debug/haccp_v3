@@ -301,7 +301,7 @@ export const genericChecklistRouter = router({
             try {
               const { autoRegenerateProductionDaily } = await import("../../lib/production/autoProductionDaily");
               const batchExec: any = await db.execute(sql`
-                SELECT planned_date FROM h_batches WHERE id = ${refId} AND tenant_id = ${tenantId}
+                SELECT planned_date FROM h_batches WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
               `);
               const batchRowsArr: any[] = (batchExec as any)?.[0] || [];
               const bRow = batchRowsArr[0];

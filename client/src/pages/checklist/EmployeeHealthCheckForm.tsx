@@ -734,7 +734,7 @@ export default function EmployeeHealthCheckForm() {
                       {approval.writerName || "-"}
                     </span>
                     <Select
-                      value={approval.writerName || undefined}
+                      value={approval.writerName ?? ""}
                       onValueChange={(val) => {
                         const emp = activeEmployees.find((e: any) => e.name === val);
                         handleWriterChange(val, emp?.id);
@@ -804,7 +804,7 @@ export default function EmployeeHealthCheckForm() {
                     <td className="border border-gray-300 px-1 py-0.5">
                       <div className="flex items-center gap-0.5">
                         <Input
-                          value={row.name}
+                          value={row.name ?? ""}
                           onChange={(e) => handleNameChange(rowIndex, e.target.value)}
                           placeholder={`종사자 ${rowIndex + 1}`}
                           className="h-6 border-none shadow-none p-0 text-xs print:placeholder-transparent"

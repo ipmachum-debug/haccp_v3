@@ -13,6 +13,7 @@ const config: ChecklistFormConfig = {
   title: "수질 검사 기록",
   listPath: "/water-quality-test",
   documentTitle: "수질 검사 기록",
+  dateField: "testDate",
 };
 
 export default function WaterQualityTestForm() {

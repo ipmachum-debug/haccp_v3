@@ -13,6 +13,7 @@ const config: ChecklistFormConfig = {
   title: "설비 세척·소독 기록",
   listPath: "/equipment-cleaning-record",
   documentTitle: "설비 세척·소독 기록",
+  dateField: "cleaningDate",
 };
 
 export default function EquipmentCleaningRecordForm() {
