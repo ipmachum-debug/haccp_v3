@@ -15,6 +15,8 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { todayLocal } from "../../lib/dateUtils";
 import { resolveRecordDate, stripPrefillDates } from "../../lib/checklistRecordDate";
+import { resolveApprovalNames } from "../../lib/checklist/approvalNames";
+import { ApprovalStampBox } from "./ApprovalStampBox";
 import { sanitizeForPrefill, describePrefill, entryPolicyOf, type ClearedValue } from "../../lib/checklist/prefillPolicy";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
@@ -79,52 +81,9 @@ interface ChecklistFormLayoutProps {
 // ============================================================================
 // 공통 결재란 컴포넌트
 // ============================================================================
+// 결재란은 공통 컴포넌트(ApprovalStampBox) — 2줄 형태 (2026-10-15 대표 요청)
 function ApprovalStampTable({ approval }: { approval: ApprovalInfo }) {
-  return (
-    <table className="border-collapse text-xs">
-      <tbody>
-        <tr>
-          <td className="border border-gray-400 px-3 py-0.5 text-center text-[10px] font-semibold bg-gray-50">작 성</td>
-          <td className="border border-gray-400 px-3 py-0.5 text-center text-[10px] font-semibold bg-gray-50">검 토</td>
-          <td className="border border-gray-400 px-3 py-0.5 text-center text-[10px] font-semibold bg-gray-50">승 인</td>
-        </tr>
-        <tr>
-          {(["writer", "reviewer", "approver"] as const).map((role) => {
-            const nameKey = `${role}Name` as keyof ApprovalInfo;
-            const approvedKey = `${role}Approved` as keyof ApprovalInfo;
-            const dateKey = `${role}Date` as keyof ApprovalInfo;
-            const name = approval[nameKey] as string;
-            const approved = approval[approvedKey] as boolean;
-            const date = approval[dateKey] as string | undefined;
-            return (
-              <td key={role} className="border border-gray-400 p-1 text-center h-16 align-middle w-16">
-                {approved ? (
-                  <div className="w-12 h-12 rounded-full border-2 border-red-500 flex flex-col items-center justify-center mx-auto">
-                    <span className="text-red-500 font-bold text-[11px]">{name}</span>
-                    {date && <span className="text-red-400 text-[8px]">{date}</span>}
-                  </div>
-                ) : (
-                  <div className="w-12 h-12 rounded-full border border-dashed border-gray-300 flex items-center justify-center mx-auto print:border-gray-400">
-                    <span className="text-[10px] text-gray-400">{name || "-"}</span>
-                  </div>
-                )}
-              </td>
-            );
-          })}
-        </tr>
-        <tr>
-          <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-600">{approval.writerName || "-"}</td>
-          <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-600">{approval.reviewerName || "-"}</td>
-          <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-600">{approval.approverName || "-"}</td>
-        </tr>
-        <tr>
-          <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-400">작성자</td>
-          <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-400">검토자</td>
-          <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-400">승인자</td>
-        </tr>
-      </tbody>
-    </table>
-  );
+  return <ApprovalStampBox approval={approval} />;
 }
 
 // ============================================================================
@@ -242,6 +201,8 @@ export default function ChecklistFormLayout({
   // 결재 설정·역할이 없는 회사에서는 수정 화면이 비어 있을 수 있었다 (2026-10-15)
   const approvalReady = (approvalSettingQ.isFetched || approvalSettingQ.isError) && (employeesQ.isFetched || employeesQ.isError);
   const [approvalSettled, setApprovalSettled] = useState(false);
+  // 현재 담당자 설정 (문서 결재 설정·직급) — 새 문서 기본값, 재작성 저장 시 다음 결재자로만 쓴다 (기존 기록 표시에는 쓰지 않음)
+  const designatedRef = useRef<Partial<ApprovalInfo>>({});
 
   // 기존 데이터 로드 (편집 모드)
   const { data: existingRecord } = trpc.genericChecklist.getById.useQuery(
@@ -338,6 +299,7 @@ export default function ChecklistFormLayout({
       }
 
       if (Object.keys(newApproval).length > 0) {
+        designatedRef.current = { ...designatedRef.current, ...newApproval };
         setApproval(prev => ({ ...prev, ...newApproval }));
         setApprovalSettingApplied(true);
       }
@@ -363,6 +325,7 @@ export default function ChecklistFormLayout({
       }
 
       if (Object.keys(newApproval).length > 0) {
+        designatedRef.current = { ...designatedRef.current, ...newApproval };
         setApproval(prev => ({ ...prev, ...newApproval }));
         setApprovalSettingApplied(true);
       }
@@ -380,7 +343,7 @@ export default function ChecklistFormLayout({
         // 기록일은 DB form_date(목록·승인 제목과 같은 값)를 우선 — 본문 안 formDate 는 옛 값일 수 있다 (2026-10-15)
         const recDate = typeof (existingRecord as any).formDate === "string" ? String((existingRecord as any).formDate).slice(0, 10) : "";
         if (recDate) setFormDate(recDate); else if (fd.formDate) setFormDate(fd.formDate);
-        // 결재 정보: 저장된 데이터를 우선 사용하되, 대시보드 설정이 있으면 이름은 대시보드 기준 유지
+        // 결재 정보: 직인 상태·날짜는 저장된 값, 이름은 resolveApprovalNames 규칙 (2026-10-15)
         if (fd.approval) {
           setApproval(prev => ({
             ...prev,
@@ -391,10 +354,8 @@ export default function ChecklistFormLayout({
             writerDate: fd.approval.writerDate,
             reviewerDate: fd.approval.reviewerDate,
             approverDate: fd.approval.approverDate,
-            // 이름은 대시보드 설정이 이미 적용되어 있으므로, 대시보드 설정이 없는 경우에만 저장된 데이터 사용
-            ...((!approval.writerName && fd.approval.writerName) ? { writerId: fd.approval.writerId, writerName: fd.approval.writerName } : {}),
-            ...((!approval.reviewerName && fd.approval.reviewerName) ? { reviewerId: fd.approval.reviewerId, reviewerName: fd.approval.reviewerName } : {}),
-            ...((!approval.approverName && fd.approval.approverName) ? { approverId: fd.approval.approverId, approverName: fd.approval.approverName } : {}),
+            // 이름: 기존 기록은 저장된 이름 우선 (실제 결재자) — 현재 담당자 설정은 비어 있는 칸에만 (resolveApprovalNames)
+            ...resolveApprovalNames(prev as any, fd.approval),
           }));
         }
         if (existingRecord.status) {
@@ -502,10 +463,11 @@ export default function ChecklistFormLayout({
         approval: {
           writerId: approval.writerId,
           writerName: approval.writerName,
-          reviewerId: approval.reviewerId,
-          reviewerName: approval.reviewerName,
-          approverId: approval.approverId,
-          approverName: approval.approverName,
+          // 재작성(승인 절차가 진행된 문서 수정)이면 검토·승인 직인이 지워지므로, 다음 결재자는 현재 담당자 설정으로
+          reviewerId: wasNonDraft && designatedRef.current.reviewerName ? designatedRef.current.reviewerId ?? null : approval.reviewerId,
+          reviewerName: wasNonDraft && designatedRef.current.reviewerName ? designatedRef.current.reviewerName : approval.reviewerName,
+          approverId: wasNonDraft && designatedRef.current.approverName ? designatedRef.current.approverId ?? null : approval.approverId,
+          approverName: wasNonDraft && designatedRef.current.approverName ? designatedRef.current.approverName : approval.approverName,
           writerApproved: true,
           reviewerApproved: wasNonDraft ? false : approval.reviewerApproved,
           approverApproved: wasNonDraft ? false : approval.approverApproved,
@@ -544,7 +506,11 @@ export default function ChecklistFormLayout({
         ...prev,
         writerApproved: true,
         writerDate: new Date().toLocaleDateString("ko-KR"),
-        ...(wasNonDraft ? { reviewerApproved: false, approverApproved: false, reviewerDate: undefined, approverDate: undefined } : {}),
+        ...(wasNonDraft ? {
+          reviewerApproved: false, approverApproved: false, reviewerDate: undefined, approverDate: undefined,
+          ...(designatedRef.current.reviewerName ? { reviewerId: designatedRef.current.reviewerId ?? null, reviewerName: designatedRef.current.reviewerName } : {}),
+          ...(designatedRef.current.approverName ? { approverId: designatedRef.current.approverId ?? null, approverName: designatedRef.current.approverName } : {}),
+        } : {}),
       }));
 
       toast({

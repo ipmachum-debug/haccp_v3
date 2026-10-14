@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { todayLocal } from "../../lib/dateUtils";
+import { ApprovalStampBox } from "@/components/checklist/ApprovalStampBox";
 
 import {
   ArrowLeft,
@@ -734,49 +735,8 @@ export default function EmployeeHealthCheckForm() {
           <div className="flex justify-between items-start px-4 pt-4 print:pt-0 print:px-2 print-approval-row">
             <div className="flex-1"></div>
             <div>
-              <table className="border-collapse text-xs">
-                <tbody>
-                  <tr>
-                    <td className="border border-gray-400 px-3 py-0.5 text-center text-[10px] font-semibold bg-gray-50">작성</td>
-                    <td className="border border-gray-400 px-3 py-0.5 text-center text-[10px] font-semibold bg-gray-50">검토</td>
-                    <td className="border border-gray-400 px-3 py-0.5 text-center text-[10px] font-semibold bg-gray-50">승인</td>
-                  </tr>
-                  <tr>
-                    {(["writer", "reviewer", "approver"] as const).map((role) => {
-                      const nameKey = `${role}Name` as keyof ApprovalInfo;
-                      const approvedKey = `${role}Approved` as keyof ApprovalInfo;
-                      const dateKey = `${role}Date` as keyof ApprovalInfo;
-                      const name = approval[nameKey] as string;
-                      const approved = approval[approvedKey] as boolean;
-                      const date = approval[dateKey] as string | undefined;
-                      return (
-                        <td key={role} className="border border-gray-400 p-1 text-center h-16 align-middle w-16">
-                          {approved ? (
-                            <div className="w-12 h-12 rounded-full border-2 border-red-500 flex flex-col items-center justify-center mx-auto">
-                              <span className="text-red-500 font-bold text-[11px]">{name}</span>
-                              {date && <span className="text-red-400 text-[8px]">{date}</span>}
-                            </div>
-                          ) : (
-                            <div className="w-12 h-12 rounded-full border border-dashed border-gray-300 flex items-center justify-center mx-auto print:border-gray-400">
-                              <span className="text-[10px] text-gray-400">{name || "-"}</span>
-                            </div>
-                          )}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  <tr>
-                    <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-600">{approval.writerName || "-"}</td>
-                    <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-600">{approval.reviewerName || "-"}</td>
-                    <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-600">{approval.approverName || "-"}</td>
-                  </tr>
-                  <tr>
-                    <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-400">작성자</td>
-                    <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-400">검토자</td>
-                    <td className="border border-gray-400 px-2 py-0.5 text-center text-[10px] text-gray-400">승인자</td>
-                  </tr>
-                </tbody>
-              </table>
+              {/* 결재란 — 공통 컴포넌트 (2026-10-15) */}
+              <ApprovalStampBox approval={approval} />
             </div>
           </div>
 
