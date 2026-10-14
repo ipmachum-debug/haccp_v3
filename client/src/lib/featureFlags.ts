@@ -57,6 +57,12 @@ export const FEATURES = {
   GOGOGOPICK_INTEGRATION: envFlag("VITE_FEATURE_GOGOGOPICK", false),
 
   /**
+   * 허브 사이드바 (UI/UX 개편 2-b-1, 2026-10-14) — WORK/회계/HACCP 탭 대신 업무 허브 8개 + 플랫폼
+   * 기본값: true. 되돌릴 때: .env 에 VITE_FEATURE_HUB_SIDEBAR=false (탭 사이드바 코드는 그대로 남아 있음)
+   */
+  HUB_SIDEBAR: envFlag("VITE_FEATURE_HUB_SIDEBAR", true),
+
+  /**
    * FSSC 22000 글로벌 모듈 (향후 추가 예정)
    */
   FSSC_22000: envFlag("VITE_FEATURE_FSSC_22000", false),
