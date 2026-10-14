@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import NotificationDropdown from "./NotificationDropdown";
 import HeaderAttendance, { ATTENDANCE_ROLES } from "./HeaderAttendance";
 import { AppBottomNav } from "./MobileBottomNav";
+import { GlobalMenuSearch, HeaderProfileMenu } from "./HeaderTools";
 import { FEATURES, MODULES } from "@/lib/featureFlags";
 import { ROUTES } from "@/lib/routePaths";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1269,6 +1270,7 @@ function DashboardLayoutContent({
               </span>
             </div>
             <div className="flex items-center gap-1">
+              {hubMode && <GlobalMenuSearch compact sections={hubSections} onNavigate={(p) => setLocation(p)} />}
               {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance compact />}
               <NotificationDropdown />
             </div>
@@ -1281,10 +1283,12 @@ function DashboardLayoutContent({
                 {activeMenuItem?.label ?? ""}
               </span>
             </div>
-            {/* 헤더 우측 = 전역 공통 도구 영역 (출퇴근 · 알림) */}
+            {/* 헤더 우측 = 전역 공통 도구 영역 (3-a: 검색 · 출퇴근 · 알림 · 프로필) */}
             <div className="flex items-center gap-2">
+              {hubMode && <GlobalMenuSearch sections={hubSections} onNavigate={(p) => setLocation(p)} />}
               {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance />}
               <NotificationDropdown />
+              {user && <HeaderProfileMenu name={user.name} email={user.email} role={user.role} onLogout={logout} />}
             </div>
           </div>
         )}
