@@ -300,6 +300,34 @@ export default function EmployeeHealthCheckForm() {
   }, [isEdit, dataLoaded, employeesAutofilled, activeEmployees, employeeRows]);
 
   // ============================================================================
+  // 이전 기록 참고 (일지 PR 2, 2026-10-15) — 공통 정책과 같은 조회(prefillContext)
+  //  - 가져오는 것: 질문 구성(회사가 바꾼 문항)만. 명단은 위의 현재 재직자 자동 채움을 그대로 쓴다
+  //  - 건강 답변(O/X)은 절대 복사하지 않는다 — 오늘 한 사람씩 확인
+  //  - 오늘 기록이 있으면 이어쓰기 안내, ?ref=none 이면 빈 양식(기본 문항)
+  // ============================================================================
+  const refParam = useMemo(() => { try { return new URLSearchParams(window.location.search).get("ref"); } catch { return null; } }, []);
+  const [openedDate] = useState(() => todayLocal());
+  const prefillQ = trpc.genericChecklist.prefillContext.useQuery(
+    { formType: "employee_health_check", formDate: openedDate, refId: refParam && /^\d+$/.test(refParam) ? Number(refParam) : undefined },
+    { enabled: !isEdit, retry: 1, refetchOnWindowFocus: false, staleTime: Infinity },
+  );
+  const [refApplied, setRefApplied] = useState<null | { id: number; date: string; questions: number }>(null);
+  useEffect(() => {
+    if (isEdit || refApplied || refParam === "none") return;
+    const ref = prefillQ.data?.reference as { id: number; formDate: string; formData: any } | null | undefined;
+    if (!ref) return;
+    const qs = Array.isArray(ref.formData?.questions) ? ref.formData.questions : null;
+    if (qs && qs.length > 0) setQuestions(qs.map((q: any) => ({ id: String(q.id), text: String(q.text ?? ""), boldText: q.boldText ? String(q.boldText) : undefined })));
+    setRefApplied({ id: ref.id, date: ref.formDate, questions: qs?.length ?? 0 });
+  }, [isEdit, refApplied, refParam, prefillQ.data]);
+  const healthTodayRecords = ((prefillQ.data?.todayRecords ?? []) as Array<{ id: number; status: string }>);
+  const goWithRef = (ref: string | null) => {
+    const url = new URL(window.location.href);
+    if (ref == null) url.searchParams.delete("ref"); else url.searchParams.set("ref", ref);
+    window.location.assign(url.pathname + url.search);
+  };
+
+  // ============================================================================
   // 이벤트 핸들러
   // ============================================================================
 
@@ -651,6 +679,39 @@ export default function EmployeeHealthCheckForm() {
             </Button>
           </div>
         </div>
+
+        {/* 이전 기록 참고 안내 — 인쇄 시 숨김 */}
+        {!isEdit && (
+          <div className="space-y-2 print:hidden" data-testid="prefill-banner">
+            {healthTodayRecords.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2 rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                <span>오늘({openedDate}) 이미 작성한 건강일지가 있습니다.</span>
+                {healthTodayRecords.map((r) => (
+                  <Button key={r.id} size="sm" variant="outline" className="h-7" onClick={() => setLocation(`/employee-health-check/${r.id}`)} data-testid="prefill-continue">#{r.id} 이어쓰기</Button>
+                ))}
+              </div>
+            )}
+            <div className="flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm text-gray-700">
+              {refParam === "none" ? (
+                <><span>빈 양식(기본 문항)으로 시작했습니다.</span><Button size="sm" variant="outline" className="h-7" onClick={() => goWithRef(null)}>최근 기록 참고하기</Button></>
+              ) : prefillQ.isError ? (
+                <span className="text-red-700" data-testid="prefill-error">이전 기록을 불러오지 못했습니다 — 기본 문항입니다.</span>
+              ) : refApplied ? (
+                <>
+                  <span data-testid="prefill-applied">
+                    이전 기록 <b>{refApplied.date}</b> (#{refApplied.id}){refApplied.questions ? `의 문항 ${refApplied.questions}개` : ""}를 가져왔습니다.
+                    <b> 건강 답변은 가져오지 않습니다</b> — 오늘 한 사람씩 확인해 체크하세요.
+                  </span>
+                  <Button size="sm" variant="ghost" className="h-7 ml-auto" onClick={() => goWithRef("none")} data-testid="prefill-blank">빈 양식으로 시작</Button>
+                </>
+              ) : prefillQ.isSuccess ? (
+                <span data-testid="prefill-none">참고할 이전 기록이 없습니다 — 기본 문항입니다. 건강 답변은 오늘 확인해 체크하세요.</span>
+              ) : (
+                <span className="text-gray-500">이전 기록 확인 중…</span>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* 인쇄 영역 */}
         <div ref={printRef} className="print-container bg-white border rounded-lg shadow-sm print:border-none print:shadow-none print:rounded-none">

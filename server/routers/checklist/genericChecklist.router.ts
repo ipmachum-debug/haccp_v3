@@ -37,6 +37,51 @@ export const genericChecklistRouter = router({
         .limit(1);
       return records[0] || null;
     }),
+  /**
+   * 자동 채움 맥락 (일지 PR 2, 2026-10-15) — 오늘 기록(이어쓰기)·참고 후보·참고 기록을 한 번에.
+   * 사업장: 사용자에게 사업장이 있으면 그 사업장만. 선택 로직은 server/lib/checklist/prefillContext.ts
+   */
+  prefillContext: tenantRequiredProcedure
+    .input(z.object({
+      formType: z.string(),
+      formDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      refId: z.number().int().positive().optional(),
+    }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      if (!db) throw new Error("데이터베이스 연결 실패");
+      const tenantId = getEffectiveTenantId(ctx);
+      const { pickPrefill } = await import("../../lib/checklist/prefillContext");
+      const base = [
+        eq(hGenericChecklistRecords.formType, input.formType),
+        eq((hGenericChecklistRecords as any).tenantId, tenantId),
+      ];
+      const rows = await db
+        .select({
+          id: hGenericChecklistRecords.id, siteId: hGenericChecklistRecords.siteId, formDate: hGenericChecklistRecords.formDate,
+          status: hGenericChecklistRecords.status, title: hGenericChecklistRecords.title, formData: hGenericChecklistRecords.formData,
+          createdAt: hGenericChecklistRecords.createdAt,
+        })
+        .from(hGenericChecklistRecords)
+        .where(and(...base, lte(hGenericChecklistRecords.formDate, input.formDate)))
+        .orderBy(desc(hGenericChecklistRecords.formDate), desc(hGenericChecklistRecords.createdAt))
+        .limit(40);
+      // 직접 고른 기록이 최근 40건 밖이면 따로 읽는다 (같은 회사·양식만)
+      if (input.refId && !rows.some((r) => r.id === input.refId)) {
+        const extra = await db
+          .select({
+            id: hGenericChecklistRecords.id, siteId: hGenericChecklistRecords.siteId, formDate: hGenericChecklistRecords.formDate,
+            status: hGenericChecklistRecords.status, title: hGenericChecklistRecords.title, formData: hGenericChecklistRecords.formData,
+            createdAt: hGenericChecklistRecords.createdAt,
+          })
+          .from(hGenericChecklistRecords)
+          .where(and(...base, eq(hGenericChecklistRecords.id, input.refId)))
+          .limit(1);
+        rows.push(...extra);
+      }
+      return pickPrefill(rows as any, { formDate: input.formDate, userSiteId: (ctx.user as any)?.siteId ?? null, refId: input.refId ?? null });
+    }),
+
   list: tenantRequiredProcedure
     .input(z.object({
       formType: z.string(),

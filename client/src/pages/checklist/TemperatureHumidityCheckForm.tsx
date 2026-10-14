@@ -1,3 +1,4 @@
+import { judgeTemp } from "../../lib/checklist/tempJudge";
 import { useState, useCallback } from "react";
 import ChecklistFormLayout from "@/components/checklist/ChecklistFormLayout";
 import type { ChecklistFormConfig } from "@/components/checklist/ChecklistFormLayout";
@@ -79,7 +80,8 @@ export default function TemperatureHumidityCheckForm() {
   const handleTempChange = useCallback((index: number, value: string) => {
     setSpaceRows(prev => {
       const newRows = [...prev];
-      newRows[index] = { ...newRows[index], tempResult: value };
+      // 입력하면 현재 기준으로 바로 판정 (기준을 못 읽으면 미확인) — 복사된 판정이 남지 않게 (일지 PR 2)
+      newRows[index] = { ...newRows[index], tempResult: value, judgment: judgeTemp(value, newRows[index].tempStandard) };
       return newRows;
     });
   }, []);
@@ -124,30 +126,14 @@ export default function TemperatureHumidityCheckForm() {
   }, [editingRow]);
 
   const setAllPass = useCallback(() => {
-    setSpaceRows(prev => prev.map(row => ({ ...row, judgment: "적합" as const })));
+    // 측정값이 기준을 벗어난 행은 적합으로 덮지 않는다 (2026-10-15)
+    setSpaceRows(prev => prev.map(row => ({ ...row, judgment: judgeTemp(row.tempResult, row.tempStandard) === "부적합" ? "부적합" as const : "적합" as const })));
   }, []);
 
   const autoJudge = useCallback(() => {
     setSpaceRows(prev => prev.map(row => {
-      if (!row.tempResult) return row;
-      const temp = parseFloat(row.tempResult);
-      if (isNaN(temp)) return row;
-
-      let pass = false;
-      const std = row.tempStandard;
-      const rangeMatch = std.match(/([-\d.]+)\s*~\s*([-\d.]+)/);
-      const belowMatch = std.match(/([-\d.]+)°?C?\s*이하/);
-      
-      if (rangeMatch) {
-        const min = parseFloat(rangeMatch[1]);
-        const max = parseFloat(rangeMatch[2]);
-        pass = temp >= min && temp <= max;
-      } else if (belowMatch) {
-        const max = parseFloat(belowMatch[1]);
-        pass = temp <= max;
-      }
-
-      return { ...row, judgment: pass ? "적합" as const : "부적합" as const };
+      const j = judgeTemp(row.tempResult, row.tempStandard);
+      return j ? { ...row, judgment: j } : row;
     }));
   }, []);
 
