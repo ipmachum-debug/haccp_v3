@@ -1,6 +1,7 @@
 /**
  * 체크리스트 도메인 라우터 매핑 — _root.ts 분해 (2026-04-19)
  */
+import { checklistHomeRouter } from "../checklist/checklistHome.router";
 import {
   checklistRouter,
   checklistStatsRouter,
@@ -60,4 +61,5 @@ export const checklistRouterMap = {
   qualityIssueRecord: qualityIssueRecordRouter,
   capaRecord: capaRecordRouter,
   genericChecklist: genericChecklistRouter,
+  checklistHome: checklistHomeRouter,
 } as const;

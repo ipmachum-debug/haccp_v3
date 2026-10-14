@@ -211,6 +211,7 @@ const TrainingCourseList = lazy(() => import("./pages/system/TrainingCourseList"
 const ChecklistList = lazy(() => import("./pages/checklist/ChecklistList"));
 const ChecklistCreate = lazy(() => import("./pages/checklist/ChecklistCreate"));
 const ChecklistDashboard = lazy(() => import("./pages/checklist/ChecklistDashboard"));
+const ChecklistHome = lazy(() => import("./pages/checklist/ChecklistHome"));
 const ChecklistDetail = lazy(() => import("./pages/checklist/ChecklistDetail"));
 const ChecklistHistory = lazy(() => import("./pages/checklist/ChecklistHistory"));
 const ChecklistStatistics = lazy(() => import("./pages/checklist/ChecklistStatistics"));
@@ -373,7 +374,9 @@ function Router() {
       <Route path="/dashboard/master-data" component={MasterDataManagement} />
       <Route path="/dashboard/item-master" component={lazy(() => import("@/pages/master/ItemMasterManagement"))} />
       <Route path="/dashboard/upload-history" component={UploadHistory} />
-      <Route path="/quality/checklists" component={ChecklistDashboard} />
+      {/* 일지 PR 3 (2026-10-15): 시작 화면 = 오늘·작성 기록·새 일지 작성. 옛 33종 카드 화면은 /classic 에 그대로 (/:id 보다 먼저) */}
+      <Route path={ROUTES.QUALITY_CHECKLISTS} component={ChecklistHome} />
+      <Route path={ROUTES.QUALITY_CHECKLISTS_CLASSIC} component={ChecklistDashboard} />
       <Route path="/calibration" component={CalibrationManagement} />
       <Route path="/training-log" component={TrainingLogList} />
       <Route path="/training-log/new" component={TrainingLogForm} />
