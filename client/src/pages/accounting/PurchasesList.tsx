@@ -521,54 +521,54 @@ function PurchasesListContent() {
       </div>
 
       {/* KPI 요약 카드 */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
         <Card className="border-l-4 border-l-blue-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
                 <p className="text-xs font-medium text-muted-foreground">총 건수</p>
-                <p className="text-2xl font-bold">{kpiData.totalCount}<span className="text-sm font-normal text-muted-foreground ml-1">건</span></p>
+                <p className="text-base sm:text-xl lg:text-2xl font-bold tabular-nums break-all leading-tight">{kpiData.totalCount}<span className="text-sm font-normal text-muted-foreground ml-1">건</span></p>
               </div>
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-50 text-blue-500">
+              <div className="hidden sm:flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-500">
                 <Package className="h-4 w-4" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-indigo-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
                 <p className="text-xs font-medium text-muted-foreground">총 금액</p>
-                <p className="text-2xl font-bold">{formatCurrency(kpiData.totalAmount)}<span className="text-sm font-normal text-muted-foreground ml-1">원</span></p>
+                <p className="text-base sm:text-xl lg:text-2xl font-bold tabular-nums break-all leading-tight">{formatCurrency(Math.round(Number(kpiData.totalAmount) || 0))}<span className="text-sm font-normal text-muted-foreground ml-1">원</span></p>
               </div>
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-50 text-indigo-500">
+              <div className="hidden sm:flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-50 text-indigo-500">
                 <Receipt className="h-4 w-4" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-amber-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
                 <p className="text-xs font-medium text-muted-foreground">총 세금</p>
-                <p className="text-2xl font-bold">{formatCurrency(kpiData.totalTax)}<span className="text-sm font-normal text-muted-foreground ml-1">원</span></p>
+                <p className="text-base sm:text-xl lg:text-2xl font-bold tabular-nums break-all leading-tight">{formatCurrency(Math.round(Number(kpiData.totalTax) || 0))}<span className="text-sm font-normal text-muted-foreground ml-1">원</span></p>
               </div>
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-50 text-amber-500">
+              <div className="hidden sm:flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-50 text-amber-500">
                 <Calculator className="h-4 w-4" />
               </div>
             </div>
           </CardContent>
         </Card>
         <Card className="border-l-4 border-l-emerald-500">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between">
-              <div>
+          <CardContent className="p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
                 <p className="text-xs font-medium text-muted-foreground">총 합계</p>
-                <p className="text-2xl font-bold text-emerald-600">{formatCurrency(kpiData.totalSum)}<span className="text-sm font-normal text-muted-foreground ml-1">원</span></p>
+                <p className="text-base sm:text-xl lg:text-2xl font-bold tabular-nums break-all leading-tight text-emerald-600">{formatCurrency(Math.round(Number(kpiData.totalSum) || 0))}<span className="text-sm font-normal text-muted-foreground ml-1">원</span></p>
               </div>
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">
+              <div className="hidden sm:flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-500">
                 <Coins className="h-4 w-4" />
               </div>
             </div>

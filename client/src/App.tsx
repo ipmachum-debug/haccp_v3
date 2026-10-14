@@ -101,7 +101,7 @@ const SupplierPerformance = lazy(() => import("./pages/master/SupplierPerformanc
 const ApprovalManagement = lazy(() => import("./pages/system/ApprovalManagement"));
 const SystemManagement = lazy(() => import("./pages/system/SystemManagement"));
 const NotificationSettings = lazy(() => import("./pages/system/NotificationSettings"));
-const NotificationCenter = lazy(() => import("./pages/system/NotificationCenter"));
+const NotificationCenterPage = lazy(() => import("./pages/system/NotificationCenterPage"));
 const NotificationStatistics = lazy(() => import("./pages/system/NotificationStatistics"));
 const ProductionMonitor = lazy(() => import("./pages/production/ProductionMonitor"));
 const InventoryPredictionDashboard = lazy(() => import("./pages/inventory/InventoryPredictionDashboard"));
@@ -516,7 +516,7 @@ function Router() {
       <Route path="/dashboard/checklist/employee-health" component={EmployeeHealthChecklist} />
       <Route path="/stock-alerts" component={StockAlerts} />
       <Route path="/inventory-lots" component={InventoryLots} />
-      <Route path="/notifications" component={NotificationCenter} />
+      <Route path="/notifications" component={NotificationCenterPage} />
       <Route path="/notification-statistics" component={NotificationStatistics} />
       <Route path="/production-monitor" component={ProductionMonitor} />
       <Route path="/dashboard/checklist" component={ChecklistDashboard} />
