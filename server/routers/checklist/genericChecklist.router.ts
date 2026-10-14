@@ -11,6 +11,43 @@ import { eq, and, desc, gte, lte, lt, sql } from "drizzle-orm";
 import { getEffectiveTenantId } from "./_helpers";
 
 import { toKSTDate, todayKST } from "../../utils/timezone";
+import { TRPCError } from "@trpc/server";
+import { getRawConnection } from "../../db/connection";
+import {
+  ACTIVE_REQUEST_STATUSES, CHECKLIST_REFERENCE_TYPES, clearReviewStamps, decideDelete, decideSubmit, decideUpdate,
+  type RecordStatus,
+} from "../../lib/checklist/recordStatePolicy";
+
+/** 공통 일지 한 건을 잠그고 읽는다 (트랜잭션 안) */
+async function lockRecord(conn: any, id: number, tenantId: number) {
+  const [rows]: any = await conn.execute(
+    `SELECT id, status, form_data FROM h_generic_checklist_records WHERE id = ? AND tenant_id = ? FOR UPDATE`, [id, tenantId]);
+  const r = rows?.[0];
+  if (!r) throw new TRPCError({ code: "NOT_FOUND", message: "기록을 찾을 수 없습니다." });
+  return { status: (r.status ?? "draft") as RecordStatus, formData: typeof r.form_data === "string" ? safeJson(r.form_data) : r.form_data };
+}
+const safeJson = (v: string) => { try { return JSON.parse(v); } catch { return {}; } };
+const activeSql = `SELECT id FROM h_approval_requests
+  WHERE tenant_id = ? AND reference_id = ? AND reference_type IN (${CHECKLIST_REFERENCE_TYPES.map(() => "?").join(",")})
+    AND status IN (${ACTIVE_REQUEST_STATUSES.map(() => "?").join(",")})`;
+const activeParams = (tenantId: number, id: number) => [tenantId, id, ...CHECKLIST_REFERENCE_TYPES, ...ACTIVE_REQUEST_STATUSES];
+
+/** 트랜잭션 실행 — 실패하면 되돌린다 */
+async function inTx<T>(fn: (conn: any) => Promise<T>): Promise<T> {
+  const pool: any = await getRawConnection();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const v = await fn(conn);
+    await conn.commit();
+    return v;
+  } catch (e) {
+    await conn.rollback().catch(() => undefined);
+    throw e;
+  } finally {
+    conn.release();
+  }
+}
 
 export const genericChecklistRouter = router({
   // 같은 formType의 최신 레코드 조회 (이전 작성 내용 자동 불러오기)
@@ -148,51 +185,73 @@ export const genericChecklistRouter = router({
         formDate: input.formDate,
         title: input.title || `${input.formType} - ${input.formDate}`,
         formData: input.formData,
-        status: input.status || "draft",
+        // 새 기록은 항상 작성중 — 상태는 승인 요청 절차로만 바뀐다 (2026-10-15 상태 정책)
+        status: "draft",
         createdBy: ctx.user.id,
         updatedBy: ctx.user.id,
       } as any);
       return { success: true, id: Number((result as any)[0]?.insertId || (result as any).insertId) };
     }),
 
+  /**
+   * 내용 저장 (2026-10-15 상태 정책) — 화면이 보낸 status 는 쓰지 않는다.
+   * 작성중이 아닌 기록(승인대기·승인완료·반려)을 고치면 재작성: 작성중으로 돌리고, 진행 중 승인 요청 취소, 검토·승인 직인 제거.
+   */
   update: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
       formDate: z.string().optional(),
       title: z.string().optional(),
       formData: z.any().optional(),
+      /** 호환용 — 무시한다 (상태는 절차로만 바뀐다) */
       status: z.enum(["draft", "submitted", "approved", "rejected"]).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new Error("데이터베이스 연결 실패");
       const tenantId = getEffectiveTenantId(ctx);
-      const { id, ...data } = input;
-      await db.update(hGenericChecklistRecords).set({
-        ...data,
-        updatedBy: ctx.user.id,
-        updatedAt: new Date(),
-      } as any).where(and(
-        eq(hGenericChecklistRecords.id, id),
-        eq((hGenericChecklistRecords as any).tenantId, tenantId)
-      ));
-      return { success: true };
+      return inTx(async (conn) => {
+        const cur = await lockRecord(conn, input.id, tenantId);
+        const { nextStatus, reopen } = decideUpdate(cur.status);
+        let formData = input.formData !== undefined ? input.formData : cur.formData;
+        if (reopen) formData = clearReviewStamps(formData);
+        const sets = ["status = ?", "form_data = ?", "updated_by = ?", "updated_at = NOW()"];
+        const params: unknown[] = [nextStatus, JSON.stringify(formData ?? {}), ctx.user.id];
+        if (input.formDate) { sets.push("form_date = ?"); params.push(input.formDate); }
+        if (input.title !== undefined) { sets.push("title = ?"); params.push(input.title); }
+        await conn.execute(`UPDATE h_generic_checklist_records SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`, [...params, input.id, tenantId]);
+        let cancelled = 0;
+        if (reopen) {
+          const [res]: any = await conn.execute(
+            `UPDATE h_approval_requests SET status = 'cancelled', notes = CONCAT(COALESCE(notes, ''), ?)
+              WHERE tenant_id = ? AND reference_id = ? AND reference_type IN (${CHECKLIST_REFERENCE_TYPES.map(() => "?").join(",")})
+                AND status IN (${ACTIVE_REQUEST_STATUSES.map(() => "?").join(",")})`,
+            [` [재작성으로 취소 ${new Date().toISOString().slice(0, 10)}]`, tenantId, input.id, ...CHECKLIST_REFERENCE_TYPES, ...ACTIVE_REQUEST_STATUSES],
+          );
+          cancelled = Number(res?.affectedRows ?? 0);
+        }
+        return { success: true, status: nextStatus, reopened: reopen, previousStatus: cur.status, cancelledRequests: cancelled };
+      });
     }),
 
+  /** 삭제 — 작성중만 (화면 정책과 같게 서버에서 강제, 2026-10-15) */
   delete: tenantRequiredProcedure
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new Error("데이터베이스 연결 실패");
       const tenantId = getEffectiveTenantId(ctx);
-      await db.delete(hGenericChecklistRecords).where(and(
-        eq(hGenericChecklistRecords.id, input.id),
-        eq((hGenericChecklistRecords as any).tenantId, tenantId)
-      ));
-      return { success: true };
+      return inTx(async (conn) => {
+        const cur = await lockRecord(conn, input.id, tenantId);
+        const d = decideDelete(cur.status);
+        if (!d.ok) throw new TRPCError({ code: "BAD_REQUEST", message: d.message });
+        await conn.execute(`DELETE FROM h_generic_checklist_records WHERE id = ? AND tenant_id = ? AND status = 'draft'`, [input.id, tenantId]);
+        return { success: true };
+      });
     }),
 
   // 체크리스트 승인 요청 (작성자 → 검토 대기)
+  /**
+   * 승인 요청 (작성자 → 검토 대기) — 한 트랜잭션 (2026-10-15 상태 정책)
+   * 진행 중 요청이 있으면 거부. 요청을 먼저 만들고 그다음 상태를 submitted 로 — 둘 다 되거나 둘 다 안 된다.
+   * 승인 요청 없이 '승인대기' 인 기록(이전 오류)은 요청을 다시 만들어 승인관리에 보이게 한다.
+   */
   submitForReview: tenantRequiredProcedure
     .input(z.object({
       id: z.number(),
@@ -201,29 +260,43 @@ export const genericChecklistRouter = router({
       description: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new Error("데이터베이스 연결 실패");
       const tenantId = getEffectiveTenantId(ctx);
+      return inTx(async (conn) => {
+        const cur = await lockRecord(conn, input.id, tenantId);
+        const [active]: any = await conn.execute(`${activeSql} FOR UPDATE`, activeParams(tenantId, input.id));
+        const d = decideSubmit(cur.status, (active as any[]).map((r) => Number(r.id)));
+        if (!d.ok) throw new TRPCError({ code: "CONFLICT", message: d.message });
+        const [ins]: any = await conn.execute(
+          `INSERT INTO h_approval_requests
+             (site_id, request_type, reference_type, reference_id, title, description, status, priority, requested_by, tenant_id)
+           VALUES (?, ?, 'checklist', ?, ?, ?, 'pending_review', 'medium', ?, ?)`,
+          [ctx.user.siteId || ctx.tenantId, input.requestType, input.id, input.title, input.description || (d.recovering ? "승인 요청 누락 복구 (이전 오류)" : ""), ctx.user.id, tenantId],
+        );
+        await conn.execute(
+          `UPDATE h_generic_checklist_records SET status = 'submitted', updated_by = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+          [ctx.user.id, input.id, tenantId],
+        );
+        return {
+          success: true,
+          requestId: Number(ins?.insertId ?? 0),
+          recovered: d.recovering,
+          message: d.recovering ? "누락됐던 승인 요청을 다시 만들었습니다. 승인관리에서 보입니다." : "검토 요청이 등록되었습니다.",
+        };
+      });
+    }),
 
-      // 1. 체크리스트 상태를 submitted로 변경
-      await db.update(hGenericChecklistRecords).set({
-        status: "submitted",
-        updatedBy: ctx.user.id,
-        updatedAt: new Date(),
-      } as any).where(and(
-        eq(hGenericChecklistRecords.id, input.id),
-        eq((hGenericChecklistRecords as any).tenantId, tenantId)
-      ));
-
-      // 2. 승인 요청 생성 (pending_review 상태)
-      await db.execute(sql`
-        INSERT INTO h_approval_requests
-        (site_id, request_type, reference_type, reference_id, title, description, status, priority, requested_by, tenant_id)
-        VALUES
-        (${ctx.user.siteId || ctx.tenantId}, ${input.requestType}, 'checklist', ${input.id}, ${input.title}, ${input.description || ''}, 'pending_review', 'medium', ${ctx.user.id}, ${tenantId})
-      `);
-
-      return { success: true, message: "검토 요청이 등록되었습니다." };
+  /** 이 기록에 진행 중인 승인 요청 (화면: 승인 요청 없는 '승인대기' 를 알아보고 다시 요청 버튼을 보여 주기) */
+  approvalState: tenantRequiredProcedure
+    .input(z.object({ id: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const tenantId = getEffectiveTenantId(ctx);
+      const conn: any = await getRawConnection();
+      const [rec]: any = await conn.execute(`SELECT status FROM h_generic_checklist_records WHERE id = ? AND tenant_id = ?`, [input.id, tenantId]);
+      if (!rec?.[0]) return null;
+      const [active]: any = await conn.execute(activeSql, activeParams(tenantId, input.id));
+      const status = (rec[0].status ?? "draft") as RecordStatus;
+      const activeRequestIds = (active as any[]).map((r) => Number(r.id));
+      return { status, activeRequestIds, orphanSubmitted: status === "submitted" && activeRequestIds.length === 0 };
     }),
 
   // 체크리스트 검토 (검토자 → 승인 대기)

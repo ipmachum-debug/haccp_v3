@@ -283,11 +283,19 @@ export default function ChecklistFormLayout({
   const gcUpdateMutation = trpc.genericChecklist.update.useMutation({});
   const reopenMutation = trpc.genericChecklist.reopenForEdit.useMutation({});
 
+  // 승인 요청 없는 '승인대기' (이전 오류로 생긴 기록) 알아보기 — 2026-10-15 상태 정책
+  const approvalStateQ = trpc.genericChecklist.approvalState.useQuery(
+    { id: savedRecordId ?? 0 },
+    { enabled: !!savedRecordId && approvalStatus === "submitted", retry: 1 },
+  );
+  const orphanSubmitted = approvalStatus === "submitted" && !!approvalStateQ.data?.orphanSubmitted;
+
   // 승인 요청 mutation
   const submitForReviewMutation = trpc.genericChecklist.submitForReview.useMutation({
-    onSuccess: () => {
+    onSuccess: (r: { recovered?: boolean; message?: string }) => {
       setApprovalStatus("submitted");
-      toast({ title: "승인 요청 완료", description: "검토자에게 승인 요청이 전송되었습니다." });
+      approvalStateQ.refetch();
+      toast({ title: r?.recovered ? "승인 요청 복구" : "승인 요청 완료", description: r?.message || "검토자에게 승인 요청이 전송되었습니다." });
     },
     onError: (error: { message: string }) => {
       toast({ title: "승인 요청 실패", description: error.message, variant: "destructive" });
@@ -369,7 +377,9 @@ export default function ChecklistFormLayout({
       const fd = existingRecord.formData as any;
       try {
         // 공통 데이터 복원
-        if (fd.formDate) setFormDate(fd.formDate);
+        // 기록일은 DB form_date(목록·승인 제목과 같은 값)를 우선 — 본문 안 formDate 는 옛 값일 수 있다 (2026-10-15)
+        const recDate = typeof (existingRecord as any).formDate === "string" ? String((existingRecord as any).formDate).slice(0, 10) : "";
+        if (recDate) setFormDate(recDate); else if (fd.formDate) setFormDate(fd.formDate);
         // 결재 정보: 저장된 데이터를 우선 사용하되, 대시보드 설정이 있으면 이름은 대시보드 기준 유지
         if (fd.approval) {
           setApproval(prev => ({
@@ -595,7 +605,7 @@ export default function ChecklistFormLayout({
               <Printer className="h-4 w-4 mr-1" />
               인쇄
             </Button>
-            <Button variant="outline" size="sm" onClick={handleApprovalRequest} disabled={!savedRecordId || approvalStatus === "submitted" || approvalStatus === "approved"}>
+            <Button variant="outline" size="sm" onClick={handleApprovalRequest} disabled={!savedRecordId || (approvalStatus === "submitted" && !orphanSubmitted) || approvalStatus === "approved"}>
               {submitForReviewMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
               승인 요청
             </Button>
@@ -605,6 +615,13 @@ export default function ChecklistFormLayout({
             </Button>
           </div>
         </div>
+
+        {orphanSubmitted && (
+          <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 print:hidden" data-testid="orphan-submitted">
+            <span>이 기록은 '승인대기' 이지만 승인 요청이 없습니다 (이전 오류). 승인관리에 보이지 않습니다.</span>
+            <Button size="sm" variant="outline" className="h-7" onClick={handleApprovalRequest} disabled={submitForReviewMutation.isPending}>승인 요청 다시 만들기</Button>
+          </div>
+        )}
 
         {/* 자동 채움 안내 (새 문서) — 인쇄 시 숨김 */}
         {!isEdit && (

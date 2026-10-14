@@ -157,6 +157,13 @@ export default function EmployeeHealthCheckForm() {
   });
   const gcUpdateMutation = trpc.genericChecklist.update.useMutation({});
 
+  // 승인 요청 없는 '승인대기' (이전 오류) — 다시 요청할 수 있게 (2026-10-15 상태 정책)
+  const approvalStateQ = trpc.genericChecklist.approvalState.useQuery(
+    { id: savedRecordId ?? 0 },
+    { enabled: !!savedRecordId && approvalStatus === "submitted", retry: 1 },
+  );
+  const orphanSubmitted = approvalStatus === "submitted" && !!approvalStateQ.data?.orphanSubmitted;
+
   // 승인 요청 mutation (submitForReview 사용)
   const submitForReviewMutation = trpc.genericChecklist.submitForReview.useMutation({
     onSuccess: () => {
@@ -452,6 +459,12 @@ export default function EmployeeHealthCheckForm() {
         if (result?.id) setSavedRecordId(result.id);
       }
       console.log("[EmployeeHealthCheckForm] 저장 성공", result);
+      // 서버 정책: 승인대기·승인완료·반려 문서를 고치면 재작성(작성중) — 검토·승인 직인 제거, 진행 중 승인 요청 취소
+      if (result?.reopened) {
+        setApprovalStatus("draft");
+        setApproval(prev => ({ ...prev, reviewerApproved: false, approverApproved: false, reviewerDate: undefined, approverDate: undefined }));
+        toast({ title: "재작성 상태로 전환", description: "승인 절차가 진행된 문서를 고쳐 작성중으로 돌아갔습니다. 다시 승인 요청하세요." });
+      }
 
       // 결재란 작성자 승인 처리
       setApproval(prev => ({
@@ -589,6 +602,7 @@ export default function EmployeeHealthCheckForm() {
             </Button>
             <h1 className="text-xl font-bold">종사자 건강상태 확인 일지</h1>
             {approvalStatus === "submitted" && <Badge variant="outline" className="text-yellow-600 border-yellow-400">승인 대기중</Badge>}
+            {orphanSubmitted && <Badge variant="destructive" data-testid="orphan-submitted">승인 요청 누락 — 승인 요청을 다시 누르세요</Badge>}
             {approvalStatus === "approved" && <Badge variant="default" className="bg-green-600">승인 완료</Badge>}
             {approvalStatus === "rejected" && <Badge variant="destructive">반려</Badge>}
           </div>
@@ -669,7 +683,7 @@ export default function EmployeeHealthCheckForm() {
               <Printer className="h-4 w-4 mr-1" />
               인쇄
             </Button>
-            <Button variant="outline" size="sm" onClick={handleApprovalRequest} disabled={submitForReviewMutation.isPending || approvalStatus === "submitted" || approvalStatus === "approved"}>
+            <Button variant="outline" size="sm" onClick={handleApprovalRequest} disabled={submitForReviewMutation.isPending || (approvalStatus === "submitted" && !orphanSubmitted) || approvalStatus === "approved"}>
               {submitForReviewMutation.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
               승인 요청
             </Button>
