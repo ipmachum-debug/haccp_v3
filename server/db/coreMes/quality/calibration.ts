@@ -1,6 +1,7 @@
 /**
  * Calibration DB 헬퍼 — Layer 2 core-mes/quality (Phase Y-4)
  */
+import { formatLocalDate } from "../../../utils/timezone";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getDb } from "../../connection";
 import { hCalibrations } from "../../../../drizzle/schema/coreMes/quality/calibration";
@@ -332,17 +333,17 @@ function rowToEntity(
     vendorType: row.vendorType as CalibrationVendorType,
     scheduledDate: typeof row.scheduledDate === "string"
       ? row.scheduledDate
-      : (row.scheduledDate as unknown as Date).toISOString().slice(0, 10),
+      : formatLocalDate(row.scheduledDate as unknown as Date),
     actualDate: row.actualDate
       ? typeof row.actualDate === "string"
         ? row.actualDate
-        : (row.actualDate as unknown as Date).toISOString().slice(0, 10)
+        : formatLocalDate(row.actualDate as unknown as Date)
       : null,
     intervalMonths: row.intervalMonths,
     nextDueDate: row.nextDueDate
       ? typeof row.nextDueDate === "string"
         ? row.nextDueDate
-        : (row.nextDueDate as unknown as Date).toISOString().slice(0, 10)
+        : formatLocalDate(row.nextDueDate as unknown as Date)
       : null,
     measurements: (row.measurements as unknown as CalibrationMeasurement[]) ?? [],
     outcome: row.outcome as CalibrationOutcome,

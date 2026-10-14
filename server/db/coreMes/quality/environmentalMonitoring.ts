@@ -1,6 +1,7 @@
 /**
  * Environmental Monitoring (환경 모니터링 EMP) DB 헬퍼 — Layer 2 core-mes/quality (Phase Y-12)
  */
+import { formatLocalDate } from "../../../utils/timezone";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getDb } from "../../connection";
 import { hEnvironmentalMonitoring } from "../../../../drizzle/schema/coreMes/quality/environmentalMonitoring";
@@ -274,7 +275,7 @@ function rowToEntity(
     code: row.code,
     samplingDate: typeof row.samplingDate === "string"
       ? row.samplingDate
-      : new Date(row.samplingDate as unknown as Date).toISOString().slice(0, 10),
+      : formatLocalDate(new Date(row.samplingDate as unknown as Date)),
     zone: row.zone as MonitoringZone,
     location: row.location,
     target: row.target as MonitoringTarget,

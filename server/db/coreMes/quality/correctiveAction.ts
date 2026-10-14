@@ -10,6 +10,7 @@
  *                                  └→ in_progress (재실행)
  *                                  └→ cancelled (어느 단계든)
  */
+import { formatLocalDate } from "../../../utils/timezone";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getDb } from "../../connection";
 import { hCorrectiveActions } from "../../../../drizzle/schema/coreMes/quality/correctiveAction";
@@ -316,7 +317,7 @@ function rowToEntity(
     assignedTo: row.assignedTo,
     dueDate: typeof row.dueDate === "string"
       ? row.dueDate
-      : (row.dueDate as unknown as Date).toISOString().slice(0, 10),
+      : formatLocalDate(row.dueDate as unknown as Date),
     actionPlan: row.actionPlan,
     executionDetails: row.executionDetails ?? null,
     effectivenessCriteria: row.effectivenessCriteria ?? null,

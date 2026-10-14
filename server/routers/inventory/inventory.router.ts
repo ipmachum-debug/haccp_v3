@@ -1446,6 +1446,13 @@ export const inventoryRouter = router({
         return await getProductOutboundStats(ctx.tenantId);
       }),
 
+    // 제품별 매출 출고 (재고 원장 SALE/usage, kg 환산) — 제품 재고 보기의 실제 출고량 (2026-10-14)
+    getProductSalesOutflow: tenantRequiredProcedure
+      .query(async ({ ctx }) => {
+        const { getProductSalesOutflow } = await import("../../db/production/productOutboundManagement");
+        return await getProductSalesOutflow(ctx.tenantId);
+      }),
+
     // 제품별 출고 집계 (제품 재고 보기 화면) — DB 함수는 있었으나 라우터에 노출되지 않아 화면이 없는 API 를 부르고 있었다 (2026-10-14)
     getProductOutboundByProduct: tenantRequiredProcedure
       .query(async ({ ctx }) => {

@@ -49,6 +49,8 @@ export function ProductStockView() {
   const { data: skuList } = trpc.productSku.listAll.useQuery();
   const { data: itemList, isLoading: isLoadingItems } = trpc.itemMaster.list.useQuery({ itemType: "own_product", limit: 500 });
   const { data: outboundByProduct } = trpc.inventory.getProductOutboundByProduct.useQuery();
+  // 실제 출고 = 매출 확정 시 재고 원장(SALE) — 제품 ID 로 매칭, kg 환산 (2026-10-14)
+  const { data: salesOutflow } = trpc.inventory.getProductSalesOutflow.useQuery();
   // 병③ 정본화: 현재고는 배치−출고(과대계상) 대신 LOT kg환산 정본에서 읽는다.
   const { data: canonicalStock } = trpc.inventory.getProductCanonicalStock.useQuery();
   const isLoading = isLoadingBatches || isLoadingItems;
@@ -97,6 +99,14 @@ export function ProductStockView() {
       });
     }
 
+    // 매출 출고(재고 원장) — key: product_id (= itemMaster.legacyProductId)
+    const salesOutMap = new Map<number, { kg: number; count: number; last: string | null }>();
+    if (Array.isArray(salesOutflow)) {
+      (salesOutflow as Array<{ productId: number; outboundKg: number; saleCount: number; lastDate: string | null }>).forEach((o) => {
+        if (o.productId) salesOutMap.set(Number(o.productId), { kg: Number(o.outboundKg || 0), count: Number(o.saleCount || 0), last: o.lastDate });
+      });
+    }
+
     // 품목마스터 기준으로 결합 (배치 없어도 0으로 표시)
     // itemMaster.legacyProductId === hBatches.productId 로 매칭
     const result = items.map((item: ProductItem) => {
@@ -104,7 +114,15 @@ export function ProductStockView() {
       const legacyId = Number(item.legacyProductId);
       const batchData = legacyId ? (batchMap.get(legacyId) || { totalProduced: 0, lotCount: 0, latestBatch: "" })
                                  : { totalProduced: 0, lotCount: 0, latestBatch: "" };
-      const outData = outboundMap.get(item.itemName || "") || { totalOutbound: 0, outboundCount: 0, lastReleaseDate: null };
+      // 출고 = 매출 출고(제품 ID) + 제품 출고 화면 기록(제품명) — 두 경로 합산
+      const manualOut = outboundMap.get(item.itemName || "") || { totalOutbound: 0, outboundCount: 0, lastReleaseDate: null };
+      const saleOut = legacyId ? salesOutMap.get(legacyId) : undefined;
+      const lastDates = [manualOut.lastReleaseDate, saleOut?.last ?? null].filter(Boolean) as string[];
+      const outData = {
+        totalOutbound: manualOut.totalOutbound + (saleOut?.kg ?? 0),
+        outboundCount: manualOut.outboundCount + (saleOut?.count ?? 0),
+        lastReleaseDate: lastDates.length ? lastDates.sort().slice(-1)[0] : null,
+      };
       // 현재고 = LOT 정본(kg환산). 정본에 없으면(가용 LOT 0) 0. 배치−출고 즉석계산은 폐기.
       const currentStock = legacyId ? (canonicalMap.get(legacyId) ?? 0) : 0;
       return {
@@ -132,7 +150,7 @@ export function ProductStockView() {
       return toTs(b.latestBatch) - toTs(a.latestBatch);
     });
     return result;
-  }, [batches, skuList, itemList, outboundByProduct, canonicalStock]);
+  }, [batches, skuList, itemList, outboundByProduct, salesOutflow, canonicalStock]);
 
   const totalProduced = productInventory.reduce((s: number, p: ProductInventoryRow) => s + p.totalProduced, 0);
   const totalOutbound = productInventory.reduce((s: number, p: ProductInventoryRow) => s + p.totalOutbound, 0);

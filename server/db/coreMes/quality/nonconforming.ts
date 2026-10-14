@@ -14,6 +14,7 @@
  *           └────→ cancelled (어느 단계든)
  * ============================================================================
  */
+import { formatLocalDate } from "../../../utils/timezone";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getDb } from "../../connection";
 import { hNonconformings } from "../../../../drizzle/schema/coreMes/quality/nonconforming";
@@ -369,7 +370,7 @@ function rowToEntity(row: typeof hNonconformings.$inferSelect): Nonconforming {
     code: row.code,
     detectionDate: typeof row.detectionDate === "string"
       ? row.detectionDate
-      : (row.detectionDate as unknown as Date).toISOString().slice(0, 10),
+      : formatLocalDate(row.detectionDate as unknown as Date),
     detectionSource: row.detectionSource as DetectionSource,
     nonconformityType: row.nonconformityType as NonconformityType,
     description: row.description,
@@ -383,7 +384,7 @@ function rowToEntity(row: typeof hNonconformings.$inferSelect): Nonconforming {
     disposalDate: row.disposalDate
       ? typeof row.disposalDate === "string"
         ? row.disposalDate
-        : (row.disposalDate as unknown as Date).toISOString().slice(0, 10)
+        : formatLocalDate(row.disposalDate as unknown as Date)
       : null,
     disposalDetails: row.disposalDetails ?? null,
     disposalCost: row.disposalCost !== null && row.disposalCost !== undefined

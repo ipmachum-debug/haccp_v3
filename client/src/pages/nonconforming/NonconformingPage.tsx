@@ -8,6 +8,7 @@
  * Y-2-0-c (ChangeControlPage) 패턴 그대로 재사용.
  * ============================================================================
  */
+import { todayLocal } from "@/lib/dateUtils"; // 로컬(한국) 날짜 — toISOString 은 UTC 라 오전 9시 전 하루 밀림
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -406,7 +407,7 @@ function CreateDialog({
   }) => void;
   loading: boolean;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayLocal();
   const [detectionDate, setDetectionDate] = useState(today);
   const [detectionSource, setDetectionSource] = useState<DetectionSource>("in_process_inspection");
   const [nonconformityType, setNonconformityType] = useState<NonconformityType>("specification");
