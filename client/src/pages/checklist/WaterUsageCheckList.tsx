@@ -16,6 +16,7 @@ export default function WaterUsageCheckList() {
         icon: <Droplet className="h-5 w-5 text-cyan-600" />,
         basePath: "/water-usage-check",
         backPath: "/quality/checklists",
+        dateLabel: "점검일",
       }}
     />
   );

@@ -16,6 +16,7 @@ export default function WaterQualityTestList() {
         icon: <Droplets className="h-5 w-5 text-blue-600" />,
         basePath: "/water-quality-test",
         backPath: "/quality/checklists",
+        dateLabel: "검사일",
       }}
     />
   );

@@ -16,6 +16,7 @@ export default function ForeignMaterialRecordList() {
         icon: <ScanSearch className="h-5 w-5 text-rose-600" />,
         basePath: "/foreign-material-record",
         backPath: "/quality/checklists",
+        dateLabel: "발견일",
       }}
     />
   );

@@ -16,6 +16,7 @@ export default function PersonalHygieneCheckList() {
         icon: <UserCheck className="h-5 w-5 text-purple-600" />,
         basePath: "/personal-hygiene-check",
         backPath: "/quality/checklists",
+        dateLabel: "점검 일자",
       }}
     />
   );
