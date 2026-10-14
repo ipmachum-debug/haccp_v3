@@ -15,6 +15,7 @@
  */
 
 import type { IndustryPlugin, MenuGroupDef, MenuItemDef } from "@shared/domain/IndustryPlugin";
+import { PLUGIN_COMMON_GROUPS, PLUGIN_SUPER_ADMIN_ITEMS } from "@shared/navigation/menuRegistry";
 import type { LucideIcon } from "lucide-react";
 import {
   Crown, UserCheck, Building, LayoutDashboard, Package, Calendar, FileCode,
@@ -23,6 +24,9 @@ import {
   AlertCircle, AlertTriangle, GraduationCap, Sliders, Activity, TrendingUp,
   FileWarning, Building2, Settings, ArrowLeftRight, Pill, ChefHat, Syringe,
   Factory, Wheat, SearchCheck, Users,
+  // 2-a (2026-10-14): DashboardLayout 배열이 쓰던 아이콘 — 레지스트리가 이름으로 들고 여기서 컴포넌트로 바꾼다
+  BarChart3, BookOpen, ClipboardList, Clock, DollarSign, FolderOpen, Landmark,
+  MessageSquare, PackageMinus, PackagePlus, Receipt, RotateCcw, Scan, Upload, Wallet,
 } from "lucide-react";
 
 // ─── 아이콘 string → Component 매핑 ───
@@ -33,6 +37,8 @@ export const ICON_MAP: Record<string, LucideIcon> = {
   AlertCircle, AlertTriangle, GraduationCap, Sliders, Activity, TrendingUp,
   FileWarning, Building2, Settings, ArrowLeftRight, Pill, ChefHat, Syringe,
   Factory, Wheat, SearchCheck, Users,
+  BarChart3, BookOpen, ClipboardList, Clock, DollarSign, FolderOpen, Landmark,
+  MessageSquare, PackageMinus, PackagePlus, Receipt, RotateCcw, Scan, Upload, Wallet,
 };
 
 export function getIcon(name: string): LucideIcon {
@@ -53,47 +59,20 @@ export interface BuiltMenuItem {
   group?: string;
 }
 
-export const COMMON_MENU_GROUPS: MenuGroupDef[] = [
-  {
-    name: "대시보드",
-    order: 0,
-    items: [
-      { icon: "LayoutDashboard", label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"] },
-    ],
-  },
-  {
-    name: "재고·운영",
-    order: 40,
-    items: [
-      { icon: "Warehouse", label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "accountant", "worker"] },
-      { icon: "Bell", label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "accountant", "monitor", "inspector", "worker"] },
-      { icon: "CheckCircle", label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "monitor", "inspector", "worker"] },
-      { icon: "FileText", label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "accountant", "monitor", "inspector"] },
-    ],
-  },
-  {
-    name: "마스터",
-    order: 50,
-    items: [
-      { icon: "Database", label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"] },
-      { icon: "Package", label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"] },
-    ],
-  },
-  {
-    name: "시스템",
-    order: 100,
-    items: [
-      { icon: "Settings", label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"] },
-    ],
-  },
-];
+// 2-a (2026-10-14): 데이터는 shared/navigation/menuRegistry.ts 가 정본. 여기서는 플러그인 타입으로 옮기기만 한다.
+export const COMMON_MENU_GROUPS: MenuGroupDef[] = PLUGIN_COMMON_GROUPS.map((g) => ({
+  name: g.name,
+  order: g.order,
+  items: g.items.map((i) => ({
+    icon: i.icon, label: i.label, path: i.path, roles: i.roles,
+    requireModule: i.requireModule as MenuItemDef["requireModule"], highlight: i.highlight,
+  })),
+}));
 
 // ─── 슈퍼관리자 전용 메뉴 ───
-export const SUPER_ADMIN_MENU_ITEMS: BuiltMenuItem[] = [
-  { icon: getIcon("Crown"), label: "슈퍼관리자 대시보드", path: "/dashboard/super-admin", roles: ["super_admin"] },
-  { icon: getIcon("UserCheck"), label: "사용자 승인", path: "/dashboard/user-approval", roles: ["super_admin"] },
-  { icon: getIcon("Building"), label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"] },
-];
+export const SUPER_ADMIN_MENU_ITEMS: BuiltMenuItem[] = PLUGIN_SUPER_ADMIN_ITEMS.map((i) => ({
+  icon: getIcon(i.icon), label: i.label, path: i.path, roles: i.roles,
+}));
 
 /**
  * Plugin + 공통 메뉴를 병합하여 최종 메뉴 배열 생성.

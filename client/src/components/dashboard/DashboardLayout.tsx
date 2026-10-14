@@ -22,7 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useIsMobile } from "@/hooks/useMobile";
-import { Crown, Building, LayoutDashboard, LogIn, LogOut, Package, PanelLeft, Settings, Users, ClipboardList, Warehouse, Calendar, FileText, BarChart3, Shield, ListChecks, ClipboardCheck, Sliders, TrendingUp, FileCode, Building2, Bell, BellRing, Award, Activity, AlertTriangle, FileWarning, GraduationCap, GitBranch, AlertCircle, Database, Star, Clock, Moon, Sun, CheckCircle, PackagePlus, PackageMinus, FolderOpen, BookOpen, UserCheck, Landmark, ArrowLeftRight, RotateCcw, Search, MessageSquare, Wallet, ChevronRight, Sparkles, FlaskConical, Tag, Truck, Thermometer, Upload, Scan, DollarSign, Receipt, Layers, Bot } from "lucide-react";
+import { Crown, LogIn, LogOut, PanelLeft, FileText, Star, Moon, Sun, CheckCircle, ChevronRight, Sparkles, Bot } from "lucide-react";
 import { MillioMark } from "@/components/brand/MillioMark";
 import { useTheme } from "@/contexts/ThemeContext";
 import { Badge } from "@/components/ui/badge";
@@ -39,13 +39,28 @@ import { trpc } from "@/lib/trpc";
 import { useIndustryFeatures, type ModuleKey } from "@/hooks/useIndustryFeatures";
 // Phase Plugin-3: Menu Engine — Plugin 기반 사이드바 동적 생성
 import { useDomainPlugin } from "@/domain/useDomainPlugin";
-import { buildMenuFromPlugin } from "@/domain/engines/clientMenuEngine";
+import { buildMenuFromPlugin, getIcon } from "@/domain/engines/clientMenuEngine";
+import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, type MenuPlacement } from "@shared/navigation/menuRegistry";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import { cn } from "@/lib/utils";
 
 // 사이드바 favorite 메뉴 타입 — trpc proxy 가 깊은 타입을 완전히 전파하지 못해 명시 추출
 type FavoriteItem = RouterOutput["favorites"]["list"][number];
 // 사이드바 MenuItem 타입 (FIXED: 사이드바 렌더링용)
+/** 레지스트리 항목(아이콘 이름) → 사이드바 항목(아이콘 컴포넌트). 그 외 필드는 그대로 */
+function toMenuItems(placements: readonly MenuPlacement[]): MenuItem[] {
+  return placements.map((p) => ({
+    icon: getIcon(p.icon),
+    label: p.label,
+    path: p.path,
+    roles: [...p.roles],
+    ...(p.group ? { group: p.group } : {}),
+    ...(p.requireModule ? { requireModule: p.requireModule as ModuleKey } : {}),
+    ...(p.highlight ? { highlight: true } : {}),
+    ...(p.category ? { category: p.category } : {}),
+  }));
+}
+
 type MenuItem = {
   label: string;
   path: string;
@@ -56,6 +71,7 @@ type MenuItem = {
   group?: string;
   /** 이 메뉴를 표시하려면 활성이어야 하는 업종 모듈 */
   requireModule?: ModuleKey;
+  category?: string;
 };
 import {
   DndContext,
@@ -234,25 +250,8 @@ function SortableFavoriteItem({
   );
 }
 
-// 관련 하위 경로 매핑 (사이드바 active 판별용 - 페이지 내부 탭으로 접근하는 경로들)
-const childRoutes: Record<string, string[]> = {
-  "/dashboard/production-management": [
-    "/dashboard/batch-management", "/dashboard/batch/new", "/dashboard/batch",
-    "/dashboard/pipeline", "/dashboard/production/prediction",
-  ],
-  "/dashboard/inspections": [
-    "/dashboard/inspection/material", "/dashboard/inspection/hygiene",
-    "/dashboard/inspection/shipping", "/dashboard/inspection/statistics",
-  ],
-  "/quality/checklists": [
-    "/dashboard/daily-logs", "/quality/templates", "/dashboard/checklist/employee-health",
-  ],
-  "/dashboard/approval": ["/dashboard/approval/dashboard"],
-  "/quality/ccp-monitoring": ["/dashboard/ccp"],
-  "/dashboard/document-output": [
-    "/dashboard/document-output/approved", "/dashboard/document-output/daily-log",
-  ],
-};
+// 2-a (2026-10-14): 하위 경로 매핑은 shared/navigation/menuRegistry.ts 의 CHILD_ROUTES (isChildRouteOf)
+
 
 /**
  * 메뉴 path 에서 industry 추출 — Phase 3 industry 격리 필터.
@@ -296,149 +295,8 @@ function mapCategoryToIndustryKey(category: string | null | undefined): string |
   return map[category] ?? null;
 }
 
-const menuItems = [
-  // 슈퍼관리자 전용 메뉴 (WORK 탭)
-  { icon: Crown, label: "슈퍼관리자 대시보드", path: "/dashboard/super-admin", roles: ["super_admin"], category: "work" },
-  { icon: UserCheck, label: "사용자 승인", path: "/dashboard/user-approval", roles: ["super_admin"], category: "work" },
-  { icon: Building, label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"], category: "work" },
-
-  // ─── 대시보드 ───
-  { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"], group: "대시보드" },
-
-  // ─── 생산 ─── 식품 HACCP 전용 (배치/생산일지/원료수불부 — 화장품은 BMR, 의약품/일반제조 별도)
-  // UI/UX 개편 P-1 (2026-10-14): 작업자 "오늘의 생산" 읽기 전용 — 기존 생산관리·생산운영은 파일럿 끝날 때까지 유지
-  { icon: Clock, label: "오늘의 생산", path: ROUTES.PRODUCTION_TODAY, roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp", group: "생산", highlight: true },
-  { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], requireModule: "haccp", group: "생산" },
-  { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"], requireModule: "haccp", group: "생산" },
-  { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"], requireModule: "haccp", group: "생산" },
-
-  // ─── 품질·검사 (공통) ───
-  { icon: Shield, label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp", group: "품질·검사" },
-  // 검사 관리: 육안검사일지(원재료) + 완제품출고검사 — HACCP 양식 전용
-  { icon: ClipboardCheck, label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "accountant", "worker", "inspector", "monitor"], requireModule: "haccp", group: "품질·검사" },
-  { icon: ListChecks, label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp", group: "품질·검사" },
-
-  // ─── 재고·운영 ───
-  { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin", "accountant", "worker"], group: "재고·운영" },
-  { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "accountant", "monitor", "inspector", "worker"], group: "재고·운영" },
-  { icon: CheckCircle, label: "승인 관리", path: "/dashboard/approval", roles: ["super_admin", "admin", "monitor", "inspector", "worker"], group: "재고·운영" },
-  { icon: FileText, label: "문서 출력", path: "/dashboard/document-output", roles: ["super_admin", "admin", "accountant", "monitor", "inspector"], group: "재고·운영" },
-
-  // ─── 마스터 데이터 ───
-  { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
-  { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin", "accountant"], group: "마스터" },
-  // PR #250 통합: 중간재 관리는 마스터 데이터 페이지의 6번째 탭 (?tab=intermediates) 으로 이동.
-  // 단독 사이드바 메뉴는 제거 — 라우트 (/dashboard/manufacturing/intermediates) 는 유지 (bookmark 호환).
-  // 모바일 빠른 점검: CCP 모니터링 / CCP 기록 / HACCP 체크리스트 기반 — HACCP 전용
-  { icon: ClipboardCheck, label: "모바일 빠른 점검", path: "/mobile-quick-check", roles: ["admin", "worker", "inspector"], requireModule: "haccp", group: "마스터" },
-
-  // ─── 품질관리 (HACCP) — Y-시리즈 cross-cutting + Legacy 식품 품질 ───
-  // 부적합제품관리 (Legacy 식품 HACCP — Y-2-1 부적합 관리(통합) 으로 이주됨)
-  { icon: FileWarning, label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  { icon: AlertTriangle, label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  { icon: Activity, label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  { icon: TrendingUp, label: "Deviation 트렌드", path: "/dashboard/haccp/f3-trends", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-  // Phase Y-2-0: Change Control (식품 진입) — HACCP Plan 변경관리
-  // ★ 식품 industry 에서 변경관리만 사이드바 노출. 다른 7개 (Y-2-1 ~ Y-6) 는 legacy 메뉴와 중복
-  // 으로 사이드바 hide. 라우트는 유지 (직접 URL / 다른 industry 사용 중).
-  // 매핑:
-  //   부적합 관리 (통합) → 부적합제품관리 (legacy)
-  //   CAPA (시정·예방) → 부적합제품관리 → 회수시뮬레이션 탭
-  //   감사 (Audit) → 감사관리 (legacy)
-  //   공급업체 (AVL) → 감사관리 → 거래처감사관리 탭
-  //   위험 평가 → HACCP 검증 → HACCP 7원칙 탭
-  //   검교정/설비 자격 → HACCP 체크리스트 → 항목별 일지 (검교정/이력카드/설비)
-  //   교육 / 훈련 → HACCP 체크리스트 → 항목별 일지 → 교육훈련일지
-  { icon: GitBranch, label: "변경관리", path: "/dashboard/food/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "품질관리 (HACCP)" },
-
-  // ─── 화장품 GMP — Phase 2 lifecycle (cosmetic 업종 전용) ───
-  { icon: LayoutDashboard, label: "GMP 운영 현황", path: "/dashboard/cosmetic/dashboard", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
-  { icon: Sparkles, label: "BMR (제조기록)", path: "/dashboard/cosmetic/bmr", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
-  { icon: FlaskConical, label: "배합표 (Formula)", path: "/dashboard/cosmetic/formula", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
-  { icon: Tag, label: "라벨 / 전성분", path: "/dashboard/cosmetic/label", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
-  { icon: Truck, label: "QA 출고 (Release)", path: "/dashboard/cosmetic/release", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
-  { icon: Thermometer, label: "안정성시험", path: "/dashboard/cosmetic/stability", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "화장품 GMP" },
-
-  // ─── 품질관리 (GMP) — Y-시리즈 cross-cutting (화장품 진입) ───
-  // Phase Y-2-0-c: Change Control (변경관리)
-  { icon: GitBranch, label: "변경관리", path: "/dashboard/cosmetic/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
-  // Phase Y-2-1-c: Nonconforming (부적합)
-  { icon: AlertCircle, label: "부적합 관리", path: "/dashboard/cosmetic/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
-  // Phase Y-2-3: Audit (감사)
-  { icon: ClipboardCheck, label: "감사 (Audit)", path: "/dashboard/cosmetic/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
-  // Phase Y-2-2: CAPA (시정·예방조치)
-  { icon: AlertTriangle, label: "CAPA (시정·예방)", path: "/dashboard/cosmetic/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
-  // Phase Y-3: Training (교육/훈련) — KGMP §6 / ISO 22716 §7
-  { icon: GraduationCap, label: "교육 / 훈련", path: "/dashboard/cosmetic/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
-  // Phase Y-4: Calibration (검교정/설비 자격) — KGMP §7 IQ/OQ/PQ
-  { icon: Sliders, label: "검교정 / 설비 자격", path: "/dashboard/cosmetic/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
-  // Phase Y-5: Quality Supplier (AVL) — KGMP §11 / ISO 13485 §7.4
-  { icon: Building, label: "공급업체 (AVL)", path: "/dashboard/cosmetic/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
-  // Phase Y-6: Risk Assessment — KGMP §3.5 / ICH Q9 / ISO 14971 / Codex
-  { icon: AlertTriangle, label: "위험 평가 (ICH Q9)", path: "/dashboard/cosmetic/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "품질관리 (GMP)" },
-
-  // ─── Phase 3: 의료기기 ISO 13485 — Y-시리즈 8 entity (medical-device 진입) ───
-  // industryConfig 에 medical-device 프로필 미정의 (별도 PR 권장).
-  // 임시: requireModule 미설정 → 모든 admin role 에 노출 (router industry filter 가 데이터 격리 강제).
-  { icon: GitBranch, label: "변경관리 (ISO 13485)", path: "/dashboard/medical-device/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { icon: AlertCircle, label: "부적합 관리 (ISO 13485)", path: "/dashboard/medical-device/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { icon: AlertTriangle, label: "CAPA (ISO 13485)", path: "/dashboard/medical-device/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { icon: ClipboardCheck, label: "감사 (ISO 13485)", path: "/dashboard/medical-device/audit", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { icon: GraduationCap, label: "교육 (ISO 13485)", path: "/dashboard/medical-device/training", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { icon: Sliders, label: "검교정 (ISO 13485)", path: "/dashboard/medical-device/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { icon: Building, label: "공급업체 (ISO 13485)", path: "/dashboard/medical-device/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-  { icon: AlertTriangle, label: "위험관리 ISO 14971", path: "/dashboard/medical-device/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], group: "의료기기 ISO 13485" },
-
-  // ─── Phase 3: 일반 제조 ISO 9001 — Y-시리즈 8 entity (general-manufacturing 진입) ───
-  // industryConfig 의 general 프로필 (modules.quality=true) 매칭.
-  { icon: GitBranch, label: "변경관리 (일반제조)", path: "/dashboard/general-manufacturing/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
-  { icon: AlertCircle, label: "부적합 관리 (일반제조)", path: "/dashboard/general-manufacturing/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
-  { icon: AlertTriangle, label: "CAPA (일반제조)", path: "/dashboard/general-manufacturing/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
-  { icon: ClipboardCheck, label: "감사 (일반제조)", path: "/dashboard/general-manufacturing/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
-  { icon: GraduationCap, label: "교육 (일반제조)", path: "/dashboard/general-manufacturing/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
-  { icon: Sliders, label: "검교정 (일반제조)", path: "/dashboard/general-manufacturing/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
-  { icon: Building, label: "공급업체 (일반제조)", path: "/dashboard/general-manufacturing/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
-  { icon: AlertTriangle, label: "위험 평가 (일반제조)", path: "/dashboard/general-manufacturing/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "quality", group: "일반제조 ISO 9001" },
-
-  // ─── Phase 3: 의약품 KGMP — Y-시리즈 8 entity (pharmaceutical 진입) ───
-  // 의약품 KGMP 테넌트 (industry=pharmaceutical) 전용. modules.gmp=true 매칭.
-  // 모든 라우트가 server core-mes router 의 industry view filter (z.enum 6 industries) 를 통과함.
-  { icon: GitBranch, label: "변경관리 (KGMP)", path: "/dashboard/pharmaceutical/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
-  { icon: AlertCircle, label: "부적합 관리 (KGMP)", path: "/dashboard/pharmaceutical/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
-  { icon: AlertTriangle, label: "CAPA (KGMP)", path: "/dashboard/pharmaceutical/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
-  { icon: ClipboardCheck, label: "감사 (KGMP)", path: "/dashboard/pharmaceutical/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
-  { icon: GraduationCap, label: "교육 / 훈련 (KGMP)", path: "/dashboard/pharmaceutical/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
-  { icon: Sliders, label: "검교정 IQ/OQ/PQ (KGMP)", path: "/dashboard/pharmaceutical/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
-  { icon: Building, label: "공급업체 AVL (KGMP)", path: "/dashboard/pharmaceutical/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
-  { icon: AlertTriangle, label: "위험 평가 ICH Q9 (KGMP)", path: "/dashboard/pharmaceutical/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "gmp", group: "의약품 KGMP" },
-
-  // ─── PR-239: 건강기능식품 — Y-시리즈 8 entity (health-functional 진입) ───
-  // health-functional 테넌트 (industry=health-functional) 전용. modules.haccp=true 매칭 (HACCP 기반).
-  { icon: GitBranch, label: "변경관리 (건기식)", path: "/dashboard/health-functional/change-control", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
-  { icon: AlertCircle, label: "부적합 관리 (건기식)", path: "/dashboard/health-functional/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
-  { icon: AlertTriangle, label: "CAPA (건기식)", path: "/dashboard/health-functional/corrective-action", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
-  { icon: ClipboardCheck, label: "감사 (건기식)", path: "/dashboard/health-functional/audit", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
-  { icon: GraduationCap, label: "교육 (건기식)", path: "/dashboard/health-functional/training", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
-  { icon: Sliders, label: "검교정 (건기식)", path: "/dashboard/health-functional/calibration", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
-  { icon: Building, label: "공급업체 (건기식)", path: "/dashboard/health-functional/supplier", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
-  { icon: AlertTriangle, label: "위험 평가 (건기식)", path: "/dashboard/health-functional/risk-assessment", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "건강기능식품" },
-
-  // ─── 감사·검증 (Legacy) ───
-  // 감사관리 (Legacy HACCP 감사 — "HACCP 인증 유지를 위한 감사" — Y-2-3 Audit 으로 이주됨)
-  { icon: Building2, label: "감사관리", path: "/dashboard/audit-management", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "감사·검증" },
-  { icon: ClipboardCheck, label: "HACCP 검증", path: "/dashboard/haccp-verification", roles: ["super_admin", "admin", "inspector", "monitor"], requireModule: "haccp", group: "감사·검증" },
-  // 감사 리포트: "감사관리" 페이지의 탭으로 통합됨 (#375). 사이드바 독립 메뉴 제거 —
-  //   라우트 /dashboard/audit-report 는 App.tsx 에 유지 (직접 URL 호환).
-  //   (audit-menu-routes.ts 탭 중복 감사로 검출 → 폴백 메뉴에서도 제거)
-
-  // ─── 시스템 ───
-  { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"], group: "시스템" },
-  // ★ GOGOGOPICK 연동은 feature flag 로 제어 (기본 비활성, 운영 연동 대기)
-  //    .env 에 VITE_FEATURE_GOGOGOPICK=true 설정 시 노출
-  ...(FEATURES.GOGOGOPICK_INTEGRATION
-    ? [{ icon: ArrowLeftRight, label: "GOGOGOPICK 연동", path: "/admin/opscore-sync", roles: ["super_admin", "admin"], highlight: true, group: "시스템" }]
-    : []),
-];
+// 2-a (2026-10-14): HACCP 탭 폴백 메뉴 — 정본은 shared/navigation/menuRegistry.ts (탭별 결과는 스냅샷 테스트로 고정)
+const menuItems = toMenuItems(selectTabMenu("haccp", { isErpOnly: false, features: { GOGOGOPICK_INTEGRATION: FEATURES.GOGOGOPICK_INTEGRATION } }));
 
 const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_WIDTH = 240;
@@ -575,11 +433,7 @@ function DashboardLayoutContent({
   const [isResizing, setIsResizing] = useState(false);
   const sidebarRef = useRef<HTMLDivElement>(null);
   // childRoutes를 사용하여 현재 경로에 해당하는 부모 메뉴 찾기
-  const isChildRoute = (itemPath: string) => {
-    const children = childRoutes[itemPath];
-    if (!children) return false;
-    return children.some(cp => location === cp || location.startsWith(cp + "/"));
-  };
+  const isChildRoute = (itemPath: string) => isChildRouteOf(itemPath, location);
   const { theme, toggleTheme } = useTheme();
   
   // WORK/회계/HACCP 탭 상태 관리 (기본값: work)
@@ -780,98 +634,12 @@ function DashboardLayoutContent({
     }
   };
   
-  // WORK 탭 메뉴 정의 (activeMenuItem보다 먼저 정의해야 함)
-  // ERP 전용 모드: HACCP 관련 메뉴 숨기고 회계 관련만 표시
-  const workMenuItems = isErpOnly ? [
-    // 2026-10-14 (0-3): 존재하지 않는 역할 "user" 제거 (노출 범위는 그대로 — 확대는 2단계 메뉴 레지스트리에서)
-    { icon: LayoutDashboard, label: "대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector"] },
-    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector"] },
-    { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
-    { icon: Bell, label: "알림 관리", path: "/dashboard/notifications", roles: ["admin", "worker"] },
-  ] : [
-    { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin", "admin", "worker", "inspector"] },
-    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin", "admin", "worker", "inspector"] },
-    { icon: Upload, label: "데이터 임포트", path: "/dashboard/data-import", roles: ["super_admin", "admin"] },
-    { icon: Scan, label: "스캔 체크리스트 입력", path: "/dashboard/scan-checklist", roles: ["super_admin", "admin", "inspector"] },
-    { icon: Bell, label: "사내공지관리", path: "/dashboard/accounting/notice-board", roles: ["super_admin", "admin"] },
-  ];
-  
-  // HACCP 탭 = menuItems 그대로 사용 (중복 제거)
-  // 회계 탭 메뉴 정의 — Option A 대칭 구조 (2026-04-14 재구성)
-  // 6개 그룹: 개요 / 매입·구매 / 매출·판매 / 자금·비용 / 기준정보 / 마감·문서
-  const accountingMenuItems = [
-    // ── 매일 쓰는 메뉴 (상단 배치) ──
+  // 2-a (2026-10-14): WORK·회계·슈퍼관리자 탭 메뉴도 레지스트리에서. ERP 전용 모드 분기는 selectTabMenu 의 mode.
+  const menuCtx = { isErpOnly, features: { GOGOGOPICK_INTEGRATION: FEATURES.GOGOGOPICK_INTEGRATION } };
+  const workMenuItems = toMenuItems(selectTabMenu("work", menuCtx));
+  const accountingMenuItems = toMenuItems(selectTabMenu("finance", menuCtx));
+  const superAdminMenuItems = toMenuItems(selectTabMenu("superAdmin", menuCtx));
 
-    // 📊 대시보드
-    { icon: TrendingUp, label: "대시보드", path: "/dashboard/accounting", roles: ["super_admin", "admin"], group: "개요" },
-
-    // 📥 매입·구매 (가장 빈번)
-    { icon: ClipboardList, label: "발주·구매", path: "/dashboard/accounting/purchase-orders", roles: ["super_admin", "admin"], group: "매입·구매" },
-    { icon: PackageMinus, label: "매입 등록", path: "/dashboard/accounting/purchases/create", roles: ["super_admin", "admin"], group: "매입·구매" },
-    { icon: FileText, label: "매입 조회", path: "/dashboard/accounting/purchases/list", roles: ["super_admin", "admin"], group: "매입·구매" },
-
-    // 📤 매출·판매
-    { icon: FileText, label: "견적서", path: "/dashboard/accounting/quotations", roles: ["super_admin", "admin"], group: "매출·판매" },
-    { icon: PackagePlus, label: "매출 등록", path: "/dashboard/accounting/sales/create", roles: ["super_admin", "admin"], group: "매출·판매" },
-    { icon: FileText, label: "매출 조회", path: "/dashboard/accounting/sales/list", roles: ["super_admin", "admin"], group: "매출·판매" },
-    { icon: Receipt, label: "세금계산서", path: "/dashboard/accounting/tax-invoices", roles: ["super_admin", "admin"], group: "매출·판매" },
-    // ★ 2026-04-22 Phase 2: B2C 플랫폼 정산 모듈 (Millio 킬러 피처)
-    { icon: Receipt, label: "B2C 플랫폼 정산", path: "/dashboard/accounting/b2c-platform", roles: ["super_admin", "admin"], group: "매출·판매" },
-
-    // 📦 품목·재고 (ERP 전용 모드에서만 표시 — HACCP 모드는 HACCP 탭에서 관리)
-    ...(isErpOnly ? [
-      { icon: Package, label: "품목 마스터", path: "/dashboard/item-master", roles: ["super_admin", "admin"], group: "품목·재고" },
-      { icon: Database, label: "마스터 데이터", path: "/dashboard/master-data", roles: ["super_admin", "admin"], group: "품목·재고" },
-      { icon: Warehouse, label: "재고 관리", path: "/inventory-management", roles: ["super_admin", "admin"], group: "품목·재고" },
-    ] : []),
-
-    // 💳 자금·비용
-    { icon: Wallet, label: "비용관리", path: "/dashboard/accounting/expense", roles: ["super_admin", "admin"], group: "자금·비용" },
-    { icon: Landmark, label: "은행 관리", path: "/dashboard/accounting/bank-management", roles: ["super_admin", "admin"], group: "자금·비용" },
-
-    // ── 주기적으로 쓰는 메뉴 (중단 배치) ──
-
-    // 📒 회계·세무
-    { icon: BookOpen, label: "전표 관리", path: "/dashboard/accounting/journal-entries", roles: ["super_admin", "admin"], group: "회계·세무" },
-    { icon: Receipt, label: "부가세", path: "/dashboard/accounting/vat-management", roles: ["super_admin", "admin"], group: "회계·세무" },
-    { icon: BarChart3, label: "재무보고서", path: "/dashboard/accounting/financial-reports", roles: ["super_admin", "admin"], group: "회계·세무" },
-    { icon: Wallet, label: "자금현황", path: "/dashboard/accounting/cash-flow", roles: ["super_admin", "admin"], group: "회계·세무" },
-    { icon: DollarSign, label: "예산 관리", path: "/dashboard/accounting/budget", roles: ["super_admin", "admin"], group: "회계·세무" },
-
-    // 👥 인사·급여
-    { icon: DollarSign, label: "급여관리", path: "/dashboard/accounting/payroll", roles: ["super_admin", "admin"], group: "인사·급여" },
-    { icon: Users, label: "인사관리", path: "/dashboard/accounting/hr", roles: ["super_admin", "admin"], group: "인사·급여" },
-
-    // ── 가끔 쓰는 메뉴 (하단 배치) ──
-
-    // 📇 기준정보 — 2026-04-28: ROUTES 상수 사용 (App.tsx 라우트와 단일 source)
-    { icon: Sparkles, label: "거래처 피드 (CRM)", path: ROUTES.PARTNERS_FEED, roles: ["super_admin", "admin"], group: "기준정보", highlight: true },
-    { icon: Building2, label: "거래처", path: ROUTES.ACCOUNTING_PARTNERS, roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: MessageSquare, label: "커뮤니케이션 로그", path: ROUTES.ACCOUNTING_COMMUNICATION_LOG, roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: Shield, label: "신용관리", path: ROUTES.ACCOUNTING_PARTNER_CREDIT, roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: DollarSign, label: "단가표", path: ROUTES.ACCOUNTING_PARTNER_PRICES, roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: BookOpen, label: "계정 과목", path: ROUTES.ACCOUNTING_ACCOUNTS, roles: ["super_admin", "admin"], group: "기준정보" },
-    { icon: Building2, label: "고정자산", path: ROUTES.ACCOUNTING_FIXED_ASSETS, roles: ["super_admin", "admin"], group: "기준정보" },
-
-    // 🔄 반복·이력
-    { icon: RotateCcw, label: "반복 거래", path: "/dashboard/accounting/recurring", roles: ["super_admin", "admin"], group: "마감" },
-    { icon: Clock, label: "마감 관리", path: "/dashboard/accounting/closing-management", roles: ["super_admin", "admin"], group: "마감" },
-    { icon: FileText, label: "변경이력", path: "/dashboard/accounting/change-log", roles: ["super_admin", "admin"], group: "마감" },
-    { icon: FolderOpen, label: "문서함", path: "/accounting/documents", roles: ["super_admin", "admin"], group: "마감" },
-
-    // ⚙️ 설정 (ERP 전용 모드에서 회계 탭 안에서 바로 접근)
-    ...(isErpOnly ? [
-      { icon: Settings, label: "시스템 관리", path: "/admin/settings", roles: ["super_admin", "admin"], group: "설정" },
-    ] : []),
-  ];
-  
-  // 슈퍼관리자 전용 메뉴 정의 (Work 탭에는 일반 메뉴만 표시)
-  const superAdminMenuItems = [
-    // 일반 WORK 탭 메뉴 (슈퍼관리자도 접근 가능)
-    { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["super_admin"] },
-    { icon: Clock, label: "Today", path: "/dashboard/today", roles: ["super_admin"] },
-    { icon: Activity, label: "서버 모니터링", path: "/dashboard/server-monitor", roles: ["super_admin"] },
-  ];
   
   // 모든 메뉴 통합 (즐겨찾기 검색용 + activeMenuItem 판별용)
   const allMenuItems = [...menuItems, ...accountingMenuItems, ...workMenuItems, ...superAdminMenuItems];
@@ -898,31 +666,24 @@ function DashboardLayoutContent({
    }).filter(Boolean);
 
   // 데모 계정 허용 경로 (핵심 기능만)
-  const DEMO_ALLOWED_PATHS = [
-    "/dashboard",
-    "/dashboard/today",
-    "/dashboard/production-management",
-    "/dashboard/production-operations",
-    "/dashboard/manufacturing-standards",
-    "/quality/ccp-monitoring",
-    "/dashboard/inspections",
-    "/quality/checklists",
-    "/inventory-management",
-    "/dashboard/notifications",
-    "/dashboard/document-output",
-  ];
+  // 데모 계정 허용 경로 — shared/navigation/menuRegistry.ts DEMO_ALLOWED_PATHS
 
   // ★ Phase Plugin-3 (Menu Engine): Plugin 기반 동적 메뉴
   // - HACCP 탭: tenant 의 industry plugin 메뉴 사용 (plugin 미정 시 legacy menuItems 폴백)
   // - WORK / 회계 탭: 기존 그대로 (산업 무관)
   const { plugin: domainPlugin } = useDomainPlugin();
-  const pluginBasedMenu = useMemo(
-    () => buildMenuFromPlugin(domainPlugin),
+  const pluginBasedMenu: MenuItem[] = useMemo(
+    () => buildMenuFromPlugin(domainPlugin).map((b) => ({
+      icon: b.icon, label: b.label, path: b.path, roles: [...b.roles],
+      ...(b.group ? { group: b.group } : {}),
+      ...(b.requireModule ? { requireModule: b.requireModule as ModuleKey } : {}),
+      ...(b.highlight ? { highlight: true } : {}),
+    })),
     [domainPlugin],
   );
 
-  // 표시할 메뉴 선택 (슈퍼관리자는 전용 메뉴 표시)
-  let displayedMenuItems = user?.role === "super_admin" && activeTab === "work"
+  // 표시할 메뉴 선택 (슈퍼관리자는 전용 메뉴 표시) — 2-a: 네 탭 모두 MenuItem[] 한 타입
+  let displayedMenuItems: MenuItem[] = user?.role === "super_admin" && activeTab === "work"
     ? superAdminMenuItems
     : activeTab === "work"
     ? workMenuItems
