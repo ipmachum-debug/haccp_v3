@@ -44,6 +44,7 @@ import { useIndustryFeatures, type ModuleKey } from "@/hooks/useIndustryFeatures
 // Phase Plugin-3: Menu Engine — Plugin 기반 사이드바 동적 생성
 import { useDomainPlugin } from "@/domain/useDomainPlugin";
 import { buildMenuFromPlugin, getIcon } from "@/domain/engines/clientMenuEngine";
+import { measureLayoutOverride } from "@/lib/measure/measureRecorder";
 import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, buildHubMenu, CONSOLIDATED_PLACEMENTS, AGENT_PLACEMENT, canSeeAgent, AI_ASSISTANT_PLACEMENT, canSeeAiAssistant, mobileNavFor, MENU_PLACEMENTS, resolveLegacyPath, type MenuPlacement } from "@shared/navigation/menuRegistry";
 import HubSidebarMenu, { type HubMenuEntry } from "./HubSidebarMenu";
 import type { RouterOutput } from "@/lib/trpcTypes";
@@ -716,7 +717,9 @@ function DashboardLayoutContent({
 
   // ★ 2-b-1 허브 사이드바 (2026-10-14): 탭 대신 세 탭의 항목을 합쳐 허브로 묶는다. 탭별 가림(HACCP 모듈 없음 → HACCP 탭 숨김,
   //   ERP 모듈 없음·데모 → 회계 탭 숨김)은 합칠 때 같은 조건으로 적용 → 보이는 항목 집합은 탭 사이드바와 동일.
-  const hubMode = FEATURES.HUB_SIDEBAR;
+  // 4단계 측정 모드에서만 개편 전(탭) / 후(허브) 사이드바를 바꿔 볼 수 있다 — 평소에는 FEATURES 그대로
+  const measureLayout = measureLayoutOverride();
+  const hubMode = measureLayout ? measureLayout === "hub" : FEATURES.HUB_SIDEBAR;
   if (hubMode) {
     displayedMenuItems = [
       ...workMenuItems,

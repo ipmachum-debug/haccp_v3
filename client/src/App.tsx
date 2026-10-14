@@ -8,6 +8,12 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { FEATURES } from "@/lib/featureFlags";
 import { ROUTES } from "@/lib/routePaths";
 import { LEGACY_REDIRECTS, buildRedirectTarget } from "@shared/navigation/menuRegistry";
+import { applyMeasureParam, isMeasureOn } from "@/lib/measure/measureRecorder";
+
+// 4단계 사용 측정 (2026-10-14) — ?measure=1 일 때만 측정 패널을 불러온다. 일반 사용자에게는 아무것도 바뀌지 않는다.
+applyMeasureParam();
+const MEASURE_ON = isMeasureOn();
+const MeasurePanel = lazy(() => import("@/components/common/MeasurePanel"));
 
 /** 옛 URL → 새 URL. 원래 쿼리 파라미터를 붙여 보낸다 (같은 키는 목적지 값 우선). 히스토리는 교체 */
 function LegacyRedirect({ to }: { to: string }) {
@@ -757,6 +763,11 @@ function App() {
         <TooltipProvider>
           <Toaster />
           <Router />
+          {MEASURE_ON && (
+            <Suspense fallback={null}>
+              <MeasurePanel defaultLayout={FEATURES.HUB_SIDEBAR ? "hub" : "tabs"} />
+            </Suspense>
+          )}
         </TooltipProvider>
       </ThemeProvider>
     </ErrorBoundary>
