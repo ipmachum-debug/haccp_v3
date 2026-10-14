@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
+import { PageHeader } from "@/components/common/PageHeader";
 import { Tabs, TabsContent, TabsTrigger, TabsList } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Package, TrendingUp, RotateCw, AlertCircle, Calendar, PackageMinus, PackagePlus, Settings, RefreshCw, Factory, ScanBarcode, Truck, Clock, ShieldCheck, Play, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, Layers, ClipboardCheck } from "lucide-react";
@@ -95,18 +96,12 @@ export default function InventoryManagement() {
     <DashboardLayout>
       <div className="space-y-4">
 
-        {/* ── 헤더 ── */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-teal-500 to-emerald-600 flex items-center justify-center shadow-sm">
-              <Package className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold leading-tight">재고 관리</h1>
-              <p className="text-xs text-muted-foreground">{`${L("material")} · 제품 통합 재고 관리`}</p>
-            </div>
-          </div>
-
+        {/* 3-c (2026-10-14): 페이지 머리 표준 — 재고 종류 전환·LOT 추적은 extra */}
+        <PageHeader
+          title="재고 관리"
+          description={`${L("material")} · 제품 통합 재고 관리`}
+          className="mb-1"
+          extra={
           <div className="flex items-center gap-2">
             {/* 세그먼트 토글 */}
             <div className="inline-flex items-center bg-gradient-to-r from-teal-600 to-emerald-600 rounded-lg p-0.5">
@@ -137,7 +132,8 @@ export default function InventoryManagement() {
               <ScanBarcode className="h-3.5 w-3.5" />LOT 추적
             </button>
           </div>
-        </div>
+          }
+        />
 
         {/* ── 탭 ── */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3">

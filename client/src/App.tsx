@@ -16,6 +16,7 @@ function LegacyRedirect({ to }: { to: string }) {
 }
 
 // Lazy load pages
+const HubHome = lazy(() => import("@/pages/hub/HubHome"));
 const IndustryQualityRoute = lazy(() => import("@/pages/quality/IndustryQualityRoute"));
 const LandingPage = lazy(() => import("@/pages/landing/LandingPage"));
 const OnboardingPage = lazy(() => import("@/pages/landing/OnboardingPage"));
@@ -335,6 +336,8 @@ function Router() {
       
       {/* 통합 페이지 라우트 */}
       <Route path="/dashboard/today" component={Today} />
+      {/* 3-b (2026-10-14): 허브 입구 — "지금 처리할 것" */}
+      <Route path="/hub/:hubId" component={HubHome} />
       <Route path="/dashboard/ccp" component={CcpManagement} />
       <Route path="/dashboard/notifications" component={NotificationManagement} />
       <Route path="/dashboard/inspections" component={InspectionManagement} />

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs";
 import { TabsList } from "@/components/ui/tabs";
@@ -962,15 +963,13 @@ export default function CCPMonitoring() {
   return (
     <DashboardLayout>
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">CCP 모니터링</h1>
-            <p className="text-muted-foreground text-sm">
-              중요관리점(CCP) 모니터링 기록 및 관리
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <select
+        {/* 3-c (2026-10-14): 페이지 머리 표준 — PDF 출력이 주 버튼, 기간 선택은 extra */}
+        <PageHeader
+          title="CCP 모니터링"
+          description="중요관리점(CCP) 모니터링 기록 및 관리"
+          className="mb-1"
+          extra={
+              <select
               value={pdfPeriod}
               onChange={(e) => setPdfPeriod(e.target.value as "daily" | "weekly" | "monthly")}
               className="border rounded-md px-3 py-2"
@@ -979,12 +978,9 @@ export default function CCPMonitoring() {
               <option value="weekly">주간</option>
               <option value="monthly">월간</option>
             </select>
-            <Button onClick={handleGeneratePdf} disabled={generatePdfMutation.isPending}>
-              <Download className="h-4 w-4 mr-2" />
-              PDF 출력
-            </Button>
-          </div>
-        </div>
+          }
+          primary={{ label: generatePdfMutation.isPending ? "PDF 생성 중…" : "PDF 출력", icon: Download, onClick: handleGeneratePdf, disabled: generatePdfMutation.isPending }}
+        />
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-3">
           <TabsList className="grid w-full grid-cols-5">

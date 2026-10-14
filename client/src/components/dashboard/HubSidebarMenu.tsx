@@ -11,7 +11,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { SidebarMenuButton, SidebarMenuItem } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { getIcon } from "@/domain/engines/clientMenuEngine";
-import { HUB_TABS, hubTabOf, type HubSection, type HubId, type HubTabId } from "@shared/navigation/menuRegistry";
+import { HUB_TABS, HUBS_WITH_HOME, hubHomePath, hubTabOf, type HubSection, type HubId, type HubTabId } from "@shared/navigation/menuRegistry";
 
 export type HubMenuEntry = HubSection<React.ComponentType<{ className?: string }>>["items"][number];
 export type HubMenuSection = HubSection<React.ComponentType<{ className?: string }>>;
@@ -65,7 +65,10 @@ export default function HubSidebarMenu({
 
   // 현재 경로가 속한 허브는 **화면을 이동했을 때만** 펼친다. 그 뒤에는 사용자가 접을 수 있어야 한다
   // (이전: 항상 강제로 펼쳐서 매입 조회 화면에서 구매·입고 허브가 접히지 않았다 — 2026-10-14 대표 보고)
-  const activeHub = useMemo(() => sections.find((s) => s.items.some((i) => isActivePath(i.path)))?.hub.id ?? null, [sections, location, isActivePath]);
+  const activeHub = useMemo(
+    () => sections.find((s) => location === hubHomePath(s.hub.id))?.hub.id   // 허브 입구 화면
+      ?? sections.find((s) => s.items.some((i) => isActivePath(i.path)))?.hub.id ?? null,
+    [sections, location, isActivePath]);
   useEffect(() => {
     if (activeHub) setOpen((s) => (s[activeHub] ? s : { ...s, [activeHub]: true }));
   }, [location, activeHub]);
@@ -105,6 +108,14 @@ export default function HubSidebarMenu({
             )}
             <CollapsibleContent>
               <div className={cn("flex flex-col gap-0.5", !isCollapsed && "pl-2 pb-1")}>
+                {/* 3-b: 허브 입구 — "지금 처리할 것" */}
+                {!isCollapsed && HUBS_WITH_HOME.includes(hub.id) && (
+                  <button type="button" onClick={() => onNavigate(hubHomePath(hub.id))} data-testid={`hub-home-${hub.id}`}
+                    className={cn("flex items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] font-medium transition-colors",
+                      location === hubHomePath(hub.id) ? tone.active : "text-sidebar-foreground/55 hover:text-sidebar-foreground hover:bg-sidebar-accent/50")}>
+                    <span className={cn("h-1.5 w-1.5 rounded-full", tone.bar)} /> 한눈에 보기
+                  </button>
+                )}
                 {hubTabs && !isCollapsed && (
                   <div role="tablist" aria-label={`${hub.label} 구분`} className="grid gap-1 rounded-lg bg-sidebar-accent/60 p-0.5 my-1"
                     style={{ gridTemplateColumns: `repeat(${hubTabs.length}, minmax(0, 1fr))` }}>

@@ -4,6 +4,8 @@
  * 상태 필터 + 검색 + 액션 (승인/취소/삭제/입고 처리)
  * ═══════════════════════════════════════════════════════════════
  */
+import { PageHeader } from "@/components/common/PageHeader";
+import { StatusBadge } from "@/components/common/StatusBadge";
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
@@ -409,24 +411,12 @@ function PurchaseOrderListContent() {
 
   return (
     <div className="p-4 space-y-4">
-      {/* 헤더 */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-bold flex items-center gap-2">
-            <ClipboardList className="h-5 w-5 text-purple-600" />
-            발주·구매 관리
-          </h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            공급업체 발주 → 승인 → 입고 처리 → 매입전표 자동 생성
-          </p>
-        </div>
-        <Button
-          onClick={() => navigate("/dashboard/accounting/purchase-orders/create")}
-          className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
-        >
-          <Plus className="h-4 w-4 mr-1" /> 발주서 등록
-        </Button>
-      </div>
+      {/* 3-c (2026-10-14): 페이지 머리 표준 — 메뉴 이름 '발주서' 와 맞춤 */}
+      <PageHeader
+        title="발주서"
+        description="공급업체 발주 → 승인 → 입고 처리 → 매입전표 자동 생성"
+        primary={{ label: "발주서 등록", icon: Plus, onClick: () => navigate("/dashboard/accounting/purchase-orders/create") }}
+      />
 
       {/* KPI */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -529,7 +519,6 @@ function PurchaseOrderListContent() {
                 </TableRow>
               ) : (
                 orders.map((po: OrderRow) => {
-                  const statusInfo = STATUS_LABELS[po.status] || { label: po.status, variant: "secondary", className: "" };
                   return (
                     <TableRow key={po.id} className="group">
                       <TableCell className="font-mono text-xs">{po.poNumber}</TableCell>
@@ -542,9 +531,7 @@ function PurchaseOrderListContent() {
                         {Math.round(parseFloat(po.grandTotal || "0")).toLocaleString()}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={statusInfo.variant as any} className={statusInfo.className}>
-                          {statusInfo.label}
-                        </Badge>
+                        <StatusBadge status={po.status} domain="purchaseOrder" />
                       </TableCell>
                       <TableCell>
                         <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100">
