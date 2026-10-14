@@ -84,7 +84,7 @@ async function getLowStockMaterials(tenantId?: number) {
   });
 }
 
-export async function getDashboardStats(tenantId?: number) {
+export async function getDashboardStats(tenantId?: number, userId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   const { hBatches, hCcpInstances } = await import("../../../drizzle/schema.js");
@@ -149,7 +149,8 @@ export async function getDashboardStats(tenantId?: number) {
   // ★ 2026-10-13 경영 상황판 보정 (CEO 보고 "API 데이터도 안 맞아")
   //   - 승인 대기: 화면이 "읽지 않은 알림 수(상한 200)" 를 승인 대기로 표시하고 있었다 → 실제 승인 요청 pending 건수
   //   - CCP 점검: h_ccp_schedules(0행, 미사용) 대신 오늘 작업일 공식 기록지 중 미제출(draft) 건수
-  //   - 알림: 상한 없는 실제 미읽음 건수 (브로드캐스트 user_id=0 포함)
+  //   - 알림: 상한 없는 실제 미읽음 건수 — **로그인 사용자 본인 + 브로드캐스트(user_id=0)**.
+  //     상단 알림 종·알림 센터·모바일 하단바와 같은 범위 (2026-10-14: 이전엔 사용자 조건이 빠져 회사 전체 미읽음 203건이 표시됐다)
   const todayStr = todayKST();
   let pendingApprovalCount = 0;
   let todayCcpDraftCount = 0;
@@ -171,10 +172,15 @@ export async function getDashboardStats(tenantId?: number) {
     );
     todayCcpFormCount = Number((cf as any)?.total ?? 0);
     todayCcpDraftCount = Number((cf as any)?.drafts ?? 0);
-    const [[un]] = await conn.execute<any[]>(
-      `SELECT COUNT(*) AS n FROM h_notifications WHERE tenant_id = ? AND is_read = 0`,
-      [tenantId],
-    );
+    const [[un]] = userId
+      ? await conn.execute<any[]>(
+          `SELECT COUNT(*) AS n FROM h_notifications WHERE tenant_id = ? AND is_read = 0 AND (user_id = ? OR user_id = 0)`,
+          [tenantId, userId],
+        )
+      : await conn.execute<any[]>(
+          `SELECT COUNT(*) AS n FROM h_notifications WHERE tenant_id = ? AND is_read = 0`,
+          [tenantId],
+        );
     unreadNotificationCount = Number((un as any)?.n ?? 0);
   }
 
