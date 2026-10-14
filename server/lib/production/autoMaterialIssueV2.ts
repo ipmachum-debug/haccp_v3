@@ -37,6 +37,7 @@ import type { TransactionContext } from "../_core";
 import { allocateLotsFEFO, NoLotsForNegativeError, type FefoAllocation } from "../inventory/fefoLotAllocation";
 import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
 import { resolveBatchBusinessDate } from "./batchBusinessDate";
+import { getIssuedBatchLineIds } from "./issuedBatchLines";
 import { reconcileNegativeLots, createNegativePlaceholderLot } from "../inventory/negativeLotReconcile";
 
 /** v1 과 동일 result 타입 (호환성) */
@@ -433,6 +434,11 @@ export async function autoIssueMaterialsForBatchV2(
   if (inputs.length === 0) {
     result.warnings.push(`배치 #${batchId}에 원재료 투입 계획이 없습니다.`);
     return result;
+  }
+  // 2026-10-14: 출고 기록이 이미 있는 투입은 재출고하지 않는다 (issuedBatchLines.ts 참조)
+  {
+    const issued = await getIssuedBatchLineIds(batchId, Number(batch.tenant_id));
+    for (const bi of inputs) if (issued.has(Number(bi.id))) bi.inventory_deducted = 1;
   }
   if (inputs.every((bi: any) => Number(bi.inventory_deducted) === 1)) {
     result.warnings.push(`배치 #${batchId} 원재료가 이미 전량 출고되었습니다.`);
