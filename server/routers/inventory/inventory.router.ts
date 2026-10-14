@@ -1446,6 +1446,13 @@ export const inventoryRouter = router({
         return await getProductOutboundStats(ctx.tenantId);
       }),
 
+    // 제품별 출고 집계 (제품 재고 보기 화면) — DB 함수는 있었으나 라우터에 노출되지 않아 화면이 없는 API 를 부르고 있었다 (2026-10-14)
+    getProductOutboundByProduct: tenantRequiredProcedure
+      .query(async ({ ctx }) => {
+        const { getProductOutboundByProduct } = await import("../../db/production/productOutboundManagement");
+        return await getProductOutboundByProduct(ctx.tenantId);
+      }),
+
     /**
      * 소급 재고 차감 - 배치 생산에서 누락된 원재료 출고 일괄 처리
      * 백업 데이터 임포트 등으로 autoMaterialIssue가 실행되지 않은 배치들을 대상으로

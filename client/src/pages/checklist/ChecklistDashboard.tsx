@@ -9,11 +9,10 @@ import { DailyLogCreateModal } from "@/components/production/DailyLogCreateModal
 import { DailyLogListModal } from "@/components/production/DailyLogListModal";
 import { WeeklyHygieneLogModal } from "@/components/production/WeeklyHygieneLogModal";
 import { WeeklyPestLogModal } from "@/components/production/WeeklyPestLogModal";
-import { WeeklyHygieneLogListModal } from "@/components/production/WeeklyHygieneLogListModal";
+import { PeriodicLogListModal } from "@/components/production/PeriodicLogListModal";
 import { WeeklyPestLogListModal } from "@/components/production/WeeklyPestLogListModal";
 import { MonthlyHygieneLogModal } from "@/components/production/MonthlyHygieneLogModal";
 import { MonthlyCCPLogModal } from "@/components/production/MonthlyCCPLogModal";
-import { MonthlyHygieneLogListModal } from "@/components/production/MonthlyHygieneLogListModal";
 import { MonthlyCCPLogListModal } from "@/components/production/MonthlyCCPLogListModal";
 import { YearlyLogModal } from "@/components/production/YearlyLogModal";
 import { YearlyLogListModal } from "@/components/production/YearlyLogListModal";
@@ -1001,10 +1000,10 @@ export default function ChecklistDashboard() {
 
       {/* 주간일지 - 일반위생관리 목록 모달 */}
       {weeklyHygieneListModalOpen && (
-        <WeeklyHygieneLogListModal
+        <PeriodicLogListModal
+          kind="weekly"
           open={weeklyHygieneListModalOpen}
           onClose={() => setWeeklyHygieneListModalOpen(false)}
-          tenantId={user?.tenantId || 0}
         />
       )}
 
@@ -1037,10 +1036,10 @@ export default function ChecklistDashboard() {
 
       {/* 월간일지 - 일반위생관리 목록 모달 */}
       {monthlyHygieneListModalOpen && (
-        <MonthlyHygieneLogListModal
+        <PeriodicLogListModal
+          kind="monthly"
           open={monthlyHygieneListModalOpen}
           onClose={() => setMonthlyHygieneListModalOpen(false)}
-          tenantId={user?.tenantId || 0}
         />
       )}
 

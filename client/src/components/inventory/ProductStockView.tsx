@@ -12,7 +12,7 @@ import type { RouterOutput } from "@/lib/trpcTypes";
 type ProductItem = RouterOutput["itemMaster"]["list"]["items"][number];
 type ProductSkuRow = RouterOutput["productSku"]["listAll"][number];
 type BatchRow = RouterOutput["batch"]["list"]["items"][number];
-// getProductOutboundByProduct 는 현재 router 에 직접 노출되지 않아 local shape 사용
+// getProductOutboundByProduct — inventory 라우터에 노출 (2026-10-14). 반환: productName · totalOutbound · outboundCount · lastReleaseDate
 type OutboundByProduct = {
   productId?: number;
   productName?: string;
