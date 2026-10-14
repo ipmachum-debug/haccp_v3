@@ -58,13 +58,16 @@ export default function DocumentApprovalSettingsPage() {
   //   plugin 미정 시 legacy filterFormTypesByIndustry 폴백 (Strangler Fig)
   const { plugin: domainPlugin } = useDomainPlugin();
   const { hasHACCP, hasGMP, isLoading: industryLoading } = useIndustryFeatures();
-  const FORM_TYPES = useMemo(() => {
+  // ★ 2026-10-15: plugin 카탈로그는 문서 종류 키를 `code` 로, legacy 목록은 `formType` 으로 준다.
+  //   이전에는 plugin 경로에서도 ft.formType 을 읽어 키가 undefined → 저장된 결재자 설정 51건이 전부 "선택 안함" 으로 보였다
+  //   (데이터는 그대로). 두 출처를 { formType, name, category } 로 맞춘다.
+  const FORM_TYPES = useMemo((): Array<{ formType: string; name: string; category: string }> => {
     if (domainPlugin) {
       // Plugin 기반: 산업별 양식 카탈로그를 plugin 에서 자동 조회
-      return getDocumentFormTypes(domainPlugin);
+      return getDocumentFormTypes(domainPlugin).map((ft) => ({ formType: ft.code, name: ft.name, category: ft.category }));
     }
     // 폴백: legacy industry 분류 (PR #213)
-    return filterFormTypesByIndustry(hasHACCP, hasGMP);
+    return filterFormTypesByIndustry(hasHACCP, hasGMP).map((ft) => ({ formType: ft.formType, name: ft.name, category: ft.category }));
   }, [domainPlugin, hasHACCP, hasGMP]);
 
   // API 쿼리
@@ -115,7 +118,8 @@ export default function DocumentApprovalSettingsPage() {
 
   // 저장
   const handleSave = async () => {
-    const changedRows = settings.filter((r) => r.changed);
+    // 문서 종류 키가 비어 있는 행은 저장하지 않는다 (키 없는 설정 행 생성 방지)
+    const changedRows = settings.filter((r) => r.changed && !!r.formType);
     if (changedRows.length === 0) {
       toast({ title: "변경 사항 없음", description: "수정된 항목이 없습니다." });
       return;
