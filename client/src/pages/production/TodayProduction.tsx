@@ -174,22 +174,33 @@ export default function TodayProduction() {
   ]);
   // ③ 서버 기준 재검증 결과 (시작 버튼과 같은 계산)
   const { data: serverCheck } = trpc.todayProduction.checkStart.useQuery(
-    { batchId: selectedId! }, { enabled: !!selectedId && startable, retry: 1 },
+    { batchId: selectedId! }, { enabled: !!selectedId && (startable || selected?.status === "in_progress"), retry: 1 },
   );
+  // 시작 후 자동출고가 실패·부분 성공해 남은 줄 (진행 중 배치) — '누락 출고 다시 실행' 으로 복구
+  const unissued = selected?.status === "in_progress" ? (serverCheck?.unissuedLines ?? 0) : 0;
   const [confirm, setConfirm] = useState<null | { shortages: Array<{ materialName: string; unit: string; required: number; available: number; shortage: number }>; message: string }>(null);
   const startMut = trpc.todayProduction.start.useMutation({
     onSuccess: async (r: any) => {
       if (r.status === "needs_confirmation") { setConfirm({ shortages: r.shortages, message: r.message }); return; }
       setConfirm(null);
-      if (r.status === "already_started") notify.info(r.message);
+      if (r.status === "already_started") (r.unissuedLines > 0 ? notify.warn : notify.info)(r.message);
       else {
-        notify.success(r.message);
+        (r.unissuedLines > 0 ? notify.warn : notify.success)(r.message);
         const w = [...(r.autoIssue?.errors ?? []), ...(r.autoIssue?.warnings ?? [])];
         if (w.length) notify.warn("자동출고 확인 필요", w.slice(0, 3).join(" / ") + (w.length > 3 ? ` 외 ${w.length - 3}건` : ""));
       }
       await refreshAll();
     },
     onError: (e: unknown) => notify.error("생산 시작 실패", e),
+  });
+  const retryMut = trpc.todayProduction.retryIssue.useMutation({
+    onSuccess: async (r: any) => {
+      if (r.status === "reissued" && r.unissuedLines === 0) notify.success(r.message);
+      else if (r.status === "nothing_to_issue") notify.info(r.message);
+      else notify.warn(r.message, (r.autoIssue?.errors ?? []).slice(0, 3).join(" / ") || undefined);
+      await refreshAll();
+    },
+    onError: (e: unknown) => notify.error("다시 출고 실패", e),
   });
   const [completeOpen, setCompleteOpen] = useState(false);
   const [actualQty, setActualQty] = useState("");
@@ -363,6 +374,14 @@ export default function TodayProduction() {
                     <span className="text-muted-foreground">아직 시작 전입니다. 시작하면 투입 계획대로 원재료가 한 번 자동 출고됩니다.</span>
                   )}
                 </div>
+                {unissued > 0 && (
+                  <div className="w-full flex flex-wrap items-center justify-between gap-2 text-xs rounded-md px-2.5 py-1.5 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" data-testid="today-unissued">
+                    <span>아직 출고되지 않은 원료 {unissued}줄 — 시작 때 자동출고가 실패했거나 일부만 처리됐습니다. 이미 출고된 줄은 다시 나가지 않습니다.</span>
+                    <Button size="sm" variant="outline" onClick={() => retryMut.mutate({ batchId: selected!.id })} disabled={retryMut.isPending} data-testid="today-retry-issue">
+                      {retryMut.isPending ? "출고 중…" : "누락 출고 다시 실행"}
+                    </Button>
+                  </div>
+                )}
                 {startable && (
                   <Button size="sm" onClick={() => startMut.mutate({ batchId: selected!.id })} disabled={startMut.isPending} data-testid="today-start">
                     <Play className="h-3.5 w-3.5 mr-1" />{startMut.isPending ? "확인 중…" : "생산 시작"}

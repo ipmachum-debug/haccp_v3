@@ -11,6 +11,8 @@
  *   4. 시작 권리 잡기: status 가 planned/paused 일 때만 in_progress 로 바꾸는 조건부 UPDATE —
  *      동시에 두 번 눌러도 한 요청만 성공 → 자동출고는 한 번 (줄 단위 #483 방어도 그대로)
  *   5. 자동출고 dispatcher · 생산일지 갱신 (기존 batch.updateStatus 와 같은 후속 처리)
+ * retryIssue:  시작 후 자동출고 실패·부분 성공 복구 — 진행 중 배치의 남은 줄만 다시 출고 (Codex #501 검토)
+ *   시작·재출고의 자동출고는 배치 잠금(GET_LOCK) 안에서만 — 줄 단위 방어(#483)의 조회-후-출고 경합 차단
  * 완료(⑥)는 기존 batch.complete(관리자, idempotency 키) 를 그대로 쓴다 — 이미 출고된 투입을 다시 차감하지 않는 기존 방어 유지.
  */
 import { z } from "zod";
@@ -19,6 +21,56 @@ import { router, workerProcedure } from "../../_core/trpc";
 import { toKSTDate, todayKST, nowKST } from "../../utils/timezone";
 
 export const START_FROM = ["planned", "paused"] as const;
+
+/** 이미 시작된 배치 — 출고를 다시 하지 않고, 누락 줄이 있으면 알려 준다 (복구는 retryIssue) */
+async function alreadyStarted(batchId: number, tenantId: number, head: string) {
+  let unissuedLines = 0;
+  try {
+    const { validateBatchStart } = await import("../../lib/production/batchStartValidation");
+    unissuedLines = (await validateBatchStart(batchId, tenantId)).unissuedLines;
+  } catch { /* 표시용 — 실패해도 already_started */ }
+  return {
+    status: "already_started" as const,
+    unissuedLines,
+    message: unissuedLines > 0
+      ? `${head} 아직 출고되지 않은 원료 ${unissuedLines}줄이 있습니다 — '누락 출고 다시 실행' 으로 출고하세요.`
+      : `${head} 원료 출고는 다시 하지 않습니다.`,
+  };
+}
+
+type IssueRun = { busy: boolean; autoIssue: { success: boolean; warnings: string[]; errors: string[] }; unissuedLines: number };
+
+/** 자동출고를 배치 잠금 안에서 실행하고, 끝난 뒤 아직 출고 기록이 없는 줄 수를 다시 센다 */
+async function runIssue(batchId: number, batch: any, ctx: any): Promise<IssueRun> {
+  const { withBatchIssueLock } = await import("../../lib/production/batchIssueLock");
+  const { validateBatchStart } = await import("../../lib/production/batchStartValidation");
+  const locked = await withBatchIssueLock(ctx.tenantId, batchId, async () => {
+    try {
+      const { autoIssueMaterialsDispatch } = await import("../../lib/production/autoMaterialIssueDispatcher");
+      return (await autoIssueMaterialsDispatch(batchId, batch.createdBy || ctx.user.id, ctx.tenantId)) as any;
+    } catch (e: any) {
+      console.error("[todayProduction] 자동출고 오류:", e?.message || e);
+      return { success: false, errors: [String(e?.message || e)] };
+    }
+  }).catch((e: any) => {
+    // 잠금 연결 자체 실패 — 출고를 실행하지 않았으므로 미출고로 남는다 (재출고로 복구)
+    console.error("[todayProduction] 출고 잠금 실패:", e?.message || e);
+    return { locked: true as const, value: { success: false, errors: [`출고 잠금 실패: ${String(e?.message || e)}`] } };
+  });
+  let unissuedLines = 0;
+  try { unissuedLines = (await validateBatchStart(batchId, ctx.tenantId)).unissuedLines; } catch { /* 재확인 실패 — 0 으로 두지 않고 아래 오류로 알림 */ unissuedLines = -1; }
+  if (!locked.locked) {
+    return { busy: true, autoIssue: { success: false, warnings: [], errors: [] }, unissuedLines: Math.max(unissuedLines, 0) };
+  }
+  const r = locked.value ?? {};
+  const errors = [...((r.errors ?? []) as string[])];
+  if (unissuedLines < 0) errors.push("출고 결과 재확인 실패 — 배치 상세에서 출고 내역을 확인해 주세요.");
+  return {
+    busy: false,
+    autoIssue: { success: !!r.success && errors.length === 0, warnings: (r.warnings ?? []) as string[], errors },
+    unissuedLines: Math.max(unissuedLines, 0),
+  };
+}
 
 export const todayProductionRouter = router({
   checkStart: workerProcedure
@@ -40,7 +92,7 @@ export const todayProductionRouter = router({
       if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
 
       if (batch.status === "in_progress") {
-        return { status: "already_started" as const, message: "이미 생산 중인 배치입니다. 원료 출고는 다시 하지 않습니다." };
+        return alreadyStarted(input.batchId, ctx.tenantId, "이미 생산 중인 배치입니다.");
       }
       if (!(START_FROM as readonly string[]).includes(batch.status)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: `지금 상태(${batch.status})에서는 생산을 시작할 수 없습니다.` });
@@ -72,7 +124,7 @@ export const todayProductionRouter = router({
       if (!upd || Number(upd.affectedRows) !== 1) {
         const again: any = await getBatchById(input.batchId, ctx.tenantId);
         if (again?.status === "in_progress") {
-          return { status: "already_started" as const, message: "다른 사용자가 방금 시작했습니다. 원료 출고는 다시 하지 않습니다." };
+          return alreadyStarted(input.batchId, ctx.tenantId, "다른 사용자가 방금 시작했습니다.");
         }
         throw new TRPCError({ code: "CONFLICT", message: "배치 상태가 바뀌어 시작하지 못했습니다. 새로고침 후 다시 확인해 주세요." });
       }
@@ -89,15 +141,19 @@ export const todayProductionRouter = router({
         );
       }
 
-      // 5. 자동출고 (기존 dispatcher — 줄 단위 재출고 방어 #483 포함) · 생산일지 갱신
-      let autoIssue: any = null;
+      // 감사 로그 — 누가 언제 시작했는지 (부족 확인 포함). 실패해도 시작은 유지
       try {
-        const { autoIssueMaterialsDispatch } = await import("../../lib/production/autoMaterialIssueDispatcher");
-        autoIssue = await autoIssueMaterialsDispatch(input.batchId, batch.createdBy || ctx.user.id, ctx.tenantId);
-      } catch (e: any) {
-        console.error("[todayProduction.start] 자동출고 오류:", e?.message || e);
-        autoIssue = { success: false, errors: [String(e?.message || e)] };
-      }
+        const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
+        await createAuditLog({
+          action: "batch.start", entityType: "batch", entityId: input.batchId,
+          userId: Number(ctx.user?.id ?? 0), userEmail: ctx.user?.email ?? undefined, userRole: ctx.user?.role,
+          description: check.shortages.length > 0 ? "오늘의 생산 · 생산 시작 (재고 부족 확인)" : "오늘의 생산 · 생산 시작",
+          changes: { from: batch.status, to: "in_progress", shortages: check.shortages, allowNegative: check.allowNegative },
+        }, ctx.tenantId);
+      } catch { /* 기록 실패가 시작을 막지 않음 */ }
+
+      // 5. 자동출고 (잠금 안에서) · 생산일지 갱신 · 남은 미출고 줄 재확인
+      const run = await runIssue(input.batchId, batch, ctx);
       try {
         const { autoRegenerateProductionDaily } = await import("../../lib/production/autoProductionDaily");
         const d = batch.plannedDate ? toKSTDate(new Date(batch.plannedDate)) : todayKST();
@@ -109,12 +165,53 @@ export const todayProductionRouter = router({
       return {
         status: "started" as const,
         shortagesAcknowledged: check.shortages,
-        autoIssue: {
-          success: !!autoIssue?.success,
-          warnings: (autoIssue?.warnings ?? []) as string[],
-          errors: (autoIssue?.errors ?? []) as string[],
-        },
-        message: "생산을 시작했습니다. 원료 자동출고가 실행되었습니다.",
+        autoIssue: run.autoIssue,
+        unissuedLines: run.unissuedLines,
+        message: run.unissuedLines > 0
+          ? `생산을 시작했지만 원료 ${run.unissuedLines}줄이 출고되지 않았습니다. '누락 출고 다시 실행' 으로 이어서 출고하세요.`
+          : "생산을 시작했습니다. 원료 자동출고가 실행되었습니다.",
+      };
+    }),
+
+  /**
+   * 시작 후 자동출고가 실패·부분 성공한 배치의 복구 (Codex #501 검토).
+   * 진행 중 배치만. 이미 출고 기록이 있는 줄은 자동출고가 건너뛴다(#483) → 남은 줄만 출고.
+   * 시작·재출고가 겹치지 않도록 배치 잠금 안에서 실행.
+   */
+  retryIssue: workerProcedure
+    .input(z.object({ batchId: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => {
+      const { getBatchById } = await import("../../db");
+      const batch: any = await getBatchById(input.batchId, ctx.tenantId);
+      if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
+      if (batch.status !== "in_progress") {
+        throw new TRPCError({ code: "BAD_REQUEST", message: `생산 중인 배치만 다시 출고할 수 있습니다 (지금 상태: ${batch.status}).` });
+      }
+      const { validateBatchStart } = await import("../../lib/production/batchStartValidation");
+      const before = await validateBatchStart(input.batchId, ctx.tenantId);
+      if (before.unissuedLines === 0) {
+        return { status: "nothing_to_issue" as const, unissuedLines: 0, message: "출고할 원료가 남아 있지 않습니다." };
+      }
+      const run = await runIssue(input.batchId, batch, ctx);
+      if (run.busy) {
+        return { status: "busy" as const, unissuedLines: before.unissuedLines, message: "이 배치의 원료 출고가 이미 진행 중입니다. 잠시 후 다시 확인해 주세요." };
+      }
+      try {
+        const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
+        await createAuditLog({
+          action: "batch.reissue", entityType: "batch", entityId: input.batchId,
+          userId: Number(ctx.user?.id ?? 0), userEmail: ctx.user?.email ?? undefined, userRole: ctx.user?.role,
+          description: "오늘의 생산 · 누락 출고 다시 실행",
+          changes: { unissuedBefore: before.unissuedLines, unissuedAfter: run.unissuedLines, errors: run.autoIssue.errors },
+        }, ctx.tenantId);
+      } catch { /* 기록 실패가 출고를 막지 않음 */ }
+      return {
+        status: "reissued" as const,
+        autoIssue: run.autoIssue,
+        unissuedLines: run.unissuedLines,
+        message: run.unissuedLines > 0
+          ? `다시 출고했지만 원료 ${run.unissuedLines}줄이 아직 출고되지 않았습니다. 원인(재고 마스터·단위 등)을 확인해 주세요.`
+          : "남은 원료를 모두 출고했습니다.",
       };
     }),
 });

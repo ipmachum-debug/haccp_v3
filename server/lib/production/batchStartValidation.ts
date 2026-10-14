@@ -39,13 +39,14 @@ export function isWaterMaterial(name: string | null | undefined): boolean {
 }
 
 /** 순수 계산 — 아직 출고 안 된 투입을 자재별로 합쳐 가용량과 비교 (테스트 대상) */
-export function computeShortages(lines: readonly StartLine[], available: ReadonlyMap<number, number>): { shortages: StartShortage[]; pendingLines: number; issuedLines: number } {
+export function computeShortages(lines: readonly StartLine[], available: ReadonlyMap<number, number>): { shortages: StartShortage[]; pendingLines: number; issuedLines: number; unissuedLines: number } {
   const need = new Map<number, { name: string; unit: string; required: number }>();
-  let pendingLines = 0, issuedLines = 0;
+  let pendingLines = 0, issuedLines = 0, unissuedLines = 0;
   for (const l of lines) {
     if (l.alreadyIssued) { issuedLines++; continue; }
     pendingLines++;
     if (l.isWater || !(l.required > 0)) continue;
+    unissuedLines++; // 출고 대상인데 아직 출고 기록이 없는 줄 (정제수·0 수량 제외)
     const cur = need.get(l.canonicalMaterialId) ?? { name: l.materialName, unit: l.unit, required: 0 };
     cur.required += l.required;
     need.set(l.canonicalMaterialId, cur);
@@ -62,7 +63,7 @@ export function computeShortages(lines: readonly StartLine[], available: Readonl
     }
   }
   shortages.sort((a, b) => b.shortage - a.shortage);
-  return { shortages, pendingLines, issuedLines };
+  return { shortages, pendingLines, issuedLines, unissuedLines };
 }
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -112,18 +113,20 @@ export async function validateBatchStart(batchId: number, tenantId: number) {
     for (const a of avail as any[]) available.set(Number(a.material_id), parseFloat(String(a.avail)) || 0);
   }
 
-  const { shortages, pendingLines, issuedLines } = computeShortages(lines, available);
+  const { shortages, pendingLines, issuedLines, unissuedLines } = computeShortages(lines, available);
   return {
     totalLines: lines.length,
     pendingLines,
     issuedLines,
+    /** 출고 대상인데 아직 출고 기록이 없는 줄 — 진행 중 배치에서 >0 이면 자동출고 누락(재출고 필요) */
+    unissuedLines,
     shortages,
     /** 기존 정책 — true: 부족분은 최근 LOT 에 음수 차감 / false: 출고 기록만 남고 재고는 차감되지 않음 */
     allowNegative: isNegativeStockAllowed(tenantId),
   };
 }
 
-/** 부족을 확인하고 시작한 기록 — 배치 메모에 한 줄 추가 (감사 로그 함수가 현재 비활성이라 배치에 직접 남긴다) */
+/** 부족을 확인하고 시작한 기록 — 배치 메모에 한 줄 추가 (배치 화면에서 바로 보이도록. 감사 로그에도 함께 남는다) */
 export function shortageAckNote(opts: { userName: string; userId: number; at: string; shortages: readonly StartShortage[]; allowNegative: boolean }): string {
   const list = opts.shortages.map((s) => `${s.materialName} 부족 ${s.shortage}${s.unit}(필요 ${s.required}/가용 ${s.available})`).join(", ");
   const policy = opts.allowNegative ? "부족분 음수 차감(다음 입고 시 상쇄)" : "부족분 출고 기록만(재고 미차감)";

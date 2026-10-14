@@ -343,9 +343,10 @@ export async function getBatchById(batchId: number, tenantId?: number) {
             p.product_code
      FROM h_batches b
      LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
-     WHERE b.id = ?
+     WHERE b.id = ?${tenantId ? " AND b.tenant_id = ?" : ""}
      LIMIT 1`,
-    [batchId]
+    // 2026-10-14: 받은 tenantId 를 조회 조건에 실제로 건다 (이전에는 무시 → 다른 회사 배치 id 로도 조회됨)
+    tenantId ? [batchId, tenantId] : [batchId]
   );
 
   if ((rows as any[]).length === 0) return undefined;

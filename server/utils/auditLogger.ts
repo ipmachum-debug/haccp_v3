@@ -1,6 +1,3 @@
-import { getDb } from '../db';
-import { auditLogs } from '../../drizzle/schema/schema_control_plane_ops';
-import { randomUUID } from 'crypto';
 
 /**
  * 감사 로그 파라미터 인터페이스
@@ -38,33 +35,22 @@ interface AuditLogParams {
  * });
  */
 export async function createAuditLog(params: AuditLogParams): Promise<void> {
-  try {
-    const db = await getDb();
-    if (!db) {
-      console.error('[AuditLog] Database connection failed');
-      return;
-    }
-
-    await db.insert(auditLogs).values({
-      id: randomUUID(),
-      action: params.action,
-      actorType: params.actorType || 'user',
-      actorId: params.actorId || null,
-      tenantId: params.tenantId || null,
-      targetType: params.targetType || null,
-      targetId: params.targetId || null,
-      ip: params.ip || null,
-      userAgent: params.userAgent || null,
-      metaJson: params.meta || null,
-      createdAt: new Date()
-    });
-
-    console.log(`[AuditLog] Created: ${params.action} by ${params.actorType}:${params.actorId}`);
-  } catch (error) {
-    console.error('[AuditLog] Failed to create audit log:', error);
-    // 감사 로그 실패는 메인 작업을 중단시키지 않음
-    // 하지만 에러는 로그로 남김
-  }
+  // 2026-10-14: 운영 audit_logs 실측 컬럼(drizzle/schema/audit.ts)으로 기록한다.
+  // 이전에는 control-plane 정의(id UUID · actor_type · meta_json …)로 INSERT 해 컬럼이 없어 매번 실패했다.
+  const { createAuditLog: write } = await import('../db/system/auditApprovalSupplier');
+  const target = params.targetId ?? (params.entityId != null ? String(params.entityId) : undefined);
+  await write({
+    action: params.action,
+    entityType: params.entityType || params.targetType || '',
+    entityId: target != null && /^\d+$/.test(String(target)) ? Number(target) : undefined,
+    userId: Number(params.actorId) || 0,
+    userRole: params.actorType || 'user',
+    description: params.description,
+    changes: params.meta ?? (target != null && !/^\d+$/.test(String(target)) ? { targetId: target } : undefined),
+    ipAddress: params.ip,
+    userAgent: params.userAgent,
+    tenantId: Number(params.tenantId) || undefined,
+  });
 }
 
 /**
