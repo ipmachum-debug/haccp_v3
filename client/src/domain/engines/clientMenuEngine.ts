@@ -19,7 +19,7 @@ import { PLUGIN_COMMON_GROUPS, PLUGIN_SUPER_ADMIN_ITEMS } from "@shared/navigati
 import type { LucideIcon } from "lucide-react";
 import {
   Crown, UserCheck, Building, LayoutDashboard, Package, Calendar, FileCode,
-  Shield, ClipboardCheck, ListChecks, Warehouse, Bell, CheckCircle, FileText,
+  Shield, ClipboardCheck, ListChecks, Warehouse, Bell, Menu, CheckCircle, FileText,
   Database, Sparkles, Bot, FlaskConical, Tag, Truck, Thermometer, GitBranch,
   AlertCircle, AlertTriangle, GraduationCap, Sliders, Activity, TrendingUp,
   FileWarning, Building2, Settings, ArrowLeftRight, Pill, ChefHat, Syringe,
@@ -32,7 +32,7 @@ import {
 // ─── 아이콘 string → Component 매핑 ───
 export const ICON_MAP: Record<string, LucideIcon> = {
   Crown, UserCheck, Building, LayoutDashboard, Package, Calendar, FileCode,
-  Shield, ClipboardCheck, ListChecks, Warehouse, Bell, CheckCircle, FileText,
+  Shield, ClipboardCheck, ListChecks, Warehouse, Bell, Menu, CheckCircle, FileText,
   Database, Sparkles, Bot, FlaskConical, Tag, Truck, Thermometer, GitBranch,
   AlertCircle, AlertTriangle, GraduationCap, Sliders, Activity, TrendingUp,
   FileWarning, Building2, Settings, ArrowLeftRight, Pill, ChefHat, Syringe,

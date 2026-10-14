@@ -159,3 +159,73 @@ describe("매입·매출 관리 허브 (2026-10-14 대표 결정)", () => {
     }
   });
 });
+
+describe("AI 어시스턴트 → 플랫폼 허브 'AI·자동화' (2026-10-14)", () => {
+  it("노출 조건 그대로 (super_admin·admin·inspector, 데모 제외), 플랫폼 허브에서 자동화 에이전트 위", async () => {
+    const { AI_ASSISTANT_PLACEMENT, AGENT_PLACEMENT, canSeeAiAssistant } = await import("../shared/navigation/menuRegistry");
+    expect(hubOf("/dashboard/ai-assistant")).toBe("platform");
+    for (const r of ["super_admin", "admin", "inspector"]) expect(canSeeAiAssistant(r, false), r).toBe(true);
+    for (const r of ["worker", "monitor", "accountant", "employee"]) expect(canSeeAiAssistant(r, false), r).toBe(false);
+    expect(canSeeAiAssistant("admin", true)).toBe(false);
+    // 슈퍼관리자 플랫폼 항목 뒤에 AI·자동화 소구역
+    const union = [...selectTabMenu("superAdmin", { isErpOnly: false }), { ...AI_ASSISTANT_PLACEMENT, roles: ["super_admin"] }, { ...AGENT_PLACEMENT, roles: ["super_admin"] }];
+    const platform = buildHubMenu(union).find((s) => s.hub.id === "platform")!;
+    expect(platform.items.slice(-2).map((i) => `${i.section}:${i.label}`)).toEqual(["AI·자동화:AI 어시스턴트", "AI·자동화:자동화 에이전트"]);
+    const layout = readFileSync(join(__dirname, "..", "client/src/components/dashboard/DashboardLayout.tsx"), "utf-8");
+    expect(layout).toContain("{!hubMode && user && canSeeAiAssistant(user.role, isDemo) && (");
+  });
+});
+
+describe("2-b-4 모바일 하단바 — 레지스트리 기반 역할별", () => {
+  const roles = ["super_admin", "admin", "worker", "inspector", "monitor", "accountant"];
+  /** 레이아웃처럼: 탭 항목을 합쳐 허브로 묶고 그 역할에게 보이는 경로만 (통합 모드, 플러그인 없음) */
+  const visibleFor = (role: string) => {
+    const items = unionLikeLayout().filter((i) => i.roles.includes(role));
+    return new Set(buildHubMenu(items).flatMap((s) => s.items.map((i) => i.path)));
+  };
+
+  it("모든 역할: 핵심 화면 ≤ 3 + 알림 + 메뉴, 핵심 화면은 그 역할에게 보이는 메뉴만, 라벨 정의됨", async () => {
+    const { mobileNavFor, MOBILE_NAV_LABELS } = await import("../shared/navigation/menuRegistry");
+    for (const role of roles) {
+      const visible = visibleFor(role);
+      const nav = mobileNavFor(role, visible, () => "FileText");
+      const links = nav.filter((n) => n.kind === "link");
+      expect(links.length, role).toBeGreaterThan(0);
+      expect(links.length, role).toBeLessThanOrEqual(3);
+      expect(nav.slice(-2).map((n) => n.kind), role).toEqual(["alerts", "menu"]);
+      for (const l of links) {
+        expect(visible.has((l as any).path), `${role} ${(l as any).path}`).toBe(true);
+        expect(MOBILE_NAV_LABELS[(l as any).path], (l as any).path).toBeTruthy();
+      }
+    }
+  });
+
+  it("역할별 결과 고정 — worker 는 오늘 생산·CCP·재고, 회계 화면 없음", async () => {
+    const { mobileNavFor } = await import("../shared/navigation/menuRegistry");
+    const labels = (role: string) => mobileNavFor(role, visibleFor(role), () => "x").map((n) => n.label);
+    expect(labels("worker")).toEqual(["오늘 생산", "CCP", "재고", "알림", "메뉴"]);
+    expect(labels("admin")).toEqual(["대시보드", "생산", "매출", "알림", "메뉴"]);
+    expect(labels("inspector")).toEqual(["오늘", "CCP", "체크리스트", "알림", "메뉴"]);
+    // monitor 는 메뉴에서 Today 를 볼 수 없다 (기존 권한) → 승인부터
+    expect(labels("monitor")).toEqual(["승인", "CCP", "체크리스트", "알림", "메뉴"]);
+    for (const n of mobileNavFor("worker", visibleFor("worker"), () => "x")) {
+      if (n.kind !== "menu") expect(n.path.includes("/accounting"), n.path).toBe(false);
+    }
+  });
+
+  it("employee 는 공지·알림만 (사이드바 없음)", async () => {
+    const { mobileNavFor } = await import("../shared/navigation/menuRegistry");
+    expect(mobileNavFor("employee", new Set(), () => "x").map((n) => n.kind === "menu" ? "menu" : n.path)).toEqual(["/board", "/board/alerts"]);
+  });
+
+  it("하단바가 가리키는 경로는 전부 실제 라우트", async () => {
+    const { mobileNavFor } = await import("../shared/navigation/menuRegistry");
+    const { readAppRoutes, firstMatch } = await import("./__helpers__/appRoutes");
+    const routes = readAppRoutes();
+    for (const role of [...roles, "employee"]) {
+      for (const n of mobileNavFor(role, visibleFor(role), () => "x")) {
+        if (n.kind !== "menu") expect(firstMatch(routes, n.path), `${role} ${n.path}`).not.toBeNull();
+      }
+    }
+  });
+});
