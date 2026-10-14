@@ -12,6 +12,7 @@ const config: ChecklistFormConfig = {
   title: "유효성 평가",
   listPath: "/validity-evaluation",
   documentTitle: "유효성 평가 기록",
+  dateField: "evaluationDate",
 };
 
 export default function ValidityEvaluationForm() {

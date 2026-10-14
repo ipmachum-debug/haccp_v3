@@ -17,6 +17,7 @@ const config: ChecklistFormConfig = {
   title: "위생 검사 작성",
   listPath: "/dashboard/inspection/hygiene",
   documentTitle: "위생 점검 기록부",
+  dateField: "inspectionDate",
 };
 
 interface InspectionItem {

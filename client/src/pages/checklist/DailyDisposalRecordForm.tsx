@@ -17,6 +17,7 @@ const config: ChecklistFormConfig = {
   title: "일일 폐기 기록",
   listPath: "/daily-disposal-record",
   documentTitle: "일일 폐기 기록",
+  dateField: "recordDate",
 };
 
 interface DisposalRow {

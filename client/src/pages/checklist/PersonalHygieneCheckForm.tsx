@@ -29,6 +29,7 @@ const config: ChecklistFormConfig = {
   title: "개인 위생관리 점검표",
   listPath: "/personal-hygiene-check",
   documentTitle: "개인 위생관리 점검표",
+  dateField: "checkDate",
 };
 
 // 기본 점검 항목

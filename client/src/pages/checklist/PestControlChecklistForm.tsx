@@ -8,13 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Plus, Trash2 } from "lucide-react";
 import { Label } from "@/components/ui/label";
 
-import { formatLocalDate } from "../../lib/dateUtils";
+import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
 const config: ChecklistFormConfig = {
   formType: "pest_control_checklist",
   title: "방충·방서 점검표",
   listPath: "/pest-control/checklists",
   documentTitle: "방충·방서 관리일지",
+  dateField: "checkDate",
 };
 
 // 비래해충 종류
@@ -55,7 +56,7 @@ function createEmptyRow(): PestControlRow {
 }
 
 export default function PestControlChecklistForm() {
-  const [checkDate, setCheckDate] = useState("");
+  const [checkDate, setCheckDate] = useState(todayLocal());
   const [specialNotes, setSpecialNotes] = useState("");
   const [rows, setRows] = useState<PestControlRow[]>([
     createEmptyRow(), createEmptyRow(), createEmptyRow(), createEmptyRow(), createEmptyRow(),

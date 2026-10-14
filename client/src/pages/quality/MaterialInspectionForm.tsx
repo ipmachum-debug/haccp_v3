@@ -23,6 +23,7 @@ const config: ChecklistFormConfig = {
   title: "원재료 검사 기록 작성",
   listPath: "/dashboard/inspection/material",
   documentTitle: "원재료 검사 기록",
+  dateField: "inspectionDate",
 };
 
 interface InspectionItem {

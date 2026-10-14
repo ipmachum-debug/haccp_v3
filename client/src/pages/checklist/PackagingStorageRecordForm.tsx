@@ -13,6 +13,7 @@ const config: ChecklistFormConfig = {
   title: "포장재 보관 관리",
   listPath: "/packaging-storage-record",
   documentTitle: "포장재 보관 관리 기록",
+  dateField: "receivedDate",
 };
 
 export default function PackagingStorageRecordForm() {

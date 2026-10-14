@@ -24,6 +24,7 @@ const config: ChecklistFormConfig = {
   title: "출하 검사 작성",
   listPath: "/dashboard/inspection/shipping",
   documentTitle: "출하 검사서",
+  dateField: "inspectionDate",
 };
 
 interface InspectionItem {

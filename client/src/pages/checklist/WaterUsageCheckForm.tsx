@@ -12,6 +12,7 @@ const config: ChecklistFormConfig = {
   title: "용수 사용 점검",
   listPath: "/water-usage-check",
   documentTitle: "용수 사용 점검표",
+  dateField: "checkDate",
 };
 
 export default function WaterUsageCheckForm() {

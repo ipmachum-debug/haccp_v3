@@ -45,6 +45,7 @@ const config: ChecklistFormConfig = {
   title: "교육훈련일지",
   listPath: "/training-log",
   documentTitle: "교육훈련일지",
+  dateField: "education_date",
 };
 
 interface Attendee {

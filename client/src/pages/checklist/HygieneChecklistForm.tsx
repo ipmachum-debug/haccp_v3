@@ -6,13 +6,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
-import { formatLocalDate } from "../../lib/dateUtils";
+import { formatLocalDate, todayLocal } from "../../lib/dateUtils";
 
 const config: ChecklistFormConfig = {
   formType: "hygiene_checklist",
   title: "일반위생관리 체크리스트",
   listPath: "/hygiene/checklists",
   documentTitle: "일반위생관리 점검표",
+  dateField: "checkDate",
 };
 
 const checkItems = [
@@ -47,7 +48,8 @@ const initialData = {
 };
 
 export default function HygieneChecklistForm() {
-  const [formData, setFormData] = useState(initialData);
+  // 점검일 기본값 = 오늘 (기록일로 저장되므로 빈칸으로 두지 않는다)
+  const [formData, setFormData] = useState(() => ({ ...initialData, checkDate: todayLocal() }));
 
   const collectFormData = () => {
     return formData;
@@ -55,11 +57,12 @@ export default function HygieneChecklistForm() {
 
   const onDataRestore = (data: any) => {
     if (data) {
-      setFormData({
+      setFormData((prev) => ({
         ...initialData,
         ...data,
-        checkDate: data.checkDate ? formatLocalDate(new Date(data.checkDate)) : "",
-      });
+        // 미리 채우기(이전 기록)에는 날짜가 없다 → 지금 칸의 날짜 유지
+        checkDate: data.checkDate ? formatLocalDate(new Date(data.checkDate)) : prev.checkDate,
+      }));
     }
   };
 
