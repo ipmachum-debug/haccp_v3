@@ -1,17 +1,18 @@
 # PR / 배포 / 기획 워크플로우 사이클
 
 > 최초 작성: 2026-04-27
-> 상태: CANONICAL — Claude / Genspark / 사용자 3자 협업의 표준 사이클
+> 상태: CANONICAL — Claude / Codex / 사용자 3자 협업의 표준 사이클
+> 2026-10-14: 배포·운영 담당 Genspark → **Codex** 전환. Codex 지침은 [AGENTS.md](../../AGENTS.md). 아래 사고 사례의 "Genspark" 는 당시 담당자 기록이라 그대로 둔다.
 > 관련 문서: [CLAUDE.md 삼각 분업 체제](../../CLAUDE.md), [docs/deploy-flow.md](../deploy-flow.md), [docs/migration-protocol.md](../migration-protocol.md)
 
-이 문서는 `CLAUDE.md`의 삼각 분업 체제(Claude / Genspark / 사용자)가 실제로 어떻게 굴러가는지의 실측 패턴을 정리한다. 새 세션 시작 시 즉시 페이스를 회복하기 위한 "운영 매뉴얼".
+이 문서는 `CLAUDE.md`의 삼각 분업 체제(Claude / Codex / 사용자)가 실제로 어떻게 굴러가는지의 실측 패턴을 정리한다. 새 세션 시작 시 즉시 페이스를 회복하기 위한 "운영 매뉴얼".
 
 ---
 
 ## 🔄 PR 라이프사이클 (실측 패턴)
 
 ```
-[Claude]                       [사용자]                  [Genspark / GitHub Actions]
+[Claude]                       [사용자]                  [Codex / GitHub Actions]
 
 1. 작업 요청 수령
 2. 코드 작성
@@ -44,7 +45,7 @@
 |------|----------|------|
 | 사용자 | 모든 PR | 1차 머지자 |
 | Claude | 머지 가능하지만 명시 요청 시만 | "머지해줘" 등 명시 요청 또는 PR 체인 정리 |
-| Genspark | 머지 ❌ | 빌드 / 배포 / DB 만 |
+| Codex | 머지 ❌ | 배포 확인 / 운영 / DB 만 (서버 빌드 금지) |
 
 **학습된 사용자 패턴**: PR 만들고 "PR 은 사용자가 열어주세요" 라고 하면 사용자가 짜증냄.
 PR 은 Claude 가 **자동 생성**하는 게 사용자 패턴.
@@ -90,7 +91,7 @@ Before / After 표
 
 | Phase | PR | 머지 조건 | 코드 변경 | DB 변경 |
 |-------|-----|----------|----------|---------|
-| 1 | 스키마 + 백필 SQL | 언제든 머지 OK (운영 무영향) | NULLABLE 컬럼 추가만 | Genspark 적용 |
+| 1 | 스키마 + 백필 SQL | 언제든 머지 OK (운영 무영향) | NULLABLE 컬럼 추가만 | Codex 적용 |
 | 2 | INSERT 사이트 수정 | Phase 1 백필 완료 후 | 18 파일 INSERT 에 column 작성 | 없음 |
 | 3 | SELECT 단순화 | Phase 2 머지 후 | SQL 우선순위 변경 | 없음 |
 | 4 (선택) | fallback 정리 | 1주~1달 안정성 검증 후 | defense-in-depth 제거 | 없음 |
@@ -137,7 +138,7 @@ Before / After 표
 3. **tenantId 격리** — 모든 SELECT / UPDATE 에 명시
 4. **mock data 0** — 의도적으로 "데이터 없음" 표시, 가짜 값 안 만듦
 
-### DB 영역 (Genspark 와 분담)
+### DB 영역 (Codex 와 분담)
 1. 스키마 변경: Drizzle 마이그레이션 + 수동 SQL 파일 (`scripts/migrations-manual/`) 둘 다 제공
 2. NULLABLE 컬럼 추가 + `ALGORITHM=INSTANT` 권장 (lock 최소화)
 3. 백필: idempotent (`WHERE col IS NULL` 조건)
@@ -145,7 +146,7 @@ Before / After 표
 5. **트랜잭션 + DDL 분리** — [docs/migration-protocol.md](../migration-protocol.md) 참조 (PR-W2 사고 교훈)
 
 ### 인프라 영역
-1. 워크플로 변경 시: `workflow` scope 토큰 필수 (Claude 토큰 OK, Genspark 토큰 X)
+1. 워크플로 변경 시: `workflow` scope 토큰 필수 (Claude 토큰 OK, Codex 서버 토큰 X)
 2. `PAT_TOKEN` 의존: `auto-release.yml` 의 release 생성에 필수 (release.published 트리거용)
 3. **서버 빌드 절대 금지** (OOM 재발 — [docs/deploy-flow.md](../deploy-flow.md))
    - 정규 배포 스크립트는 `scripts/deploy.sh` 하나뿐. 서버에서 빌드하지 않고
@@ -174,9 +175,9 @@ mcp__github__update_pull_request(pullNumber=B, base="main")
 
 ---
 
-## 📊 검증 결과 보고 형식 (Genspark 표준)
+## 📊 검증 결과 보고 형식 (Codex 표준 — AGENTS.md §7)
 
-머지 후 자동 배포가 끝나면 Genspark 가 다음 형식으로 보고한다. 이 보고가 들어오면 Claude 는 (1) 머지 확인 → (2) 다음 단계 또는 추가 검증 안내 → (3) 사용자 의도 확인 후 진행.
+머지 후 자동 배포가 끝나면 Codex 가 다음 형식으로 보고한다. 이 보고가 들어오면 Claude 는 (1) 머지 확인 → (2) 다음 단계 또는 추가 검증 안내 → (3) 사용자 의도 확인 후 진행.
 
 ```
 PR #XX 머지 → 자동 배포 완료
@@ -242,7 +243,7 @@ Claude:
 5. branch + 코드 + tsc + commit + push
 6. PR 생성 (자동)
 7. 사용자 머지
-8. Genspark 자동 배포
+8. 자동 배포 → Codex 확인·보고
 9. 검증 결과 받음 → 다음 단계
 ```
 
