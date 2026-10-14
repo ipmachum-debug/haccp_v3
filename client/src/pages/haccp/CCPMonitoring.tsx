@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs";
@@ -917,7 +918,8 @@ function EquipmentCcpSettingsForm({
 // ============================================================
 export default function CCPMonitoring() {
   const L = useIndustryLabel();
-  const [activeTab, setActiveTab] = useState("records");
+  // 3-c: 탭은 URL 에 유지 (새로고침·뒤로가기·링크 공유에도 같은 탭)
+  const [activeTab, setActiveTab] = useTabWithUrl("tab", "records");
   const [selectedCcpType, setSelectedCcpType] = useState<"CCP-1B" | "CCP-2B" | "CCP-3B" | "CCP-4P">("CCP-1B");
   const [pdfPeriod, setPdfPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
   const [reportStartDate, setReportStartDate] = useState("");

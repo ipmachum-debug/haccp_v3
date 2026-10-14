@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearch } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -53,6 +54,22 @@ export default function RecipeManagement() {
   // 원재료 목록 조회
   const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
+
+  // ?edit=ID · ?versions=ID 로 들어오면 그 레시피의 수정 창 / 버전 이력을 연다
+  //   (레시피 목록·상세의 '수정'·'버전 이력' 링크 — 2026-10-14 깨진 링크 정리)
+  const search = new URLSearchParams(useSearch());
+  const editParam = Number(search.get("edit")) || 0;
+  const versionsParam = Number(search.get("versions")) || 0;
+  useEffect(() => {
+    if (!editParam || !Array.isArray(recipes)) return;
+    const r = (recipes as any[]).find((x) => x.id === editParam);
+    if (r) setEditingRecipe(r);
+  }, [editParam, recipes]);
+  useEffect(() => {
+    if (!versionsParam) return;
+    setSelectedRecipeId(versionsParam);
+    setIsVersionHistoryOpen(true);
+  }, [versionsParam]);
 
   // 레시피 버전 이력 조회
   const { data: versions } = trpc.recipeManagement.getVersions.useQuery(

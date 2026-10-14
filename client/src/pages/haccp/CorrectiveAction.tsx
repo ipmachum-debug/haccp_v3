@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { jsPDF } from "jspdf";
 import { Button } from "@/components/ui/button";
@@ -49,6 +50,11 @@ export default function CorrectiveAction() {
   const [selectedStatus, setSelectedStatus] = useState<string>("all");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [selectedAction, setSelectedAction] = useState<any>(null);
+
+  // ?id= 로 들어오면 그 시정조치를 바로 연다 (시정조치 관리 목록의 '상세' — 2026-10-14 깨진 링크 정리)
+  const idParam = Number(new URLSearchParams(useSearch()).get("id")) || 0;
+  const { data: linkedAction } = trpc.food.correctiveAction.getById.useQuery({ id: idParam }, { enabled: idParam > 0 });
+  useEffect(() => { if (linkedAction) setSelectedAction(linkedAction); }, [linkedAction]);
 
   // 데이터 조회
   const { data: actionList, isLoading, refetch } = trpc.food.correctiveAction.listByStatus.useQuery(

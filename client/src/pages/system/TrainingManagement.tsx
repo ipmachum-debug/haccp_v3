@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSearch } from "wouter";
 import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { trpc } from "@/lib/trpc";
 import { jsPDF } from "jspdf";
@@ -47,6 +48,9 @@ import { todayLocal } from "../../lib/dateUtils";
 export default function TrainingManagement() {
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'courses');
   const [isCreateCourseOpen, setIsCreateCourseOpen] = useState(false);
+  // ?new=course 로 들어오면 과정 등록 창을 연다 (교육과정 목록의 '등록' — 2026-10-14 깨진 링크 정리)
+  const newParam = new URLSearchParams(useSearch()).get("new");
+  useEffect(() => { if (newParam === "course") setIsCreateCourseOpen(true); }, [newParam]);
   const [isCreateScheduleOpen, setIsCreateScheduleOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [selectedSchedule, setSelectedSchedule] = useState<any>(null);

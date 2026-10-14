@@ -90,7 +90,14 @@ const [f, setF, reset] = useUrlFilters({ q: "", from: "", to: "", status: "all" 
 | 1차 | 허브 입구 /hub/{허브} | PageHeader + 처리할 일 카드 (새 화면) |
 | 2차 (2026-10-14) | 발주서 | FilterBar(URL 유지) + DataGrid (정렬·페이지·모바일 카드, 행 작업 버튼은 표·카드 공용) |
 | 2차 | 매출 조회 · 매입 조회 | FilterBar(URL 유지, 필터 바꾸면 1페이지). 표는 **증빙 단위 묶음·펼침** 구조라 DataGrid 로 바꾸지 않음(기능 손실 방지), 묶음 행 상태·엑셀 문구는 상태 사전 |
-| 다음 | 재고 관리 · CCP 모니터링 탭 안 목록 | 탭별 필터·표 — 화면별 검증하며 |
+| 3차 (2026-10-14) | 재고 관리 | 이미 규칙 충족 — 탭·보기 전환 URL 유지, 현재고 표 정렬(자체 SortableHeader). 교체하지 않음 |
+| 3차 | CCP 모니터링 | 탭 URL 유지(useTabWithUrl) 적용. CL 적합·이탈 배지는 CCP 고유 판정이라 유지 |
 
 ## 4. 검증
 `server/commonUi.test.ts` — 상태 사전 문구·예외, URL 필터 읽기/쓰기, 표 정렬·페이지·정렬 순환, use-toast → sonner 전달, 헤더 도구 배치.
+
+## 5. 화면 안 깨진 링크 (2026-10-14 정리)
+- 사용자가 열 수 있는 화면(라우트에 연결된 화면)의 깨진 링크 **18 → 0**. 검사: `server/linksCleanup.test.ts`
+- 같은 기능 화면으로 연결하고 그 항목을 바로 연다: 시정조치 상세(`?id=`), 레시피 수정·버전(`/master/recipe?edit=` `?versions=`), 제조보고 상세(`/dashboard/mf-reports?detail=`), 재고조정(재고 관리 조정 탭), 모바일 CCP 점검(CCP 관리), 교육과정 등록(교육관리 `?new=course`)
+- 화면이 없어 뺀 버튼: 교육과정 **수정** (서버 updateCourse 는 있음 — 화면을 만들지 별도 결정)
+- 라우트가 없어 열 수 없는 화면: 원료·위생·출하 검사 목록·상세 6개 (App 에 선언만 있음) — 4단계 측정 뒤 연결 또는 폐기 결정

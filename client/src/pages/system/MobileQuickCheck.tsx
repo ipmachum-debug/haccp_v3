@@ -464,7 +464,7 @@ export default function MobileQuickCheck() {
                     </div>
                     <Button size="sm" variant={schedule.status === "completed" ? "ghost" : "default"}
                       className="h-7 px-2 text-xs flex-shrink-0"
-                      onClick={() => navigate("/dashboard/ccp-inspection")}
+                      onClick={() => navigate("/quality/ccp-monitoring")} // CCP 기록 작성 화면 (2026-10-14 깨진 링크 정리)
                     >
                       {schedule.status === "completed" ? <Eye className="h-3 w-3" /> : <>점검<ArrowRight className="h-3 w-3 ml-0.5" /></>}
                     </Button>

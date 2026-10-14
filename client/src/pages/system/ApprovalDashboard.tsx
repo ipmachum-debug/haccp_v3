@@ -77,13 +77,14 @@ export default function ApprovalDashboard() {
         setLocation(`/dashboard/batch/${id}`);
         break;
       case "inventory_adjustment":
-        setLocation(`/dashboard/inventory/adjustments/${id}`);
+        // 재고 조정 상세 화면은 없다 — 재고 관리의 '재고 조정' 탭 (2026-10-14 깨진 링크 정리)
+        setLocation(`/inventory-management?tab=adjustment`);
         break;
       case "ccp_review":
         setLocation(`/quality/ccp-monitoring`);
         break;
       case "mfr":
-        setLocation(`/dashboard/mf-reports/${id}`);
+        setLocation(`/dashboard/mf-reports?detail=${id}`); // 제조보고 목록에서 상세 창
         break;
       default:
         break;

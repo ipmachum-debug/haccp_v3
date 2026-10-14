@@ -171,7 +171,7 @@ export default function RecipeList() {
                               <Eye className="h-4 w-4" />
                             </Button>
                           </Link>
-                          <Link href={`/dashboard/recipes/${recipe.id}/edit`}>
+                          <Link href={`/master/recipe?edit=${recipe.id}`}>
                             <Button variant="ghost" size="sm">
                               <Edit className="h-4 w-4" />
                             </Button>

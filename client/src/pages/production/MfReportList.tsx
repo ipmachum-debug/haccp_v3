@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader2, Search, FileText, Eye, Edit, Trash2, Plus, Filter, CheckSquare, FileDown, AlertTriangle, Shield, Save, FlaskConical, FileSpreadsheet, Sheet } from "lucide-react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import ProductionLogsSection from "@/components/production/ProductionLogsSection";
@@ -500,6 +500,10 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
     setSelectedReport(reportId);
     setDetailDialogOpen(true);
   };
+
+  // ?detail=ID 로 들어오면 그 보고서 상세를 연다 (승인 대시보드의 '상세' — 2026-10-14 깨진 링크 정리)
+  const detailParam = Number(new URLSearchParams(useSearch()).get("detail")) || 0;
+  useEffect(() => { if (detailParam) handleViewDetail(detailParam); }, [detailParam]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 품목제조보고 수정
   const handleEdit = (reportId: number) => {
