@@ -143,3 +143,42 @@ describe("화면·정책 고정", () => {
     expect(src).not.toMatch(/record\.status === "draft" \|\| isAdmin/);
   });
 });
+
+describe("결재란 이름 복원 — 기존 기록은 저장된 이름 우선 (Codex #511 검증)", async () => {
+  const { resolveApprovalNames } = await import("../client/src/lib/checklist/approvalNames");
+  it("실제 처리자(한상갑)가 현재 설정(이정언)보다 우선, 작성자도 저장값", () => {
+    const designated = { writerName: "이정언", reviewerName: "이정언", approverName: "한상갑" };
+    const stored = { writerName: "CODEX TEST", reviewerId: 19, reviewerName: "한상갑", reviewerApproved: true, approverName: "한상갑", approverApproved: true };
+    expect(resolveApprovalNames(designated, stored)).toEqual({
+      writerId: null, writerName: "CODEX TEST", reviewerId: 19, reviewerName: "한상갑", approverId: null, approverName: "한상갑",
+    });
+  });
+  it("조직 설정이 바뀌어도 저장된 이름 유지 / 비어 있는 칸만 현재 설정 (반환에 없음 = 현재 설정 유지)", () => {
+    expect(resolveApprovalNames({ reviewerName: "박새담당" }, { reviewerName: "이정언" })).toEqual({ reviewerId: null, reviewerName: "이정언" });
+    expect(resolveApprovalNames({ reviewerName: "이정언" }, { writerName: "이준석", reviewerName: "  " })).toEqual({ writerId: null, writerName: "이준석" });
+    expect(resolveApprovalNames({}, null)).toEqual({});
+  });
+  it("공통 양식이 규칙을 쓰고, 재작성 저장 때만 현재 담당자를 다음 결재자로", () => {
+    const src = readFileSync(join(REPO_ROOT, "client/src/components/checklist/ChecklistFormLayout.tsx"), "utf-8");
+    expect(src).toMatch(/\.\.\.resolveApprovalNames\(prev as any, fd\.approval\)/);
+    expect(src).not.toMatch(/!approval\.reviewerName && fd\.approval\.reviewerName/);
+    expect(src).toMatch(/reviewerName: wasNonDraft && designatedRef\.current\.reviewerName \? designatedRef\.current\.reviewerName : approval\.reviewerName/);
+  });
+});
+
+describe("결재란 — 2줄 공통 컴포넌트 (대표 요청)", async () => {
+  const { shortStampDate } = await import("../client/src/components/checklist/ApprovalStampBox");
+  it("날짜 짧게", () => {
+    expect(shortStampDate("2026. 10. 15.")).toBe("10.15");
+    expect(shortStampDate("2026-02-05")).toBe("2.05");
+    expect(shortStampDate("")).toBe("");
+    expect(shortStampDate("오늘")).toBe("오늘");
+  });
+  it("공통 양식·건강일지가 같은 결재란을 쓰고, 옛 4줄(이름·작성자자 줄) 없음", () => {
+    for (const p of ["client/src/components/checklist/ChecklistFormLayout.tsx", "client/src/pages/checklist/EmployeeHealthCheckForm.tsx"]) {
+      const src = readFileSync(join(REPO_ROOT, p), "utf-8");
+      expect(src, p).toMatch(/<ApprovalStampBox approval=\{approval\} \/>/);
+      expect(src, p).not.toMatch(/text-gray-400">작성자<\/td>/);
+    }
+  });
+});
