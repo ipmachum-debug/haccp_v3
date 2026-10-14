@@ -2,11 +2,18 @@ import { Toaster } from "@/components/ui/sonner";
 import "./superadmin-theme.css";
 import { lazy, Suspense } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { Route, Switch } from "wouter";
+import { Redirect, Route, Switch, useSearch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { FEATURES } from "@/lib/featureFlags";
 import { ROUTES } from "@/lib/routePaths";
+import { LEGACY_REDIRECTS, buildRedirectTarget } from "@shared/navigation/menuRegistry";
+
+/** 옛 URL → 새 URL. 원래 쿼리 파라미터를 붙여 보낸다 (같은 키는 목적지 값 우선). 히스토리는 교체 */
+function LegacyRedirect({ to }: { to: string }) {
+  const search = useSearch();
+  return <Redirect to={buildRedirectTarget(to, search)} replace />;
+}
 
 // Lazy load pages
 const LandingPage = lazy(() => import("@/pages/landing/LandingPage"));
@@ -89,7 +96,7 @@ const ProductionOperations = lazy(() => import("./pages/production/ProductionOpe
 const ProductionManagement = lazy(() => import("./pages/production/ProductionManagement"));
 const TodayProduction = lazy(() => import("./pages/production/TodayProduction"));
 const SupplierPerformance = lazy(() => import("./pages/master/SupplierPerformance"));
-const NotificationHistory = lazy(() => import("./pages/system/NotificationHistory"));
+// 2-b-3: NotificationHistory 는 라우트가 중복으로 가려져 도달 불가였다 — 라우트 제거, 화면 파일은 4단계 폐기 판단까지 보존
 const ApprovalManagement = lazy(() => import("./pages/system/ApprovalManagement"));
 const SystemManagement = lazy(() => import("./pages/system/SystemManagement"));
 const NotificationSettings = lazy(() => import("./pages/system/NotificationSettings"));
@@ -450,13 +457,7 @@ function Router() {
       <Route path="/print-preview" component={PrintPreviewPage} />
       <Route path="/dashboard/document-output" component={DocumentPrintManagement} />
       <Route path="/dashboard/document-output/approved" component={DocumentPrintManagement} />
-      {/* /batch/new 리다이렉트 */}
-      <Route path="/batch/new">
-        {() => {
-          window.location.href = "/dashboard/batch-management?tab=create";
-          return null;
-        }}
-      </Route>
+      {/* 2-b-3: /batch/new 리다이렉트 → 아래 LEGACY_REDIRECTS 로 이동 */}
       <Route path="/dashboard/ccp/:id" component={CcpInspection} />
       <Route path="/dashboard/ccp-records" component={CcpRecords} />
       <Route path="/dashboard/ccp-calendar" component={CcpCalendar} />
@@ -473,7 +474,7 @@ function Router() {
       <Route path="/dashboard/suppliers" component={SupplierManagement} />
           <Route path="/dashboard/suppliers/:id/evaluations" component={SupplierEvaluation} />
           <Route path="/dashboard/supplier-performance" component={SupplierPerformance} />
-      <Route path="/dashboard/notifications" component={NotificationHistory} />
+      {/* 2-b-3: 중복 /dashboard/notifications → NotificationHistory 줄 제거 (앞 줄 NotificationManagement 가 항상 먼저 잡아 도달 불가였음) */}
       <Route path="/dashboard/notification-settings" component={NotificationSettings} />
       <Route path="/dashboard/daily-logs" component={DailyLogs} />
       <Route path="/daily-log/daily" component={DailyLogForm} />
@@ -482,7 +483,6 @@ function Router() {
       <Route path="/dashboard/production-performance" component={ProductionPerformance} />
       <Route path="/dashboard/inventory" component={Inventory} />
       <Route path="/dashboard/users" component={UserManagement} />
-          <Route path="/dashboard/user-approval" component={SuperAdminUserApproval} />
           <Route path="/dashboard/tenants" component={TenantManagement} />
           <Route path="/dashboard/banners" component={BannerManagement} />
           <Route path="/dashboard/accounting" component={AccountingManagement} />
@@ -514,9 +514,8 @@ function Router() {
       <Route path="/dashboard/accounting/sales/create" component={lazy(() => import("@/pages/accounting/SalesManagement"))} />
       <Route path="/dashboard/accounting/sales/list" component={lazy(() => import("@/pages/accounting/SalesList"))} />
       <Route path="/dashboard/accounting/sales/:id" component={lazy(() => import("@/pages/accounting/SaleDetail"))} />
-      <Route path="/dashboard/accounting/bank-accounts" component={lazy(() => import("@/pages/accounting/BankAccountManagement"))} />
       <Route path="/dashboard/accounting/bank-matching" component={lazy(() => import("@/pages/accounting/BankTransactionMatching"))} />
-      <Route path="/dashboard/accounting/matching-rules" component={lazy(() => import("@/pages/accounting/MatchingRulesManagement"))} />
+      {/* 2-b-3: 중복 matching-rules → MatchingRulesManagement 줄 제거 (앞 줄 BankMatchingRuleManagement 가 항상 먼저 잡아 도달 불가였음) */}
       <Route path={ROUTES.ACCOUNTING_ACCOUNTS} component={lazy(() => import("@/pages/accounting/AccountingAccounts"))} />
       <Route path="/dashboard/accounting/daily-close" component={lazy(() => import("@/pages/accounting/AccountingDailyClose"))} />
       <Route path="/dashboard/accounting/closing-management" component={lazy(() => import("@/pages/accounting/ClosingManagement"))} />
@@ -692,9 +691,7 @@ function Router() {
 
       {/* 통합 데이터 임포트 (기존 엑셀 + 단순 + AI 검증) */}
       <Route path="/dashboard/data-import" component={lazy(() => import("@/pages/system/DataImport"))} />
-      {/* 하위 호환: 기존 경로 리다이렉트 */}
-      <Route path="/dashboard/excel-import">{() => { window.location.replace("/dashboard/data-import"); return null; }}</Route>
-      <Route path="/dashboard/simplified-import">{() => { window.location.replace("/dashboard/data-import"); return null; }}</Route>
+      {/* 2-b-3: excel-import / simplified-import 리다이렉트 → 아래 LEGACY_REDIRECTS 로 이동 */}
 
       {/* 11개 미구현 HACCP 체크리스트 */}
       <Route path="/water-quality-test" component={WaterQualityTestList} />
@@ -825,6 +822,10 @@ function Router() {
         <Route path="/reset-password" component={ResetPassword} />
         <Route path="/admin/user-approval" component={SuperAdminUserApproval} />
         <Route path="/admin/employee-approval" component={EmployeeApproval} />
+      {/* 2-b-3: 옛 URL 리다이렉트 — shared/navigation/menuRegistry.ts LEGACY_REDIRECTS (쿼리 파라미터 보존) */}
+      {LEGACY_REDIRECTS.map((r) => (
+        <Route key={r.from} path={r.from}>{() => <LegacyRedirect to={r.to} />}</Route>
+      ))}
       <Route path="/404" component={NotFound} />
       {/* Final fallback route */}
       <Route component={NotFound} />

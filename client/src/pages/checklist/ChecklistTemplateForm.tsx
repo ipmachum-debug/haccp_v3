@@ -66,7 +66,7 @@ export default function ChecklistTemplateForm() {
   const createMutation = trpc.checklistTemplate.create.useMutation({
     onSuccess: () => {
       alert("템플릿이 생성되었습니다.");
-      setLocation("/checklist-templates");
+      setLocation("/dashboard/checklist/templates");
     },
     onError: (error: { message: string }) => {
       alert(`생성 실패: ${error.message}`);
@@ -76,7 +76,7 @@ export default function ChecklistTemplateForm() {
   const updateMutation = trpc.checklistTemplate.update.useMutation({
     onSuccess: () => {
       alert("템플릿이 수정되었습니다.");
-      setLocation("/checklist-templates");
+      setLocation("/dashboard/checklist/templates");
     },
     onError: (error: { message: string }) => {
       alert(`수정 실패: ${error.message}`);
@@ -205,7 +205,7 @@ export default function ChecklistTemplateForm() {
       <div className="mb-6">
         <Button
           variant="ghost"
-          onClick={() => setLocation("/checklist-templates")}
+          onClick={() => setLocation("/dashboard/checklist/templates")}
           className="mb-4"
         >
           <ArrowLeft className="w-4 h-4 mr-2" />
@@ -434,7 +434,7 @@ export default function ChecklistTemplateForm() {
           <Button
             type="button"
             variant="outline"
-            onClick={() => setLocation("/checklist-templates")}
+            onClick={() => setLocation("/dashboard/checklist/templates")}
           >
             취소
           </Button>

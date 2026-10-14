@@ -307,7 +307,7 @@ export default function CcpRecords() {
 
                       {/* 버튼 */}
                       <div className="flex items-center gap-1 flex-shrink-0">
-                        <Link href={`/ccp-inspection/${record.id}`}>
+                        <Link href={`/dashboard/ccp/${record.id}`}>
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0" title="상세">
                             <Eye className="h-3.5 w-3.5" />
                           </Button>

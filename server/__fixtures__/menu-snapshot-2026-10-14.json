@@ -1,5 +1,5 @@
 {
- "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지)",
+ "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지) | 2-b-3: childRoutes /dashboard/document-output/daily-log 제거 (라우트 없음)",
  "haccpLegacy": {
   "base": [
    {
@@ -2549,8 +2549,7 @@
    "/dashboard/ccp"
   ],
   "/dashboard/document-output": [
-   "/dashboard/document-output/approved",
-   "/dashboard/document-output/daily-log"
+   "/dashboard/document-output/approved"
   ]
  },
  "demoAllowedPaths": [

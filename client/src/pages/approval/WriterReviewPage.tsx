@@ -174,7 +174,7 @@ function WriterReviewContent() {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => navigate(`/dashboard/ccp-monitoring`)}
+                  onClick={() => navigate(`/quality/ccp-monitoring`)}
                 >
                   CCP 모니터링 페이지로 이동
                 </Button>

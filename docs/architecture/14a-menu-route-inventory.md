@@ -139,154 +139,154 @@
 
 | 경로 | 화면 컴포넌트 | 귀속 허브 (2-b 에서 확정) |
 |---|---|---|
-| / | LandingPage |  |
-| /404 | NotFound |  |
-| /account-categories | AccountCategoryManagement |  |
-| /accounting-close | AccountingCloseManagement |  |
-| /accounting/monthly-summary | lazy(() => import("@/pages/accounting/AccountingMo |  |
-| /accounting/monthly-summary/new | lazy(() => import("@/pages/accounting/AccountingMo |  |
-| /admin/employee-approval | EmployeeApproval |  |
-| /admin/failed-tasks | FailedTasks |  |
-| /admin/user-approval | SuperAdminUserApproval |  |
-| /air-compressor | AirCompressorList |  |
-| /air-compressor-maintenance | AirCompressorMaintenanceList |  |
-| /air-compressor-maintenance/new | AirCompressorMaintenanceForm |  |
-| /air-compressor/new | AirCompressorForm |  |
-| /airborne-bacteria-test | AirborneBacteriaTestList |  |
-| /airborne-bacteria-test/new | AirborneBacteriaTestForm |  |
-| /batch-profitability-dashboard | BatchProfitabilityDashboard |  |
-| /batch-schedule | BatchSchedule |  |
-| /batch-schedule-calendar | BatchScheduleCalendar |  |
-| /batch/new | (children) |  |
-| /board | NoticeBoard |  |
-| /board/alerts | BoardAlarms |  |
-| /calibration | CalibrationManagement |  |
-| /capa-record | CapaRecordList |  |
-| /capa-record/new | CapaRecordForm |  |
-| /category-management | CategoryManagement |  |
-| /ccp-deviation-dashboard | CcpDeviationDashboard |  |
-| /checklist-approval | ChecklistApprovalManagement |  |
-| /checklist-instance | ChecklistInstance |  |
-| /checklist-instance/form | ChecklistInstanceForm |  |
-| /checklist-schedule | ChecklistScheduleManagement |  |
-| /company-settings | CompanySettings |  |
-| /consumer-complaint | ConsumerComplaintList |  |
-| /consumer-complaint/new | ConsumerComplaintForm |  |
-| /daily-disposal-record | DailyDisposalRecordList |  |
-| /daily-disposal-record/new | DailyDisposalRecordForm |  |
-| /daily-log/daily | DailyLogForm |  |
-| /daily-report | ProductionDailyReport |  |
-| /dashboard/checklist/templates/new | ChecklistTemplateForm |  |
-| /document-approval | DocumentApprovalManagement |  |
-| /document-approval-settings | DocumentApprovalSettingsPage |  |
-| /employee-health-check | EmployeeHealthCheckRecordList |  |
-| /employee-health-check/new | EmployeeHealthCheckForm |  |
-| /equipment-cleaning-record | EquipmentCleaningRecordList |  |
-| /equipment-cleaning-record/new | EquipmentCleaningRecordForm |  |
-| /equipment-history | EquipmentHistoryList |  |
-| /equipment-history/new | EquipmentHistoryForm |  |
-| /equipment-inspection | EquipmentInspectionList |  |
-| /equipment-inspection/new | EquipmentInspectionForm |  |
-| /faq | FAQPage |  |
-| /finished-product-check | FinishedProductCheckList |  |
-| /finished-product-check/new | FinishedProductCheckForm |  |
-| /food-recall-notice | FoodRecallNoticeList |  |
-| /food-recall-notice/new | FoodRecallNoticeForm |  |
-| /foreign-material-record | ForeignMaterialRecordList |  |
-| /foreign-material-record/new | ForeignMaterialRecordForm |  |
-| /forgot-password | ForgotPassword |  |
-| /haccp-plan-verification | HaccpPlanVerification |  |
-| /handover-document | HandoverDocumentList |  |
-| /handover-document/new | HandoverDocumentForm |  |
-| /hygiene-facility-check | HygieneFacilityCheckList |  |
-| /hygiene-facility-check/new | HygieneFacilityCheckForm |  |
-| /hygiene/checklists | HygieneChecklistList |  |
-| /hygiene/checklists/new | HygieneChecklistForm |  |
-| /illumination-check | IlluminationCheckList |  |
-| /illumination-check/new | IlluminationCheckForm |  |
-| /internal-audit | InternalAudit |  |
-| /internal-audit-plan | InternalAuditPlan |  |
-| /inventory-lots | InventoryLots |  |
-| /inventory-prediction | InventoryPredictionDashboard |  |
-| /inventory-turnover-dashboard | InventoryTurnoverDashboard |  |
-| /inventory/receipt | InventoryReceipt |  |
-| /inventory/release | InventoryRelease |  |
-| /legal | LegalPage |  |
-| /login | Login |  |
-| /master/recipe | RecipeManagement |  |
-| /material-usage-report-print | lazy(() => import("@/pages/accounting/MaterialUsag |  |
-| /monthly-log/form | MonthlyLogForm |  |
-| /nonconforming-products | NonconformingProduct |  |
-| /notification-statistics | NotificationStatistics |  |
-| /notifications | NotificationCenter |  |
-| /organization/departments | DepartmentManagement |  |
-| /organization/employees | EmployeeManagement |  |
-| /organization/positions | PositionManagement |  |
-| /packaging-storage-record | PackagingStorageRecordList |  |
-| /packaging-storage-record/new | PackagingStorageRecordForm |  |
-| /pending-approval | PendingApproval |  |
-| /personal-hygiene-check | PersonalHygieneCheckList |  |
-| /personal-hygiene-check/new | PersonalHygieneCheckForm |  |
-| /pest-control-checklist | PestControlChecklistList |  |
-| /pest-control-checklist/new | PestControlChecklistForm |  |
-| /pest-control/checklists | PestControlChecklistList |  |
-| /pest-control/checklists/new | PestControlChecklistForm |  |
-| /print-preview | PrintPreviewPage |  |
-| /product-test-log | ProductTestLogList |  |
-| /product-test-log/new | ProductTestLogForm |  |
-| /product-test-report | ProductTestReportList |  |
-| /product-test-report/new | ProductTestReportForm |  |
-| /production-dashboard | BatchProductionDashboard |  |
-| /production-monitor | ProductionMonitor |  |
-| /quality-issue-record | QualityIssueRecordList |  |
-| /quality-issue-record/new | QualityIssueRecordForm |  |
-| /quality/approvals | ApprovalQueue |  |
-| /quality/ccp-limits | CCPLimitsManagement |  |
-| /quality/hazard-analysis | HazardAnalysisManagement |  |
-| /quality/notification-settings | ChecklistNotificationSettings |  |
-| /quality/product-specification | ProductSpecificationManagement |  |
-| /quality/self-inspection | SelfQualityInspectionList |  |
-| /quality/self-inspection/new | SelfQualityInspectionForm |  |
-| /quality/statistics | ChecklistStatistics |  |
-| /quality/templates | TemplateManagement |  |
-| /recall-simulation | RecallSimulation |  |
-| /refrigeration-check | RefrigerationCheckList |  |
-| /refrigeration-check/new | RefrigerationCheckForm |  |
-| /register | Register |  |
-| /reset-password | ResetPassword |  |
-| /roadmap | RoadmapPage |  |
-| /sanitation-record | SanitationRecordList |  |
-| /sanitation-record/new | SanitationRecordForm |  |
-| /signup | OnboardingPage |  |
-| /stock-alerts | StockAlerts |  |
-| /supplier-audit | SupplierAudit |  |
-| /supplier-inspection | SupplierInspectionList |  |
-| /supplier-inspection/new | SupplierInspectionForm |  |
-| /support | SupportPage |  |
-| /surface-contamination-test | SurfaceContaminationTestList |  |
-| /surface-contamination-test/new | SurfaceContaminationTestForm |  |
-| /system-settings | SystemSettings |  |
-| /temperature-humidity-check | TemperatureHumidityCheckList |  |
-| /temperature-humidity-check/new | TemperatureHumidityCheckForm |  |
-| /traceability | Traceability |  |
-| /training-log | TrainingLogList |  |
-| /training-log/new | TrainingLogForm |  |
-| /training/courses | TrainingCourseList |  |
-| /validity-evaluation | ValidityEvaluationList |  |
-| /validity-evaluation/new | ValidityEvaluationForm |  |
-| /vehicle-temperature-check | VehicleTemperatureCheckList |  |
-| /vehicle-temperature-check/new | VehicleTemperatureCheckForm |  |
-| /verify-email | VerifyEmail |  |
-| /waste-management | WasteManagementList |  |
-| /waste-management/new | WasteManagementForm |  |
-| /water-management-check | WaterManagementCheckList |  |
-| /water-management-check/new | WaterManagementCheckForm |  |
-| /water-quality-test | WaterQualityTestList |  |
-| /water-quality-test/new | WaterQualityTestForm |  |
-| /water-usage-check | WaterUsageCheckList |  |
-| /water-usage-check/new | WaterUsageCheckForm |  |
-| /weekly-log/form | WeeklyLogForm |  |
-| /weight-quality-check | WeightQualityCheckList |  |
-| /weight-quality-check/new | WeightQualityCheckForm |  |
-| /workplace-hygiene-check | WorkplaceHygieneCheckList |  |
-| /workplace-hygiene-check/new | WorkplaceHygieneCheckForm |  |
+| / | LandingPage | public |
+| /404 | NotFound | public |
+| /account-categories | AccountCategoryManagement | finance |
+| /accounting-close | AccountingCloseManagement | finance |
+| /accounting/monthly-summary | lazy(() => import("@/pages/accounting/AccountingMo | finance |
+| /accounting/monthly-summary/new | lazy(() => import("@/pages/accounting/AccountingMo | finance |
+| /admin/employee-approval | EmployeeApproval | settings |
+| /admin/failed-tasks | FailedTasks | platform |
+| /admin/user-approval | SuperAdminUserApproval | platform |
+| /air-compressor | AirCompressorList | quality |
+| /air-compressor-maintenance | AirCompressorMaintenanceList | quality |
+| /air-compressor-maintenance/new | AirCompressorMaintenanceForm | quality |
+| /air-compressor/new | AirCompressorForm | quality |
+| /airborne-bacteria-test | AirborneBacteriaTestList | quality |
+| /airborne-bacteria-test/new | AirborneBacteriaTestForm | quality |
+| /batch-profitability-dashboard | BatchProfitabilityDashboard | production |
+| /batch-schedule | BatchSchedule | production |
+| /batch-schedule-calendar | BatchScheduleCalendar | production |
+| /batch/new | (children) | production |
+| /board | NoticeBoard | today |
+| /board/alerts | BoardAlarms | today |
+| /calibration | CalibrationManagement | quality |
+| /capa-record | CapaRecordList | quality |
+| /capa-record/new | CapaRecordForm | quality |
+| /category-management | CategoryManagement | items |
+| /ccp-deviation-dashboard | CcpDeviationDashboard | quality |
+| /checklist-approval | ChecklistApprovalManagement | quality |
+| /checklist-instance | ChecklistInstance | quality |
+| /checklist-instance/form | ChecklistInstanceForm | quality |
+| /checklist-schedule | ChecklistScheduleManagement | quality |
+| /company-settings | CompanySettings | settings |
+| /consumer-complaint | ConsumerComplaintList | quality |
+| /consumer-complaint/new | ConsumerComplaintForm | quality |
+| /daily-disposal-record | DailyDisposalRecordList | quality |
+| /daily-disposal-record/new | DailyDisposalRecordForm | quality |
+| /daily-log/daily | DailyLogForm | quality |
+| /daily-report | ProductionDailyReport | production |
+| /dashboard/checklist/templates/new | ChecklistTemplateForm | quality |
+| /document-approval | DocumentApprovalManagement | today |
+| /document-approval-settings | DocumentApprovalSettingsPage | settings |
+| /employee-health-check | EmployeeHealthCheckRecordList | quality |
+| /employee-health-check/new | EmployeeHealthCheckForm | quality |
+| /equipment-cleaning-record | EquipmentCleaningRecordList | quality |
+| /equipment-cleaning-record/new | EquipmentCleaningRecordForm | quality |
+| /equipment-history | EquipmentHistoryList | quality |
+| /equipment-history/new | EquipmentHistoryForm | quality |
+| /equipment-inspection | EquipmentInspectionList | quality |
+| /equipment-inspection/new | EquipmentInspectionForm | quality |
+| /faq | FAQPage | public |
+| /finished-product-check | FinishedProductCheckList | quality |
+| /finished-product-check/new | FinishedProductCheckForm | quality |
+| /food-recall-notice | FoodRecallNoticeList | quality |
+| /food-recall-notice/new | FoodRecallNoticeForm | quality |
+| /foreign-material-record | ForeignMaterialRecordList | quality |
+| /foreign-material-record/new | ForeignMaterialRecordForm | quality |
+| /forgot-password | ForgotPassword | public |
+| /haccp-plan-verification | HaccpPlanVerification | quality |
+| /handover-document | HandoverDocumentList | quality |
+| /handover-document/new | HandoverDocumentForm | quality |
+| /hygiene-facility-check | HygieneFacilityCheckList | quality |
+| /hygiene-facility-check/new | HygieneFacilityCheckForm | quality |
+| /hygiene/checklists | HygieneChecklistList | quality |
+| /hygiene/checklists/new | HygieneChecklistForm | quality |
+| /illumination-check | IlluminationCheckList | quality |
+| /illumination-check/new | IlluminationCheckForm | quality |
+| /internal-audit | InternalAudit | quality |
+| /internal-audit-plan | InternalAuditPlan | quality |
+| /inventory-lots | InventoryLots | items |
+| /inventory-prediction | InventoryPredictionDashboard | items |
+| /inventory-turnover-dashboard | InventoryTurnoverDashboard | items |
+| /inventory/receipt | InventoryReceipt | purchase |
+| /inventory/release | InventoryRelease | sales |
+| /legal | LegalPage | public |
+| /login | Login | public |
+| /master/recipe | RecipeManagement | production |
+| /material-usage-report-print | lazy(() => import("@/pages/accounting/MaterialUsag | finance |
+| /monthly-log/form | MonthlyLogForm | quality |
+| /nonconforming-products | NonconformingProduct | quality |
+| /notification-statistics | NotificationStatistics | today |
+| /notifications | NotificationCenter | today |
+| /organization/departments | DepartmentManagement | settings |
+| /organization/employees | EmployeeManagement | settings |
+| /organization/positions | PositionManagement | settings |
+| /packaging-storage-record | PackagingStorageRecordList | quality |
+| /packaging-storage-record/new | PackagingStorageRecordForm | quality |
+| /pending-approval | PendingApproval | public |
+| /personal-hygiene-check | PersonalHygieneCheckList | quality |
+| /personal-hygiene-check/new | PersonalHygieneCheckForm | quality |
+| /pest-control-checklist | PestControlChecklistList | quality |
+| /pest-control-checklist/new | PestControlChecklistForm | quality |
+| /pest-control/checklists | PestControlChecklistList | quality |
+| /pest-control/checklists/new | PestControlChecklistForm | quality |
+| /print-preview | PrintPreviewPage | quality |
+| /product-test-log | ProductTestLogList | quality |
+| /product-test-log/new | ProductTestLogForm | quality |
+| /product-test-report | ProductTestReportList | quality |
+| /product-test-report/new | ProductTestReportForm | quality |
+| /production-dashboard | BatchProductionDashboard | production |
+| /production-monitor | ProductionMonitor | production |
+| /quality-issue-record | QualityIssueRecordList | quality |
+| /quality-issue-record/new | QualityIssueRecordForm | quality |
+| /quality/approvals | ApprovalQueue | quality |
+| /quality/ccp-limits | CCPLimitsManagement | quality |
+| /quality/hazard-analysis | HazardAnalysisManagement | quality |
+| /quality/notification-settings | ChecklistNotificationSettings | settings |
+| /quality/product-specification | ProductSpecificationManagement | quality |
+| /quality/self-inspection | SelfQualityInspectionList | quality |
+| /quality/self-inspection/new | SelfQualityInspectionForm | quality |
+| /quality/statistics | ChecklistStatistics | quality |
+| /quality/templates | TemplateManagement | quality |
+| /recall-simulation | RecallSimulation | quality |
+| /refrigeration-check | RefrigerationCheckList | quality |
+| /refrigeration-check/new | RefrigerationCheckForm | quality |
+| /register | Register | public |
+| /reset-password | ResetPassword | public |
+| /roadmap | RoadmapPage | public |
+| /sanitation-record | SanitationRecordList | quality |
+| /sanitation-record/new | SanitationRecordForm | quality |
+| /signup | OnboardingPage | public |
+| /stock-alerts | StockAlerts | items |
+| /supplier-audit | SupplierAudit | quality |
+| /supplier-inspection | SupplierInspectionList | quality |
+| /supplier-inspection/new | SupplierInspectionForm | quality |
+| /support | SupportPage | public |
+| /surface-contamination-test | SurfaceContaminationTestList | quality |
+| /surface-contamination-test/new | SurfaceContaminationTestForm | quality |
+| /system-settings | SystemSettings | settings |
+| /temperature-humidity-check | TemperatureHumidityCheckList | quality |
+| /temperature-humidity-check/new | TemperatureHumidityCheckForm | quality |
+| /traceability | Traceability | quality |
+| /training-log | TrainingLogList | quality |
+| /training-log/new | TrainingLogForm | quality |
+| /training/courses | TrainingCourseList | quality |
+| /validity-evaluation | ValidityEvaluationList | quality |
+| /validity-evaluation/new | ValidityEvaluationForm | quality |
+| /vehicle-temperature-check | VehicleTemperatureCheckList | quality |
+| /vehicle-temperature-check/new | VehicleTemperatureCheckForm | quality |
+| /verify-email | VerifyEmail | public |
+| /waste-management | WasteManagementList | quality |
+| /waste-management/new | WasteManagementForm | quality |
+| /water-management-check | WaterManagementCheckList | quality |
+| /water-management-check/new | WaterManagementCheckForm | quality |
+| /water-quality-test | WaterQualityTestList | quality |
+| /water-quality-test/new | WaterQualityTestForm | quality |
+| /water-usage-check | WaterUsageCheckList | quality |
+| /water-usage-check/new | WaterUsageCheckForm | quality |
+| /weekly-log/form | WeeklyLogForm | quality |
+| /weight-quality-check | WeightQualityCheckList | quality |
+| /weight-quality-check/new | WeightQualityCheckForm | quality |
+| /workplace-hygiene-check | WorkplaceHygieneCheckList | quality |
+| /workplace-hygiene-check/new | WorkplaceHygieneCheckForm | quality |

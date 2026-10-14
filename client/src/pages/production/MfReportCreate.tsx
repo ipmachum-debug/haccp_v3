@@ -711,7 +711,7 @@ export default function MfReportCreate() {
         </Card>
 
         <div className="flex justify-end gap-4">
-          <Button type="button" variant="outline" onClick={() => setLocation("/dashboard/mf-report")}>
+          <Button type="button" variant="outline" onClick={() => setLocation("/dashboard/mf-reports")}>
             <ArrowLeft className="w-4 h-4 mr-2" />
             취소
           </Button>
