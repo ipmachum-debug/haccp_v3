@@ -1,0 +1,145 @@
+/**
+ * 일지 승인 흐름 보강 (2026-10-15, Codex 실저장·승인 검증 후속)
+ *  1. 바로승인 — 누른 요청을 그대로 승인 (이전: 첫 클릭 무반응·직전 선택 요청 승인 위험)
+ *  2. 재작성 — 완료된 승인 이력은 보존, 진행 중 요청만 취소 (공통 양식·건강일지 같은 정책)
+ *  3. 결재 직인 — 검토·승인 시 일지 본문에 찍는다
+ *  4. 건강일지 목록 — 작성중만 삭제 버튼
+ *  5. 누락 복구 요청에 "누락 복구" 표시 항상
+ *  6. 누락 vs 상태 불일치 — 승인된 요청이 있으면 다시 요청 금지 (#690·#694)
+ *  +  다른 종류 요청(원료 사용 보고·CCP 기록지 등) 승인이 같은 번호의 일지를 바꾸지 않음 (#94)
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
+const state = vi.hoisted(() => ({
+  request: { reference_id: 94, request_type: "material_usage_report", reference_type: "material_usage_report", status: "pending_approval" } as any,
+  record: { status: "submitted", form_data: { approval: { writerName: "이준석", writerApproved: true } } } as any,
+  active: [] as any[], approved: [] as any[],
+  raw: [] as Array<{ sql: string; params: any[] }>,
+}));
+
+const conn = {
+  beginTransaction: vi.fn(async () => {}), commit: vi.fn(async () => {}), rollback: vi.fn(async () => {}), release: vi.fn(() => {}),
+  execute: vi.fn(async (sql: string, params: any[]) => {
+    state.raw.push({ sql, params });
+    if (/SELECT form_data FROM h_generic_checklist_records/.test(sql)) return [state.record ? [state.record] : []];
+    if (/SELECT id, status, form_data FROM h_generic_checklist_records/.test(sql)) return [state.record ? [{ id: params[0], ...state.record }] : []];
+    if (/SELECT status FROM h_generic_checklist_records/.test(sql)) return [state.record ? [{ status: state.record.status }] : []];
+    if (/status = 'approved'/.test(sql) && /SELECT id FROM h_approval_requests/.test(sql)) return [state.approved];
+    if (/SELECT id FROM h_approval_requests/.test(sql)) return [state.active];
+    if (/INSERT INTO h_approval_requests/.test(sql)) return [{ insertId: 777 }];
+    return [{ affectedRows: 1 }];
+  }),
+};
+vi.mock("./db/connection", () => ({
+  getRawConnection: vi.fn(async () => ({ getConnection: vi.fn(async () => conn), execute: conn.execute })),
+  getDb: vi.fn(async () => null),
+}));
+vi.mock("./db", () => ({
+  getDb: vi.fn(async () => ({ execute: vi.fn(async () => [[state.request]]), insert: () => ({ values: async () => [{ insertId: 1 }] }) })),
+}));
+
+import { genericChecklistRouter } from "./routers/checklist/genericChecklist.router";
+import { applyApprovalStamp, isChecklistReference, classifySubmitted, decideSubmit, stampDate } from "./lib/checklist/recordStatePolicy";
+import { REPO_ROOT } from "./__helpers__/appRoutes";
+
+const caller = () => genericChecklistRouter.createCaller({ user: { id: 4, name: "한상갑", role: "admin", tenantId: 2, siteId: 1 }, tenantId: 2, req: {} as any, res: {} as any } as any);
+const recordWrites = () => state.raw.filter((e) => /UPDATE h_generic_checklist_records/.test(e.sql));
+
+beforeEach(() => {
+  state.request = { reference_id: 94, request_type: "material_usage_report", reference_type: "material_usage_report", status: "pending_approval" };
+  state.record = { status: "submitted", form_data: { approval: { writerName: "이준석", writerApproved: true } } };
+  state.active = []; state.approved = []; state.raw = [];
+});
+
+describe("다른 종류 요청 승인은 공통 일지를 건드리지 않는다 (#94)", () => {
+  it("원료 사용 보고 #94 승인 → 온습도 일지 #94 쓰기 0", async () => {
+    await caller().approveChecklist({ approvalRequestId: 3199, action: "approve" });
+    expect(recordWrites()).toHaveLength(0);
+  });
+  it("CCP 기록지 반려·검토 반려·바로승인·일괄 승인도 0", async () => {
+    state.request = { reference_id: 91, request_type: "ccp_form", reference_type: "ccp_form_record", status: "pending_review" };
+    await caller().approveChecklist({ approvalRequestId: 1, action: "reject" });
+    await caller().reviewChecklist({ approvalRequestId: 1, action: "reject" });
+    await caller().reviewChecklist({ approvalRequestId: 1, action: "approve" });
+    await caller().approveWithAutoReview({ approvalRequestId: 1 });
+    await caller().batchApproveChecklists({ approvalRequestIds: [1, 2] });
+    expect(recordWrites()).toHaveLength(0);
+  });
+  it("판정 함수", () => {
+    expect(isChecklistReference("checklist")).toBe(true);
+    expect(isChecklistReference("generic_checklist")).toBe(true);
+    expect(isChecklistReference("material_usage_report")).toBe(false);
+    expect(isChecklistReference(null)).toBe(false);
+  });
+});
+
+describe("결재 직인", () => {
+  it("검토 → 검토 직인만, 최종 승인 → 승인완료 + 승인 직인, 바로승인(검토 단계) → 둘 다", async () => {
+    state.request = { reference_id: 91, request_type: "pest_control_checklist", reference_type: "checklist", status: "pending_review" };
+    await caller().reviewChecklist({ approvalRequestId: 1, action: "approve" });
+    let w = recordWrites().at(-1)!;
+    expect(w.sql).not.toMatch(/status = \?/);
+    expect(JSON.parse(w.params[0]).approval).toMatchObject({ writerApproved: true, reviewerApproved: true, reviewerName: "한상갑" });
+    expect(JSON.parse(w.params[0]).approval.approverApproved).toBeUndefined();
+
+    state.raw = []; state.request.status = "pending_approval";
+    await caller().approveChecklist({ approvalRequestId: 1, action: "approve" });
+    w = recordWrites().at(-1)!;
+    expect(w.params[0]).toBe("approved");
+    expect(JSON.parse(w.params[1]).approval).toMatchObject({ approverApproved: true, approverName: "한상갑", approverDate: stampDate() });
+
+    state.raw = []; state.request.status = "pending_review";
+    await caller().approveWithAutoReview({ approvalRequestId: 1 });
+    w = recordWrites().at(-1)!;
+    expect(JSON.parse(w.params[1]).approval).toMatchObject({ reviewerApproved: true, approverApproved: true });
+  });
+  it("직인 함수 — 원본 불변, 작성자 직인 유지", () => {
+    const src = { approval: { writerApproved: true }, x: 1 };
+    const out = applyApprovalStamp(src, "reviewAndApprove", { name: "A", date: "2026. 10. 15." });
+    expect(out).toEqual({ approval: { writerApproved: true, reviewerApproved: true, reviewerDate: "2026. 10. 15.", reviewerName: "A", approverApproved: true, approverDate: "2026. 10. 15.", approverName: "A" }, x: 1 });
+    expect(src.approval).toEqual({ writerApproved: true });
+    expect(applyApprovalStamp(null, "approve", { name: "", date: "d" })).toEqual({ approval: { approverApproved: true, approverDate: "d", approverName: "" } });
+  });
+});
+
+describe("누락 vs 상태 불일치 (#690·#694)", () => {
+  it("승인된 요청이 있으면 다시 요청 거부", async () => {
+    state.approved = [{ id: 1629 }];
+    await expect(caller().submitForReview({ id: 690, requestType: "daily_log", title: "t" })).rejects.toThrow(/이미 승인된 요청\(#1629\)/);
+    expect(state.raw.some((e) => /INSERT INTO h_approval_requests/.test(e.sql))).toBe(false);
+  });
+  it("approvalState 분류", async () => {
+    state.approved = [{ id: 1629 }];
+    expect(await caller().approvalState({ id: 690 })).toMatchObject({ orphanSubmitted: false, statusMismatch: true, approvedRequestIds: [1629] });
+    state.approved = [];
+    expect(await caller().approvalState({ id: 79 })).toMatchObject({ orphanSubmitted: true, statusMismatch: false });
+    expect(classifySubmitted("draft", [], [5])).toEqual({ orphanSubmitted: false, statusMismatch: false });
+    expect(decideSubmit("draft", [], [5])).toEqual({ ok: true, recovering: false }); // 재작성 후 재요청은 정상
+  });
+  it("누락 복구 요청에는 화면 설명이 있어도 '누락 복구' 표시", async () => {
+    await caller().submitForReview({ id: 79, requestType: "illumination_check", title: "t", description: "작성일: 2026-02-16" });
+    const ins = state.raw.find((e) => /INSERT INTO h_approval_requests/.test(e.sql))!;
+    expect(ins.params[4]).toMatch(/^작성일: 2026-02-16 \[승인 요청 누락 복구/);
+  });
+});
+
+describe("화면·정책 고정", () => {
+  const read = (p: string) => readFileSync(join(REPO_ROOT, p), "utf-8");
+  it("바로승인은 누른 요청을 인자로 넘긴다", () => {
+    const src = read("client/src/pages/system/ApprovalManagement.tsx");
+    expect(src).toMatch(/onAutoReviewApprove=\{\(r\) => \{ setSelectedRequest\(r\); setComment\(""\); handleAutoReviewApprove\(r\); \}\}/);
+    expect(src).toMatch(/const handleAutoReviewApprove = \(target\?: ApprovalRequest\)/);
+  });
+  it("재작성은 완료 승인을 취소하지 않는다", () => {
+    const src = read("server/routers/checklist/genericChecklist.router.ts");
+    const reopen = src.slice(src.indexOf("reopenForEdit:"));
+    expect(reopen).toMatch(/AND status IN \('pending_writer', 'pending_review', 'pending_approval', 'pending'\)/);
+    expect(src).not.toMatch(/db\.update\(hGenericChecklistRecords\)\.set\(\{ status: "(approved|draft|submitted)"/);
+  });
+  it("건강일지 목록 삭제 버튼은 작성중만", () => {
+    const src = read("client/src/pages/checklist/EmployeeHealthCheckRecordList.tsx");
+    expect(src).not.toMatch(/record\.status === "draft" \|\| isAdmin/);
+  });
+});

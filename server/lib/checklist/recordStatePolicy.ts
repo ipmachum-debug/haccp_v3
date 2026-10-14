@@ -21,6 +21,15 @@ export const ACTIVE_REQUEST_STATUSES = ["pending_writer", "pending_review", "pen
 /** 공통 일지를 가리키는 승인 요청 (주기 일지 포함 — 모두 h_generic_checklist_records.id) */
 export const CHECKLIST_REFERENCE_TYPES = ["checklist", "generic_checklist"] as const;
 
+/** 승인 요청 상태 분류 — 누락(다시 요청 가능) vs 상태 불일치(승인은 이미 끝남) */
+export function classifySubmitted(current: RecordStatus, activeRequestIds: readonly number[], approvedRequestIds: readonly number[]) {
+  const submittedNoActive = current === "submitted" && activeRequestIds.length === 0;
+  return {
+    orphanSubmitted: submittedNoActive && approvedRequestIds.length === 0,
+    statusMismatch: submittedNoActive && approvedRequestIds.length > 0,
+  };
+}
+
 export const STATUS_KO: Record<string, string> = { draft: "작성중", submitted: "승인대기", approved: "승인완료", rejected: "반려" };
 
 /** 내용 수정 저장 — 다음 상태와 재작성 여부 (요청된 status 는 'draft' 가 아니면 무시) */
@@ -36,8 +45,12 @@ export function decideDelete(current: RecordStatus): { ok: true } | { ok: false;
   };
 }
 
-export function decideSubmit(current: RecordStatus, activeRequestIds: readonly number[]):
+export function decideSubmit(current: RecordStatus, activeRequestIds: readonly number[], approvedRequestIds: readonly number[] = []):
   { ok: true; recovering: boolean } | { ok: false; message: string } {
+  // 승인은 끝났는데 기록 상태만 '승인대기' (예: 일일일지 #690·#694 — 6/24 재생성으로 상태가 되돌아감) → 다시 요청하면 안 된다
+  if (current === "submitted" && activeRequestIds.length === 0 && approvedRequestIds.length > 0) {
+    return { ok: false, message: `이미 승인된 요청(#${approvedRequestIds.join(", #")})이 있습니다. 기록 상태만 맞지 않는 경우라 다시 요청하지 않습니다 — 관리자에게 상태 정리를 요청하세요.` };
+  }
   if (activeRequestIds.length > 0) {
     return { ok: false, message: `이미 승인 요청이 진행 중입니다 (요청 #${activeRequestIds.join(", #")}). 승인관리에서 확인하세요.` };
   }
@@ -55,4 +68,35 @@ export function clearReviewStamps(formData: unknown): unknown {
     fd.approval = { ...(fd.approval as Record<string, unknown>), reviewerApproved: false, approverApproved: false, reviewerDate: null, approverDate: null };
   }
   return fd;
+}
+
+/** 승인 요청이 공통 일지를 가리키는가 — 아니면 공통 일지 기록을 절대 건드리지 않는다
+ *  (2026-10-15: 원료 사용 보고·CCP 기록지 등 다른 종류 요청을 승인할 때 같은 번호의 일지가 바뀌던 문제) */
+export function isChecklistReference(referenceType: unknown): boolean {
+  return typeof referenceType === "string" && (CHECKLIST_REFERENCE_TYPES as readonly string[]).includes(referenceType);
+}
+
+export type StampKind = "review" | "approve" | "reviewAndApprove";
+
+/** 결재 직인 — 검토·승인 시 일지 본문(form_data.approval)에 찍는다 (이전: 상태만 승인완료, 직인 칸은 비어 있었다) */
+export function applyApprovalStamp(formData: unknown, kind: StampKind, actor: { name: string; date: string }): Record<string, unknown> {
+  const fd: Record<string, unknown> = formData && typeof formData === "object" ? { ...(formData as Record<string, unknown>) } : {};
+  const ap: Record<string, unknown> = fd.approval && typeof fd.approval === "object" ? { ...(fd.approval as Record<string, unknown>) } : {};
+  if (kind === "review" || kind === "reviewAndApprove") {
+    ap.reviewerApproved = true;
+    ap.reviewerDate = actor.date;
+    ap.reviewerName = actor.name || ap.reviewerName || "";
+  }
+  if (kind === "approve" || kind === "reviewAndApprove") {
+    ap.approverApproved = true;
+    ap.approverDate = actor.date;
+    ap.approverName = actor.name || ap.approverName || "";
+  }
+  fd.approval = ap;
+  return fd;
+}
+
+/** 직인 날짜 표기 — 작성자 직인과 같은 형식 (예: "2026. 10. 15."), 한국 시간 */
+export function stampDate(now: Date = new Date()): string {
+  return now.toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" });
 }

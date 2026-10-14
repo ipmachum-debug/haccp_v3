@@ -15,8 +15,34 @@ import { TRPCError } from "@trpc/server";
 import { getRawConnection } from "../../db/connection";
 import {
   ACTIVE_REQUEST_STATUSES, CHECKLIST_REFERENCE_TYPES, clearReviewStamps, decideDelete, decideSubmit, decideUpdate,
-  type RecordStatus,
+  isChecklistReference, applyApprovalStamp, stampDate, classifySubmitted, type RecordStatus, type StampKind,
 } from "../../lib/checklist/recordStatePolicy";
+
+/**
+ * 승인 절차가 공통 일지 기록을 바꿀 때는 반드시 여기로 (2026-10-15)
+ *  - 요청의 reference_type 이 공통 일지(checklist / generic_checklist)일 때만 — 다른 종류 요청(원료 사용 보고·CCP 기록지 등)을
+ *    승인하면서 같은 번호의 일지를 바꾸던 문제 차단 (덤프: 온습도 #94 가 자기 승인 요청 없이 승인완료)
+ *  - 검토·승인이면 결재 직인을 일지 본문에 함께 찍는다
+ */
+async function syncChecklistRecord(
+  refId: number | null | undefined, referenceType: unknown, tenantId: number,
+  change: { status?: RecordStatus; stamp?: StampKind }, actorName: string,
+): Promise<boolean> {
+  if (!refId || !isChecklistReference(referenceType)) return false;
+  const conn: any = await getRawConnection();
+  const [rows]: any = await conn.execute(`SELECT form_data FROM h_generic_checklist_records WHERE id = ? AND tenant_id = ?`, [refId, tenantId]);
+  if (!rows?.[0]) return false;
+  const sets: string[] = ["updated_at = NOW()"];
+  const params: unknown[] = [];
+  if (change.status) { sets.push("status = ?"); params.push(change.status); }
+  if (change.stamp) {
+    const fd = typeof rows[0].form_data === "string" ? safeJson(rows[0].form_data) : rows[0].form_data;
+    sets.push("form_data = ?");
+    params.push(JSON.stringify(applyApprovalStamp(fd, change.stamp, { name: actorName, date: stampDate() })));
+  }
+  await conn.execute(`UPDATE h_generic_checklist_records SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`, [...params, refId, tenantId]);
+  return true;
+}
 
 /** 공통 일지 한 건을 잠그고 읽는다 (트랜잭션 안) */
 async function lockRecord(conn: any, id: number, tenantId: number) {
@@ -31,6 +57,9 @@ const activeSql = `SELECT id FROM h_approval_requests
   WHERE tenant_id = ? AND reference_id = ? AND reference_type IN (${CHECKLIST_REFERENCE_TYPES.map(() => "?").join(",")})
     AND status IN (${ACTIVE_REQUEST_STATUSES.map(() => "?").join(",")})`;
 const activeParams = (tenantId: number, id: number) => [tenantId, id, ...CHECKLIST_REFERENCE_TYPES, ...ACTIVE_REQUEST_STATUSES];
+const approvedSql = `SELECT id FROM h_approval_requests
+  WHERE tenant_id = ? AND reference_id = ? AND reference_type IN (${CHECKLIST_REFERENCE_TYPES.map(() => "?").join(",")}) AND status = 'approved'`;
+const approvedParams = (tenantId: number, id: number) => [tenantId, id, ...CHECKLIST_REFERENCE_TYPES];
 
 /** 트랜잭션 실행 — 실패하면 되돌린다 */
 async function inTx<T>(fn: (conn: any) => Promise<T>): Promise<T> {
@@ -264,13 +293,17 @@ export const genericChecklistRouter = router({
       return inTx(async (conn) => {
         const cur = await lockRecord(conn, input.id, tenantId);
         const [active]: any = await conn.execute(`${activeSql} FOR UPDATE`, activeParams(tenantId, input.id));
-        const d = decideSubmit(cur.status, (active as any[]).map((r) => Number(r.id)));
+        const [approvedRows]: any = await conn.execute(approvedSql, approvedParams(tenantId, input.id));
+        const d = decideSubmit(cur.status, (active as any[]).map((r) => Number(r.id)), (approvedRows as any[]).map((r) => Number(r.id)));
         if (!d.ok) throw new TRPCError({ code: "CONFLICT", message: d.message });
         const [ins]: any = await conn.execute(
           `INSERT INTO h_approval_requests
              (site_id, request_type, reference_type, reference_id, title, description, status, priority, requested_by, tenant_id)
            VALUES (?, ?, 'checklist', ?, ?, ?, 'pending_review', 'medium', ?, ?)`,
-          [ctx.user.siteId || ctx.tenantId, input.requestType, input.id, input.title, input.description || (d.recovering ? "승인 요청 누락 복구 (이전 오류)" : ""), ctx.user.id, tenantId],
+                    // 복구 요청은 화면 설명이 있어도 "누락 복구" 를 남긴다 (이전: 화면 설명이 있으면 복구 표시가 빠졌다)
+          [ctx.user.siteId || ctx.tenantId, input.requestType, input.id, input.title,
+            [input.description || "", d.recovering ? "[승인 요청 누락 복구 — 이전 오류로 요청 없이 승인대기였던 기록]" : ""].filter(Boolean).join(" "),
+            ctx.user.id, tenantId],
         );
         await conn.execute(
           `UPDATE h_generic_checklist_records SET status = 'submitted', updated_by = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
@@ -296,7 +329,9 @@ export const genericChecklistRouter = router({
       const [active]: any = await conn.execute(activeSql, activeParams(tenantId, input.id));
       const status = (rec[0].status ?? "draft") as RecordStatus;
       const activeRequestIds = (active as any[]).map((r) => Number(r.id));
-      return { status, activeRequestIds, orphanSubmitted: status === "submitted" && activeRequestIds.length === 0 };
+      const [approvedRows]: any = await conn.execute(approvedSql, approvedParams(tenantId, input.id));
+      const approvedRequestIds = (approvedRows as any[]).map((r) => Number(r.id));
+      return { status, activeRequestIds, approvedRequestIds, ...classifySubmitted(status, activeRequestIds, approvedRequestIds) };
     }),
 
   // 체크리스트 검토 (검토자 → 승인 대기)
@@ -335,6 +370,8 @@ export const genericChecklistRouter = router({
           SET status = 'pending_approval', reviewed_by = ${ctx.user.id}, reviewed_at = NOW(), review_comments = ${input.comments || null}
           WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
         `);
+        // 검토 직인 (공통 일지 요청일 때만)
+        await syncChecklistRecord(refId, refType, getEffectiveTenantId(ctx), { stamp: "review" }, ctx.user.name ?? "");
         return { success: true, message: "검토가 완료되었습니다. 최종 승인 대기 중입니다." };
       } else {
         const rejResult: any = await db.execute(sql`
@@ -355,8 +392,7 @@ export const genericChecklistRouter = router({
             `);
             console.log(`[reviewChecklist] 배치 #${refId} 검토 반려 → planned`);
           } else {
-            await db.update(hGenericChecklistRecords).set({ status: "draft", updatedAt: new Date() } as any)
-              .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
+            await syncChecklistRecord(refId, refType, getEffectiveTenantId(ctx), { status: "draft" }, ctx.user.name ?? "");
           }
         }
         await db.execute(sql`
@@ -431,8 +467,8 @@ export const genericChecklistRouter = router({
               console.error(`[approveChecklist] 생산일지 갱신 실패:`, pdErr);
             }
           } else {
-            await db.update(hGenericChecklistRecords).set({ status: "approved", updatedAt: new Date() } as any)
-              .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
+            // 최종 승인 + 승인 직인 (공통 일지 요청일 때만 — 다른 종류 요청은 일지를 건드리지 않는다)
+            await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), { status: "approved", stamp: "approve" }, ctx.user.name ?? "");
           }
         }
         await db.execute(sql`
@@ -452,8 +488,7 @@ export const genericChecklistRouter = router({
             `);
             console.log(`[approveChecklist] 배치 #${refId} 상태 → cancelled (반려)`);
           } else {
-            await db.update(hGenericChecklistRecords).set({ status: "submitted", updatedAt: new Date() } as any)
-              .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
+            await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), { status: "submitted" }, ctx.user.name ?? "");
           }
         }
         await db.execute(sql`
@@ -477,11 +512,17 @@ export const genericChecklistRouter = router({
       let successCount = 0;
       for (const id of input.approvalRequestIds) {
         try {
-          await db.execute(sql`
+          const res: any = await db.execute(sql`
             UPDATE h_approval_requests
             SET status = 'pending_approval', reviewed_by = ${ctx.user.id}, reviewed_at = NOW(), review_comments = ${input.comments || null}
             WHERE id = ${id} AND status IN ('pending_review', 'pending') AND tenant_id = ${ctx.tenantId}
           `);
+          // 검토 직인 (실제로 검토 처리된 공통 일지 요청만)
+          if (Number(res?.[0]?.affectedRows ?? res?.affectedRows ?? 0) > 0) {
+            const refRes: any = await db.execute(sql`SELECT reference_id, reference_type FROM h_approval_requests WHERE id = ${id} AND tenant_id = ${ctx.tenantId}`);
+            const ref = (refRes?.[0] || [])[0] || {};
+            await syncChecklistRecord(ref.reference_id, ref.reference_type, getEffectiveTenantId(ctx), { stamp: "review" }, ctx.user.name ?? "");
+          }
           successCount++;
         } catch (e) {
           console.error(`일괄 검토 실패 (id=${id}):`, e);
@@ -504,7 +545,7 @@ export const genericChecklistRouter = router({
           // 승인 요청 정보 조회 (reference_id, request_type, reference_type)
           // ★ CRITICAL FIX: db.execute(sql`...`) 튜플 언랩
           const execResult: any = await db.execute(sql`
-            SELECT reference_id, request_type, reference_type
+            SELECT reference_id, request_type, reference_type, status
             FROM h_approval_requests WHERE id = ${id} AND tenant_id = ${ctx.tenantId}
           `);
           const rawRows: any[] = (execResult as any)?.[0] || [];
@@ -512,6 +553,7 @@ export const genericChecklistRouter = router({
           const refId = firstRow.reference_id;
           const requestType = firstRow.request_type;
           const referenceType = firstRow.reference_type;
+          const reqStatus = firstRow.status;
 
           if (refId) {
             if (requestType === 'batch_production' && referenceType === 'batch') {
@@ -564,9 +606,10 @@ export const genericChecklistRouter = router({
                 console.error(`[batchApproveChecklists] 생산일지 갱신 실패:`, pdErr);
               }
             } else {
-              // 체크리스트/일일일지 승인: 기존 로직
-              await db.update(hGenericChecklistRecords).set({ status: "approved", updatedAt: new Date() } as any)
-                .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
+              // 체크리스트/일일일지 승인 + 직인 (검토 전이면 검토 직인도) — 공통 일지 요청일 때만
+              await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), {
+                status: "approved", stamp: reqStatus === "pending_review" || reqStatus === "pending" ? "reviewAndApprove" : "approve",
+              }, ctx.user.name ?? "");
             }
           }
           await db.execute(sql`
@@ -639,9 +682,10 @@ export const genericChecklistRouter = router({
             console.error(`[approveWithAutoReview] 생산일지 갱신 실패:`, pdErr);
           }
         } else {
-          // 체크리스트/일일일지: 기존 로직
-          await db.update(hGenericChecklistRecords).set({ status: "approved", updatedAt: new Date() } as any)
-            .where(and(eq(hGenericChecklistRecords.id, refId), eq((hGenericChecklistRecords as any).tenantId, getEffectiveTenantId(ctx))));
+          // 체크리스트/일일일지: 승인 + 직인 (검토 단계였으면 검토 직인도) — 공통 일지 요청일 때만
+          await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), {
+            status: "approved", stamp: currentStatus === "pending_review" || currentStatus === "pending" ? "reviewAndApprove" : "approve",
+          }, ctx.user.name ?? "");
         }
       }
       // 검토 단계면 검토도 자동 완료
@@ -729,7 +773,8 @@ export const genericChecklistRouter = router({
         WHERE reference_id = ${input.id}
           AND reference_type IN ('checklist', 'generic_checklist')
           AND tenant_id = ${tenantId}
-          AND status IN ('pending_writer', 'pending_review', 'pending_approval', 'pending', 'approved')
+          -- 완료된 승인('approved')은 이력으로 보존 (2026-10-15 — 건강일지·update 와 같은 정책). 진행 중인 요청만 취소
+          AND status IN ('pending_writer', 'pending_review', 'pending_approval', 'pending')
       `);
 
       return { success: true, message: "재작성 가능 상태로 전환되었습니다." };
