@@ -337,9 +337,13 @@ export default function ApprovalManagement() {
   };
 
   // 승인자 자동 검토+승인 핸들러
-  const handleAutoReviewApprove = () => {
-    if (!selectedRequest) return;
-    autoReviewApproveMutation.mutate({ approvalRequestId: selectedRequest.id, comments: comment || undefined });
+  // 바로승인 — 누른 요청을 인자로 받는다 (2026-10-15).
+  // 이전: 행 버튼이 setSelectedRequest(r) 직후 이 함수를 불러, 아직 바뀌기 전의 selectedRequest 를 읽었다
+  //       → 첫 클릭 무반응, 다음 클릭에 직전에 선택한 다른 요청을 승인할 위험
+  const handleAutoReviewApprove = (target?: ApprovalRequest) => {
+    const req = target ?? selectedRequest;
+    if (!req) return;
+    autoReviewApproveMutation.mutate({ approvalRequestId: req.id, comments: target ? undefined : (comment || undefined) });
   };
 
   const handleRefreshAll = () => {
@@ -410,7 +414,7 @@ export default function ApprovalManagement() {
         onToggleSelect={toggleSelect}
         onOpenDetail={(r) => { setSelectedRequest(r); setDetailDialogOpen(true); }}
         onOpenReview={(r) => { setSelectedRequest(r); setComment(""); setReviewDialogOpen(true); }}
-        onAutoReviewApprove={(r) => { setSelectedRequest(r); setComment(""); handleAutoReviewApprove(); }}
+        onAutoReviewApprove={(r) => { setSelectedRequest(r); setComment(""); handleAutoReviewApprove(r); }}
         onOpenApprove={(r) => { setSelectedRequest(r); setComment(""); setApproveDialogOpen(true); }}
         onOpenReject={(r) => { setSelectedRequest(r); setComment(""); setRejectDialogOpen(true); }}
         onOpenCancel={(r) => { setSelectedRequest(r); setComment(""); setCancelDialogOpen(true); }}
@@ -934,7 +938,7 @@ export default function ApprovalManagement() {
           approveRecipePending={approveRecipeMutation.isPending}
           rejectRecipePending={rejectRecipeMutation.isPending}
           onReview={handleReview}
-          onAutoReviewApprove={handleAutoReviewApprove}
+          onAutoReviewApprove={() => handleAutoReviewApprove()}
           onApprove={handleApprove}
           onReject={handleReject}
           onCancel={handleCancel}

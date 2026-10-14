@@ -157,7 +157,7 @@ describe("submitForReview — 한 트랜잭션", () => {
     const r = await caller().submitForReview({ id: 91, requestType: "pest_control_checklist", title: "t" });
     expect(r).toMatchObject({ recovered: true });
     const ins = state.executed.find((e) => /INSERT INTO h_approval_requests/.test(e.sql))!;
-    expect(ins.params).toEqual([1, "pest_control_checklist", 91, "t", "승인 요청 누락 복구 (이전 오류)", 4, 2]);
+    expect(ins.params).toEqual([1, "pest_control_checklist", 91, "t", "[승인 요청 누락 복구 — 이전 오류로 요청 없이 승인대기였던 기록]", 4, 2]);
   });
 
   it("승인완료는 다시 요청 불가", async () => {
@@ -169,7 +169,7 @@ describe("submitForReview — 한 트랜잭션", () => {
 describe("approvalState", () => {
   it("승인대기인데 진행 요청 없으면 orphanSubmitted", async () => {
     state.record.status = "submitted";
-    expect(await caller().approvalState({ id: 91 })).toEqual({ status: "submitted", activeRequestIds: [], orphanSubmitted: true });
+    expect(await caller().approvalState({ id: 91 })).toEqual({ status: "submitted", activeRequestIds: [], approvedRequestIds: [], orphanSubmitted: true, statusMismatch: false });
     state.active = [{ id: 5 }];
     expect(await caller().approvalState({ id: 91 })).toMatchObject({ orphanSubmitted: false, activeRequestIds: [5] });
   });

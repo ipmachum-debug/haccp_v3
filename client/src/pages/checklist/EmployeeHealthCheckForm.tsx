@@ -603,6 +603,7 @@ export default function EmployeeHealthCheckForm() {
             <h1 className="text-xl font-bold">종사자 건강상태 확인 일지</h1>
             {approvalStatus === "submitted" && <Badge variant="outline" className="text-yellow-600 border-yellow-400">승인 대기중</Badge>}
             {orphanSubmitted && <Badge variant="destructive" data-testid="orphan-submitted">승인 요청 누락 — 승인 요청을 다시 누르세요</Badge>}
+            {approvalStatus === "submitted" && approvalStateQ.data?.statusMismatch && <Badge variant="outline" className="border-amber-400 text-amber-700" data-testid="status-mismatch">승인 완료됨 · 상태 불일치 — 다시 요청하지 마세요</Badge>}
             {approvalStatus === "approved" && <Badge variant="default" className="bg-green-600">승인 완료</Badge>}
             {approvalStatus === "rejected" && <Badge variant="destructive">반려</Badge>}
           </div>

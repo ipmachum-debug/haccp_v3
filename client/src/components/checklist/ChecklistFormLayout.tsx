@@ -616,6 +616,11 @@ export default function ChecklistFormLayout({
           </div>
         </div>
 
+        {approvalStatus === "submitted" && approvalStateQ.data?.statusMismatch && (
+          <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 print:hidden" data-testid="status-mismatch">
+            승인은 이미 완료됐지만(요청 #{approvalStateQ.data.approvedRequestIds.join(", #")}) 이 기록의 상태가 '승인대기'로 남아 있습니다. 다시 요청하지 마세요 — 관리자에게 상태 정리를 요청하세요.
+          </div>
+        )}
         {orphanSubmitted && (
           <div className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-900 print:hidden" data-testid="orphan-submitted">
             <span>이 기록은 '승인대기' 이지만 승인 요청이 없습니다 (이전 오류). 승인관리에 보이지 않습니다.</span>

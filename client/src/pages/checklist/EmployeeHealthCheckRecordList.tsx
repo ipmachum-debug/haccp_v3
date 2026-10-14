@@ -9,15 +9,12 @@ import { Input } from "@/components/ui/input";
 import { useLocation } from "wouter";
 import { Plus, FileText, ArrowLeft, HeartPulse, Calendar, Trash2, Edit, Send, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/_core/hooks/useAuth";
 
 export default function EmployeeHealthCheckList() {
   const [, setLocation] = useLocation();
   const navigate = (path: string) => setLocation(path);
   const { toast } = useToast();
-  const { user } = useAuth();
-  // 관리자(admin/super_admin)는 모든 상태 삭제 가능. 그 외 사용자는 draft(임시저장)만 삭제.
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  // 삭제는 작성중만 — 서버 정책과 같게 (2026-10-15). 이전에는 관리자에게 승인대기·승인완료 삭제 버튼이 보였지만 서버가 거부했다.
   const [searchDate, setSearchDate] = useState("");
   const [submittingId, setSubmittingId] = useState<number | null>(null);
 
@@ -229,7 +226,7 @@ export default function EmployeeHealthCheckList() {
                                 <Edit className="h-3 w-3 mr-1" />
                                 수정
                               </Button>
-                              {(record.status === "draft" || isAdmin) && (
+                              {record.status === "draft" && (
                                 <Button
                                   variant="destructive"
                                   size="sm"
