@@ -7,12 +7,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from "@/components/ui/button";
 import { useToast } from '@/hooks/use-toast';
+import { todayLocal } from '../../lib/dateUtils';
 
 const config: ChecklistFormConfig = {
   formType: "supplier_inspection",
   title: "협력업체 점검표",
   listPath: "/supplier-inspection",
   documentTitle: "협력업체 점검표",
+  dateField: "checkDate",
 };
 
 const inspectionItems = [
@@ -36,8 +38,15 @@ export default function SupplierInspectionForm() {
   const [correctiveAction, setCorrectiveAction] = useState('');
   const [actionTaker, setActionTaker] = useState('');
   const [confirmer, setConfirmer] = useState('');
+  // 점검일·점검자·업체명 — 이전에는 입력칸만 있고 상태·저장이 없었다 (2026-10-15). 점검일은 KST 오늘
+  const [checkDate, setCheckDate] = useState(todayLocal());
+  const [inspector, setInspector] = useState('');
+  const [supplierName, setSupplierName] = useState('');
 
   const collectFormData = () => ({
+    checkDate,
+    inspector,
+    supplierName,
     formData,
     notes,
     correctiveAction,
@@ -46,6 +55,9 @@ export default function SupplierInspectionForm() {
   });
 
   const onDataRestore = (fd: any) => {
+    if (fd.checkDate) setCheckDate(fd.checkDate);
+    if (fd.inspector) setInspector(fd.inspector);
+    if (fd.supplierName) setSupplierName(fd.supplierName);
     if (fd.formData) setFormData(fd.formData);
     if (fd.notes) setNotes(fd.notes);
     if (fd.correctiveAction) setCorrectiveAction(fd.correctiveAction);
@@ -96,12 +108,12 @@ export default function SupplierInspectionForm() {
       <div className="px-6 pb-6">
         <div className="grid grid-cols-3 gap-4 mb-4 print:grid-cols-3 print:gap-2 print:text-sm">
             <div className="flex items-center space-x-2">
-                <label className="font-semibold whitespace-nowrap">점검일:</label>
-                <Input type="date" defaultValue={new Date().toISOString().substring(0, 10)} />
+                <label htmlFor="checkDate" className="font-semibold whitespace-nowrap">점검일:</label>
+                <Input id="checkDate" type="date" value={checkDate} onChange={(e) => setCheckDate(e.target.value)} />
             </div>
             <div className="flex items-center space-x-2">
                 <label className="font-semibold whitespace-nowrap">점검자:</label>
-                <Input placeholder="점검자" />
+                <Input placeholder="점검자" value={inspector} onChange={(e) => setInspector(e.target.value)} />
             </div>
         </div>
 
@@ -118,7 +130,7 @@ export default function SupplierInspectionForm() {
               {formData.map((item) => (
                 <TableCell key={item.id} className="text-center h-24" onClick={() => toggleStatus(item.id)}>
                   {item.id === 'supplierName' ? (
-                    <Input placeholder="업체명 입력" className="text-center" />
+                    <Input placeholder="업체명 입력" className="text-center" value={supplierName} onChange={(e) => setSupplierName(e.target.value)} />
                   ) : (
                     <span className={`cursor-pointer ${item.status === '적합' ? 'text-green-500' : item.status === '부적합' ? 'text-red-500' : ''}`}>
                       {item.status || '-'}

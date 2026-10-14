@@ -126,3 +126,16 @@ describe("목록 날짜 열 이름 = 양식 날짜 칸 이름 (기록일의 의�
     });
   }
 });
+
+describe("날짜 입력은 저장되는 상태와 연결 (입력해도 저장 안 되는 칸 금지)", () => {
+  for (const f of forms.filter(isReachable)) {
+    const tags = [...f.src.matchAll(/<Input\b[^>]*type="date"[^>]*\/?>/g)].map((m) => m[0]);
+    if (tags.length === 0) continue;
+    it(`${f.formType}: type="date" ${tags.length}개 모두 value 연결`, () => {
+      for (const t of tags) {
+        expect(t, `${f.file}: ${t.slice(0, 80)}`).toMatch(/\bvalue=\{/);
+        expect(t).not.toMatch(/defaultValue=/);
+      }
+    });
+  }
+});

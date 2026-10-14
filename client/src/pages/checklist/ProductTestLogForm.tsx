@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
+import { todayLocal } from "../../lib/dateUtils";
 
 const config: ChecklistFormConfig = {
   formType: "product_test_log",
@@ -13,16 +14,19 @@ const config: ChecklistFormConfig = {
   documentTitle: "제품 검사 일지",
 };
 
-const initialRows = [
-  { id: 1, productName: "", lotNumber: "", checkItem: "외관", result: "", decision: "" },
-  { id: 2, productName: "", lotNumber: "", checkItem: "성상", result: "", decision: "" },
-  { id: 3, productName: "", lotNumber: "", checkItem: "수분", result: "", decision: "" },
-  { id: 4, productName: "", lotNumber: "", checkItem: "함량", result: "", decision: "" },
-];
+type TestRow = { id: number; testDate: string; productName: string; lotNumber: string; checkItem: string; result: string; decision: string; inspector: string };
+
+const CHECK_ITEMS = ["외관", "성상", "수분", "함량"];
+
+// 행마다 새 객체 — 이전에는 모듈 전역 배열을 그대로 써서 입력이 초기값 자체를 바꿨다 (2026-10-15)
+// 검사일·검사자도 상태로 저장 (이전에는 입력칸만 있고 저장되지 않았다)
+const makeRows = (): TestRow[] => CHECK_ITEMS.map((checkItem, i) => ({
+  id: i + 1, testDate: todayLocal(), productName: "", lotNumber: "", checkItem, result: "", decision: "", inspector: "",
+}));
 
 export default function ProductTestLogForm() {
   const L = useIndustryLabel();
-  const [rows, setRows] = useState(initialRows);
+  const [rows, setRows] = useState<TestRow[]>(makeRows);
   const [notes, setNotes] = useState("");
   const [correctiveAction, setCorrectiveAction] = useState("");
   const [actionTaker, setActionTaker] = useState("");
@@ -37,21 +41,23 @@ export default function ProductTestLogForm() {
   });
 
   const onDataRestore = (fd: any) => {
-    if (fd.rows) setRows(fd.rows);
+    // 옛 기록(검사일·검사자 칸 없음)은 빈 값으로 채워 제어 상태 유지
+    if (Array.isArray(fd.rows)) setRows(fd.rows.map((r: Partial<TestRow>, i: number) => ({
+      id: r.id ?? i + 1, testDate: r.testDate ?? "", productName: r.productName ?? "", lotNumber: r.lotNumber ?? "",
+      checkItem: r.checkItem ?? "", result: r.result ?? "", decision: r.decision ?? "", inspector: r.inspector ?? "",
+    })));
     if (fd.notes) setNotes(fd.notes);
     if (fd.correctiveAction) setCorrectiveAction(fd.correctiveAction);
     if (fd.actionTaker) setActionTaker(fd.actionTaker);
     if (fd.confirmer) setConfirmer(fd.confirmer);
   };
 
+  const updateRow = (rowIndex: number, patch: Partial<TestRow>) =>
+    setRows((prev) => prev.map((r, i) => (i === rowIndex ? { ...r, ...patch } : r)));
+
   const handleCellClick = (rowIndex: number, field: "result" | "decision") => {
-    const newRows = [...rows];
-    if (newRows[rowIndex][field] === "적합" || newRows[rowIndex][field] === "O") {
-      newRows[rowIndex][field] = "부적합";
-    } else {
-      newRows[rowIndex][field] = "적합";
-    }
-    setRows(newRows);
+    const cur = rows[rowIndex][field];
+    updateRow(rowIndex, { [field]: cur === "적합" || cur === "O" ? "부적합" : "적합" });
   };
 
   const handleBatchFit = () => {
@@ -83,13 +89,13 @@ export default function ProductTestLogForm() {
           <TableBody>
             {rows.map((row, rowIndex) => (
               <TableRow key={row.id}>
-                <TableCell><Input type="date" className="w-full" /></TableCell>
-                <TableCell><Input value={row.productName} onChange={(e) => { const newRows = [...rows]; newRows[rowIndex].productName = e.target.value; setRows(newRows); }} /></TableCell>
-                <TableCell><Input value={row.lotNumber} onChange={(e) => { const newRows = [...rows]; newRows[rowIndex].lotNumber = e.target.value; setRows(newRows); }} /></TableCell>
+                <TableCell><Input type="date" className="w-full" value={row.testDate} onChange={(e) => updateRow(rowIndex, { testDate: e.target.value })} aria-label={`${row.checkItem} 검사일`} /></TableCell>
+                <TableCell><Input value={row.productName} onChange={(e) => updateRow(rowIndex, { productName: e.target.value })} /></TableCell>
+                <TableCell><Input value={row.lotNumber} onChange={(e) => updateRow(rowIndex, { lotNumber: e.target.value })} /></TableCell>
                 <TableCell>{row.checkItem}</TableCell>
                 <TableCell onClick={() => handleCellClick(rowIndex, "result")} className="cursor-pointer">{row.result}</TableCell>
                 <TableCell onClick={() => handleCellClick(rowIndex, "decision")} className="cursor-pointer">{row.decision}</TableCell>
-                <TableCell><Input className="w-full" /></TableCell>
+                <TableCell><Input className="w-full" value={row.inspector} onChange={(e) => updateRow(rowIndex, { inspector: e.target.value })} aria-label={`${row.checkItem} 검사자`} /></TableCell>
               </TableRow>
             ))}
           </TableBody>
