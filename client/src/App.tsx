@@ -87,6 +87,7 @@ const NonconformingManagement = lazy(() => import("./pages/haccp/NonconformingMa
 const HaccpVerification = lazy(() => import("./pages/haccp/HaccpVerification"));
 const ProductionOperations = lazy(() => import("./pages/production/ProductionOperations"));
 const ProductionManagement = lazy(() => import("./pages/production/ProductionManagement"));
+const TodayProduction = lazy(() => import("./pages/production/TodayProduction"));
 const SupplierPerformance = lazy(() => import("./pages/master/SupplierPerformance"));
 const NotificationHistory = lazy(() => import("./pages/system/NotificationHistory"));
 const ApprovalManagement = lazy(() => import("./pages/system/ApprovalManagement"));
@@ -394,6 +395,7 @@ function Router() {
           <Route path="/dashboard/production-operations" component={ProductionOperations} />
           <Route path="/dashboard/haccp" component={ProductionOperations} />
           <Route path="/dashboard/production-management" component={ProductionManagement} />
+          <Route path={ROUTES.PRODUCTION_TODAY} component={TodayProduction} />
       <Route path="/dashboard/cost-saving-ai" component={CostSavingAI} />
       <Route path="/dashboard/batch-cost-analysis" component={BatchCostAnalysisDashboard} />
       <Route path="/dashboard/material-receipt" component={MaterialReceiptManagement} />

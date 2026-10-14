@@ -61,6 +61,8 @@ export const ROUTES = {
   ACCOUNTING_PARTNER_PRICES: "/dashboard/accounting/partner-prices",
   ACCOUNTING_ACCOUNTS: "/dashboard/accounting/accounts",
   ACCOUNTING_FIXED_ASSETS: "/dashboard/accounting/fixed-assets",
+  // UI/UX 개편 P-1 (2026-10-14) — 작업자 "오늘의 생산" 읽기 전용 (14-ui-ux-restructure-spec.md §7-2)
+  PRODUCTION_TODAY: "/dashboard/production/today",
 } as const;
 
 /** 모든 ROUTE path 의 union 타입 — 메뉴 path 가 ROUTES 에 등록된 것만 받도록 강제 */

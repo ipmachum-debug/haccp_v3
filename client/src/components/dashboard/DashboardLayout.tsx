@@ -306,6 +306,8 @@ const menuItems = [
   { icon: LayoutDashboard, label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"], group: "대시보드" },
 
   // ─── 생산 ─── 식품 HACCP 전용 (배치/생산일지/원료수불부 — 화장품은 BMR, 의약품/일반제조 별도)
+  // UI/UX 개편 P-1 (2026-10-14): 작업자 "오늘의 생산" 읽기 전용 — 기존 생산관리·생산운영은 파일럿 끝날 때까지 유지
+  { icon: Clock, label: "오늘의 생산", path: ROUTES.PRODUCTION_TODAY, roles: ["super_admin", "admin", "worker", "inspector", "monitor"], requireModule: "haccp", group: "생산", highlight: true },
   { icon: Package, label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], requireModule: "haccp", group: "생산" },
   { icon: Calendar, label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"], requireModule: "haccp", group: "생산" },
   { icon: FileCode, label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"], requireModule: "haccp", group: "생산" },
