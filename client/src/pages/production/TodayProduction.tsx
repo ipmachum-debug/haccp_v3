@@ -10,6 +10,10 @@
  * inventory.getMaterialInventorySnapshot · inventory.getLotsByMaterialFefo · batch.getApprovalOverview · dailyLog.getByDate
  */
 import { useMemo, useState } from "react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { notify } from "@/lib/notify";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Link } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
@@ -158,6 +162,49 @@ export default function TodayProduction() {
   const finished = !!selected && ["completed", "shipped"].includes(selected.status);
   const detailHref = selected ? `/dashboard/batch/${selected.id}` : "/dashboard/production-management";
 
+  // ── P-2 (2026-10-14): 쓰기 — ④ 시작(서버 재검증·중복 방지) / ⑥ 완료(관리자, 처리 키) ──
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const startable = !!selected && ["planned", "paused"].includes(selected.status);
+  const utils = trpc.useUtils();
+  const refreshAll = () => Promise.all([
+    utils.batch.list.invalidate(), utils.inventory.getBatchInputs.invalidate(),
+    utils.inventory.getMaterialInventorySnapshot.invalidate(), utils.todayProduction.checkStart.invalidate(),
+    utils.batch.getApprovalOverview.invalidate(),
+  ]);
+  // ③ 서버 기준 재검증 결과 (시작 버튼과 같은 계산)
+  const { data: serverCheck } = trpc.todayProduction.checkStart.useQuery(
+    { batchId: selectedId! }, { enabled: !!selectedId && startable, retry: 1 },
+  );
+  const [confirm, setConfirm] = useState<null | { shortages: Array<{ materialName: string; unit: string; required: number; available: number; shortage: number }>; message: string }>(null);
+  const startMut = trpc.todayProduction.start.useMutation({
+    onSuccess: async (r: any) => {
+      if (r.status === "needs_confirmation") { setConfirm({ shortages: r.shortages, message: r.message }); return; }
+      setConfirm(null);
+      if (r.status === "already_started") notify.info(r.message);
+      else {
+        notify.success(r.message);
+        const w = [...(r.autoIssue?.errors ?? []), ...(r.autoIssue?.warnings ?? [])];
+        if (w.length) notify.warn("자동출고 확인 필요", w.slice(0, 3).join(" / ") + (w.length > 3 ? ` 외 ${w.length - 3}건` : ""));
+      }
+      await refreshAll();
+    },
+    onError: (e: unknown) => notify.error("생산 시작 실패", e),
+  });
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const [actualQty, setActualQty] = useState("");
+  const [completeKey, setCompleteKey] = useState("");
+  const completeMut = trpc.batch.complete.useMutation({
+    onSuccess: async () => { setCompleteOpen(false); notify.success("생산을 완료했습니다. 완제품 LOT 와 승인 요청이 만들어졌습니다."); await refreshAll(); },
+    onError: (e: unknown) => notify.error("생산 완료 실패", e),
+  });
+  const openComplete = () => {
+    setActualQty(String(num(selected?.plannedQuantity) || ""));
+    // 같은 창에서 두 번 눌러도 한 번만 처리되도록 창을 열 때 처리 키를 고정한다 (서버 idempotency)
+    setCompleteKey(`today-${selected?.id}-${Date.now()}`);
+    setCompleteOpen(true);
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-5 max-w-5xl">
@@ -289,6 +336,12 @@ export default function TodayProduction() {
                     </table>
                   </div>
                 )}
+                {startable && serverCheck && (
+                  <div className={`text-xs rounded-md px-2.5 py-1.5 ${serverCheck.shortages.length ? "bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" : "bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300"}`}>
+                    서버 확인(시작 버튼과 같은 계산): {serverCheck.shortages.length ? `부족 ${serverCheck.shortages.length}종 — ${serverCheck.shortages.slice(0, 3).map((x: { materialName: string; shortage: number; unit: string }) => `${x.materialName} ${x.shortage}${x.unit}`).join(", ")}${serverCheck.shortages.length > 3 ? " 외" : ""}` : "부족 없음"}
+                    {serverCheck.issuedLines > 0 && ` · 이미 출고된 투입 ${serverCheck.issuedLines}줄 제외`}
+                  </div>
+                )}
                 {!stockCheck.allOk && inputs.length > 0 && !started && (
                   <p className="text-[11px] text-muted-foreground">
                     "입고 대기" 는 표시입니다. 재고 부족 시 출고 허용 여부와 승인은 기존 재고 정책이 정합니다. 시작 시점에 서버가 재고·LOT 를 다시 확인합니다.
@@ -310,9 +363,9 @@ export default function TodayProduction() {
                     <span className="text-muted-foreground">아직 시작 전입니다. 시작하면 투입 계획대로 원재료가 한 번 자동 출고됩니다.</span>
                   )}
                 </div>
-                {!started && (
-                  <Button asChild size="sm" variant="outline">
-                    <Link href={detailHref}>{L("batch")} 상세에서 시작 <ExternalLink className="h-3.5 w-3.5 ml-1" /></Link>
+                {startable && (
+                  <Button size="sm" onClick={() => startMut.mutate({ batchId: selected!.id })} disabled={startMut.isPending} data-testid="today-start">
+                    <Play className="h-3.5 w-3.5 mr-1" />{startMut.isPending ? "확인 중…" : "생산 시작"}
                   </Button>
                 )}
               </CardContent>
@@ -397,14 +450,63 @@ export default function TodayProduction() {
                 ) : (
                   <span className="text-muted-foreground">{started ? "실적 수량을 입력하고 완료하면 완제품 LOT 이 생기고 승인 요청이 자동으로 올라갑니다." : "시작 후 진행합니다."}</span>
                 )}
-                <Button asChild size="sm" variant={finished ? "ghost" : "outline"}>
-                  <Link href={detailHref}>{finished ? "상세 보기" : `${L("batch")} 상세에서 완료`} <ExternalLink className="h-3.5 w-3.5 ml-1" /></Link>
-                </Button>
+                {selected?.status === "in_progress" && isAdmin ? (
+                  <Button size="sm" onClick={openComplete} data-testid="today-complete"><Flag className="h-3.5 w-3.5 mr-1" />생산 완료</Button>
+                ) : selected?.status === "in_progress" ? (
+                  <span className="text-xs text-muted-foreground">완료는 관리자가 처리합니다</span>
+                ) : (
+                  <Button asChild size="sm" variant="ghost">
+                    <Link href={detailHref}>상세 보기 <ExternalLink className="h-3.5 w-3.5 ml-1" /></Link>
+                  </Button>
+                )}
               </CardContent>
             </Card>
           </>
         )}
       </div>
+
+      {/* ④ 재고 부족 확인 — 기존 음수 재고 정책을 설명하고, 확인한 사람·시각·부족 목록은 배치 메모에 남는다 */}
+      <Dialog open={!!confirm} onOpenChange={(v) => !v && setConfirm(null)}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader><DialogTitle>재고가 부족한 원료가 있습니다</DialogTitle></DialogHeader>
+          <p className="text-sm text-muted-foreground">{confirm?.message}</p>
+          <ul className="text-sm divide-y rounded-lg border">
+            {confirm?.shortages.map((x) => (
+              <li key={x.materialName} className="flex justify-between gap-2 px-3 py-1.5">
+                <span className="truncate">{x.materialName}</span>
+                <span className="font-mono text-xs whitespace-nowrap">필요 {x.required} · 가용 {x.available} · <b className="text-amber-700">부족 {x.shortage}{x.unit}</b></span>
+              </li>
+            ))}
+          </ul>
+          <p className="text-[11px] text-muted-foreground">시작하면 확인한 사람·시각·부족 목록이 {L("batch")} 메모에 기록됩니다. 실사·입고로 맞춰 주세요.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirm(null)}>취소</Button>
+            <Button onClick={() => startMut.mutate({ batchId: selected!.id, acknowledgeShortage: true })} disabled={startMut.isPending} data-testid="today-start-confirm">
+              {startMut.isPending ? "시작 중…" : "확인하고 시작"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ⑥ 생산 완료 — 기존 batch.complete (관리자 · 처리 키) */}
+      <Dialog open={completeOpen} onOpenChange={setCompleteOpen}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>생산 완료 — {selected?.batchCode}</DialogTitle></DialogHeader>
+          <label className="text-sm font-medium">실제 생산량</label>
+          <Input type="number" min={0} step="0.001" value={actualQty} onChange={(e) => setActualQty(e.target.value)} />
+          <p className="text-[11px] text-muted-foreground">계획 {fmt(selected?.plannedQuantity, 1)} · 완료하면 완제품 LOT 이 생기고 승인 요청이 자동으로 올라갑니다. 이미 출고된 원료는 다시 차감하지 않습니다.</p>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCompleteOpen(false)}>취소</Button>
+            <Button
+              disabled={completeMut.isPending || !(Number(actualQty) >= 0) || actualQty === ""}
+              onClick={() => completeMut.mutate({ batchId: selected!.id, actualQuantity: Number(actualQty), idempotencyKey: completeKey })}
+              data-testid="today-complete-confirm"
+            >
+              {completeMut.isPending ? "완료 중…" : "완료"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </DashboardLayout>
   );
 }

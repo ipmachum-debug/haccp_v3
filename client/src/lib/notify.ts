@@ -14,12 +14,23 @@ import { toast as sonner } from "sonner";
 
 type Reason = unknown;
 
+/**
+ * 서버가 JSON 대신 HTML 오류 페이지(Nginx 502·504 등)를 돌려주면 브라우저 오류가 그대로 노출된다
+ * ("Unexpected token '<', \"<html>…\" is not valid JSON"). 사용자가 알아들을 말로 바꾼다 (2026-10-14 대표 보고).
+ */
+export function humanizeErrorText(text: string): string {
+  if (/Unexpected token '<'|is not valid JSON|<html|Failed to fetch|NetworkError/i.test(text)) {
+    return "서버가 응답하지 않습니다 (재시작 중이거나 응답 지연). 잠시 후 다시 시도해 주세요. 계속되면 관리자에게 알려 주세요.";
+  }
+  return text;
+}
+
 /** 오류 객체·문자열에서 사람이 읽을 사유 한 줄 */
 export function reasonText(reason: Reason): string | undefined {
   if (reason == null || reason === "") return undefined;
-  if (typeof reason === "string") return reason;
-  if (reason instanceof Error) return reason.message;
-  if (typeof reason === "object" && "message" in (reason as any)) return String((reason as any).message);
+  if (typeof reason === "string") return humanizeErrorText(reason);
+  if (reason instanceof Error) return humanizeErrorText(reason.message);
+  if (typeof reason === "object" && "message" in (reason as any)) return humanizeErrorText(String((reason as any).message));
   return String(reason);
 }
 
