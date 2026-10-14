@@ -1,5 +1,5 @@
 {
- "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지) | 2-b-3: childRoutes /dashboard/document-output/daily-log 제거 (라우트 없음) | 2026-10-14 매입·매출 허브: 발주·구매→발주서, 매입 입력·매출 입력 메뉴 복귀 | 2-c: 업종 품질 8종 경로 → /quality/{기능} (업종은 항목 industry 로 격리)",
+ "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지) | 2-b-3: childRoutes /dashboard/document-output/daily-log 제거 (라우트 없음) | 2026-10-14 매입·매출 허브: 발주·구매→발주서, 매입 입력·매출 입력 메뉴 복귀 | 2-c: 업종 품질 8종 경로 → /quality/{기능} (업종은 항목 industry 로 격리) | 2026-10-14: 식품 부적합제품관리 → /quality/nonconforming, 회수 시뮬레이션 메뉴 추가",
  "haccpLegacy": {
   "base": [
    {
@@ -224,7 +224,20 @@
    {
     "icon": "FileWarning",
     "label": "부적합제품관리",
-    "path": "/dashboard/nonconforming-management",
+    "path": "/quality/nonconforming",
+    "roles": [
+     "super_admin",
+     "admin",
+     "inspector",
+     "monitor"
+    ],
+    "group": "품질관리 (HACCP)",
+    "requireModule": "haccp"
+   },
+   {
+    "icon": "RotateCcw",
+    "label": "회수 시뮬레이션",
+    "path": "/recall-simulation",
     "roles": [
      "super_admin",
      "admin",
@@ -1124,7 +1137,20 @@
    {
     "icon": "FileWarning",
     "label": "부적합제품관리",
-    "path": "/dashboard/nonconforming-management",
+    "path": "/quality/nonconforming",
+    "roles": [
+     "super_admin",
+     "admin",
+     "inspector",
+     "monitor"
+    ],
+    "group": "품질관리 (HACCP)",
+    "requireModule": "haccp"
+   },
+   {
+    "icon": "RotateCcw",
+    "label": "회수 시뮬레이션",
+    "path": "/recall-simulation",
     "roles": [
      "super_admin",
      "admin",

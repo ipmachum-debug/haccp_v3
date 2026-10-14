@@ -89,7 +89,6 @@ const MfReportEdit = lazy(() => import("./pages/production/MfReportEdit"));
 const MfReportModify = lazy(() => import("./pages/production/MfReportModify"));
 const ManufacturingStandards = lazy(() => import("./pages/production/ManufacturingStandards"));
 const AuditManagement = lazy(() => import("./pages/haccp/AuditManagement"));
-const NonconformingManagement = lazy(() => import("./pages/haccp/NonconformingManagement"));
 const HaccpVerification = lazy(() => import("./pages/haccp/HaccpVerification"));
 const ProductionOperations = lazy(() => import("./pages/production/ProductionOperations"));
 const ProductionManagement = lazy(() => import("./pages/production/ProductionManagement"));
@@ -150,7 +149,6 @@ const Traceability = lazy(() => import("./pages/haccp/Traceability"));
 const HazardAnalysis = lazy(() => import("./pages/haccp/HazardAnalysis"));
 const HaccpPlanVerification = lazy(() => import("./pages/haccp/HaccpPlanVerification"));
 const InternalAuditPlan = lazy(() => import("./pages/haccp/InternalAuditPlan"));
-const NonconformingProduct = lazy(() => import("./pages/haccp/NonconformingProduct"));
 const RecallSimulation = lazy(() => import("./pages/haccp/RecallSimulation"));
 const SupplierAudit = lazy(() => import("./pages/haccp/SupplierAudit"));
 const InternalAudit = lazy(() => import("./pages/haccp/InternalAudit"));
@@ -574,11 +572,9 @@ function Router() {
       <Route path="/dashboard/haccp/plan-verification" component={HaccpPlanVerification} />
       <Route path="/dashboard/haccp/audit-plan" component={InternalAuditPlan} />
       <Route path="/dashboard/haccp/internal-audit" component={InternalAudit} />
-      <Route path="/nonconforming-products" component={NonconformingProduct} />
       <Route path="/recall-simulation" component={RecallSimulation} />
       <Route path="/supplier-audit" component={SupplierAudit} />
       <Route path="/dashboard/audit-management" component={AuditManagement} />
-      <Route path="/dashboard/nonconforming-management" component={NonconformingManagement} />
       <Route path="/dashboard/haccp-verification" component={HaccpVerification} />
       <Route path="/haccp-plan-verification" component={HaccpPlanVerification} />
       <Route path="/internal-audit" component={InternalAudit} />

@@ -86,7 +86,8 @@ export const foodPlugin: IndustryPlugin = {
         name: "품질관리 (HACCP)",
         order: 60,
         items: [
-          { icon: "FileWarning", label: "부적합제품관리", path: "/dashboard/nonconforming-management", roles: ["super_admin", "admin", "inspector", "monitor"] },
+          { icon: "FileWarning", label: "부적합제품관리", path: "/quality/nonconforming", roles: ["super_admin", "admin", "inspector", "monitor"] }, // 2026-10-14 공통 부적합으로 이전 (14c)
+          { icon: "RotateCcw", label: "회수 시뮬레이션", path: "/recall-simulation", roles: ["super_admin", "admin", "inspector", "monitor"] }, // 구형 부적합 화면의 탭이던 것을 독립 메뉴로
           { icon: "AlertTriangle", label: "시정조치 관리", path: "/corrective-actions", roles: ["super_admin", "admin", "inspector", "monitor", "worker"] },
           { icon: "Activity", label: "F-3 운영 현황", path: "/dashboard/haccp/f3-dashboard", roles: ["super_admin", "admin", "inspector", "monitor"] },
           // 2-b-2 통합: Deviation 트렌드 → F-3 운영 현황의 [Deviation 트렌드 →] 링크 (경로 유지, 2-b-3 에서 식품 플러그인 누락분 제거)
