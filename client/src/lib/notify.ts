@@ -25,6 +25,14 @@ export function humanizeErrorText(text: string): string {
   return text;
 }
 
+/** 4단계 사용 측정 — 실패 알림을 측정 패널이 센다 (측정 모드가 아니면 듣는 곳이 없어 아무 일도 없다) */
+export function emitMeasureError(title: string, reason?: Reason) {
+  try {
+    const r = reasonText(reason);
+    window.dispatchEvent(new CustomEvent("millio:measure-error", { detail: r ? `${title} — ${r}` : title }));
+  } catch { /* SSR·테스트 */ }
+}
+
 /** 오류 객체·문자열에서 사람이 읽을 사유 한 줄 */
 export function reasonText(reason: Reason): string | undefined {
   if (reason == null || reason === "") return undefined;
@@ -44,7 +52,10 @@ export const notify = {
   info: (title: string, description?: Reason) => sonner(title, desc(description)),
   warn: (title: string, description?: Reason) => sonner.warning(title, desc(description)),
   /** 실패 — 사유를 함께 보여 준다 (사유 없는 실패 알림 금지) */
-  error: (title: string, reason?: Reason) => sonner.error(title, { ...desc(reason), duration: 8000 }),
+  error: (title: string, reason?: Reason) => {
+    emitMeasureError(title, reason);
+    return sonner.error(title, { ...desc(reason), duration: 8000 });
+  },
   loading: (title: string) => sonner.loading(title),
   dismiss: (id?: string | number) => sonner.dismiss(id),
   promise: <T,>(p: Promise<T>, msgs: { loading: string; success: string | ((v: T) => string); error: string | ((e: unknown) => string) }) =>
