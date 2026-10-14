@@ -12,10 +12,11 @@
  *  - 재고 부족: 음수 차감 (#483) — 실사 때 정리
  *  - 매출 거래일자 오래된 순, 같은 날은 id 순
  *
- * 실행 (Codex, 서버):
- *   npx tsx scripts/_approve-pending-sales-before-count.ts --tenant 2 --dry-run              # 대상 집계만 (쓰기 없음)
- *   npx tsx scripts/_approve-pending-sales-before-count.ts --tenant 2 --until 2026-10-14     # 그 날짜까지 실행
- *   npx tsx scripts/_approve-pending-sales-before-count.ts --tenant 2 --until 2026-10-14 --limit 50   # 처음엔 50건만
+ * 실행 (Codex, 서버) — 그룹별로 따로 (--source, --excluded 필수):
+ *   npx tsx scripts/_approve-pending-sales-before-count.ts --tenant 2 --dry-run              # 전체 집계만 (쓰기 없음)
+ *   npx tsx scripts/_approve-pending-sales-before-count.ts --tenant 2 --source manual --excluded 1 --until 2026-10-14 --limit 50
+ *   npx tsx scripts/_approve-pending-sales-before-count.ts --tenant 2 --source manual --excluded 0 --until 2026-10-14
+ *   (B2C 임포트 product_outbound 1,599건은 accounting_excluded 를 1 로 바꾼 뒤 --excluded 1 로 — 이중 회계 방지)
  *   APPROVE_USER_ID=4 → posted_by 에 기록될 사용자 (기본 4 = 대표)
  *
  * 안전: 1건씩 독립 트랜잭션. 실패한 매출은 pending 그대로 남고 사유를 출력. 같은 스크립트를 다시 돌려도
@@ -33,14 +34,31 @@ const TENANT_ID = Number(getArg("--tenant"));
 const UNTIL = getArg("--until");
 const LIMIT = getArg("--limit") ? Number(getArg("--limit")) : null;
 const USER_ID = Number(process.env.APPROVE_USER_ID ?? 4);
+// 2026-10-14: 그룹별 실행 — 대기 매출은 성격이 달라 한 번에 돌리면 안 된다
+//   --source manual|product_outbound   (source_type, NULL 은 manual 로 취급)
+//   --excluded 0|1                     (accounting_excluded — 1 = B2C 회계 제외, 재고만)
+const SOURCE = getArg("--source");
+const EXCLUDED = getArg("--excluded");
 
 async function main() {
   if (!TENANT_ID) throw new Error("--tenant <id> 필수");
   if (!DRY && !UNTIL) throw new Error("실행 시 --until YYYY-MM-DD 필수 (실사일 이전까지만 처리)");
   const pool = await getRawConnection();
 
-  const cond = `tenant_id = ? AND status = 'pending'${UNTIL ? " AND transaction_date <= ?" : ""}`;
-  const params: any[] = UNTIL ? [TENANT_ID, UNTIL] : [TENANT_ID];
+  if (!DRY && (!SOURCE || EXCLUDED == null)) {
+    throw new Error("실행 시 --source 와 --excluded 를 반드시 지정 (그룹별로 따로 확정)");
+  }
+  // 조건은 별칭(a) 을 받아 만든다 — 단독 조회와 JOIN 조회 양쪽에서 같은 조건을 쓰기 위해
+  const buildCond = (a: string) => {
+    const p = a ? `${a}.` : "";
+    let c = `${p}tenant_id = ? AND ${p}status = 'pending'`;
+    const ps: any[] = [TENANT_ID];
+    if (UNTIL) { c += ` AND ${p}transaction_date <= ?`; ps.push(UNTIL); }
+    if (SOURCE) { c += ` AND COALESCE(${p}source_type, 'manual') = ?`; ps.push(SOURCE); }
+    if (EXCLUDED != null) { c += ` AND COALESCE(${p}accounting_excluded, 0) = ?`; ps.push(Number(EXCLUDED)); }
+    return { c, ps };
+  };
+  const { c: cond, ps: params } = buildCond("");
 
   // 1. 집계
   const [summary] = await pool.execute<any[]>(
@@ -61,9 +79,9 @@ async function main() {
   const [ob] = await pool.execute<any[]>(
     `SELECT COUNT(*) AS n FROM accounting_sales s
      JOIN h_product_outbound o ON o.id = s.source_id AND o.tenant_id = s.tenant_id
-     WHERE s.tenant_id = ? AND s.status = 'pending'${UNTIL ? " AND s.transaction_date <= ?" : ""}
+     WHERE ${buildCond("s").c}
        AND s.source_type = 'product_outbound' AND o.lot_id IS NOT NULL AND o.status <> 'cancelled'`,
-    params,
+    buildCond("s").ps,
   );
   console.log(`  └ 제품 출고 화면에서 이미 LOT 차감된 매출: ${(ob as any[])[0].n}건 (확정 시 재고 차감 생략, 원가만)`);
 
