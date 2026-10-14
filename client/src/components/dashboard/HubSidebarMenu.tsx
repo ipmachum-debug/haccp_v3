@@ -48,8 +48,12 @@ export default function HubSidebarMenu({
   const [open, setOpen] = useState<Partial<Record<HubId, boolean>>>(loadOpen);
   useEffect(() => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(open)); } catch {} }, [open]);
 
-  // 현재 경로가 속한 허브는 항상 펼친다
+  // 현재 경로가 속한 허브는 **화면을 이동했을 때만** 펼친다. 그 뒤에는 사용자가 접을 수 있어야 한다
+  // (이전: 항상 강제로 펼쳐서 매입 조회 화면에서 구매·입고 허브가 접히지 않았다 — 2026-10-14 대표 보고)
   const activeHub = useMemo(() => sections.find((s) => s.items.some((i) => isActivePath(i.path)))?.hub.id ?? null, [sections, location, isActivePath]);
+  useEffect(() => {
+    if (activeHub) setOpen((s) => (s[activeHub] ? s : { ...s, [activeHub]: true }));
+  }, [location, activeHub]);
 
   return (
     // shrink-0: 사이드바(SidebarMenu = flex-col) 높이가 화면보다 길면 이 블록이 flex 축소되어
@@ -58,7 +62,7 @@ export default function HubSidebarMenu({
       {sections.map(({ hub, items }, idx) => {
         const tone = TONE[hub.tone];
         const HubIcon = getIcon(hub.icon);
-        const isOpen = hub.id === activeHub ? true : open[hub.id] ?? (idx === 0);
+        const isOpen = open[hub.id] ?? (hub.id === activeHub || idx === 0);
         return (
           <Collapsible key={hub.id} open={isCollapsed ? true : isOpen} onOpenChange={(v) => setOpen((s) => ({ ...s, [hub.id]: v }))}>
             {!isCollapsed && (
