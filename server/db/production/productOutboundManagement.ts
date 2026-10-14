@@ -364,6 +364,40 @@ export async function getProductCanonicalStock(tenantId: number) {
   }));
 }
 
+/**
+ * 제품별 매출 출고 집계 (2026-10-14 — 제품 재고 보기 '총 출고량 0 kg' 수정)
+ *
+ * 실제 제품 출고는 매출 확정(productSalePost) 때 LOT 에서 차감되고 재고 원장에 SALE/usage 로 남는다.
+ * 기존 화면은 h_product_outbound(제품 출고 화면 기록, 운영 0건)만 보아 0 이었다.
+ * 단위는 현재고(getProductCanonicalStock)와 같은 기준 — LOT 의 SKU kg_per_sales_unit 으로 kg 환산.
+ * 백업 덤프(10/14) 검증: 제품 32개 · 매출 1,030건 · 39,912 kg, 품목 마스터와 전부 매칭.
+ */
+export async function getProductSalesOutflow(tenantId: number) {
+  const conn = await getRawConnection();
+  const [rows] = await conn.execute(
+    `SELECT
+       l.product_id,
+       SUM(t.quantity * COALESCE(ps.kg_per_sales_unit, 1)) AS outbound_kg,
+       COUNT(DISTINCT t.source_id)                          AS sale_count,
+       MAX(t.transaction_date)                              AS last_date
+     FROM h_inventory_transactions t
+     JOIN h_inventory_lots l ON l.id = t.lot_id AND l.tenant_id = t.tenant_id
+     LEFT JOIN product_skus ps ON ps.id = l.sku_id
+     WHERE t.tenant_id = ?
+       AND t.reference_type = 'SALE'
+       AND t.transaction_type = 'usage'
+       AND l.product_id IS NOT NULL
+     GROUP BY l.product_id`,
+    [tenantId],
+  );
+  return (rows as any[]).map((r) => ({
+    productId: Number(r.product_id),
+    outboundKg: parseFloat(r.outbound_kg || "0"),
+    saleCount: Number(r.sale_count || 0),
+    lastDate: r.last_date ? (r.last_date instanceof Date ? r.last_date.toISOString().slice(0, 10) : String(r.last_date).slice(0, 10)) : null,
+  }));
+}
+
 /* ───────── 제품 출고 가능 재고 조회 (LOT 기반, FEFO) ───────── */
 export async function getProductAvailableForRelease(tenantId: number) {
   await ensureProductOutboundTable();

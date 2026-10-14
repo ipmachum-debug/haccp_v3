@@ -1,6 +1,7 @@
 /**
  * Supplier (AVL) DB 헬퍼 — Layer 2 core-mes/quality (Phase Y-5)
  */
+import { formatLocalDate, todayKST } from "../../../utils/timezone";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getDb } from "../../connection";
 import { hQualitySuppliers } from "../../../../drizzle/schema/coreMes/quality/supplier";
@@ -199,7 +200,7 @@ export async function transitionSupplierStatus(args: {
   const updates: Record<string, unknown> = { status: args.toStatus };
 
   if (args.toStatus === "approved") {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = todayKST(); // 한국 날짜 (UTC 로 하루 밀리지 않게)
     updates.approvedDate = today;
     updates.nextEvaluationDate = calculateNextEvaluationDate(
       today,
@@ -260,7 +261,7 @@ function rowToEntity(
   const dateOrNull = (v: unknown): string | null => {
     if (!v) return null;
     if (typeof v === "string") return v;
-    return (v as Date).toISOString().slice(0, 10);
+    return formatLocalDate(v as Date); // DB 날짜는 서버 로컬 자정 — UTC 변환 금지
   };
   return {
     id: row.id,

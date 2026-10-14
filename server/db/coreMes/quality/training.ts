@@ -6,6 +6,7 @@
  *                                                    ↑
  *                                            cancelled (어느 단계든)
  */
+import { formatLocalDate } from "../../../utils/timezone";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getDb } from "../../connection";
 import { hTrainings } from "../../../../drizzle/schema/coreMes/quality/training";
@@ -351,11 +352,11 @@ function rowToEntity(row: typeof hTrainings.$inferSelect): Training {
     trainerUserId: row.trainerUserId ?? null,
     scheduledDate: typeof row.scheduledDate === "string"
       ? row.scheduledDate
-      : (row.scheduledDate as unknown as Date).toISOString().slice(0, 10),
+      : formatLocalDate(row.scheduledDate as unknown as Date),
     actualDate: row.actualDate
       ? typeof row.actualDate === "string"
         ? row.actualDate
-        : (row.actualDate as unknown as Date).toISOString().slice(0, 10)
+        : formatLocalDate(row.actualDate as unknown as Date)
       : null,
     durationMinutes: row.durationMinutes,
     attendees: (row.attendees as unknown as TrainingAttendee[]) ?? [],

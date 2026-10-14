@@ -88,7 +88,9 @@ const [f, setF, reset] = useUrlFilters({ q: "", from: "", to: "", status: "all" 
 | 1차 (2026-10-14) | 매출 조회 · 매입 조회 · 발주서 | PageHeader, 상태 StatusBadge (sale·purchase·purchaseOrder 업무 문구) |
 | 1차 | 재고 관리 · CCP 모니터링 | PageHeader (재고 종류 전환·LOT 추적 / 기간·PDF 출력) |
 | 1차 | 허브 입구 /hub/{허브} | PageHeader + 처리할 일 카드 (새 화면) |
-| 다음 | 위 화면들의 필터·표 | FilterBar(URL 유지) · DataGrid — 표 동작(정렬·선택)이 바뀌므로 화면별로 검증하며 |
+| 2차 (2026-10-14) | 발주서 | FilterBar(URL 유지) + DataGrid (정렬·페이지·모바일 카드, 행 작업 버튼은 표·카드 공용) |
+| 2차 | 매출 조회 · 매입 조회 | FilterBar(URL 유지, 필터 바꾸면 1페이지). 표는 **증빙 단위 묶음·펼침** 구조라 DataGrid 로 바꾸지 않음(기능 손실 방지), 묶음 행 상태·엑셀 문구는 상태 사전 |
+| 다음 | 재고 관리 · CCP 모니터링 탭 안 목록 | 탭별 필터·표 — 화면별 검증하며 |
 
 ## 4. 검증
 `server/commonUi.test.ts` — 상태 사전 문구·예외, URL 필터 읽기/쓰기, 표 정렬·페이지·정렬 순환, use-toast → sonner 전달, 헤더 도구 배치.

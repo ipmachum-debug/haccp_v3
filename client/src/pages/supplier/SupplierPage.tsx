@@ -4,6 +4,7 @@
  * Cross-cutting — 모든 industry 동일 페이지 재사용.
  * URL 패턴: /dashboard/{industry}/supplier
  */
+import { offsetLocalDate } from "@/lib/dateUtils"; // 로컬(한국) 날짜 — toISOString 은 UTC 라 오전 9시 전 하루 밀림
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -112,7 +113,7 @@ export default function SupplierPage({ industry }: Props) {
 
   // 재평가 임박 (30일 이내) 카운트
   const today = new Date();
-  const in30days = new Date(today.getTime() + 30 * 86400_000).toISOString().slice(0, 10);
+  const in30days = offsetLocalDate(30);
   const dueSoonCount = listQuery.data?.filter((s) =>
     s.nextEvaluationDate &&
     s.nextEvaluationDate <= in30days &&

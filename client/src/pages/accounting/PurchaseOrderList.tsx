@@ -4,6 +4,8 @@
  * 상태 필터 + 검색 + 액션 (승인/취소/삭제/입고 처리)
  * ═══════════════════════════════════════════════════════════════
  */
+import { FilterBar, useUrlFilters } from "@/components/common/FilterBar";
+import { DataGrid } from "@/components/common/DataGrid";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { useState, useMemo, useEffect } from "react";
@@ -88,10 +90,9 @@ export default function PurchaseOrderList() {
 function PurchaseOrderListContent() {
   const L = useIndustryLabel();
   const [, navigate] = useLocation();
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [searchText, setSearchText] = useState<string>("");
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
+  // 3-c 2차: 필터 값은 URL 쿼리에 유지 (새로고침·뒤로가기·링크 공유에도 그대로)
+  const [filters, setFilters, resetFilters] = useUrlFilters({ status: "all", q: "", from: "", to: "" });
+  const statusFilter = filters.status, searchText = filters.q, startDate = filters.from, endDate = filters.to;
 
   // 수정 Dialog
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -409,6 +410,90 @@ function PurchaseOrderListContent() {
     });
   };
 
+
+  // 행별 작업 버튼 — 표(PC)와 카드(모바일)가 같은 버튼을 쓴다 (3-c 2차)
+  const renderPoActions = (po: OrderRow) => (
+              <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100">
+                {/* 👁️ 자세히보기 (미리보기) */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => previewPdfMutation.mutate({ id: po.id })}
+                  disabled={previewPdfMutation.isPending}
+                  title="발주서 미리보기"
+                  className="h-7 w-7 p-0"
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </Button>
+                {/* 🖨️ 인쇄 */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => generatePdfMutation.mutate({ id: po.id })}
+                  disabled={generatePdfMutation.isPending}
+                  title="발주서 인쇄"
+                  className="h-7 w-7 p-0"
+                >
+                  <Printer className="h-3.5 w-3.5" />
+                </Button>
+                {po.status === "draft" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleOpenEdit(po)}
+                    title="수정"
+                    className="h-7 w-7 p-0 text-orange-600 hover:bg-orange-50"
+                  >
+                    <Edit className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {po.status === "draft" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleApprove(po.id, po.poNumber)}
+                    title="승인"
+                    className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
+                  >
+                    <CheckCircle className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {(po.status === "approved" || po.status === "partial_received") && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleOpenReceive(po.id)}
+                    title="입고 처리"
+                    className="h-7 w-7 p-0 text-green-600 hover:bg-green-50"
+                  >
+                    <PackageCheck className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {["draft", "approved"].includes(po.status) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleCancel(po.id, po.poNumber)}
+                    title="취소"
+                    className="h-7 w-7 p-0 text-amber-600 hover:bg-amber-50"
+                  >
+                    <XCircle className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+                {po.status !== "cancelled" && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => handleDelete(po.id, po.poNumber, po.status)}
+                    title={["partial_received", "received"].includes(po.status) ? "삭제 (재고/회계 역수행)" : "삭제"}
+                    className="h-7 w-7 p-0 text-red-500 hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </Button>
+                )}
+              </div>
+  );
+
   return (
     <div className="p-4 space-y-4">
       {/* 3-c (2026-10-14): 페이지 머리 표준 — 메뉴 이름 '발주서' 와 맞춤 */}
@@ -442,49 +527,27 @@ function PurchaseOrderListContent() {
         </Card>
       </div>
 
-      {/* 필터 */}
-      <Card>
-        <CardContent className="py-3">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">상태</Label>
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="h-9">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">전체</SelectItem>
-                  <SelectItem value="draft">작성 중</SelectItem>
-                  <SelectItem value="approved">승인됨</SelectItem>
-                  <SelectItem value="partial_received">일부 입고</SelectItem>
-                  <SelectItem value="received">전량 입고</SelectItem>
-                  <SelectItem value="cancelled">취소됨</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">시작일</Label>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9" />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">종료일</Label>
-              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9" />
-            </div>
-            <div className="space-y-1 md:col-span-2">
-              <Label className="text-xs">PO 번호 검색</Label>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
-                <Input
-                  value={searchText}
-                  onChange={(e) => setSearchText(e.target.value)}
-                  placeholder="PO-2026-0001"
-                  className="h-9 pl-9"
-                />
-              </div>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
+      {/* 필터 — 3-c 2차 FilterBar */}
+      <FilterBar
+        className="mb-0"
+        search={{ value: searchText, onChange: (v) => setFilters({ q: v }), placeholder: "PO 번호 (예: PO-2026-0001)" }}
+        onReset={resetFilters}
+      >
+        <Select value={statusFilter} onValueChange={(v) => setFilters({ status: v })}>
+          <SelectTrigger className="h-9 w-36" aria-label="상태"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">전체 상태</SelectItem>
+            <SelectItem value="draft">작성 중</SelectItem>
+            <SelectItem value="approved">승인</SelectItem>
+            <SelectItem value="partial_received">일부 입고</SelectItem>
+            <SelectItem value="received">전량 입고</SelectItem>
+            <SelectItem value="cancelled">취소</SelectItem>
+          </SelectContent>
+        </Select>
+        <Input type="date" aria-label="시작일" value={startDate} onChange={(e) => setFilters({ from: e.target.value })} className="h-9 w-40" />
+        <span className="text-muted-foreground text-sm">~</span>
+        <Input type="date" aria-label="종료일" value={endDate} onChange={(e) => setFilters({ to: e.target.value })} className="h-9 w-40" />
+      </FilterBar>
 
       {/* 목록 */}
       <Card>
@@ -492,134 +555,38 @@ function PurchaseOrderListContent() {
           <CardTitle className="text-base">발주 목록</CardTitle>
         </CardHeader>
         <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>PO 번호</TableHead>
-                <TableHead>공급업체</TableHead>
-                <TableHead>발주일</TableHead>
-                <TableHead>납기</TableHead>
-                <TableHead className="text-right">총액</TableHead>
-                <TableHead>상태</TableHead>
-                <TableHead className="text-center">액션</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {isLoading ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    로딩 중...
-                  </TableCell>
-                </TableRow>
-              ) : orders.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    발주서가 없습니다. 우측 상단 "발주서 등록" 으로 시작하세요.
-                  </TableCell>
-                </TableRow>
-              ) : (
-                orders.map((po: OrderRow) => {
-                  return (
-                    <TableRow key={po.id} className="group">
-                      <TableCell className="font-mono text-xs">{po.poNumber}</TableCell>
-                      <TableCell>{po.partnerName || `#${po.partnerId}`}</TableCell>
-                      <TableCell className="text-xs">{po.orderDate}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {po.expectedDeliveryDate || "-"}
-                      </TableCell>
-                      <TableCell className="text-right font-mono tabular-nums">
-                        {Math.round(parseFloat(po.grandTotal || "0")).toLocaleString()}
-                      </TableCell>
-                      <TableCell>
-                        <StatusBadge status={po.status} domain="purchaseOrder" />
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center justify-center gap-1 opacity-80 group-hover:opacity-100">
-                          {/* 👁️ 자세히보기 (미리보기) */}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => previewPdfMutation.mutate({ id: po.id })}
-                            disabled={previewPdfMutation.isPending}
-                            title="발주서 미리보기"
-                            className="h-7 w-7 p-0"
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                          </Button>
-                          {/* 🖨️ 인쇄 */}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => generatePdfMutation.mutate({ id: po.id })}
-                            disabled={generatePdfMutation.isPending}
-                            title="발주서 인쇄"
-                            className="h-7 w-7 p-0"
-                          >
-                            <Printer className="h-3.5 w-3.5" />
-                          </Button>
-                          {po.status === "draft" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleOpenEdit(po)}
-                              title="수정"
-                              className="h-7 w-7 p-0 text-orange-600 hover:bg-orange-50"
-                            >
-                              <Edit className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          {po.status === "draft" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleApprove(po.id, po.poNumber)}
-                              title="승인"
-                              className="h-7 w-7 p-0 text-blue-600 hover:bg-blue-50"
-                            >
-                              <CheckCircle className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          {(po.status === "approved" || po.status === "partial_received") && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleOpenReceive(po.id)}
-                              title="입고 처리"
-                              className="h-7 w-7 p-0 text-green-600 hover:bg-green-50"
-                            >
-                              <PackageCheck className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          {["draft", "approved"].includes(po.status) && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleCancel(po.id, po.poNumber)}
-                              title="취소"
-                              className="h-7 w-7 p-0 text-amber-600 hover:bg-amber-50"
-                            >
-                              <XCircle className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                          {po.status !== "cancelled" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleDelete(po.id, po.poNumber, po.status)}
-                              title={["partial_received", "received"].includes(po.status) ? "삭제 (재고/회계 역수행)" : "삭제"}
-                              className="h-7 w-7 p-0 text-red-500 hover:bg-red-50"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              )}
-            </TableBody>
-          </Table>
+          <DataGrid<OrderRow>
+            rows={orders as OrderRow[]}
+            rowKey={(po) => po.id}
+            loading={isLoading}
+            emptyText='발주서가 없습니다. 오른쪽 위 "발주서 등록" 으로 시작하세요.'
+            initialSort={{ key: "orderDate", dir: "desc" }}
+            className="p-3"
+            columns={[
+              { key: "poNumber", header: "PO 번호", sortable: true, className: "font-mono text-xs" },
+              { key: "partner", header: "공급업체", sortable: true, sortValue: (po) => po.partnerName ?? "", cell: (po) => po.partnerName || `#${po.partnerId}` },
+              { key: "orderDate", header: "발주일", sortable: true, className: "text-xs" },
+              { key: "expectedDeliveryDate", header: "납기", sortable: true, className: "text-xs text-muted-foreground", cell: (po) => po.expectedDeliveryDate || "-" },
+              { key: "grandTotal", header: "총액", align: "right", sortable: true, className: "font-mono tabular-nums",
+                sortValue: (po) => parseFloat(po.grandTotal || "0"), cell: (po) => Math.round(parseFloat(po.grandTotal || "0")).toLocaleString() },
+              { key: "status", header: "상태", sortable: true, cell: (po) => <StatusBadge status={po.status} domain="purchaseOrder" /> },
+              { key: "actions", header: "액션", align: "center", cell: (po) => renderPoActions(po) },
+            ]}
+            mobileCard={(po) => (
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs">{po.poNumber}</span>
+                  <StatusBadge status={po.status} domain="purchaseOrder" />
+                </div>
+                <div className="text-sm font-medium">{po.partnerName || `#${po.partnerId}`}</div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{po.orderDate}{po.expectedDeliveryDate ? ` · 납기 ${po.expectedDeliveryDate}` : ""}</span>
+                  <span className="font-mono text-foreground">{Math.round(parseFloat(po.grandTotal || "0")).toLocaleString()}원</span>
+                </div>
+                <div className="pt-1 [&>div]:justify-start">{renderPoActions(po)}</div>
+              </div>
+            )}
+          />
         </CardContent>
       </Card>
 

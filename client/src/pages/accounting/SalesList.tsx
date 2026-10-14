@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
+import { FilterBar, useUrlFilters } from "@/components/common/FilterBar";
+import { resolveStatus } from "@/lib/statusDictionary";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -118,11 +120,9 @@ export default function SalesList() {
 
 function SalesListContent() {
   const [, navigate] = useLocation();
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
-  const [selectedPartnerId, setSelectedPartnerId] = useState<string>("all");
-  const [itemNameSearch, setItemNameSearch] = useState<string>("");
-  const [selectedStatus, setSelectedStatus] = useState<string>("all");
+  // 3-c 2차: 조회 조건은 URL 쿼리에 유지 — 기존 이름은 그대로 두고 URL 로 연결
+  const [urlFilters, setUrlFilters, resetUrlFilters] = useUrlFilters({ from: "", to: "", partner: "all", item: "", status: "all" });
+  const startDate = urlFilters.from, endDate = urlFilters.to, selectedPartnerId = urlFilters.partner, itemNameSearch = urlFilters.item, selectedStatus = urlFilters.status;
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [editingSale, setEditingSale] = useState<any>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
@@ -620,6 +620,12 @@ function SalesListContent() {
 
   // 그룹 단위 페이지네이션
   const [groupPage, setGroupPage] = useState(1);
+  // 필터를 바꾸면 1페이지로
+  const setStartDate = (v: string) => { setUrlFilters({ from: v }); setGroupPage(1); };
+  const setEndDate = (v: string) => { setUrlFilters({ to: v }); setGroupPage(1); };
+  const setSelectedPartnerId = (v: string) => { setUrlFilters({ partner: v }); setGroupPage(1); };
+  const setItemNameSearch = (v: string) => { setUrlFilters({ item: v }); setGroupPage(1); };
+  const setSelectedStatus = (v: string) => { setUrlFilters({ status: v }); setGroupPage(1); };
   const GROUP_PAGE_SIZE = 25;
   const totalGroupPages = Math.max(1, Math.ceil(groupedSales.length / GROUP_PAGE_SIZE));
   const safeGroupPage = Math.min(groupPage, totalGroupPages);
@@ -655,11 +661,8 @@ function SalesListContent() {
 
   // 필터 초기화
   const handleResetFilters = () => {
-    setStartDate("");
-    setEndDate("");
-    setSelectedPartnerId("all");
-    setItemNameSearch("");
-    setSelectedStatus("all");
+    resetUrlFilters();
+    setGroupPage(1);
   };
 
   // 선택 삭제
@@ -728,12 +731,8 @@ function SalesListContent() {
     toast({ title: "다운로드 완료", description: "엑셀 파일이 다운로드되었습니다." });
   };
 
-  const getStatusLabel = (status: string) => {
-    const map: Record<string, string> = {
-      pending: "대기 중", approved: "승인됨", received: "수금 완료", cancelled: "취소됨",
-    };
-    return map[status] || "-";
-  };
+  // 엑셀 내려받기 상태 문구도 화면 배지와 같은 상태 사전 (3-c)
+  const getStatusLabel = (status: string) => resolveStatus(status, "sale").label;
 
   const getProofLabel = (type: string) => {
     const map: Record<string, string> = {
@@ -1060,66 +1059,40 @@ function SalesListContent() {
           </Card>
         </div>
 
-        {/* 필터 카드 */}
-        <Card>
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2 text-base">
-                <Search className="h-4 w-4" />
-                조회 조건
-              </CardTitle>
-              <Button variant="ghost" size="sm" onClick={handleResetFilters} className="text-muted-foreground hover:text-foreground">
-                <RotateCcw className="h-3.5 w-3.5 mr-1" />
-                초기화
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-              <div className="space-y-1.5">
-                <Label className="text-xs">시작일</Label>
-                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">종료일</Label>
-                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">거래처</Label>
-                <Select value={selectedPartnerId} onValueChange={setSelectedPartnerId}>
-                  <SelectTrigger><SelectValue placeholder="전체" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">전체</SelectItem>
-                    {partners.map((p: PartnerRow) => (
-                      <SelectItem key={p.id} value={p.id.toString()}>{p.companyName}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">품목명</Label>
-                <div className="relative">
-                  <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                  <Input placeholder="품목명 검색" value={itemNameSearch} onChange={(e) => setItemNameSearch(e.target.value)} className="pl-8" />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-xs">상태</Label>
-                <Select value={selectedStatus} onValueChange={setSelectedStatus}>
-                  <SelectTrigger><SelectValue placeholder="전체" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">전체</SelectItem>
-                    <SelectItem value="pending">대기 중</SelectItem>
-                    <SelectItem value="approved">승인됨</SelectItem>
-                    <SelectItem value="received">수금 완료</SelectItem>
-                    <SelectItem value="cancelled">취소됨</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+        {/* 조회 조건 — 3-c 2차 FilterBar (값은 URL 에 유지) */}
+        <FilterBar
+          className="mb-0"
+          search={{ value: itemNameSearch, onChange: setItemNameSearch, placeholder: "품목명 검색" }}
+          onReset={handleResetFilters}
+        >
+          <Input type="date" aria-label="시작일" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="h-9 w-40" />
+          <span className="text-muted-foreground text-sm">~</span>
+          <Input type="date" aria-label="종료일" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="h-9 w-40" />
+          <Select value={selectedPartnerId} onValueChange={setSelectedPartnerId}>
+            <SelectTrigger className="h-9 w-44" aria-label="거래처"><SelectValue placeholder="전체 거래처" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">전체 거래처</SelectItem>
+              {partners.map((p: PartnerRow) => (
+                <SelectItem key={p.id} value={p.id.toString()}>{p.companyName}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+            <SelectTrigger className="h-9 w-36" aria-label="상태"><SelectValue placeholder="전체 상태" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">전체 상태</SelectItem>
+              <SelectItem value="pending">승인 대기</SelectItem>
+              <SelectItem value="approved">승인</SelectItem>
+              <SelectItem value="received">수금 완료</SelectItem>
+              <SelectItem value="cancelled">취소</SelectItem>
+            </SelectContent>
+          </Select>
+        </FilterBar>
 
-            {/* 액션 버튼 영역 */}
-            <div className="flex items-center justify-between mt-4 pt-4 border-t">
+        <Card>
+          <CardContent className="py-3">
+            {/* 선택·다운로드 작업 */}
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Button variant="outline" size="sm" onClick={handleDownloadSelected} disabled={selectedIds.length === 0}>
                   <Download className="h-3.5 w-3.5 mr-1.5" />
@@ -1270,10 +1243,12 @@ function SalesListContent() {
                             </TableCell>
                             <TableCell>
                               {isFirst ? (
-                                <Badge variant="outline" className={`${statusColor} text-xs`}>
-                                  {statusLabel}
-                                  {group.isMixed && <span className="ml-1">⚠</span>}
-                                </Badge>
+                                <StatusBadge
+                                  status={group.dominantStatus}
+                                  domain="sale"
+                                  {...(group.dominantStatus === "mixed" ? { label: "혼재", tone: "amber" as const } : {})}
+                                  className={group.isMixed ? "after:content-['⚠'] after:ml-1" : undefined}
+                                />
                               ) : ""}
                             </TableCell>
                             <TableCell>

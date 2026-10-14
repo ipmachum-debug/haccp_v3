@@ -12,7 +12,7 @@ import { useLocation } from "wouter";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/common/StatusBadge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { trpc } from "@/lib/trpc";
 
@@ -23,14 +23,13 @@ const META: Record<Kind, { title: string; formPath: string }> = {
   monthly: { title: "월간일지 목록", formPath: "/monthly-log/form" },
 };
 
-const APPROVAL_LABEL: Record<string, { label: string; className: string }> = {
-  approved: { label: "승인", className: "bg-emerald-100 text-emerald-700" },
-  rejected: { label: "반려", className: "bg-red-100 text-red-700" },
-  pending: { label: "결재 대기", className: "bg-amber-100 text-amber-700" },
-  pending_writer: { label: "작성자 확인", className: "bg-amber-100 text-amber-700" },
-  pending_review: { label: "검토 대기", className: "bg-amber-100 text-amber-700" },
-  pending_approval: { label: "승인 대기", className: "bg-amber-100 text-amber-700" },
-};
+/**
+ * 목록의 결재 상태 = 결재 요청 상태(있으면) → 없으면 일지 기록 자체의 상태.
+ * 작성 화면은 기록 상태(approved = 승인완료)를 보여 주므로 같은 기준이어야 한다 (2026-10-14 Codex 보고: 목록 '요청 전' vs 작성 화면 '승인완료').
+ */
+export function periodicLogStatus(row: { approval_status?: string | null; status?: string | null }): string | null {
+  return row.approval_status || row.status || null;
+}
 
 export function PeriodicLogListModal({ kind, open, onClose }: { kind: Kind; open: boolean; onClose: () => void }) {
   const [, navigate] = useLocation();
@@ -89,13 +88,13 @@ export function PeriodicLogListModal({ kind, open, onClose }: { kind: Kind; open
               </TableHeader>
               <TableBody>
                 {rows.map((r) => {
-                  const ap = r.approval_status ? APPROVAL_LABEL[r.approval_status] ?? { label: r.approval_status, className: "bg-slate-100 text-slate-700" } : null;
+                  const st = periodicLogStatus(r);
                   return (
                     <TableRow key={r.id} className="cursor-pointer" onClick={() => openForm(r.log_date)}>
                       <TableCell className="font-mono text-sm">{r.log_date}</TableCell>
                       <TableCell className="text-sm">{r.title || "-"}</TableCell>
                       <TableCell className="text-sm">{r.creator_name || "-"}</TableCell>
-                      <TableCell>{ap ? <Badge className={ap.className}>{ap.label}</Badge> : <span className="text-xs text-muted-foreground">요청 전</span>}</TableCell>
+                      <TableCell>{st ? <StatusBadge status={st} /> : <span className="text-xs text-muted-foreground">-</span>}</TableCell>
                       <TableCell className="text-right">
                         <Button size="sm" variant="outline" onClick={(e) => { e.stopPropagation(); openForm(r.log_date); }}>열기</Button>
                       </TableCell>

@@ -6,6 +6,7 @@
  *                                                   ↑
  *                                            cancelled (어느 단계든)
  */
+import { formatLocalDate } from "../../../utils/timezone";
 import { eq, and, desc, sql } from "drizzle-orm";
 import { getDb } from "../../connection";
 import { hAudits } from "../../../../drizzle/schema/coreMes/quality/audit";
@@ -348,11 +349,11 @@ function rowToEntity(row: typeof hAudits.$inferSelect): Audit {
     auditee: row.auditee,
     plannedDate: typeof row.plannedDate === "string"
       ? row.plannedDate
-      : (row.plannedDate as unknown as Date).toISOString().slice(0, 10),
+      : formatLocalDate(row.plannedDate as unknown as Date),
     actualDate: row.actualDate
       ? typeof row.actualDate === "string"
         ? row.actualDate
-        : (row.actualDate as unknown as Date).toISOString().slice(0, 10)
+        : formatLocalDate(row.actualDate as unknown as Date)
       : null,
     leadAuditor: row.leadAuditor,
     auditors: (row.auditors as number[]) ?? [],
