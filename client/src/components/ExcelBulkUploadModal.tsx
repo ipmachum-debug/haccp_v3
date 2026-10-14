@@ -82,7 +82,22 @@ type ParsedRow = {
   learned?: boolean;
 };
 
-type Step = 'upload' | 'mapping' | 'review' | 'result';
+// ★ 2026-10-14: 이지어드민식 단계 섹션 — 업로드(+헤더 매핑) → 데이터 확인 → 매칭 → 매칭 결과(편집) → 회계처리/등록 확인 → 완료
+type Step = 'upload' | 'mapping' | 'check' | 'match' | 'edit' | 'confirm' | 'result';
+
+const STEP_SECTIONS: Array<{ label: string; steps: Step[] }> = [
+  { label: '업로드', steps: ['upload', 'mapping'] },
+  { label: '데이터 확인', steps: ['check'] },
+  { label: '매칭', steps: ['match'] },
+  { label: '매칭 결과', steps: ['edit'] },
+  { label: '회계처리', steps: ['confirm'] },
+  { label: '완료', steps: ['result'] },
+];
+
+/** 매칭 단계에서 손봐야 하는 행 — 오류·확인 필요·거래처/품목 미매칭 */
+function needsAttention(r: { status: string; partnerId: number | null; itemMasterId: number | null }): boolean {
+  return r.status === 'error' || r.status === 'warning' || !r.partnerId || !r.itemMasterId;
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 매입/매출 공통 + 분기 헤더 필드
@@ -498,7 +513,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
     });
 
     setParsedRows(rows);
-    setStep('review');
+    setStep('check');
     // 중복 검사 비동기 실행 (매입/매출 모두)
     setTimeout(() => { void runDuplicateCheck(rows); }, 100);
     // ★ 2026-10-14: 매출 — 학습된 별칭 우선 적용
@@ -925,6 +940,198 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
 
   const currentRow = parsedRows.find(r => r.id === matchDialogRowId);
 
+  // ★ 2026-10-14: 매칭 결과 편집 — 거래일자·수량·단가 직접 수정, 금액 재계산
+  const updateRowField = (rowId: string, field: 'transactionDate' | 'quantity' | 'unitPrice' | 'unit', raw: string) => {
+    setParsedRows((prev) => prev.map((r) => {
+      if (r.id !== rowId) return r;
+      const next = { ...r };
+      if (field === 'transactionDate') next.transactionDate = raw;
+      else if (field === 'unit') next.unit = raw;
+      else {
+        const n = parseFloat(raw.replace(/,/g, ''));
+        if (field === 'quantity') next.quantity = Number.isFinite(n) ? n : 0;
+        else next.unitPrice = Number.isFinite(n) ? n : 0;
+        next.amount = Math.round(next.quantity * next.unitPrice);
+        next.taxAmount = next.isTaxFree ? 0 : Math.round(next.amount * 0.1);
+        next.totalAmount = next.amount + next.taxAmount;
+      }
+      // 필수값이 채워지면 오류 해제 후 매칭 상태 재계산
+      if (!next.transactionDate) return { ...next, status: 'error', statusMessage: '날짜 누락' };
+      if (next.quantity <= 0) return { ...next, status: 'error', statusMessage: '수량 오류' };
+      if (next.unitPrice <= 0) return { ...next, status: 'error', statusMessage: '단가 오류' };
+      return recomputeRowStatus({ ...next, status: 'ready' });
+    }));
+  };
+
+  /** 단계별 공통 행 표 — view: 읽기 전용 / match: 매칭 버튼 / edit: 매칭 버튼 + 값 편집 */
+  const renderRowsTable = (rows: ParsedRow[], tableMode: 'view' | 'match' | 'edit') => {
+    const interactive = tableMode !== 'view';
+    const editable = tableMode === 'edit';
+    return (
+      <div className="border rounded-lg overflow-hidden">
+        <div className="overflow-x-auto max-h-[380px] overflow-y-auto">
+          <Table>
+            <TableHeader className="sticky top-0 z-[5]">
+              <TableRow className="bg-muted/80">
+                <TableHead className="w-[40px] text-[11px] text-center py-1.5">#</TableHead>
+                <TableHead className="w-[50px] text-[11px] text-center py-1.5">상태</TableHead>
+                <TableHead className="text-[11px] w-[100px] py-1.5">거래일자</TableHead>
+                <TableHead className="text-[11px] min-w-[110px] py-1.5">거래처</TableHead>
+                <TableHead className="text-[11px] min-w-[150px] py-1.5">품목명</TableHead>
+                <TableHead className="text-[11px] w-[70px] text-right py-1.5">수량</TableHead>
+                <TableHead className="text-[11px] w-[70px] text-center py-1.5">포장규격</TableHead>
+                <TableHead className="text-[11px] w-[85px] text-right py-1.5">단가</TableHead>
+                <TableHead className="text-[11px] w-[90px] text-right py-1.5">공급가액</TableHead>
+                <TableHead className="text-[11px] w-[70px] text-right py-1.5">부가세</TableHead>
+                <TableHead className="text-[11px] w-[90px] text-right py-1.5">합계</TableHead>
+                {interactive && <TableHead className="text-[11px] w-[36px] py-1.5"></TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={interactive ? 12 : 11} className="text-center text-xs text-muted-foreground py-6">표시할 행이 없습니다.</TableCell>
+                </TableRow>
+              )}
+              {rows.map((row) => (
+                <TableRow key={row.id} className={
+                  row.status === 'error' ? 'bg-red-50/50 dark:bg-red-950/10' :
+                  row.status === 'warning' ? 'bg-amber-50/30 dark:bg-amber-950/10' :
+                  row.status === 'matched' ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : ''
+                }>
+                  <TableCell className="text-[11px] text-center text-muted-foreground py-1">{row.rowIndex}</TableCell>
+                  <TableCell className="text-center py-1">
+                    <div className="flex flex-col items-center gap-0.5" title={row.statusMessage}>
+                      {row.status === 'matched' ? <Badge className="bg-emerald-100 text-emerald-700 text-[9px] px-1 py-0">OK</Badge> :
+                       row.status === 'warning' ? <Badge className="bg-amber-100 text-amber-700 text-[9px] px-1 py-0">확인</Badge> :
+                       row.status === 'error' ? <Badge className="bg-red-100 text-red-700 text-[9px] px-1 py-0">오류</Badge> :
+                       <Badge variant="secondary" className="text-[9px] px-1 py-0">대기</Badge>}
+                      {row.partnerId && row.transactionDate && row.itemName &&
+                        duplicateKeys.has(`${row.transactionDate}|${row.partnerId}|${row.itemName}`) && (
+                        <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 text-[8px] px-1 py-0">중복</Badge>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell className="text-[11px] py-1">
+                    {editable ? (
+                      <Input type="date" className="h-6 text-[11px] px-1" value={row.transactionDate}
+                        onChange={(e) => updateRowField(row.id, 'transactionDate', e.target.value)} />
+                    ) : row.transactionDate}
+                  </TableCell>
+                  <TableCell className="text-[11px] py-1">
+                    <button
+                      disabled={!interactive}
+                      onClick={() => openMatchDialog(row.id, 'partner')}
+                      className={`text-left w-full flex items-center gap-1 ${interactive ? 'hover:underline' : 'cursor-default'} ${
+                        row.partnerId ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600'
+                      }`}
+                    >
+                      <Building2 className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{row.partnerName || '-'}</span>
+                      {row.partnerId && row.partnerMatchScore < 1 && (
+                        <span className="text-[8px] text-muted-foreground">({Math.round(row.partnerMatchScore * 100)}%)</span>
+                      )}
+                    </button>
+                  </TableCell>
+                  <TableCell className="text-[11px] py-1">
+                    <button
+                      disabled={!interactive}
+                      onClick={() => openMatchDialog(row.id, 'item')}
+                      className={`text-left w-full flex items-center gap-1 ${interactive ? 'hover:underline' : 'cursor-default'} ${
+                        row.itemMasterId ? 'text-blue-700 dark:text-blue-400' : 'text-amber-600'
+                      }`}
+                    >
+                      <Package className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{row.itemName || '-'}</span>
+                      {row.itemMasterId && row.itemMatchScore < 1 && (
+                        <span className="text-[8px] text-muted-foreground">({Math.round(row.itemMatchScore * 100)}%)</span>
+                      )}
+                      {row.itemType && (
+                        <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 ml-0.5">
+                          {row.itemType === 'own_product' ? '자사' :
+                           row.itemType === 'raw_material' ? '원재료' :
+                           row.itemType === 'subsidiary' ? '부자재' :
+                           row.itemType === 'external_product' ? '외부' : ''}
+                        </Badge>
+                      )}
+                      {row.learned && (
+                        <Badge className="bg-sky-100 text-sky-700 text-[8px] px-1 py-0 h-3.5 ml-0.5" title="지난 업로드에서 확정한 매칭을 학습해 적용">학습</Badge>
+                      )}
+                    </button>
+                    {/* 묶음(혼합) 지정 — 매출 모드 */}
+                    {!isPurchase && (row.bundleSkuId || interactive) && (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        {row.bundleSkuId ? (
+                          <Badge className="bg-violet-100 text-violet-700 text-[8px] px-1 py-0 h-3.5" title="매출 확정 시 묶음 구성대로 단품 재고 차감">
+                            묶음 · {row.bundleName}
+                          </Badge>
+                        ) : null}
+                        {interactive && (
+                          <button onClick={() => setBundleDialogRowId(row.id)} className="text-[9px] text-violet-600 hover:underline">
+                            {row.bundleSkuId ? '묶음 변경' : '+ 묶음 지정'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    {tableMode === 'match' && row.statusMessage && row.status !== 'matched' && (
+                      <div className="text-[9px] text-muted-foreground mt-0.5">{row.statusMessage}</div>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-[11px] text-right tabular-nums py-1">
+                    {editable ? (
+                      <Input className="h-6 text-[11px] px-1 text-right" defaultValue={String(row.quantity)}
+                        onBlur={(e) => updateRowField(row.id, 'quantity', e.target.value)} />
+                    ) : row.quantity.toLocaleString()}
+                  </TableCell>
+                  <TableCell className="text-[11px] text-center py-1">
+                    {editable ? (
+                      <Input className="h-6 text-[11px] px-1 text-center" defaultValue={row.unit}
+                        onBlur={(e) => updateRowField(row.id, 'unit', e.target.value)} />
+                    ) : <Badge variant="outline" className="text-[9px] px-1.5 py-0">{row.unit || '-'}</Badge>}
+                  </TableCell>
+                  <TableCell className="text-[11px] text-right tabular-nums py-1">
+                    {editable ? (
+                      <Input className="h-6 text-[11px] px-1 text-right" defaultValue={String(row.unitPrice)}
+                        onBlur={(e) => updateRowField(row.id, 'unitPrice', e.target.value)} />
+                    ) : row.unitPrice.toLocaleString()}
+                  </TableCell>
+                  <TableCell className="text-[11px] text-right tabular-nums py-1">{row.amount.toLocaleString()}</TableCell>
+                  <TableCell className="text-[11px] text-right tabular-nums py-1">{row.taxAmount.toLocaleString()}</TableCell>
+                  <TableCell className="text-[11px] text-right tabular-nums font-semibold py-1">{row.totalAmount.toLocaleString()}</TableCell>
+                  {interactive && (
+                    <TableCell className="text-center py-1">
+                      <Button variant="ghost" size="sm" className="h-5 w-5 p-0" title="이 행 제외" onClick={() => handleRemoveRow(row.id)}>
+                        <X className="h-3 w-3 text-red-500" />
+                      </Button>
+                    </TableCell>
+                  )}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    );
+  };
+
+  /** 등록 대상 합계 바 */
+  const renderTotalsBar = () => (
+    <div className={`p-2.5 flex items-center justify-between rounded-lg border text-sm ${
+      isPurchase ? 'bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-200' : 'bg-blue-50/50 dark:bg-blue-950/10 border-blue-200'
+    }`}>
+      <span className="text-xs font-medium">등록 대상 합계 ({readyRows.filter(r => r.partnerId).length}건)</span>
+      <div className="flex gap-4 text-xs tabular-nums">
+        <span>공급가액: <strong>{readyRows.reduce((s, r) => s + r.amount, 0).toLocaleString()}</strong></span>
+        <span>부가세: <strong>{readyRows.reduce((s, r) => s + r.taxAmount, 0).toLocaleString()}</strong></span>
+        <span className={`font-bold ${isPurchase ? 'text-emerald-600' : 'text-blue-600'}`}>
+          합계: {readyRows.reduce((s, r) => s + r.totalAmount, 0).toLocaleString()}
+        </span>
+      </div>
+    </div>
+  );
+
+  const attentionRows = parsedRows.filter(needsAttention);
+
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-[95vw] w-[1100px] max-h-[90vh] overflow-y-auto p-0">
@@ -937,12 +1144,14 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
             </DialogTitle>
             {/* 프로그레스 스텝 */}
             <div className="flex items-center gap-1.5 text-xs">
-              {(['upload', 'mapping', 'review', 'result'] as Step[]).map((s, i) => {
-                const labels = ['업로드', '헤더 매핑', '검증/매칭', '결과'];
-                const isActive = step === s;
-                const isDone = (['upload', 'mapping', 'review', 'result'] as Step[]).indexOf(step) > i;
+              {STEP_SECTIONS.map((sec, i) => {
+                const s = sec.steps[0];
+                const isActive = sec.steps.includes(step);
+                const currentIdx = STEP_SECTIONS.findIndex((x) => x.steps.includes(step));
+                const isDone = currentIdx > i;
+                const canJump = isDone && step !== 'result' && i >= 1 && i <= 4;
                 return (
-                  <div key={s} className="flex items-center gap-1">
+                  <div key={s} className={`flex items-center gap-1 ${canJump ? 'cursor-pointer' : ''}`} onClick={() => { if (canJump) setStep(s); }}>
                     {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground" />}
                     <div className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium transition ${
                       isActive ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
@@ -950,7 +1159,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                       'bg-muted text-muted-foreground'
                     }`}>
                       {isDone ? <CheckCircle2 className="h-3 w-3" /> : <span className="w-3.5 h-3.5 rounded-full border flex items-center justify-center text-[9px]">{i + 1}</span>}
-                      {labels[i]}
+                      {i === 4 ? (isPurchase ? '등록 확인' : '회계처리') : sec.label}
                     </div>
                   </div>
                 );
@@ -1046,7 +1255,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                     <ArrowLeft className="h-3.5 w-3.5 mr-1" /> 다시 선택
                   </Button>
                   <Button size="sm" onClick={applyMappingAndMatch}>
-                    다음: 데이터 검증 <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                    다음: 데이터 확인 <ChevronRight className="h-3.5 w-3.5 ml-1" />
                   </Button>
                 </div>
               </div>
@@ -1119,8 +1328,8 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
             </div>
           )}
 
-          {/* ─── Step 3: 데이터 검증 & 매칭 ─── */}
-          {step === 'review' && (
+          {/* ─── Step 2: 데이터 확인 (현행 데이터 그대로 확인) ─── */}
+          {step === 'check' && (
             <div className="space-y-3">
               {/* 요약 카드 */}
               <div className="grid grid-cols-4 gap-2">
@@ -1142,6 +1351,154 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                 </Card>
               </div>
 
+              {/* 그룹화 프리뷰 (매입/매출) — Phase 8+ */}
+              {(() => {
+                const groups = new Map<string, { partnerId: number; count: number }>();
+                for (const r of readyRows) {
+                  if (!r.partnerId || !r.transactionDate) continue;
+                  const key = `${r.partnerId}|${r.transactionDate}`;
+                  if (!groups.has(key)) groups.set(key, { partnerId: r.partnerId, count: 0 });
+                  groups.get(key)!.count++;
+                }
+                if (groups.size === 0) return null;
+                const cardTone = isPurchase
+                  ? 'bg-emerald-50/40 border-emerald-200'
+                  : 'bg-blue-50/40 border-blue-200';
+                const textTone = isPurchase
+                  ? 'text-emerald-900 dark:text-emerald-200'
+                  : 'text-blue-900 dark:text-blue-200';
+                const iconTone = isPurchase ? 'text-emerald-600' : 'text-blue-600';
+                const groupLabel = isPurchase ? '입고전표' : '명세서';
+                return (
+                  <Card className={`p-2.5 ${cardTone} space-y-1.5`}>
+                    <div className="flex items-center gap-2 text-xs">
+                      <FileSpreadsheet className={`h-3.5 w-3.5 ${iconTone}`} />
+                      <span className={`font-medium ${textTone}`}>
+                        {groupLabel} 그룹화 예상: <strong>{groups.size}개 {groupLabel}</strong> × 평균 <strong>{(readyRows.length / groups.size).toFixed(1)}개 품목</strong>
+                      </span>
+                      <span className="text-[10px] text-muted-foreground ml-auto">
+                        (거래처 {new Set(Array.from(groups.values()).map(g => g.partnerId)).size}곳)
+                      </span>
+                    </div>
+                    {duplicateKeys.size > 0 && (
+                      <div className="flex items-center gap-1.5 text-[11px] text-orange-700 bg-orange-50 px-2 py-1 rounded">
+                        <AlertTriangle className="h-3 w-3" />
+                        <span>중복 가능성: <strong>{duplicateKeys.size}건</strong> — 같은 거래처+날짜+품목 조합이 이미 등록돼 있습니다.</span>
+                      </div>
+                    )}
+                  </Card>
+                );
+              })()}
+
+              <div className="flex items-center justify-between">
+                <Button variant="outline" size="sm" onClick={() => setStep('mapping')}>
+                  <ArrowLeft className="h-3.5 w-3.5 mr-1" /> 헤더 매핑 수정
+                </Button>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={resetAll}>
+                    <RefreshCw className="h-3.5 w-3.5 mr-1" /> 파일 다시 선택
+                  </Button>
+                  <Button size="sm" onClick={() => setStep('match')}>
+                    다음: 매칭 {attentionRows.length > 0 ? `(처리 필요 ${attentionRows.length}건)` : ''} <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">엑셀에서 읽은 데이터입니다. 거래처·품목 매칭과 묶음 지정은 다음 단계에서 합니다.</p>
+              {renderRowsTable(parsedRows, 'view')}
+              {renderTotalsBar()}
+            </div>
+          )}
+
+          {/* ─── Step 3: 매칭 (오류·SKU 미매칭 행 처리) ─── */}
+          {step === 'match' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <Button variant="outline" size="sm" onClick={() => setStep('check')}>
+                  <ArrowLeft className="h-3.5 w-3.5 mr-1" /> 데이터 확인
+                </Button>
+                <div className="flex gap-2">
+                  {parsedRows.some(r => r.status === 'warning') && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleAiRematch}
+                      disabled={isAiMatching}
+                      className="border-violet-300 text-violet-700 hover:bg-violet-50"
+                      title="매칭 유사도 70~90% 구간을 AI가 재검증합니다"
+                    >
+                      {isAiMatching ? (
+                        <><RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> AI 매칭 중...</>
+                      ) : (
+                        <><Search className="h-3.5 w-3.5 mr-1" /> AI 재매칭</>
+                      )}
+                    </Button>
+                  )}
+                  <Button size="sm" onClick={() => setStep('edit')}>
+                    다음: 매칭 결과 <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                  </Button>
+                </div>
+              </div>
+              {attentionRows.length === 0 ? (
+                <Card className="p-6 text-center">
+                  <CheckCircle2 className="h-8 w-8 text-emerald-500 mx-auto mb-2" />
+                  <p className="text-sm font-medium">처리할 행이 없습니다. 모든 행이 매칭됐습니다.</p>
+                  <p className="text-xs text-muted-foreground mt-1">묶음 지정이나 값 수정은 다음 "매칭 결과" 단계에서 할 수 있습니다.</p>
+                </Card>
+              ) : (
+                <>
+                  <p className="text-[11px] text-muted-foreground">
+                    오류·확인 필요·미매칭 <strong>{attentionRows.length}건</strong>만 보여줍니다. 거래처·품목 이름을 눌러 매칭하고,
+                    {!isPurchase && ' 혼합 상품은 "+ 묶음 지정" 으로 묶음을 고르세요.'} 직접 고른 매칭은 등록 후 학습돼 다음부터 자동 매칭됩니다.
+                  </p>
+                  {renderRowsTable(attentionRows, 'match')}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* ─── Step 4: 매칭 결과 (전체 편집) ─── */}
+          {step === 'edit' && (
+            <div className="space-y-3">
+              {/* 요약 카드 */}
+              <div className="grid grid-cols-4 gap-2">
+                <Card className="p-2.5 border-l-4 border-l-blue-500">
+                  <div className="text-[10px] text-muted-foreground">전체</div>
+                  <div className="text-lg font-bold">{parsedRows.length}건</div>
+                </Card>
+                <Card className="p-2.5 border-l-4 border-l-emerald-500">
+                  <div className="text-[10px] text-muted-foreground flex items-center gap-1"><CheckCircle2 className="h-2.5 w-2.5" /> 매칭 완료</div>
+                  <div className="text-lg font-bold text-emerald-600">{parsedRows.filter(r => r.status === 'matched').length}건</div>
+                </Card>
+                <Card className="p-2.5 border-l-4 border-l-amber-500">
+                  <div className="text-[10px] text-muted-foreground flex items-center gap-1"><AlertTriangle className="h-2.5 w-2.5" /> 확인 필요</div>
+                  <div className="text-lg font-bold text-amber-600">{parsedRows.filter(r => r.status === 'warning').length}건</div>
+                </Card>
+                <Card className="p-2.5 border-l-4 border-l-red-500">
+                  <div className="text-[10px] text-muted-foreground flex items-center gap-1"><XCircle className="h-2.5 w-2.5" /> 오류</div>
+                  <div className="text-lg font-bold text-red-600">{errorRows.length}건</div>
+                </Card>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Button variant="outline" size="sm" onClick={() => setStep('match')}>
+                  <ArrowLeft className="h-3.5 w-3.5 mr-1" /> 매칭
+                </Button>
+                <Button size="sm" onClick={() => setStep('confirm')} disabled={readyRows.length === 0}>
+                  다음: {isPurchase ? '등록 확인' : '회계처리'} <ChevronRight className="h-3.5 w-3.5 ml-1" />
+                </Button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                전체 행입니다. 거래일자·수량·포장규격·단가를 직접 고칠 수 있고(칸을 벗어나면 금액 재계산), 거래처·품목·묶음도 다시 지정할 수 있습니다.
+              </p>
+              {renderRowsTable(parsedRows, 'edit')}
+              {renderTotalsBar()}
+            </div>
+          )}
+
+          {/* ─── Step 5: 회계처리 여부 / 등록 확인 ─── */}
+          {step === 'confirm' && (
+            <div className="space-y-3 max-w-2xl mx-auto">
+              <h2 className="text-sm font-semibold">{isPurchase ? '등록 확인' : '회계처리 하시겠습니까?'}</h2>
               {/* 그룹화 프리뷰 (매입/매출) — Phase 8+ */}
               {(() => {
                 const groups = new Map<string, { partnerId: number; count: number }>();
@@ -1211,175 +1568,32 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                 </Card>
               )}
 
-              {/* 액션 바 */}
-              <div className="flex items-center justify-between">
-                <Button variant="outline" size="sm" onClick={() => setStep('mapping')}>
-                  <ArrowLeft className="h-3.5 w-3.5 mr-1" /> 매핑 수정
+              {!isPurchase && !accountingExcluded && (
+                <Card className="p-3 bg-blue-50/40 border-blue-200 text-xs text-blue-900">
+                  체크하지 않으면 <strong>회계 처리</strong>합니다. 매출 확정 시 재고 차감과 함께 매출·부가세·매출원가 분개가 생성됩니다.
+                </Card>
+              )}
+              {renderTotalsBar()}
+              {readyRows.some((r) => r.bundleSkuId) && (
+                <p className="text-[11px] text-violet-700">묶음 지정 {readyRows.filter((r) => r.bundleSkuId).length}건은 매출 확정 시 구성 단품으로 나눠 차감됩니다.</p>
+              )}
+              <div className="flex items-center justify-between pt-1">
+                <Button variant="outline" size="sm" onClick={() => setStep('edit')}>
+                  <ArrowLeft className="h-3.5 w-3.5 mr-1" /> 매칭 결과
                 </Button>
-                <div className="flex gap-2">
-                  {parsedRows.some(r => r.status === 'warning') && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={handleAiRematch}
-                      disabled={isAiMatching}
-                      className="border-violet-300 text-violet-700 hover:bg-violet-50"
-                      title="매칭 유사도 70~90% 구간을 AI가 재검증합니다"
-                    >
-                      {isAiMatching ? (
-                        <><RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> AI 매칭 중...</>
-                      ) : (
-                        <><Search className="h-3.5 w-3.5 mr-1" /> AI 재매칭</>
-                      )}
-                    </Button>
+                <Button size="sm" onClick={handleBulkUpload} disabled={readyRows.length === 0 || isUploading}
+                  className={isPurchase ? "bg-emerald-600 hover:bg-emerald-700" : "bg-blue-600 hover:bg-blue-700"}>
+                  {isUploading ? (
+                    <><RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> 등록 중...</>
+                  ) : (
+                    <><Upload className="h-3.5 w-3.5 mr-1" /> {readyRows.filter(r => r.partnerId).length}건 등록</>
                   )}
-                  <Button variant="outline" size="sm" onClick={resetAll}>
-                    <RefreshCw className="h-3.5 w-3.5 mr-1" /> 파일 다시 선택
-                  </Button>
-                  <Button size="sm" onClick={handleBulkUpload} disabled={readyRows.length === 0 || isUploading}
-                    className={isPurchase ? "bg-emerald-600 hover:bg-emerald-700" : "bg-blue-600 hover:bg-blue-700"}>
-                    {isUploading ? (
-                      <><RefreshCw className="h-3.5 w-3.5 mr-1 animate-spin" /> 등록 중...</>
-                    ) : (
-                      <><Upload className="h-3.5 w-3.5 mr-1" /> {readyRows.filter(r => r.partnerId).length}건 일괄 등록</>
-                    )}
-                  </Button>
-                </div>
-              </div>
-
-              {/* 데이터 테이블 */}
-              <div className="border rounded-lg overflow-hidden">
-                <div className="overflow-x-auto max-h-[340px] overflow-y-auto">
-                  <Table>
-                    <TableHeader className="sticky top-0 z-[5]">
-                      <TableRow className="bg-muted/80">
-                        <TableHead className="w-[40px] text-[11px] text-center py-1.5">#</TableHead>
-                        <TableHead className="w-[50px] text-[11px] text-center py-1.5">상태</TableHead>
-                        <TableHead className="text-[11px] w-[90px] py-1.5">거래일자</TableHead>
-                        <TableHead className="text-[11px] min-w-[110px] py-1.5">거래처</TableHead>
-                        <TableHead className="text-[11px] min-w-[130px] py-1.5">품목명</TableHead>
-                        <TableHead className="text-[11px] w-[60px] text-right py-1.5">수량</TableHead>
-                        <TableHead className="text-[11px] w-[70px] text-center py-1.5">포장규격</TableHead>
-                        <TableHead className="text-[11px] w-[80px] text-right py-1.5">단가</TableHead>
-                        <TableHead className="text-[11px] w-[90px] text-right py-1.5">공급가액</TableHead>
-                        <TableHead className="text-[11px] w-[70px] text-right py-1.5">부가세</TableHead>
-                        <TableHead className="text-[11px] w-[90px] text-right py-1.5">합계</TableHead>
-                        <TableHead className="text-[11px] w-[36px] py-1.5"></TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {parsedRows.map((row) => (
-                        <TableRow key={row.id} className={
-                          row.status === 'error' ? 'bg-red-50/50 dark:bg-red-950/10' :
-                          row.status === 'warning' ? 'bg-amber-50/30 dark:bg-amber-950/10' :
-                          row.status === 'matched' ? 'bg-emerald-50/30 dark:bg-emerald-950/10' : ''
-                        }>
-                          <TableCell className="text-[11px] text-center text-muted-foreground py-1">{row.rowIndex}</TableCell>
-                          <TableCell className="text-center py-1">
-                            <div className="flex flex-col items-center gap-0.5">
-                              {row.status === 'matched' ? <Badge className="bg-emerald-100 text-emerald-700 text-[9px] px-1 py-0">OK</Badge> :
-                               row.status === 'warning' ? <Badge className="bg-amber-100 text-amber-700 text-[9px] px-1 py-0">확인</Badge> :
-                               row.status === 'error' ? <Badge className="bg-red-100 text-red-700 text-[9px] px-1 py-0">오류</Badge> :
-                               <Badge variant="secondary" className="text-[9px] px-1 py-0">대기</Badge>}
-                              {row.partnerId && row.transactionDate && row.itemName &&
-                                duplicateKeys.has(`${row.transactionDate}|${row.partnerId}|${row.itemName}`) && (
-                                <Badge variant="outline" className="bg-orange-50 text-orange-700 border-orange-300 text-[8px] px-1 py-0">중복</Badge>
-                              )}
-                            </div>
-                          </TableCell>
-                          <TableCell className="text-[11px] py-1">{row.transactionDate}</TableCell>
-                          <TableCell className="text-[11px] py-1">
-                            <button
-                              onClick={() => openMatchDialog(row.id, 'partner')}
-                              className={`text-left w-full hover:underline flex items-center gap-1 ${
-                                row.partnerId ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-600'
-                              }`}
-                            >
-                              <Building2 className="h-3 w-3 shrink-0" />
-                              <span className="truncate">{row.partnerName || '-'}</span>
-                              {row.partnerId && row.partnerMatchScore < 1 && (
-                                <span className="text-[8px] text-muted-foreground">({Math.round(row.partnerMatchScore * 100)}%)</span>
-                              )}
-                            </button>
-                          </TableCell>
-                          <TableCell className="text-[11px] py-1">
-                            <button
-                              onClick={() => openMatchDialog(row.id, 'item')}
-                              className={`text-left w-full hover:underline flex items-center gap-1 ${
-                                row.itemMasterId ? 'text-blue-700 dark:text-blue-400' : 'text-amber-600'
-                              }`}
-                            >
-                              <Package className="h-3 w-3 shrink-0" />
-                              <span className="truncate">{row.itemName || '-'}</span>
-                              {row.itemMasterId && row.itemMatchScore < 1 && (
-                                <span className="text-[8px] text-muted-foreground">({Math.round(row.itemMatchScore * 100)}%)</span>
-                              )}
-                              {row.itemType && (
-                                <Badge variant="outline" className="text-[8px] px-1 py-0 h-3.5 ml-0.5">
-                                  {row.itemType === 'own_product' ? '자사' :
-                                   row.itemType === 'raw_material' ? '원재료' :
-                                   row.itemType === 'subsidiary' ? '부자재' :
-                                   row.itemType === 'external_product' ? '외부' : ''}
-                                </Badge>
-                              )}
-                              {row.learned && (
-                                <Badge className="bg-sky-100 text-sky-700 text-[8px] px-1 py-0 h-3.5 ml-0.5" title="지난 업로드에서 확정한 매칭을 학습해 적용">학습</Badge>
-                              )}
-                            </button>
-                            {/* ★ 2026-10-14: 묶음(혼합) 지정 — 매출 모드 */}
-                            {!isPurchase && (
-                              <div className="flex items-center gap-1 mt-0.5">
-                                {row.bundleSkuId ? (
-                                  <Badge className="bg-violet-100 text-violet-700 text-[8px] px-1 py-0 h-3.5" title="매출 확정 시 묶음 구성대로 단품 재고 차감">
-                                    묶음 · {row.bundleName}
-                                  </Badge>
-                                ) : null}
-                                <button
-                                  onClick={() => setBundleDialogRowId(row.id)}
-                                  className="text-[9px] text-violet-600 hover:underline"
-                                >
-                                  {row.bundleSkuId ? '묶음 변경' : '+ 묶음 지정'}
-                                </button>
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell className="text-[11px] text-right tabular-nums py-1">{row.quantity.toLocaleString()}</TableCell>
-                          <TableCell className="text-[11px] text-center py-1">
-                            <Badge variant="outline" className="text-[9px] px-1.5 py-0">{row.unit || '-'}</Badge>
-                          </TableCell>
-                          <TableCell className="text-[11px] text-right tabular-nums py-1">{row.unitPrice.toLocaleString()}</TableCell>
-                          <TableCell className="text-[11px] text-right tabular-nums py-1">{row.amount.toLocaleString()}</TableCell>
-                          <TableCell className="text-[11px] text-right tabular-nums py-1">{row.taxAmount.toLocaleString()}</TableCell>
-                          <TableCell className="text-[11px] text-right tabular-nums font-semibold py-1">{row.totalAmount.toLocaleString()}</TableCell>
-                          <TableCell className="text-center py-1">
-                            <Button variant="ghost" size="sm" className="h-5 w-5 p-0" onClick={() => handleRemoveRow(row.id)}>
-                              <X className="h-3 w-3 text-red-500" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </div>
-
-              {/* 하단 합계 */}
-              <div className={`p-2.5 flex items-center justify-between rounded-lg border text-sm ${
-                isPurchase ? 'bg-emerald-50/50 dark:bg-emerald-950/10 border-emerald-200' : 'bg-blue-50/50 dark:bg-blue-950/10 border-blue-200'
-              }`}>
-                <span className="text-xs font-medium">등록 대상 합계 ({readyRows.filter(r => r.partnerId).length}건)</span>
-                <div className="flex gap-4 text-xs tabular-nums">
-                  <span>공급가액: <strong>{readyRows.reduce((s, r) => s + r.amount, 0).toLocaleString()}</strong></span>
-                  <span>부가세: <strong>{readyRows.reduce((s, r) => s + r.taxAmount, 0).toLocaleString()}</strong></span>
-                  <span className={`font-bold ${isPurchase ? 'text-emerald-600' : 'text-blue-600'}`}>
-                    합계: {readyRows.reduce((s, r) => s + r.totalAmount, 0).toLocaleString()}
-                  </span>
-                </div>
+                </Button>
               </div>
             </div>
           )}
 
-          {/* ─── Step 4: 결과 ─── */}
+          {/* ─── Step 6: 완료 ─── */}
           {step === 'result' && uploadResult && (
             <div className="text-center space-y-5 py-4">
               <div className={`mx-auto w-16 h-16 rounded-full ${isPurchase ? 'bg-emerald-50 dark:bg-emerald-900/20' : 'bg-blue-50 dark:bg-blue-900/20'} flex items-center justify-center`}>
