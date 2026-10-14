@@ -435,7 +435,20 @@ export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
   "/dashboard/user-approval": "platform",
   "/dashboard/tenants": "platform",
   "/dashboard/server-monitor": "platform",
+  "/dashboard/agent": "platform", // 사이드바 하단 → 플랫폼 허브 'AI·자동화' (2026-10-14 대표 지시). 노출은 AGENT_ALLOWED_EMAILS 그대로
 };
+
+/**
+ * 자동화 에이전트 — 역할이 아니라 **허용 이메일**로 노출한다 (기존 사이드바 하단 버튼과 같은 조건, 권한 변경 없음).
+ * 허브 사이드바에서는 플랫폼 허브의 'AI·자동화' 소구역에 그린다. 허용 사용자가 admin 이어도 플랫폼 허브에 이 항목 하나만 보인다.
+ */
+export const AGENT_ALLOWED_EMAILS: readonly string[] = [
+  "ipmachum@gmail.com", "sokoorymall@naver.com", "dduckdanji@naver.com", "danjimall@naver.com", "sokoorymall1@naver.com",
+];
+export const AGENT_PLACEMENT = { icon: "Bot", label: "자동화 에이전트", path: "/dashboard/agent", section: "AI·자동화" } as const;
+export function canSeeAgent(email: string | null | undefined): boolean {
+  return !!email && AGENT_ALLOWED_EMAILS.includes(email);
+}
 
 const INDUSTRY_QUALITY_RE = /^\/dashboard\/(food|cosmetic|pharmaceutical|health-functional|medical-device|general-manufacturing)\//;
 
@@ -508,7 +521,6 @@ export const ROUTE_HUB_RULES: ReadonlyArray<{ match: string; hub: HubId }> = [
   { match: "/dashboard/production-efficiency", hub: "production" },
   { match: "/dashboard/production-performance", hub: "production" },
   { match: "/dashboard/recipes", hub: "production" },
-  { match: "/dashboard/agent", hub: "production" },
   { match: "/master/recipe", hub: "production" },
   { match: "/daily-report", hub: "production" },
   { match: "/production-dashboard", hub: "production" },
@@ -640,6 +652,8 @@ export interface HubMenuItem<I = string> {
   requireModule?: string;
   highlight?: boolean;
   hub: HubId;
+  /** 허브 안 소구역 제목 (예: 플랫폼 허브의 'AI·자동화'). 없으면 제목 없이 이어서 그린다 */
+  section?: string;
 }
 
 export interface HubSection<I = string> {
@@ -652,12 +666,12 @@ export interface HubSection<I = string> {
  *  - 같은 경로는 하나로: 라벨·아이콘은 먼저 온 것, roles 는 합집합(아무도 메뉴를 잃지 않게), requireModule 은 전부 같을 때만 유지
  *  - 허브 순서 → 입력 순서
  */
-export function buildHubMenu<I = string>(items: readonly { icon: I; label: string; path: string; roles: readonly string[]; requireModule?: string; highlight?: boolean }[]): HubSection<I>[] {
+export function buildHubMenu<I = string>(items: readonly { icon: I; label: string; path: string; roles: readonly string[]; requireModule?: string; highlight?: boolean; section?: string }[]): HubSection<I>[] {
   const byPath = new Map<string, HubMenuItem<I> & { _modules: Set<string | undefined> }>();
   for (const it of items) {
     const cur = byPath.get(it.path);
     if (!cur) {
-      byPath.set(it.path, { icon: it.icon, label: it.label, path: it.path, roles: [...it.roles], requireModule: it.requireModule, highlight: !!it.highlight, hub: hubOf(it.path), _modules: new Set([it.requireModule]) });
+      byPath.set(it.path, { icon: it.icon, label: it.label, path: it.path, roles: [...it.roles], requireModule: it.requireModule, highlight: !!it.highlight, hub: hubOf(it.path), ...(it.section ? { section: it.section } : {}), _modules: new Set([it.requireModule]) });
     } else {
       for (const r of it.roles) if (!cur.roles.includes(r)) (cur.roles as string[]).push(r);
       cur.highlight = cur.highlight || !!it.highlight;

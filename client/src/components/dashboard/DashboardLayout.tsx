@@ -32,6 +32,7 @@ import { DashboardLayoutSkeleton } from './DashboardLayoutSkeleton';
 import { toast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import NotificationDropdown from "./NotificationDropdown";
+import HeaderAttendance, { ATTENDANCE_ROLES } from "./HeaderAttendance";
 import { FEATURES, MODULES } from "@/lib/featureFlags";
 import { ROUTES } from "@/lib/routePaths";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,7 +41,7 @@ import { useIndustryFeatures, type ModuleKey } from "@/hooks/useIndustryFeatures
 // Phase Plugin-3: Menu Engine — Plugin 기반 사이드바 동적 생성
 import { useDomainPlugin } from "@/domain/useDomainPlugin";
 import { buildMenuFromPlugin, getIcon } from "@/domain/engines/clientMenuEngine";
-import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, buildHubMenu, CONSOLIDATED_PLACEMENTS, type MenuPlacement } from "@shared/navigation/menuRegistry";
+import { selectTabMenu, isChildRouteOf, DEMO_ALLOWED_PATHS, buildHubMenu, CONSOLIDATED_PLACEMENTS, AGENT_PLACEMENT, canSeeAgent, type MenuPlacement } from "@shared/navigation/menuRegistry";
 import HubSidebarMenu, { type HubMenuEntry } from "./HubSidebarMenu";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import { cn } from "@/lib/utils";
@@ -73,6 +74,8 @@ type MenuItem = {
   /** 이 메뉴를 표시하려면 활성이어야 하는 업종 모듈 */
   requireModule?: ModuleKey;
   category?: string;
+  /** 허브 안 소구역 제목 (허브 사이드바 전용) */
+  section?: string;
 };
 import {
   DndContext,
@@ -643,7 +646,11 @@ function DashboardLayoutContent({
 
   
   // 모든 메뉴 통합 (즐겨찾기 검색용 + activeMenuItem 판별용)
-  const allMenuItems = [...menuItems, ...accountingMenuItems, ...workMenuItems, ...superAdminMenuItems];
+  // 자동화 에이전트 — 허용 이메일 사용자에게만 (기존 하단 버튼과 같은 조건). 허브 사이드바에서는 플랫폼 허브 'AI·자동화'
+  const agentMenuItems: MenuItem[] = user && canSeeAgent(user.email)
+    ? [{ icon: getIcon(AGENT_PLACEMENT.icon), label: AGENT_PLACEMENT.label, path: AGENT_PLACEMENT.path, roles: [user.role], section: AGENT_PLACEMENT.section }]
+    : [];
+  const allMenuItems = [...menuItems, ...accountingMenuItems, ...workMenuItems, ...superAdminMenuItems, ...agentMenuItems];
 
   // activeMenuItem: 모든 메뉴에서 정확한 경로 매칭을 먼저 시도하고, 없으면 가장 긴 접두사 매칭
   const activeMenuItem = (() => {
@@ -778,7 +785,7 @@ function DashboardLayoutContent({
     return exact || child || (!hasOtherExact && location.startsWith(path + "/"));
   };
   const hubSections = hubMode
-    ? buildHubMenu(displayedMenuItems.filter((item: MenuItem) => user && item.roles?.includes(user.role)).map((i: MenuItem) => ({ ...i, roles: i.roles ?? [] })))
+    ? buildHubMenu([...displayedMenuItems, ...agentMenuItems].filter((item: MenuItem) => user && item.roles?.includes(user.role)).map((i: MenuItem) => ({ ...i, roles: i.roles ?? [] })))
     : [];
   const toggleFavorite = (entry: HubMenuEntry) => {
     const fav = favorites.find((f: FavoriteItem) => f.menuPath === entry.path);
@@ -1126,8 +1133,8 @@ function DashboardLayoutContent({
               </button>
             )}
 
-            {/* 생산 자동화 에이전트 — 허용된 이메일만 표시 */}
-            {user && ["ipmachum@gmail.com", "sokoorymall@naver.com", "dduckdanji@naver.com", "danjimall@naver.com", "sokoorymall1@naver.com"].includes(user.email) && (
+            {/* 생산 자동화 에이전트 — 허용된 이메일만. 허브 사이드바에서는 플랫폼 허브 'AI·자동화' 로 이동 (2026-10-14), 탭 사이드바(플래그 off)에서만 하단 유지 */}
+            {!hubMode && user && canSeeAgent(user.email) && (
               <button
                 onClick={() => setLocation("/dashboard/agent")}
                 title="생산 자동화 에이전트"
@@ -1170,10 +1177,7 @@ function DashboardLayoutContent({
               <SubscriptionInfo isCollapsed={isCollapsed} />
             )}
 
-            {/* 출퇴근 위젯 (작업자 이상) */}
-            {user && ["worker", "admin", "super_admin", "inspector"].includes(user.role) && (
-              <ClockInOutWidget isCollapsed={isCollapsed} />
-            )}
+            {/* 출퇴근은 상단 헤더로 이동 (2026-10-14 대표 지시) — HeaderAttendance. 근태 API·권한 그대로 */}
 
             {/* 유저 프로필 - 컴팩트 */}
             <DropdownMenu>
@@ -1241,7 +1245,10 @@ function DashboardLayoutContent({
                 {activeMenuItem?.label ?? "Menu"}
               </span>
             </div>
-            <NotificationDropdown />
+            <div className="flex items-center gap-1">
+              {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance compact />}
+              <NotificationDropdown />
+            </div>
           </div>
         )}
         {!isMobile && (
@@ -1251,7 +1258,9 @@ function DashboardLayoutContent({
                 {activeMenuItem?.label ?? ""}
               </span>
             </div>
+            {/* 헤더 우측 = 전역 공통 도구 영역 (출퇴근 · 알림) */}
             <div className="flex items-center gap-2">
+              {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance />}
               <NotificationDropdown />
             </div>
           </div>
@@ -1262,85 +1271,5 @@ function DashboardLayoutContent({
         <main className="flex-1 min-w-0 w-full px-3 py-4 md:px-5 md:py-5">{children}</main>
       </SidebarInset>
     </>
-  );
-}
-
-/* ═══════════════════════════════════════════
-   출퇴근 위젯 (사이드바 프로필 위)
-   ═══════════════════════════════════════════ */
-function ClockInOutWidget({ isCollapsed }: { isCollapsed: boolean }) {
-  const { data: myToday, refetch } = trpc.hr.myToday.useQuery(undefined, {
-    refetchInterval: 30000,
-    retry: 1,
-  });
-  const clockInMut = trpc.hr.clockIn.useMutation({
-    onSuccess: () => refetch(),
-  });
-  const clockOutMut = trpc.hr.clockOut.useMutation({
-    onSuccess: () => refetch(),
-  });
-
-  if (isCollapsed) {
-    // 접힌 상태: 아이콘만
-    return (
-      <div className="flex justify-center py-1.5">
-        {myToday ? (
-          myToday.clockOut ? (
-            <div className="h-6 w-6 rounded-full bg-blue-100 flex items-center justify-center" title={`퇴근 ${myToday.clockOut}`}>
-              <CheckCircle className="h-3 w-3 text-blue-600" />
-            </div>
-          ) : (
-            <button onClick={() => clockOutMut.mutate()}
-              className="h-6 w-6 rounded-full bg-red-100 hover:bg-red-200 flex items-center justify-center transition" title="퇴근하기">
-              <LogOut className="h-3 w-3 text-red-600" />
-            </button>
-          )
-        ) : (
-          <button onClick={() => clockInMut.mutate()}
-            className="h-6 w-6 rounded-full bg-emerald-100 hover:bg-emerald-200 flex items-center justify-center transition" title="출근하기">
-            <LogIn className="h-3 w-3 text-emerald-600" />
-          </button>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="px-2 py-1.5 border-t border-sidebar-border space-y-1">
-      {/* 출근 버튼/상태 */}
-      <div className="flex items-center gap-1.5">
-        {myToday ? (
-          <div className="flex items-center gap-1 flex-1 min-w-0">
-            <LogIn className="h-3 w-3 text-emerald-600 shrink-0" />
-            <span className="text-[10px] font-bold text-emerald-700">출근</span>
-            <span className="text-[10px] font-mono text-emerald-600">{myToday.clockIn?.slice(0, 5)}</span>
-          </div>
-        ) : (
-          <button onClick={() => clockInMut.mutate()} disabled={clockInMut.isPending}
-            className="w-full text-[10px] py-1.5 rounded-md bg-emerald-500 text-white hover:bg-emerald-600 font-bold transition flex items-center justify-center gap-1.5 shadow-sm">
-            <LogIn className="h-3.5 w-3.5" /> 출근
-          </button>
-        )}
-      </div>
-
-      {/* 퇴근 버튼/상태 (출근 후에만) */}
-      {myToday && (
-        <div className="flex items-center gap-1.5">
-          {myToday.clockOut ? (
-            <div className="flex items-center gap-1 flex-1 min-w-0">
-              <LogOut className="h-3 w-3 text-blue-600 shrink-0" />
-              <span className="text-[10px] font-bold text-blue-700">퇴근</span>
-              <span className="text-[10px] font-mono text-blue-600">{myToday.clockOut?.slice(0, 5)}</span>
-              <span className="text-[9px] text-muted-foreground ml-auto">{myToday.workHours.toFixed(1)}h</span>
-            </div>
-          ) : (
-            <button onClick={() => clockOutMut.mutate()} disabled={clockOutMut.isPending}
-              className="w-full text-[10px] py-1.5 rounded-md bg-rose-500 text-white hover:bg-rose-600 font-bold transition flex items-center justify-center gap-1.5 shadow-sm">
-              <LogOut className="h-3.5 w-3.5" /> 퇴근
-            </button>
-          )}
-        </div>
-      )}
-    </div>
   );
 }

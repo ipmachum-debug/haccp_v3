@@ -20,7 +20,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Crown, UserCheck, Building, LayoutDashboard, Package, Calendar, FileCode,
   Shield, ClipboardCheck, ListChecks, Warehouse, Bell, CheckCircle, FileText,
-  Database, Sparkles, FlaskConical, Tag, Truck, Thermometer, GitBranch,
+  Database, Sparkles, Bot, FlaskConical, Tag, Truck, Thermometer, GitBranch,
   AlertCircle, AlertTriangle, GraduationCap, Sliders, Activity, TrendingUp,
   FileWarning, Building2, Settings, ArrowLeftRight, Pill, ChefHat, Syringe,
   Factory, Wheat, SearchCheck, Users,
@@ -33,7 +33,7 @@ import {
 export const ICON_MAP: Record<string, LucideIcon> = {
   Crown, UserCheck, Building, LayoutDashboard, Package, Calendar, FileCode,
   Shield, ClipboardCheck, ListChecks, Warehouse, Bell, CheckCircle, FileText,
-  Database, Sparkles, FlaskConical, Tag, Truck, Thermometer, GitBranch,
+  Database, Sparkles, Bot, FlaskConical, Tag, Truck, Thermometer, GitBranch,
   AlertCircle, AlertTriangle, GraduationCap, Sliders, Activity, TrendingUp,
   FileWarning, Building2, Settings, ArrowLeftRight, Pill, ChefHat, Syringe,
   Factory, Wheat, SearchCheck, Users,

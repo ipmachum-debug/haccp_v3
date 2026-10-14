@@ -86,11 +86,17 @@ export default function HubSidebarMenu({
             )}
             <CollapsibleContent>
               <div className={cn("flex flex-col gap-0.5", !isCollapsed && "pl-2 pb-1")}>
-                {items.map((item) => {
+                {items.map((item, i) => {
                   const active = isActivePath(item.path);
                   const fav = isFavorite(item.path);
+                  // 소구역 제목 (예: 플랫폼 허브의 'AI·자동화') — 앞 항목과 소구역이 바뀔 때만
+                  const showSection = !isCollapsed && !!item.section && item.section !== items[i - 1]?.section;
                   return (
-                    <SidebarMenuItem key={item.path}>
+                    <div key={item.path}>
+                    {showSection && (
+                      <p className="px-2 pt-2 pb-0.5 text-[10px] font-semibold text-sidebar-foreground/45 tracking-wide">{item.section}</p>
+                    )}
+                    <SidebarMenuItem>
                       <div className="flex items-center gap-1 w-full">
                         <SidebarMenuButton
                           isActive={active}
@@ -118,6 +124,7 @@ export default function HubSidebarMenu({
                         )}
                       </div>
                     </SidebarMenuItem>
+                    </div>
                   );
                 })}
               </div>
