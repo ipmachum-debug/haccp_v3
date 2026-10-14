@@ -27,6 +27,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 import { todayLocal } from "../../lib/dateUtils";
 import { ApprovalStampBox } from "@/components/checklist/ApprovalStampBox";
+import { designatedApprovers, approvalOnRewrite } from "@/lib/checklist/approvalNames";
 
 import {
   ArrowLeft,
@@ -141,6 +142,9 @@ export default function EmployeeHealthCheckForm() {
     { documentType: "employee_health_check" },
     { retry: false }
   );
+
+  // 현재 담당자 — 저장된 과거 직인과 무관하게 계산 (재작성 저장 때 다음 결재자로만, 2026-10-15 Codex #512 검증)
+  const designated = useMemo(() => designatedApprovers(approvalSetting as any, activeEmployees as any), [approvalSetting, activeEmployees]);
 
   // 기존 데이터 로드 (편집 모드)
   const { data: existingRecord } = trpc.genericChecklist.getById.useQuery(
@@ -405,6 +409,9 @@ export default function EmployeeHealthCheckForm() {
     console.log("[EmployeeHealthCheckForm] handleSave 시작", { savedRecordId, checkDate });
     setIsSaving(true);
     try {
+      // 재작성(승인 절차가 진행된 문서 수정)이면 검토·승인 직인을 지우고 다음 검토자·승인자는 현재 담당자로 — 공통 양식과 같은 규칙
+      const wasNonDraft = !!savedRecordId && approvalStatus !== "draft";
+      const ap = wasNonDraft ? approvalOnRewrite(approval as any, designated) : approval;
       // 전체 폼 데이터를 formData에 저장
       const formData = {
         checkDate,
@@ -413,18 +420,18 @@ export default function EmployeeHealthCheckForm() {
         specialNotes,
         actionBy,
         approval: {
-          writerId: approval.writerId,
-          writerName: approval.writerName,
-          reviewerId: approval.reviewerId,
-          reviewerName: approval.reviewerName,
-          approverId: approval.approverId,
-          approverName: approval.approverName,
+          writerId: ap.writerId,
+          writerName: ap.writerName,
+          reviewerId: ap.reviewerId,
+          reviewerName: ap.reviewerName,
+          approverId: ap.approverId,
+          approverName: ap.approverName,
           writerApproved: true,
-          reviewerApproved: approval.reviewerApproved,
-          approverApproved: approval.approverApproved,
+          reviewerApproved: ap.reviewerApproved,
+          approverApproved: ap.approverApproved,
           writerDate: new Date().toLocaleDateString("ko-KR"),
-          reviewerDate: approval.reviewerDate,
-          approverDate: approval.approverDate,
+          reviewerDate: ap.reviewerDate,
+          approverDate: ap.approverDate,
         },
       };
 
@@ -463,7 +470,7 @@ export default function EmployeeHealthCheckForm() {
       // 서버 정책: 승인대기·승인완료·반려 문서를 고치면 재작성(작성중) — 검토·승인 직인 제거, 진행 중 승인 요청 취소
       if (result?.reopened) {
         setApprovalStatus("draft");
-        setApproval(prev => ({ ...prev, reviewerApproved: false, approverApproved: false, reviewerDate: undefined, approverDate: undefined }));
+        setApproval(prev => approvalOnRewrite(prev as any, designated) as any);
         toast({ title: "재작성 상태로 전환", description: "승인 절차가 진행된 문서를 고쳐 작성중으로 돌아갔습니다. 다시 승인 요청하세요." });
       }
 

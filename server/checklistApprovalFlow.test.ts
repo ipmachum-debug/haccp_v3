@@ -182,3 +182,32 @@ describe("결재란 — 2줄 공통 컴포넌트 (대표 요청)", async () => {
     }
   });
 });
+
+describe("건강일지 재작성 — 다음 결재자는 현재 담당자 (Codex #512 검증)", async () => {
+  const { designatedApprovers, approvalOnRewrite } = await import("../client/src/lib/checklist/approvalNames");
+  const EMP = [{ id: 19, name: "한상갑" }, { id: 21, name: "이정언", approvalRole: "reviewer" }, { id: 22, name: "이준석" }];
+  it("현재 담당자 — 결재 설정 우선, 설정 없으면 직원 결재 역할", () => {
+    expect(designatedApprovers({ authorEmployeeId: 22, reviewerEmployeeId: 21, approverEmployeeId: 19 }, EMP)).toEqual({
+      writer: { id: 22, name: "이준석" }, reviewer: { id: 21, name: "이정언" }, approver: { id: 19, name: "한상갑" },
+    });
+    expect(designatedApprovers(null, EMP)).toEqual({ writer: undefined, reviewer: { id: 21, name: "이정언" }, approver: undefined });
+  });
+  it("#871 재현: 과거 검토자 한상갑(직인) → 재작성 저장 시 검토자 이정언(21), 직인·날짜 해제, 작성자 유지", () => {
+    const stored = { writerName: "CODEX TEST", writerApproved: true, reviewerId: null, reviewerName: "한상갑", reviewerApproved: true, reviewerDate: "2026. 10. 15.", approverId: null, approverName: "한상갑", approverApproved: true, approverDate: "2026. 10. 15." };
+    const d = designatedApprovers({ authorEmployeeId: 22, reviewerEmployeeId: 21, approverEmployeeId: 19 }, EMP);
+    expect(approvalOnRewrite(stored, d)).toEqual({
+      writerName: "CODEX TEST", writerApproved: true,
+      reviewerId: 21, reviewerName: "이정언", reviewerApproved: false, reviewerDate: undefined,
+      approverId: 19, approverName: "한상갑", approverApproved: false, approverDate: undefined,
+    });
+  });
+  it("현재 담당자가 없으면 기존 이름 유지 (직인만 해제)", () => {
+    expect(approvalOnRewrite({ reviewerName: "한상갑", reviewerApproved: true }, {})).toMatchObject({ reviewerName: "한상갑", reviewerApproved: false });
+  });
+  it("건강일지가 재작성 저장에 규칙을 쓴다", () => {
+    const src = readFileSync(join(REPO_ROOT, "client/src/pages/checklist/EmployeeHealthCheckForm.tsx"), "utf-8");
+    expect(src).toMatch(/const ap = wasNonDraft \? approvalOnRewrite\(approval as any, designated\) : approval;/);
+    expect(src).toMatch(/reviewerName: ap\.reviewerName/);
+    expect(src).toMatch(/setApproval\(prev => approvalOnRewrite\(prev as any, designated\) as any\)/);
+  });
+});
