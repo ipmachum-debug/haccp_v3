@@ -7,6 +7,7 @@ import { z } from "zod";
 import { router, tenantRequiredProcedure, adminProcedure } from "../../_core/trpc";
 import { getPool } from "../../db/pool";
 import { logWarn } from "../../utils/logger";
+import { resolveAttendanceScope } from "../../lib/hr/attendanceScope";
 
 // 한국시간 헬퍼 — 서버 TZ 무관하게 항상 KST
 function kstNow(): Date {
@@ -140,13 +141,15 @@ export const hrManagementRouter = router({
       let where = `WHERE a.tenant_id = ? AND a.work_date >= ? AND a.work_date <= ?`;
       const params: any[] = [ctx.tenantId, input.startDate, input.endDate];
 
-      if (input.employeeId) {
+      // 2026-10-14 (0-3): 관리자가 아니면 employeeId 를 넘겨도 본인 근태만 (타인 출퇴근 조회 차단) — attendanceScope.ts
+      const scopedEmployeeId = resolveAttendanceScope({
+        role: ctx.user.role,
+        requestedEmployeeId: input.employeeId,
+        myEmployeeId: isAdmin ? 0 : await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id),
+      });
+      if (scopedEmployeeId != null) {
         where += ` AND a.employee_id = ?`;
-        params.push(input.employeeId);
-      } else if (!isAdmin) {
-        const myEmpId = await resolveEmployeeId(pool, ctx.tenantId, ctx.user.id);
-        where += ` AND a.employee_id = ?`;
-        params.push(myEmpId);
+        params.push(scopedEmployeeId);
       }
 
       // ★ PR-V (2026-05-21) P0 보안 패치: users JOIN 에 tenant_id 필터 추가.

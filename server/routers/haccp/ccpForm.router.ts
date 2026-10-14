@@ -76,6 +76,39 @@ export const ccpFormRouter = router({
         return allRecords;
       }),
 
+    /** 작업일 기준 공식 기록지 목록 — Today "오늘 쓸 기록지" (2026-10-14, 0-1)
+     *  정본은 h_ccp_form_records. 설비행 사본(h_ccp_instances) 이 아니라 기록지 상태로 미작성·제출·승인을 가른다. */
+    listByWorkDate: tenantRequiredProcedure
+      .input(z.object({ workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+      .query(async ({ input, ctx }) => {
+        const { getRawConnection } = await import("../../db/connection");
+        const conn = await getRawConnection();
+        const [rows] = await conn.execute<any[]>(
+          `SELECT f.id, f.ccp_type AS ccpType, f.status, f.batch_id AS batchId,
+                  DATE_FORMAT(f.work_date, '%Y-%m-%d') AS workDate,
+                  b.batch_code AS batchCode, p.product_name AS productName,
+                  (SELECT COUNT(*) FROM h_ccp_form_rows r WHERE r.form_record_id = f.id AND r.tenant_id = f.tenant_id) AS rowCount,
+                  (SELECT COUNT(*) FROM h_ccp_form_rows r WHERE r.form_record_id = f.id AND r.tenant_id = f.tenant_id AND r.is_deviation = 1) AS deviationCount
+           FROM h_ccp_form_records f
+           LEFT JOIN h_batches b ON b.id = f.batch_id AND b.tenant_id = f.tenant_id
+           LEFT JOIN h_products_v2 p ON p.id = f.product_id AND p.tenant_id = f.tenant_id
+           WHERE f.tenant_id = ? AND f.work_date = ?
+           ORDER BY (f.status = 'draft') DESC, f.ccp_type, f.id`,
+          [ctx.tenantId, input.workDate],
+        );
+        return (rows as any[]).map((r) => ({
+          id: Number(r.id),
+          ccpType: String(r.ccpType),
+          status: String(r.status) as "draft" | "submitted" | "approved" | "rejected",
+          batchId: r.batchId != null ? Number(r.batchId) : null,
+          workDate: r.workDate ?? null,
+          batchCode: r.batchCode ?? null,
+          productName: r.productName ?? null,
+          rowCount: Number(r.rowCount ?? 0),
+          deviationCount: Number(r.deviationCount ?? 0),
+        }));
+      }),
+
     /** CCP 기록지 단건 (행 포함) 조회 */
     getById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))

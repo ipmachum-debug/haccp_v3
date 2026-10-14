@@ -187,6 +187,8 @@ export async function getDashboardStats(tenantId?: number) {
     ccpCompleted: ccpCompletedResult.count,
     ccpPending: ccpTotalResult.count - ccpCompletedResult.count,
     lowStockCount: lowStockMaterials.length,
+    /** 테넌트 업무일자 (KST, YYYY-MM-DD) — 클라이언트가 "오늘" 을 자기 시계로 계산하지 않도록 (2026-10-14, 0-1) */
+    businessDate: todayStr,
     pendingApprovalCount,
     todayCcpFormCount,
     todayCcpDraftCount,
