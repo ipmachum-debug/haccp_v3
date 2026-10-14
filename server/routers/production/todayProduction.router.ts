@@ -22,6 +22,32 @@ import { toKSTDate, todayKST, nowKST } from "../../utils/timezone";
 
 export const START_FROM = ["planned", "paused"] as const;
 
+/**
+ * 쓰기 스위치 (2026-10-14, Codex 권고) — 테스트 환경 검증 전에는 운영에서 시작·재출고를 막는다. 기본 꺼짐.
+ *   TODAY_PRODUCTION_WRITE=true            — 전체 켬
+ *   TODAY_PRODUCTION_WRITE_TENANTS="2,5"   — 적어 둔 테넌트만 켬 (TODAY_PRODUCTION_WRITE 보다 우선)
+ * 꺼져 있으면 화면은 P-1 처럼 표시만 하고 기존 생산관리 화면으로 안내한다. 완료(batch.complete)는 기존 화면들이 쓰는
+ * 공용 API 라 서버에서 막지 않고, 오늘의 생산 화면의 완료 버튼만 숨긴다.
+ */
+export function isTodayProductionWriteEnabled(tenantId?: number | null): boolean {
+  const list = process.env.TODAY_PRODUCTION_WRITE_TENANTS?.trim();
+  if (list) {
+    const ids = list.split(",").map((x) => Number(x.trim())).filter((n) => Number.isFinite(n) && n > 0);
+    if (ids.length > 0) return tenantId != null && ids.includes(Number(tenantId));
+  }
+  const flag = process.env.TODAY_PRODUCTION_WRITE?.toLowerCase().trim();
+  return flag === "true" || flag === "1" || flag === "yes";
+}
+
+function assertWriteEnabled(tenantId: number) {
+  if (!isTodayProductionWriteEnabled(tenantId)) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "오늘의 생산 화면의 시작·출고 기능은 검증 중이라 아직 꺼져 있습니다. 기존 생산관리 화면에서 진행해 주세요.",
+    });
+  }
+}
+
 /** 이미 시작된 배치 — 출고를 다시 하지 않고, 누락 줄이 있으면 알려 준다 (복구는 retryIssue) */
 async function alreadyStarted(batchId: number, tenantId: number, head: string) {
   let unissuedLines = 0;
@@ -73,6 +99,9 @@ async function runIssue(batchId: number, batch: any, ctx: any): Promise<IssueRun
 }
 
 export const todayProductionRouter = router({
+  /** 화면이 시작·완료 버튼을 보여 줄지 (서버 스위치와 같은 판정) */
+  writeEnabled: workerProcedure.query(({ ctx }) => ({ enabled: isTodayProductionWriteEnabled(ctx.tenantId) })),
+
   checkStart: workerProcedure
     .input(z.object({ batchId: z.number().int().positive() }))
     .query(async ({ input, ctx }) => {
@@ -87,6 +116,7 @@ export const todayProductionRouter = router({
       acknowledgeShortage: z.boolean().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      assertWriteEnabled(ctx.tenantId);
       const { getBatchById } = await import("../../db");
       const batch: any = await getBatchById(input.batchId, ctx.tenantId);
       if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
@@ -181,6 +211,7 @@ export const todayProductionRouter = router({
   retryIssue: workerProcedure
     .input(z.object({ batchId: z.number().int().positive() }))
     .mutation(async ({ input, ctx }) => {
+      assertWriteEnabled(ctx.tenantId);
       const { getBatchById } = await import("../../db");
       const batch: any = await getBatchById(input.batchId, ctx.tenantId);
       if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
