@@ -46,7 +46,7 @@ vi.mock("./lib/production/batchIssueLock", () => ({
 vi.mock("./db/system/auditApprovalSupplier", () => ({ createAuditLog: vi.fn(async (i: any) => { state.audits.push(i); }) }));
 vi.mock("./lib/production/autoProductionDaily", () => ({ autoRegenerateProductionDaily: vi.fn(async () => undefined) }));
 
-import { todayProductionRouter } from "./routers/production/todayProduction.router";
+import { todayProductionRouter, isTodayProductionWriteEnabled } from "./routers/production/todayProduction.router";
 import { computeShortages, shortageAckNote, isWaterMaterial, type StartLine } from "./lib/production/batchStartValidation";
 
 const caller = () => todayProductionRouter.createCaller({
@@ -58,6 +58,8 @@ const caller = () => todayProductionRouter.createCaller({
 const SHORT = [{ materialId: 579, materialName: "간장", unit: "kg", required: 1.28, available: 0, shortage: 1.28 }];
 
 beforeEach(() => {
+  process.env.TODAY_PRODUCTION_WRITE = "true";
+  delete process.env.TODAY_PRODUCTION_WRITE_TENANTS;
   state.batch = { id: 7, status: "planned", plannedDate: "2026-10-14", createdBy: 4 };
   state.check = { totalLines: 3, pendingLines: 3, issuedLines: 0, unissuedLines: 0, shortages: [], allowNegative: true };
   state.locked = true;
@@ -208,6 +210,34 @@ describe("시작 실패 복구 (Codex #501 검토)", () => {
   it("작업자 권한 밖(inspector)은 재출고 불가", async () => {
     const c = todayProductionRouter.createCaller({ user: { id: 9, role: "inspector", tenantId: 2 }, tenantId: 2 } as any);
     await expect(c.retryIssue({ batchId: 7 })).rejects.toThrow(/작업자 권한/);
+  });
+});
+
+describe("쓰기 스위치 (검증 전 운영 차단)", () => {
+  it("기본(미설정)은 꺼짐 — 시작·재출고 모두 FORBIDDEN, 상태 변경·출고 0", async () => {
+    delete process.env.TODAY_PRODUCTION_WRITE;
+    await expect(caller().start({ batchId: 7 })).rejects.toThrow(/검증 중/);
+    state.batch = { ...state.batch, status: "in_progress" };
+    await expect(caller().retryIssue({ batchId: 7 })).rejects.toThrow(/검증 중/);
+    expect(state.executed).toEqual([]);
+    expect(state.dispatchCalls).toBe(0);
+    expect(await caller().writeEnabled()).toEqual({ enabled: false });
+  });
+
+  it("테넌트 목록이 있으면 그 테넌트만 (전체 플래그보다 우선)", async () => {
+    process.env.TODAY_PRODUCTION_WRITE_TENANTS = "5";
+    expect(isTodayProductionWriteEnabled(2)).toBe(false);
+    expect(isTodayProductionWriteEnabled(5)).toBe(true);
+    process.env.TODAY_PRODUCTION_WRITE_TENANTS = "2, 5";
+    expect(await caller().writeEnabled()).toEqual({ enabled: true });
+    delete process.env.TODAY_PRODUCTION_WRITE;
+    expect(isTodayProductionWriteEnabled(2)).toBe(true);
+    expect(isTodayProductionWriteEnabled(null)).toBe(false);
+  });
+
+  it("읽기(checkStart)는 스위치와 무관", async () => {
+    delete process.env.TODAY_PRODUCTION_WRITE;
+    expect(await caller().checkStart({ batchId: 7 })).toMatchObject({ totalLines: 3 });
   });
 });
 

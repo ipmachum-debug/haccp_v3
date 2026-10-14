@@ -165,6 +165,9 @@ export default function TodayProduction() {
   // ── P-2 (2026-10-14): 쓰기 — ④ 시작(서버 재검증·중복 방지) / ⑥ 완료(관리자, 처리 키) ──
   const { user } = useAuth();
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  // 쓰기 스위치 (서버 env TODAY_PRODUCTION_WRITE[_TENANTS], 기본 꺼짐) — 테스트 환경 검증 전에는 표시만 하고 기존 화면으로 안내
+  const { data: writeFlag } = trpc.todayProduction.writeEnabled.useQuery(undefined, { staleTime: 60_000 });
+  const writeOn = writeFlag?.enabled === true;
   const startable = !!selected && ["planned", "paused"].includes(selected.status);
   const utils = trpc.useUtils();
   const refreshAll = () => Promise.all([
@@ -374,7 +377,7 @@ export default function TodayProduction() {
                     <span className="text-muted-foreground">아직 시작 전입니다. 시작하면 투입 계획대로 원재료가 한 번 자동 출고됩니다.</span>
                   )}
                 </div>
-                {unissued > 0 && (
+                {writeOn && unissued > 0 && (
                   <div className="w-full flex flex-wrap items-center justify-between gap-2 text-xs rounded-md px-2.5 py-1.5 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" data-testid="today-unissued">
                     <span>아직 출고되지 않은 원료 {unissued}줄 — 시작 때 자동출고가 실패했거나 일부만 처리됐습니다. 이미 출고된 줄은 다시 나가지 않습니다.</span>
                     <Button size="sm" variant="outline" onClick={() => retryMut.mutate({ batchId: selected!.id })} disabled={retryMut.isPending} data-testid="today-retry-issue">
@@ -382,7 +385,12 @@ export default function TodayProduction() {
                     </Button>
                   </div>
                 )}
-                {startable && (
+                {startable && !writeOn && (
+                  <Button asChild size="sm" variant="outline" data-testid="today-start-legacy">
+                    <Link href={detailHref}>기존 화면에서 시작 <ExternalLink className="h-3.5 w-3.5 ml-1" /></Link>
+                  </Button>
+                )}
+                {startable && writeOn && (
                   <Button size="sm" onClick={() => startMut.mutate({ batchId: selected!.id })} disabled={startMut.isPending} data-testid="today-start">
                     <Play className="h-3.5 w-3.5 mr-1" />{startMut.isPending ? "확인 중…" : "생산 시작"}
                   </Button>
@@ -469,7 +477,11 @@ export default function TodayProduction() {
                 ) : (
                   <span className="text-muted-foreground">{started ? "실적 수량을 입력하고 완료하면 완제품 LOT 이 생기고 승인 요청이 자동으로 올라갑니다." : "시작 후 진행합니다."}</span>
                 )}
-                {selected?.status === "in_progress" && isAdmin ? (
+                {selected?.status === "in_progress" && !writeOn ? (
+                  <Button asChild size="sm" variant="outline">
+                    <Link href={detailHref}>기존 화면에서 완료 <ExternalLink className="h-3.5 w-3.5 ml-1" /></Link>
+                  </Button>
+                ) : selected?.status === "in_progress" && isAdmin ? (
                   <Button size="sm" onClick={openComplete} data-testid="today-complete"><Flag className="h-3.5 w-3.5 mr-1" />생산 완료</Button>
                 ) : selected?.status === "in_progress" ? (
                   <span className="text-xs text-muted-foreground">완료는 관리자가 처리합니다</span>
