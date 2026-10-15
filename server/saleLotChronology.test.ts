@@ -83,7 +83,7 @@ const lot = (id: number, production_date: string | null, available: number, unit
   status: available > 0.001 ? "available" : "used", ...extra,
 });
 const sale = (id: number, date: string, qty: number) => ({
-  id, tenantId: 2, status: "approved", transactionDate: date, productId: 90, materialId: null, quantity: qty,
+  id, tenantId: 2, status: "pending", transactionDate: date, productId: 90, materialId: null, quantity: qty,
   unit: "개", itemName: "하늘사랑 1.6kg", totalAmount: 903000, taxAmount: 90300, accountingExcluded: 0,
 });
 

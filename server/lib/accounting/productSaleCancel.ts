@@ -1,3 +1,4 @@
+import { documentAmounts, findPostedEntryLines } from "./amountContract";
 import { getDb, withTransaction } from "../../db";
 import { accountingSales } from "../../../drizzle/schema/schema_accounting_extended";
 import { eq, and } from "drizzle-orm";
@@ -49,9 +50,8 @@ export async function cancelProductSale(
   }
 
   // ── 2. 공통 값 ──────────────────────────────────────────
-  const totalAmount = Number(sale.totalAmount || 0);
-  const taxAmount = Number(sale.taxAmount || 0);
-  const supplyAmount = Math.max(0, totalAmount - taxAmount);
+  // 금액 계약 (amountContract): total_amount = 공급가. 역분개는 원 전표를 뒤집고, 이 값은 원 전표가 없을 때만 쓴다.
+  const { supply: supplyAmount, tax: taxAmount, gross: grossAmount } = documentAmounts(sale);
   const docId = `SALE-${saleId}`;
   const cancelDate = todayKST();
 
@@ -200,7 +200,23 @@ export async function cancelProductSale(
       }
     }
 
-    // (D) 매출 역분개 (Entry 1): 차변 매출 + VAT / 대변 AR
+    // (D) 매출 역분개 (Entry 1) — 원 매출 전표를 그대로 뒤집는다 (2026-10-15, amountContract)
+    //   이전엔 total_amount 로 다시 계산했다. 금액 계약이 바뀌면(공급가 → 합계) 옛 전표와 금액이 어긋난다.
+    //   원 전표가 없을 때만 계약대로 계산: 차변 매출(공급가) + 부가세 / 대변 외상매출금(합계).
+    const posted = await findPostedEntryLines(conn, tenantId, `[매출] ${docId}`);
+    const reversalLines: Array<{ accountId: number; accountCode: string; accountName: string; debit: number; credit: number; description: string; partnerId: number | null }> =
+      posted && posted.lines.length > 0
+        ? posted.lines.map((l) => ({
+            accountId: l.account_id, accountCode: l.account_code, accountName: l.account_name,
+            debit: l.credit_amount, credit: l.debit_amount,
+            description: `매출 취소: ${sale.itemName || ""} (${docId})`, partnerId: l.partner_id ?? null,
+          }))
+        : [
+            { accountId: salesRevenueAcc.id, accountCode: salesRevenueAcc.code, accountName: salesRevenueAcc.name, debit: supplyAmount, credit: 0, description: `매출 취소: ${sale.itemName || ""} (${docId})`, partnerId: null },
+            ...(vatAcc && taxAmount > 0 ? [{ accountId: vatAcc.id, accountCode: vatAcc.code, accountName: vatAcc.name, debit: taxAmount, credit: 0, description: `매출 취소 부가세: ${sale.itemName || ""} (${docId})`, partnerId: null }] : []),
+            { accountId: receivableAcc.id, accountCode: receivableAcc.code, accountName: receivableAcc.name, debit: 0, credit: grossAmount, description: `매출 취소: ${sale.itemName || ""} (${docId})`, partnerId: (sale as any).partnerId || null },
+          ];
+    const reversalTotal = Math.round(reversalLines.reduce((a, l) => a + l.debit, 0) * 100) / 100;
     const [salesJeResult] = await conn.execute(
       `INSERT INTO expense_journal_entries
          (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by, posted_at)
@@ -209,47 +225,24 @@ export async function cancelProductSale(
         tenantId,
         cancelDate,
         `[매출취소] ${docId} ${sale.itemName || ""}`,
-        totalAmount,
-        totalAmount,
+        reversalTotal,
+        reversalTotal,
         userId,
       ],
     );
     const salesEntryId = Number((salesJeResult as any).insertId);
 
     let sortOrder = 0;
-    // 차변: 매출 (공급가)
-    await insertJournalLine(conn, {
-      tenantId, journalEntryId: salesEntryId,
-      accountId: salesRevenueAcc.id,
-      accountCode: salesRevenueAcc.code,
-      accountName: salesRevenueAcc.name,
-      debitAmount: supplyAmount, creditAmount: 0,
-      description: `매출 취소: ${sale.itemName || ""} (${docId})`,
-      sortOrder: sortOrder++,
-    });
-    // 차변: 부가세예수금 (세액 있을 때만)
-    if (vatAcc && taxAmount > 0) {
+    for (const l of reversalLines) {
       await insertJournalLine(conn, {
         tenantId, journalEntryId: salesEntryId,
-        accountId: vatAcc.id,
-        accountCode: vatAcc.code,
-        accountName: vatAcc.name,
-        debitAmount: taxAmount, creditAmount: 0,
-        description: `매출 취소 부가세: ${sale.itemName || ""} (${docId})`,
+        accountId: l.accountId, accountCode: l.accountCode, accountName: l.accountName,
+        debitAmount: l.debit, creditAmount: l.credit,
+        description: l.description,
         sortOrder: sortOrder++,
+        partnerId: l.partnerId,
       });
     }
-    // 대변: 외상매출금 (총액)
-    await insertJournalLine(conn, {
-      tenantId, journalEntryId: salesEntryId,
-      accountId: receivableAcc.id,
-      accountCode: receivableAcc.code,
-      accountName: receivableAcc.name,
-      debitAmount: 0, creditAmount: totalAmount,
-      description: `매출 취소: ${sale.itemName || ""} (${docId})`,
-      sortOrder: sortOrder++,
-      partnerId: (sale as any).partnerId || null,
-    });
 
     // (E) COGS 역분개 (Entry 2): 차변 제품재고 / 대변 매출원가
     //     원본 COGS 엔트리를 찾아서 같은 금액으로 역수행

@@ -155,8 +155,10 @@ export const recurringTransactionRouter = router({
       if (!rows[0]) throw new Error("템플릿을 찾을 수 없습니다.");
       const t = rows[0];
 
+      // 금액 계약 (amountContract, 2026-10-15): total_amount = 공급가, tax_amount = 세액.
+      //   이전엔 공급가 + 세액을 total_amount 에 넣어 다른 등록 경로와 뜻이 달랐다.
       const taxAmount = Math.round(Number(t.amount) * 0.1);
-      const totalAmount = Number(t.amount) + taxAmount;
+      const totalAmount = Number(t.amount);
       const table = t.type === "purchase" ? "accounting_purchases" : "accounting_sales";
 
       const [result]: any = await pool.execute(

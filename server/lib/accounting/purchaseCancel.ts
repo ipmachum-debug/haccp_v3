@@ -1,3 +1,4 @@
+import { documentAmounts, findPostedEntryLines } from "./amountContract";
 import { getDb, withTransaction } from "../../db";
 import { accountingPurchases } from "../../../drizzle/schema/schema_accounting_extended";
 import { and, eq, sql } from "drizzle-orm";
@@ -51,9 +52,8 @@ export async function cancelPurchase(
   }
 
   // ── 2. 공통 값 계산 ────────────────────────────────────
-  const totalAmount = Number(purchase.totalAmount || 0);
-  const taxAmount = Number(purchase.taxAmount || 0);
-  const supplyAmount = Math.max(0, totalAmount - taxAmount);
+  // 금액 계약 (amountContract): total_amount = 공급가. 역분개는 원 전표를 뒤집고, 이 값은 원 전표가 없을 때만 쓴다.
+  const { supply: supplyAmount, tax: taxAmount, gross: grossAmount } = documentAmounts(purchase);
   const cancelQty = Number(purchase.quantity || 0);
   const docId = `PURCHASE-${purchaseId}`;
   const cancelDate = todayKST();
@@ -198,7 +198,7 @@ export async function cancelPurchase(
           cancelDate,
           purchaseId,
           purchase.unitPrice?.toString() || "0",
-          totalAmount,
+          supplyAmount, // 재고 금액 = 공급가 (amountContract)
           `[매입취소] ${docId}`,
           userId,
         ],
@@ -242,9 +242,23 @@ export async function cancelPurchase(
       }
     }
 
-    // (E) 회계 역분개 (purchasePost 3라인을 정확히 역순으로)
-    //     원본: 차변 INVENTORY_RAW(공급가) + VAT_INPUT(세액) / 대변 ACCOUNTS_PAYABLE(총액)
-    //     역분개: 차변 ACCOUNTS_PAYABLE(총액) / 대변 INVENTORY_RAW(공급가) + VAT_INPUT(세액)
+    // (E) 회계 역분개 — 원 매입 전표([매입] PURCHASE-<id>)를 그대로 뒤집는다 (2026-10-15, amountContract)
+    //   이전엔 total_amount 로 다시 계산했다. 금액 계약(외상매입금 = 공급가 + 세액) 이전에 전기된 매입은
+    //   전표 금액이 다르므로 원 전표를 뒤집어야 맞물린다. 원 전표가 없을 때만 계약대로 계산.
+    const posted = await findPostedEntryLines(conn, tenantId, `[매입] ${docId}`);
+    const reversalLines: Array<{ accountId: number; accountCode: string; accountName: string; debit: number; credit: number; description: string; partnerId: number | null }> =
+      posted && posted.lines.length > 0
+        ? posted.lines.map((l) => ({
+            accountId: l.account_id, accountCode: l.account_code, accountName: l.account_name,
+            debit: l.credit_amount, credit: l.debit_amount,
+            description: `매입 취소: ${purchase.itemName || ""}`, partnerId: l.partner_id ?? null,
+          }))
+        : [
+            { accountId: payableAcc.id, accountCode: payableAcc.code, accountName: payableAcc.name, debit: grossAmount, credit: 0, description: `매입 취소: ${purchase.itemName || ""}`, partnerId: (purchase as any).partnerId || null },
+            { accountId: inventoryAcc.id, accountCode: inventoryAcc.code, accountName: inventoryAcc.name, debit: 0, credit: supplyAmount, description: `매입 취소: ${purchase.itemName || ""}`, partnerId: null },
+            ...(vatAcc && taxAmount > 0 ? [{ accountId: vatAcc.id, accountCode: vatAcc.code, accountName: vatAcc.name, debit: 0, credit: taxAmount, description: `매입 취소 부가세: ${purchase.itemName || ""}`, partnerId: null }] : []),
+          ];
+    const reversalTotal = Math.round(reversalLines.reduce((a, l) => a + l.debit, 0) * 100) / 100;
     const [jeResult] = await conn.execute(
       `INSERT INTO expense_journal_entries
          (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by, posted_at)
@@ -253,41 +267,22 @@ export async function cancelPurchase(
         tenantId,
         cancelDate,
         `[매입취소] ${docId} ${purchase.itemName || ""}`,
-        totalAmount,
-        totalAmount,
+        reversalTotal,
+        reversalTotal,
         userId,
       ],
     );
     const journalEntryId = Number((jeResult as any).insertId);
 
     let sortOrder = 0;
-    // 차변: 외상매입금 (총액) - partner 연결로 AP 원장 정합성 유지
-    await insertJournalLine(conn, {
-      tenantId, journalEntryId,
-      accountId: payableAcc.id, accountCode: payableAcc.code, accountName: payableAcc.name,
-      debitAmount: totalAmount, creditAmount: 0,
-      description: `매입 취소: ${purchase.itemName || ""}`,
-      sortOrder: sortOrder++,
-      partnerId: (purchase as any).partnerId || null,
-    });
-
-    // 대변: 원재료 (공급가)
-    await insertJournalLine(conn, {
-      tenantId, journalEntryId,
-      accountId: inventoryAcc.id, accountCode: inventoryAcc.code, accountName: inventoryAcc.name,
-      debitAmount: 0, creditAmount: supplyAmount,
-      description: `매입 취소: ${purchase.itemName || ""}`,
-      sortOrder: sortOrder++,
-    });
-
-    // 대변: 부가세대급금 (세액 있을 때만) — ★ 기존 cancel 에서 누락되었던 버그 수정
-    if (vatAcc && taxAmount > 0) {
+    for (const l of reversalLines) {
       await insertJournalLine(conn, {
         tenantId, journalEntryId,
-        accountId: vatAcc.id, accountCode: vatAcc.code, accountName: vatAcc.name,
-        debitAmount: 0, creditAmount: taxAmount,
-        description: `매입 취소 부가세: ${purchase.itemName || ""}`,
+        accountId: l.accountId, accountCode: l.accountCode, accountName: l.accountName,
+        debitAmount: l.debit, creditAmount: l.credit,
+        description: l.description,
         sortOrder: sortOrder++,
+        partnerId: l.partnerId,
       });
     }
 

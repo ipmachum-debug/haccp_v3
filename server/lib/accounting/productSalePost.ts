@@ -6,6 +6,7 @@ import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 import { formatLocalDate } from "../../utils/timezone";
 import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
 import { lotAvailableOnSql, lotDateExpr } from "../inventory/lotChronology";
+import { documentAmounts } from "./amountContract";
 
 /**
  * 제품 매출 POST — 완전 통합 (Module 2, 2026-04-14)
@@ -47,20 +48,25 @@ export async function postProductSale(
   if (!sale) {
     throw new Error(`매출 전표 ID ${saleId} 를 찾을 수 없습니다.`);
   }
-  if (sale.status === "received") {
+  // 이미 확정(approved)·수금(received)된 매출은 다시 확정하지 않는다 — 재고 차감·분개가 두 번 생긴다 (2026-10-15)
+  //   확정은 pending 에서만. 아래 잠금 뒤에도 같은 검사를 다시 한다 (동시 요청).
+  if (sale.status === "approved" || sale.status === "received") {
     return { alreadyProcessed: true };
   }
   if (sale.status === "cancelled") {
     throw new Error(`취소된 매출은 확정할 수 없습니다. (ID: ${saleId})`);
+  }
+  if (sale.status !== "pending") {
+    throw new Error(`확정할 수 없는 상태입니다: ${sale.status} (ID: ${saleId})`);
   }
 
   const tenantId = sale.tenantId;
   if (!tenantId) throw new Error("[보안] tenantId is required for productSalePost");
 
   // ── 2. 공통 값 ──────────────────────────────────────────
-  const totalAmount = Number(sale.totalAmount || 0);
-  const taxAmount = Number(sale.taxAmount || 0);
-  const supplyAmount = Math.max(0, totalAmount - taxAmount);
+  // ★ 2026-10-15 금액 계약 (amountContract): total_amount = 공급가, 합계 = 공급가 + 세액.
+  //   이전엔 total_amount 를 합계로 보고 공급가 = total − tax 로 나눠 외상매출금·매출이 세액만큼 적게 전기됐다.
+  const { supply: supplyAmount, tax: taxAmount, gross: grossAmount } = documentAmounts(sale);
   const saleQty = Number(sale.quantity || 0);
   const docId = `SALE-${saleId}`;
   const productId = (sale as any).productId as number | null;
@@ -170,11 +176,14 @@ export async function postProductSale(
       [saleId, tenantId],
     );
     const currentStatus = (lockRows as any[])[0]?.status;
-    if (currentStatus === "received") {
+    if (currentStatus === "approved" || currentStatus === "received") {
       return { alreadyProcessed: true };
     }
     if (currentStatus === "cancelled") {
       throw new Error(`취소된 매출은 확정할 수 없습니다. (ID: ${saleId})`);
+    }
+    if (currentStatus !== "pending") {
+      throw new Error(`확정할 수 없는 상태입니다: ${currentStatus} (ID: ${saleId})`);
     }
 
     // (A) FEFO 재고 차감 — product_id 또는 material_id 있을 때
@@ -480,21 +489,21 @@ export async function postProductSale(
           tenantId,
           entryDate,
           `[매출] ${docId} ${sale.itemName || ""}`,
-          totalAmount,
-          totalAmount,
+          grossAmount,
+          grossAmount,
           userId,
         ],
       );
       const salesEntryId = Number((salesJeResult as any).insertId);
 
       let sortOrder = 0;
-      // 차변: 외상매출금 (총액)
+      // 차변: 외상매출금 (합계 = 공급가 + 세액)
       await insertJournalLine(conn, {
         tenantId, journalEntryId: salesEntryId,
         accountId: receivableAcc.id,
         accountCode: receivableAcc.code,
         accountName: receivableAcc.name,
-        debitAmount: totalAmount, creditAmount: 0,
+        debitAmount: grossAmount, creditAmount: 0,
         description: `매출: ${sale.itemName || ""} (${docId})`,
         sortOrder: sortOrder++,
         partnerId: (sale as any).partnerId || null,
@@ -584,14 +593,14 @@ export async function postProductSale(
            material_id = COALESCE(material_id, ?),
            posted_at = NOW(),
            posted_by = ?
-       WHERE id = ? AND tenant_id = ?`,
+       WHERE id = ? AND tenant_id = ? AND status = 'pending'`,
       [resolvedProductId, resolvedMaterialId, userId, saleId, tenantId],
     );
 
     console.log(
       `[productSalePost] 매출 #${saleId} 확정 완료 ` +
         `(타입: ${isProductSale ? "제품" : isMaterialSale ? "원재료/부자재/외부제품" : "레거시"}, ` +
-        `매출: ${totalAmount}, COGS: ${cogsAmount}, LOTs: ${usedLots.length}건)`,
+        `매출: ${grossAmount} (공급가 ${supplyAmount} + 세액 ${taxAmount}), COGS: ${cogsAmount}, LOTs: ${usedLots.length}건)`,
     );
     return { alreadyProcessed: false };
   }, `postProductSale:${saleId}`);
