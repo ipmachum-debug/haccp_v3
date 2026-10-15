@@ -79,6 +79,7 @@ export const approvalRouter = router({
       .input(
         z.object({
           status: z.string().optional(),
+          statuses: z.array(z.enum(["pending_writer", "pending_review", "pending_approval", "pending", "approved", "rejected", "cancelled"])).max(10).optional(),
           requestType: z.string().optional(),
           search: z.string().optional(),
           dateFrom: z.string().optional(),

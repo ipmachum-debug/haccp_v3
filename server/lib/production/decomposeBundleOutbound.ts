@@ -23,6 +23,7 @@
 
 import type { PoolConnection } from "mysql2/promise";
 import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
+import { lotAvailableOnSql, lotDateExpr } from "../inventory/lotChronology";
 
 export interface DecomposeBundleParams {
   /** parent SKU id (sku_bundles.parent_sku_id) */
@@ -183,9 +184,11 @@ export async function decomposeBundleOutbound(
          WHERE tenant_id = ?
            AND (sku_id = ? OR (sku_id IS NULL AND product_id = ?))
            AND COALESCE(available_quantity, 0) > 0
+           AND ${lotAvailableOnSql()}
          ORDER BY CASE WHEN sku_id = ? THEN 0 ELSE 1 END, expiry_date ASC, id ASC
          FOR UPDATE`,
-      [tenantId, childSkuId, childProductId ?? -1, childSkuId],
+      // ★ 2026-10-15: 출고일에 있던 LOT 만 (lotChronology)
+      [tenantId, childSkuId, childProductId ?? -1, outboundDate, childSkuId],
     );
 
     let remaining = requiredKg;
@@ -253,10 +256,11 @@ export async function decomposeBundleOutbound(
       const [sinkRows]: any = await conn.execute(
         `SELECT id, lot_number, unit_price FROM h_inventory_lots
            WHERE tenant_id = ? AND (sku_id = ? OR (sku_id IS NULL AND product_id = ?))
-           ORDER BY COALESCE(production_date, receipt_date) DESC, id DESC
+             AND ${lotAvailableOnSql()}
+           ORDER BY ${lotDateExpr()} DESC, id DESC
            LIMIT 1
            FOR UPDATE`,
-        [tenantId, childSkuId, childProductId ?? -1],
+        [tenantId, childSkuId, childProductId ?? -1, outboundDate],
       );
       let sink = (sinkRows as any[])[0] as { id: number; lot_number: string; unit_price: any } | undefined;
       if (!sink) {

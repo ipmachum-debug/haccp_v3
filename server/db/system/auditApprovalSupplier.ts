@@ -249,6 +249,8 @@ export async function createApprovalRequest(data: {
 export async function getApprovalRequests(filters?: {
   tenantId: number;
   status?: string;
+  /** 여러 상태 중 하나 (처리이력 "전체" = approved/rejected/cancelled) — 목록·총건수가 같은 조건을 쓰도록 (2026-10-15) */
+  statuses?: string[];
   requestType?: string;
   requestedBy?: number;
   search?: string;
@@ -265,6 +267,9 @@ export async function getApprovalRequests(filters?: {
   }
   if (filters?.status) {
     conditions.push(eq(hApprovalRequests.status, filters.status as any));
+  }
+  if (filters?.statuses && filters.statuses.length > 0) {
+    conditions.push(inArray(hApprovalRequests.status, filters.statuses as any));
   }
   if (filters?.requestType) {
     conditions.push(eq(hApprovalRequests.requestType, filters.requestType));
@@ -373,6 +378,7 @@ export async function getApprovalRequests(filters?: {
 export async function getApprovalRequestsCount(filters?: {
   tenantId: number;
   status?: string;
+  statuses?: string[];
   requestType?: string;
   requestedBy?: number;
   search?: string;
@@ -384,6 +390,7 @@ export async function getApprovalRequestsCount(filters?: {
   const conditions: any[] = [];
   if (filters?.tenantId) conditions.push(eq(hApprovalRequests.tenantId, filters.tenantId));
   if (filters?.status) conditions.push(eq(hApprovalRequests.status, filters.status as any));
+  if (filters?.statuses && filters.statuses.length > 0) conditions.push(inArray(hApprovalRequests.status, filters.statuses as any));
   if (filters?.requestType) conditions.push(eq(hApprovalRequests.requestType, filters.requestType));
   if (filters?.requestedBy) conditions.push(eq(hApprovalRequests.requestedBy, filters.requestedBy));
   if (filters?.search && filters.search.trim() !== "") {
