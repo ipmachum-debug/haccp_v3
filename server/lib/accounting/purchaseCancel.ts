@@ -161,12 +161,13 @@ export async function cancelPurchase(
            SET available_quantity = GREATEST(0, available_quantity - ?),
                current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
                status = CASE
-                 WHEN GREATEST(0, available_quantity - ?) <= 0.001 THEN 'disposed'
+                 WHEN available_quantity <= 0.001 THEN 'disposed'
                  ELSE status
                END,
                updated_at = NOW()
            WHERE id = ? AND tenant_id = ?`,
-          [cancelQty, cancelQty, cancelQty, lotId, tenantId],
+          // ★ 2026-10-15: status 는 이미 줄어든 available_quantity 로 판단 (MySQL 단일 테이블 UPDATE 좌→우 평가)
+          [cancelQty, cancelQty, lotId, tenantId],
         );
 
         // B-2b. ★ P2: 집계(h_inventory) 자가 치유 — LOT 정본으로 재계산.

@@ -41,8 +41,8 @@ const exec = vi.fn(async (q: string, p: any[] = []) => {
     return [c.slice(0, 1).map((l) => ({ id: l.id, unit_price: l.unit_price }))];
   }
   if (/UPDATE h_inventory_lots/.test(q)) {
-    const [qty, , ...rest] = p;
-    const id = /GREATEST\(0, available_quantity - \?\)/.test(q) ? rest[1] : rest[0];
+    const qty = p[0];
+    const id = p[p.length - 2]; // ... WHERE id = ? AND tenant_id = ?
     const l = st.lots.find((x) => x.id === id)!;
     l.available_quantity = /GREATEST/.test(q) ? Math.max(0, l.available_quantity - qty) : l.available_quantity - qty;
     return [{ affectedRows: 1 }];

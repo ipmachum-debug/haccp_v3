@@ -107,8 +107,9 @@ describe("reconcileNegativeLots", () => {
 
     const updates = calls.filter((c) => c.sql.startsWith("UPDATE h_inventory_lots"));
     expect(updates).toHaveLength(2); // 양수 LOT 차감 1 + 음수 LOT 복원 1 (자리표시 아님 → used 전환 없음)
-    expect(updates[0].params.slice(0, 3)).toEqual([9.77, 9.77, 9.77]);
-    expect(updates[0].params[3]).toBe(51);
+    // 2026-10-16: status 는 이미 줄어든 available_quantity 로 판단 — 바인딩은 차감량 2개 (MySQL 좌→우 평가)
+    expect(updates[0].params.slice(0, 2)).toEqual([9.77, 9.77]);
+    expect(updates[0].params[2]).toBe(51);
     expect(updates[1].params[2]).toBe(50);
 
     const inserts = calls.filter((c) => c.sql.startsWith("INSERT INTO h_inventory_transactions"));

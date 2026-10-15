@@ -354,12 +354,14 @@ export async function postProductSale(
            SET available_quantity = GREATEST(0, available_quantity - ?),
                current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
                status = CASE
-                 WHEN GREATEST(0, available_quantity - ?) <= 0.001 THEN 'used'
+                 WHEN available_quantity <= 0.001 THEN 'used'
                  ELSE status
                END,
                updated_at = NOW()
            WHERE id = ? AND tenant_id = ?`,
-          [takeQty, takeQty, takeQty, lot.id, tenantId],
+          // ★ 2026-10-15: MySQL 단일 테이블 UPDATE 는 앞에서 바꾼 값을 뒤 식이 읽는다 — status 는 이미 줄어든
+          //   available_quantity 로 판단 (이전: 한 번 더 빼서 358−240=118 남아도 'used', lotStatusAfterDeduct 테스트)
+          [takeQty, takeQty, lot.id, tenantId],
         );
 
         // 재고 원장에 usage 기록 (양수 quantity + transaction_type='usage')

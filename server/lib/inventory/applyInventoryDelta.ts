@@ -209,10 +209,12 @@ export async function applyLotDelta(
       // (2-a) 음수 허용 (negativeStockPolicy): 원장에 적는 양과 LOT 에서 빠지는 양을 같게 유지.
       //       GREATEST(0) 클램프를 두면 원장은 qty, LOT 는 avail 만 줄어 둘이 어긋난다.
       await conn.execute(
+        // ★ 2026-10-15: MySQL 단일 테이블 UPDATE 는 앞에서 바꾼 값을 뒤 식이 읽는다 — current_quantity 를 quantity 보다
+        //   먼저 (이전: COALESCE(current_quantity, quantity) 가 이미 줄어든 quantity 를 읽어 NULL 이면 두 번 빠짐)
         `UPDATE h_inventory_lots
-           SET quantity = quantity - ?,
+           SET current_quantity = COALESCE(current_quantity, quantity) - ?,
+               quantity = quantity - ?,
                available_quantity = available_quantity - ?,
-               current_quantity = COALESCE(current_quantity, quantity) - ?,
                updated_at = NOW()
          WHERE id = ?`,
         [qty, qty, qty, p.lotId],
@@ -220,23 +222,25 @@ export async function applyLotDelta(
     } else {
       // (2-b) LOT 차감(GREATEST 방어) — 소진 시 status='used'
       await conn.execute(
+        // ★ 2026-10-15: 좌→우 평가 — current_quantity 먼저(원래 quantity 기준), status 는 이미 줄어든 available_quantity 로
         `UPDATE h_inventory_lots
-           SET quantity = GREATEST(0, quantity - ?),
+           SET current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
+               quantity = GREATEST(0, quantity - ?),
                available_quantity = GREATEST(0, available_quantity - ?),
-               current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
-               status = CASE WHEN GREATEST(0, available_quantity - ?) <= ? THEN 'used' ELSE status END,
+               status = CASE WHEN available_quantity <= ? THEN 'used' ELSE status END,
                updated_at = NOW()
          WHERE id = ?`,
-        [qty, qty, qty, qty, EPS, p.lotId],
+        [qty, qty, qty, EPS, p.lotId],
       );
     }
   } else {
     // 증가(반품 복원/입고-기존LOT) — status 를 available 로 되돌림
     await conn.execute(
+      // ★ 2026-10-15: current_quantity 를 quantity 보다 먼저 (좌→우 평가 — 이전엔 NULL 이면 두 번 더해짐)
       `UPDATE h_inventory_lots
-         SET quantity = quantity + ?,
+         SET current_quantity = COALESCE(current_quantity, quantity) + ?,
+             quantity = quantity + ?,
              available_quantity = available_quantity + ?,
-             current_quantity = COALESCE(current_quantity, quantity) + ?,
              status = CASE WHEN status IN ('used','expired') THEN 'available' ELSE status END,
              updated_at = NOW()
          WHERE id = ?`,

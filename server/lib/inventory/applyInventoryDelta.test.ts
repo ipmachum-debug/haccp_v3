@@ -125,7 +125,9 @@ describe("applyLotDelta", () => {
     });
     expect(res.remaining).toBe(12);
     // LOT 차감 UPDATE
-    expect(calls.some((c) => /UPDATE h_inventory_lots SET quantity = GREATEST/i.test(c.sql))).toBe(true);
+    // 2026-10-16: current_quantity 를 quantity 보다 먼저 (MySQL 좌→우 평가), status 는 줄어든 available_quantity 로
+    expect(calls.some((c) => /UPDATE h_inventory_lots SET current_quantity = GREATEST\(0, COALESCE\(current_quantity, quantity\) - \?\), quantity = GREATEST/i.test(c.sql))).toBe(true);
+    expect(calls.some((c) => /status = CASE WHEN available_quantity <= \? THEN 'used'/i.test(c.sql))).toBe(true);
     // 원장: 양수 quantity(=8)
     const led = calls.find((c) => /INSERT INTO h_inventory_transactions/i.test(c.sql));
     expect(led).toBeTruthy();

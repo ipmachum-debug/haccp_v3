@@ -613,10 +613,11 @@ async function createBatchInput(
       `UPDATE h_inventory_lots
        SET available_quantity = available_quantity - ?,
            current_quantity = current_quantity - ?,
-           status = IF(available_quantity - ? <= 0, 'used', status),
+           status = IF(available_quantity <= 0, 'used', status),
            updated_at = NOW()
        WHERE id = ?`,
-      [deduct, deduct, deduct, lot.id]
+      // ★ 2026-10-15: status 는 이미 줄어든 available_quantity 로 판단 (MySQL 단일 테이블 UPDATE 좌→우 평가)
+      [deduct, deduct, lot.id]
     );
     remainingQty -= deduct;
   }
@@ -835,10 +836,11 @@ async function createOutbound(
   await conn.execute(
     `UPDATE h_inventory_lots
      SET available_quantity = GREATEST(available_quantity - ?, 0),
-         status = IF(available_quantity - ? <= 0, 'used', status),
+         status = IF(available_quantity <= 0, 'used', status),
          updated_at = NOW()
      WHERE id = ?`,
-    [params.qty, params.qty, params.lotId]
+    // ★ 2026-10-15: status 는 이미 줄어든 available_quantity 로 판단 (MySQL 단일 테이블 UPDATE 좌→우 평가)
+    [params.qty, params.lotId]
   );
 
   // 출고 레코드

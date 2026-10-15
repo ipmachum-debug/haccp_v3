@@ -97,10 +97,11 @@ export async function reconcileNegativeLots(
         `UPDATE h_inventory_lots
             SET available_quantity = available_quantity - ?,
                 current_quantity = COALESCE(current_quantity, quantity) - ?,
-                status = CASE WHEN available_quantity - ? <= ${EPS} THEN 'used' ELSE status END,
+                status = CASE WHEN available_quantity <= ${EPS} THEN 'used' ELSE status END,
                 updated_at = NOW()
           WHERE id = ? AND tenant_id = ?`,
-        [take, take, take, pos.id, p.tenantId],
+        // ★ 2026-10-15: status 는 이미 줄어든 available_quantity 로 판단 (MySQL 단일 테이블 UPDATE 좌→우 평가)
+        [take, take, pos.id, p.tenantId],
       );
       await conn.execute(
         `UPDATE h_inventory_lots
