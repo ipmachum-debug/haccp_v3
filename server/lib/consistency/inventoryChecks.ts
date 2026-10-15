@@ -2,7 +2,7 @@
  * 재고 정합성 검증
  * ═══════════════════════════════════════════════════════════════
  * 검증 항목:
- *   INV_NEG_STOCK         — ★ 재고 음수 (절대 금지)
+ *   INV_NEG_STOCK         — 재고 음수 LOT (허용 정책 — 입고 전 투입분, 다음 입고 시 상쇄)
  *   INV_AVAIL_GT_CURRENT  — available > current
  *   INV_LOT_VS_TX         — LOT 잔량 합 ≠ 거래원장 집계
  *   INV_NULL_MATERIAL     — material_id NULL LOT
@@ -20,7 +20,10 @@ const SAMPLE_LIMIT = 20;
 const TOLERANCE = 0.001; // 부동소수 허용 오차
 
 /**
- * ★ 재고 음수 검증 (절대 금지 - 핵심 원칙)
+ * 재고 음수 LOT 목록 (2026-10-15 문구 정정)
+ * 음수 재고는 허용 정책이다 — 재고가 모자라면 최신 LOT 를 음수로 차감하고("입고 전 투입, 다음 입고 시 자동 상쇄")
+ * 다음 입고가 상쇄한다. 이 점검은 "아직 상쇄되지 않은 입고 대기분" 을 보여 주는 것이지 오류 판정이 아니다.
+ * 수량을 0 으로 보정하거나 차감을 GREATEST(0, …) 로 막지 않는다 (투입 기록·원가가 사라진다).
  * current_quantity < 0 OR available_quantity < 0
  */
 export async function checkNegativeStock(
@@ -53,11 +56,11 @@ export async function checkNegativeStock(
 
   return {
     code: "INV_NEG_STOCK",
-    title: "★ 재고 음수 LOT (절대 금지)",
-    severity: "critical",
+    title: "음수 재고 LOT (입고 대기 — 다음 입고 시 상쇄)",
+    severity: "medium",
     count: Number(countRows[0]?.cnt || 0),
     samples: rows,
-    message: "재고 수량이 음수인 LOT 가 있습니다. 차감 로직에 GREATEST(0, ...) 방어가 필요합니다.",
+    message: "재고가 모자란 상태에서 투입·출고해 음수가 된 LOT 입니다 (허용 정책). 빠진 매입·입고를 등록하면 자동 상쇄됩니다. 수량을 0 으로 바꾸지 마세요.",
   };
 }
 

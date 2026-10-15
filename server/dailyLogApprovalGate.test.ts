@@ -9,6 +9,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const st = vi.hoisted(() => ({
   formData: null as any,
+  formByRecord: {} as Record<number, any>, // 요청 번호 = 문서 번호로 두고 문서별 양식 (혼합 일괄 처리용)
   formType: "daily_log",
   writes: [] as string[],
   approveRequest: vi.fn(async () => ({ success: true })),
@@ -18,8 +19,13 @@ const isWrite = (q: string) => /^\s*(UPDATE|INSERT|DELETE)\b/i.test(q);
 const rawExec = vi.fn(async (q: string, p: any[] = []) => {
   if (isWrite(q)) { st.writes.push(q.trim().split("\n")[0]); return [{ affectedRows: 1, insertId: 1 }]; }
   const tenantOk = p.includes(2);
-  if (/SELECT reference_type, reference_id FROM h_approval_requests/.test(q)) return [tenantOk ? [{ reference_type: "checklist", reference_id: 872 }] : []];
-  if (/SELECT id, form_type, form_data FROM h_generic_checklist_records/.test(q)) return [tenantOk ? [{ id: 872, form_type: st.formType, form_data: JSON.stringify(st.formData) }] : []];
+  if (/SELECT reference_type, reference_id FROM h_approval_requests/.test(q)) {
+    return [tenantOk ? [{ reference_type: "checklist", reference_id: st.formByRecord[p[0]] !== undefined ? p[0] : 872 }] : []];
+  }
+  if (/SELECT id, form_type, form_data FROM h_generic_checklist_records/.test(q)) {
+    const fd = st.formByRecord[p[0]] !== undefined ? st.formByRecord[p[0]] : st.formData;
+    return [tenantOk ? [{ id: p[0], form_type: st.formType, form_data: JSON.stringify(fd) }] : []];
+  }
   if (/SELECT id, status, requested_by, tenant_id/.test(q)) return [[{ id: p[0], status: "pending_writer", requested_by: 4, tenant_id: 2 }]];
   if (/SELECT id, status, requested_by\s+FROM h_approval_requests/.test(q)) return [p.slice(1).map((id: number) => ({ id, status: "pending_writer", requested_by: 4 }))];
   if (/SELECT id FROM h_approval_requests WHERE id = \? AND tenant_id = \?/.test(q)) return [tenantOk ? [{ id: p[0] }] : []];
@@ -79,7 +85,7 @@ const FULL = {
 const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v));
 
 beforeEach(() => {
-  st.formData = clone(EMPTY_872); st.formType = "daily_log"; st.writes = [];
+  st.formData = clone(EMPTY_872); st.formType = "daily_log"; st.writes = []; st.formByRecord = {};
   st.approveRequest.mockClear();
   vi.spyOn(console, "log").mockImplementation(() => {});
   vi.spyOn(console, "error").mockImplementation(() => {});
@@ -151,6 +157,36 @@ describe("빈 일지 — 모든 승인 경로가 실패하고 아무것도 바�
     expect(s.skipped[0].reason).toMatch(/^daily_log_unmeasured/);
     expect(st.writes).toEqual([]);
     expect(st.approveRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe("정상·빈 일지 혼합 일괄 처리 (Codex #519 배포 검증 — 영구 회귀 테스트로)", () => {
+  it("일괄 승인 [정상 #3601, 빈 #3602] → 승인 1·실패 1, 승인 요청 갱신은 정상 건 하나뿐", async () => {
+    st.formByRecord = { 3601: clone(FULL), 3602: clone(EMPTY_872) };
+    const r: any = await gc().batchApproveChecklists({ approvalRequestIds: [3601, 3602] });
+    expect(r).toMatchObject({ success: false, count: 1 });
+    expect(r.failed).toEqual([{ approvalRequestId: 3602, message: expect.stringMatching(/^일일일지 #3602 측정 기록 미완료 — 미측정 14건/) }]);
+    expect(r.message).toMatch(/^1건 승인 완료, 1건 승인 안 됨 — #3602:/);
+    expect(st.writes.filter((w) => /UPDATE h_approval_requests/.test(w))).toHaveLength(1);
+  });
+  it("일괄 검토도 같은 방식 — 검토 1·실패 1", async () => {
+    st.formByRecord = { 3601: clone(FULL), 3602: clone(EMPTY_872) };
+    const r: any = await gc().batchReviewChecklists({ approvalRequestIds: [3602, 3601] });
+    expect(r).toMatchObject({ count: 1 });
+    expect(r.failed.map((f: any) => f.approvalRequestId)).toEqual([3602]);
+    expect(st.writes.filter((w) => /UPDATE h_approval_requests/.test(w))).toHaveLength(1);
+  });
+  it("승인 화면 — 일괄 승인 0건이면 처리 이력으로 넘어가지 않고 선택 유지, 일괄 검토 0건도 선택 유지", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { REPO_ROOT } = await import("./__helpers__/appRoutes");
+    const src = readFileSync(join(REPO_ROOT, "client/src/pages/system/_approvalManagement/useApprovalMutations.ts"), "utf-8");
+    const approve = src.slice(src.indexOf("const batchApproveMutation"), src.indexOf("const autoReviewApproveMutation"));
+    expect(approve.indexOf("if (!data.count) return;")).toBeGreaterThan(-1);
+    expect(approve.indexOf("if (!data.count) return;")).toBeLessThan(approve.indexOf('cfg.setActiveTab("history")'));
+    expect(approve.indexOf("if (!data.count) return;")).toBeLessThan(approve.indexOf("cfg.setSelectedIds([])"));
+    const review = src.slice(src.indexOf("const batchReviewMutation"), src.indexOf("const batchApproveMutation"));
+    expect(review).toContain("if (data.count) cfg.setSelectedIds([]);");
   });
 });
 
