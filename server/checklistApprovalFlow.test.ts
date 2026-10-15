@@ -241,3 +241,15 @@ describe("인쇄 결재란 — 화면과 같은 2줄 (대표 요청)", async () 
     }
   });
 });
+
+describe("배치 승인 — 세 경로 모두 제품 LOT·완료 훅(생산완료 분개) 실행 (10/12 실배치 검증)", () => {
+  it("개별 승인·바로 승인·일괄 승인이 같은 후속 처리를 부른다", () => {
+    const src = readFileSync(join(REPO_ROOT, "server/routers/checklist/genericChecklist.router.ts"), "utf-8");
+    for (const tag of ["approveChecklist", "approveWithAutoReview", "batchApproveChecklists"]) {
+      expect(src, tag).toContain(`await finishApprovedBatch(Number(refId), ctx.tenantId, "${tag}")`);
+    }
+    const helper = src.slice(src.indexOf("async function finishApprovedBatch"), src.indexOf("async function inTx"));
+    expect(helper).toMatch(/ensureBatchLots\(batchId, tenantId\)/);
+    expect(helper).toMatch(/runBatchCompletionHooks\(batchId, tenantId/);
+  });
+});

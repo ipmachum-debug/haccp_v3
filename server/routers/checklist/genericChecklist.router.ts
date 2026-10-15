@@ -61,6 +61,31 @@ const approvedSql = `SELECT id FROM h_approval_requests
   WHERE tenant_id = ? AND reference_id = ? AND reference_type IN (${CHECKLIST_REFERENCE_TYPES.map(() => "?").join(",")}) AND status = 'approved'`;
 const approvedParams = (tenantId: number, id: number) => [tenantId, id, ...CHECKLIST_REFERENCE_TYPES];
 
+/**
+ * 배치 승인(완료 처리) 뒤 후속 처리 — 개별 승인·바로 승인·일괄 승인 세 경로 공통 (2026-10-15)
+ *  - 이전엔 일괄 승인만 제품 LOT 생성 + 완료 훅(실적 보강·생산완료 분개)을 돌렸고, 나머지 두 경로는
+ *    상태만 completed 로 바꿔 매시 :15 자가치유가 나중에 메우기를 기다렸다.
+ *  - 둘 다 멱등이라 다시 불려도 중복 생성 없음. 실패해도 승인 자체는 유지.
+ */
+async function finishApprovedBatch(batchId: number, tenantId: number, tag: string) {
+  try {
+    const { ensureBatchLots } = await import("../../db/production/productOutboundManagement");
+    const lotResult = await ensureBatchLots(batchId, tenantId);
+    console.log(`[${tag}] 배치 #${batchId} 완제품 LOT 보강: 생성 ${lotResult?.created?.length ?? 0}건`);
+  } catch (lotErr: any) {
+    console.error(`[${tag}] 배치 #${batchId} 완제품 LOT 생성 실패:`, lotErr);
+  }
+  try {
+    const { runBatchCompletionHooks } = await import("../../lib/production/batchCompletionHooks");
+    const hookResult = await runBatchCompletionHooks(batchId, tenantId, { source: "manual" });
+    if (hookResult.warnings.length > 0) {
+      console.warn(`[${tag}] 배치 #${batchId} 완료 훅 경고:`, hookResult.warnings);
+    }
+  } catch (hookErr: any) {
+    console.error(`[${tag}] 배치 #${batchId} 완료 훅 실패:`, hookErr);
+  }
+}
+
 /** 트랜잭션 실행 — 실패하면 되돌린다 */
 async function inTx<T>(fn: (conn: any) => Promise<T>): Promise<T> {
   const pool: any = await getRawConnection();
@@ -450,6 +475,7 @@ export const genericChecklistRouter = router({
               WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
             `);
             console.log(`[approveChecklist] 배치 #${refId} 상태 → completed (승인 완료)`);
+            await finishApprovedBatch(Number(refId), ctx.tenantId, "approveChecklist");
 
             // 배치 승인 시 생산일지 갱신
             try {
@@ -572,22 +598,7 @@ export const genericChecklistRouter = router({
               // ★ 2026-07-03: 이 경로(일괄 승인)가 실제 UI 완료 경로인데 완제품 LOT 을
               //   안 만들어(26배치 LOT 0건의 진짜 원인) → #404/#407 과 동일하게 여기서도
               //   완제품 LOT 멱등 생성 + 완료훅 실행. (완료경로 파편화 5번째 = path E 봉인)
-              try {
-                const { ensureBatchLots } = await import("../../db/production/productOutboundManagement");
-                const lotResult = await ensureBatchLots(Number(refId), ctx.tenantId);
-                console.log(`[batchApproveChecklists] 배치 #${refId} 완제품 LOT 보강: 생성 ${lotResult?.created?.length ?? 0}건`);
-              } catch (lotErr: any) {
-                console.error(`[batchApproveChecklists] 배치 #${refId} 완제품 LOT 생성 실패:`, lotErr);
-              }
-              try {
-                const { runBatchCompletionHooks } = await import("../../lib/production/batchCompletionHooks");
-                const hookResult = await runBatchCompletionHooks(Number(refId), ctx.tenantId, { source: "manual" });
-                if (hookResult.warnings.length > 0) {
-                  console.warn(`[batchApproveChecklists] 배치 #${refId} 완료 훅 경고:`, hookResult.warnings);
-                }
-              } catch (hookErr: any) {
-                console.error(`[batchApproveChecklists] 배치 #${refId} 완료 훅 실패:`, hookErr);
-              }
+              await finishApprovedBatch(Number(refId), ctx.tenantId, "batchApproveChecklists");
 
               // 배치 승인 시 생산일지(production_daily) 자동 갱신
               try {
@@ -664,6 +675,7 @@ export const genericChecklistRouter = router({
             WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
           `);
           console.log(`[approveWithAutoReview] 배치 #${refId} 상태 → completed (승인 완료)`);
+          await finishApprovedBatch(Number(refId), ctx.tenantId, "approveWithAutoReview");
 
           // 배치 승인 시 생산일지(production_daily) 자동 갱신
           try {
