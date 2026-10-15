@@ -108,17 +108,19 @@ export async function createOutboundRecord(params: {
 
     // (B) LOT 차감 (GREATEST 방어)
     await conn.execute(
+      // ★ 2026-10-15: MySQL 단일 테이블 UPDATE 좌→우 평가 — current_quantity 먼저(원래 quantity 기준),
+      //   status 는 이미 줄어든 available_quantity 로 (이전: 한 번 더 빼서 잔량이 있어도 'used')
       `UPDATE h_inventory_lots
-       SET quantity = GREATEST(0, quantity - ?),
+       SET current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
+           quantity = GREATEST(0, quantity - ?),
            available_quantity = GREATEST(0, available_quantity - ?),
-           current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
            status = CASE
-             WHEN GREATEST(0, available_quantity - ?) <= 0.001 THEN 'used'
+             WHEN available_quantity <= 0.001 THEN 'used'
              ELSE status
            END,
            updated_at = NOW()
        WHERE id = ?`,
-      [params.quantity, params.quantity, params.quantity, params.quantity, params.lotId],
+      [params.quantity, params.quantity, params.quantity, params.lotId],
     );
 
     // (C) 재고 거래 내역 기록 (양수 quantity, type='usage')

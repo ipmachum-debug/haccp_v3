@@ -158,10 +158,11 @@ export async function reconcileUnappliedOutbounds(
             `UPDATE h_inventory_lots
                SET available_quantity = GREATEST(0, available_quantity - ?),
                    current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
-                   status = CASE WHEN GREATEST(0, available_quantity - ?) <= ? THEN 'used' ELSE status END,
+                   status = CASE WHEN available_quantity <= ? THEN 'used' ELSE status END,
                    updated_at = NOW()
              WHERE id = ? AND tenant_id = ?`,
-            [take, take, take, EPS, lot.id, tenantId],
+            // ★ 2026-10-15: status 는 이미 줄어든 available_quantity 로 판단 (MySQL 단일 테이블 UPDATE 좌→우 평가)
+            [take, take, EPS, lot.id, tenantId],
           );
           // 원장 기록 (제품 출고, 양수 quantity)
           await conn.execute(
