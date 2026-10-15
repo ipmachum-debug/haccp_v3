@@ -659,6 +659,37 @@ async function ensureSalesSkuColumn(conn: any) {
   }
 }
 
+/**
+ * 요청을 받기 전에 반드시 있어야 하는 스키마 (2026-10-16, Codex #527 배포 리뷰 P2)
+ *
+ * 부팅 마이그레이션은 listen 뒤에 돌고 실패를 삼킨다 → 컬럼 생성이 실패해도 새 코드가 요청을 받을 수 있었다.
+ * 이 함수는 listen **전에** 부른다:
+ *   - 필수 컬럼을 만들어 보고(allowDdl), 그래도 없으면 { ok:false } — 호출자가 listen 하지 않고 종료한다.
+ *   - 인덱스는 성능 문제일 뿐 — 없으면 경고만 (ok 유지).
+ *   - allowDdl=false (RUN_STARTUP_MIGRATIONS=false 비상 opt-out) 면 만들지 않고 검사만.
+ */
+export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: string }> = [
+  { table: "accounting_sales", column: "sku_id", why: "판매 SKU — select(accountingSales) 가 읽는다 (PR #527)" },
+];
+
+export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {
+  if (opts.allowDdl) await ensureSalesSkuColumn(conn);
+  const missing: string[] = [];
+  for (const c of REQUIRED_COLUMNS) {
+    const [rows]: any = await conn.query(
+      `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`,
+      [c.table, c.column],
+    );
+    if (!(rows as any[])?.length) missing.push(`${c.table}.${c.column} (${c.why})`);
+  }
+  const warnings: string[] = [];
+  const [idx]: any = await conn.query(
+    `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'accounting_sales' AND INDEX_NAME = 'idx_sales_tenant_sku' LIMIT 1`,
+  );
+  if (!(idx as any[])?.length) warnings.push("accounting_sales.idx_sales_tenant_sku 없음 (조회 성능만 영향)");
+  return { ok: missing.length === 0, missing, warnings };
+}
+
 async function ensureAccountingAccountsColumns(conn: any) {
   // 두 테이블 모두 account_category_id 보장
   const tables = ['accounting_accounts', 'accounting_accounts_v2'];

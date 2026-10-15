@@ -244,4 +244,19 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     await expect(updateSale(10604, { skuId: 209 }, T)).rejects.toThrow(/확정된 매출의 SKU 는 바꿀 수 없습니다/);
     expect((await q(`SELECT status FROM accounting_sales WHERE id = 10604`))[0].status).toBe("approved");
   });
+
+  it("필수 스키마 관문 (listen 전): sku_id·인덱스가 없으면 만들고 ok, 다시 불러도 그대로 (멱등)", async () => {
+    const { ensureRequiredSchema } = await import("./db/startupMigrations");
+    await q(`ALTER TABLE accounting_sales DROP COLUMN sku_id`);
+    const r1 = await ensureRequiredSchema(admin, { allowDdl: true });
+    expect(r1).toEqual({ ok: true, missing: [], warnings: [] });
+    const cols = await q(`SELECT IS_NULLABLE FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'accounting_sales' AND COLUMN_NAME = 'sku_id'`);
+    expect(cols.map((c: any) => c.IS_NULLABLE)).toEqual(["YES"]);
+    expect(await ensureRequiredSchema(admin, { allowDdl: true })).toEqual({ ok: true, missing: [], warnings: [] });
+    // 검사만(allowDdl=false) — 컬럼이 없으면 ok:false
+    await q(`ALTER TABLE accounting_sales DROP COLUMN sku_id`);
+    const r2 = await ensureRequiredSchema(admin, { allowDdl: false });
+    expect(r2.ok).toBe(false);
+    await ensureRequiredSchema(admin, { allowDdl: true }); // 뒷정리
+  });
 });
