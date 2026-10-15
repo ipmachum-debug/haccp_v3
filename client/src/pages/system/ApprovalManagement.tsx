@@ -92,6 +92,7 @@ export default function ApprovalManagement() {
   }, [historySearchInput]);
   // 처리이력 페이지네이션 (2026-09-10) — 서버 side limit/offset
   const HISTORY_PAGE_SIZE = 100;
+  const HISTORY_DONE_STATUSES: Array<"approved" | "rejected" | "cancelled"> = ["approved", "rejected", "cancelled"];
   const [historyOffset, setHistoryOffset] = useState(0);
   // 검색어 / 필터 변경 시 offset 초기화
   useEffect(() => {
@@ -128,10 +129,12 @@ export default function ApprovalManagement() {
   // 승인 이력 조회 (2026-09-10 리팩토링)
   // - 서버 side: status / requestType / search(title LIKE) / dateFrom / dateTo / limit / offset
   // - listPaged 는 { items, total, hasMore } 반환. 클라이언트 사이드 후처리 최소화.
-  // - "전체" 상태 필터는 서버 미전달 (전체) + 클라이언트에서 approved/rejected/cancelled 만 남김.
+  // - "전체" 상태 필터 = 처리된 상태(approved/rejected/cancelled) 를 서버에 넘긴다 (2026-10-15, Codex #523 검증)
+  //   이전: 서버는 전체 상태로 총건수를 세고 화면만 처리된 것으로 걸러 "총 6건" 인데 5행 (승인 대기 CCP-4P 가 숫자에만 포함).
   const { data: historyPage, refetch: refetchHistory } = trpc.approval.listPaged.useQuery(
     {
       status: statusFilter === "all" ? undefined : statusFilter as "pending_review" | "pending_approval" | "approved" | "rejected" | "cancelled",
+      statuses: statusFilter === "all" ? HISTORY_DONE_STATUSES : undefined,
       requestType: typeFilter === "all" ? undefined : typeFilter as string,
       search: historySearchDebounced || undefined,
       dateFrom: historyDateFrom || undefined,
@@ -173,11 +176,8 @@ export default function ApprovalManagement() {
       approverName: findName(setting.approverEmployeeId),
     };
   };
-  // 처리이력: 서버가 search / dateFrom / dateTo / status / requestType 필터 적용 완료.
-  // 여기서는 "전체" 선택 시 approved / rejected / cancelled 만 남기는 화면-only 규칙만 적용.
-  const historyRequests: ApprovalRequest[] = statusFilter === "all"
-    ? historyAll.filter((r) => r.status === "approved" || r.status === "rejected" || r.status === "cancelled")
-    : historyAll;
+  // 처리이력: 상태("전체" = 처리된 상태 포함)까지 서버가 거른다 — 총건수·페이지·행이 같은 조건.
+  const historyRequests: ApprovalRequest[] = historyAll;
 
   // 품목제조보고 승인 대기 목록 조회
   const { data: pendingRecipes, refetch: refetchPendingRecipes } = trpc.recipeApproval.getPending.useQuery(

@@ -5,6 +5,7 @@ import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/jou
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 import { formatLocalDate } from "../../utils/timezone";
 import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
+import { lotAvailableOnSql, lotDateExpr } from "../inventory/lotChronology";
 
 /**
  * 제품 매출 POST — 완전 통합 (Module 2, 2026-04-14)
@@ -301,13 +302,15 @@ export async function postProductSale(
            AND ${lotFilterColumn} = ?
            AND status = 'available'
            AND available_quantity > 0.001
+           AND ${lotAvailableOnSql()}
          ORDER BY
            CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END,
            expiry_date ASC,
            receipt_date ASC,
            id ASC
          FOR UPDATE`,
-        [tenantId, lotFilterValue],
+        // ★ 2026-10-15: 판매일에 있던 LOT 만 (10/08 매출이 10/14 생산 LOT 을 빼던 문제 — lotChronology)
+        [tenantId, lotFilterValue, entryDate],
       );
       const availableLots = lotRows as any[];
 
@@ -382,10 +385,12 @@ export async function postProductSale(
         const [sinkRows] = await conn.execute(
           `SELECT id, unit_price FROM h_inventory_lots
            WHERE tenant_id = ? AND ${lotFilterColumn} = ?
-           ORDER BY COALESCE(production_date, receipt_date) DESC, id DESC
+             AND ${lotAvailableOnSql()}
+           ORDER BY ${lotDateExpr()} DESC, id DESC
            LIMIT 1
            FOR UPDATE`,
-          [tenantId, lotFilterValue],
+          // 판매일 기준 가장 최근 LOT — 판매일 뒤에 생긴 LOT 은 음수 자리로도 쓰지 않는다
+          [tenantId, lotFilterValue, entryDate],
         );
         let sink = (sinkRows as any[])[0] as { id: number; unit_price: any } | undefined;
         if (!sink) {
