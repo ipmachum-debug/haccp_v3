@@ -957,7 +957,6 @@ export default function ApprovalManagement() {
           request={selectedRequest}
           canReview={canReview}
           canApprove={canApprove}
-          settingNames={selectedRequest ? getApprovalSettingNames(selectedRequest.requestType || "") : null}
           ccpFormRecords={(ccpFormRecords as CcpFormRecord[]) || []}
           ccpListForApproval={ccpListForApproval as CcpInstance[] | undefined}
           onRecordSaved={refetchCcpForApproval}
