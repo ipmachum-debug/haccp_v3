@@ -52,6 +52,8 @@ vi.mock("./db/connection", () => {
       db.entries.push({ id: ++db.nextId, tenant_id: p[0], description: p[2] });
       return [{ insertId: db.nextId }];
     }
+    // 제품 LOT 단가 = 생산원가 (같은 트랜잭션, 2026-10-15) — 이 테스트는 계정만 보므로 LOT 없음
+    if (/FROM h_inventory_lots l/.test(sql)) return [[]];
     if (/INSERT INTO expense_journal_lines/.test(sql)) { db.lines.push({ account_id: p[2], account_code: p[3], account_name: p[4], debit: p[5], credit: p[6] }); return [{}]; }
     throw new Error(`unexpected SQL: ${sql.slice(0, 80)}`);
   };
