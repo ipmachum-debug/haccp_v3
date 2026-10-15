@@ -632,6 +632,33 @@ async function ensureAccountCategoriesTable(conn: any) {
  *   서버 시작 시 자동 보장. 컬럼 부재 시 accountingAccounts.list 가
  *   매 요청마다 fallback 2회 왕복 → 10초 로딩 재발 방지.
  */
+/**
+ * 2026-10-16: accounting_sales.sku_id (판매 SKU) — 수동 SQL(scripts/migrations-manual/2026-10-16-sales-sku-id.sql)과 같은 내용.
+ * 새 코드의 select(accountingSales) 가 이 컬럼을 읽으므로, 수동 SQL 이 빠져도 부팅 때 만든다. 멱등.
+ */
+async function ensureSalesSkuColumn(conn: any) {
+  try {
+    const [cols]: any = await conn.query(
+      `SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'accounting_sales' AND COLUMN_NAME = 'sku_id'`,
+    );
+    if ((cols as any[]).length === 0) {
+      await conn.query("ALTER TABLE `accounting_sales` ADD COLUMN `sku_id` bigint NULL AFTER `material_id`, ALGORITHM=INSTANT");
+      console.log("[Migration] accounting_sales.sku_id added");
+    }
+    const [idx]: any = await conn.query(
+      `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'accounting_sales' AND INDEX_NAME = 'idx_sales_tenant_sku' LIMIT 1`,
+    );
+    if ((idx as any[]).length === 0) {
+      await conn.query("CREATE INDEX `idx_sales_tenant_sku` ON `accounting_sales` (`tenant_id`, `sku_id`)");
+      console.log("[Migration] accounting_sales idx_sales_tenant_sku added");
+    }
+  } catch (err: any) {
+    if (err.code !== "ER_NO_SUCH_TABLE") console.warn("[Migration] accounting_sales.sku_id failed:", err.message);
+  }
+}
+
 async function ensureAccountingAccountsColumns(conn: any) {
   // 두 테이블 모두 account_category_id 보장
   const tables = ['accounting_accounts', 'accounting_accounts_v2'];
@@ -2091,6 +2118,7 @@ export async function runStartupMigrations() {
     await ensureAccountCategoriesTable(conn);
     await ensureAccountingAccountsColumns(conn);
     await ensureAccountingTransactionColumns(conn);
+    await ensureSalesSkuColumn(conn);
     await ensureDocumentApprovalTables(conn);
     await ensureAuthTables(conn);
     await ensureWorkflowTables(conn);

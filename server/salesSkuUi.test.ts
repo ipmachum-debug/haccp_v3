@@ -33,10 +33,13 @@ describe("판매 SKU 화면", () => {
     const src = read("server/routers/haccp/haccpIntegration.router.ts");
     expect(src.match(/skuId: z\.number\(\)\.int\(\)\.positive\(\)/g)?.length).toBe(3);
   });
-  it("수동 SQL·Drizzle 마이그레이션: sku_id NULL 허용 + (tenant_id, sku_id) 인덱스, 멱등", () => {
+  it("스키마 적용: 수동 SQL(배포 전) + 부팅 마이그레이션(빠져도 복구) 둘 다 같은 내용, 멱등", () => {
     const manual = read("scripts/migrations-manual/2026-10-16-sales-sku-id.sql");
     expect(manual).toContain("ADD COLUMN `sku_id` bigint NULL AFTER `material_id`, ALGORITHM=INSTANT");
     expect(manual).toContain("information_schema.COLUMNS");
-    expect(read("drizzle/0051_sales_sku_id.sql")).toContain("CREATE INDEX `idx_sales_tenant_sku`");
+    const boot = read("server/db/startupMigrations.ts");
+    expect(boot).toContain("ADD COLUMN `sku_id` bigint NULL AFTER `material_id`, ALGORITHM=INSTANT");
+    expect(boot).toContain("CREATE INDEX `idx_sales_tenant_sku`");
+    expect(boot).toMatch(/await ensureSalesSkuColumn\(conn\);/);
   });
 });

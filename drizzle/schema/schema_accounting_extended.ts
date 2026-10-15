@@ -89,7 +89,7 @@ export const accountingSales = mysqlTable("accounting_sales", {
   //   - COGS 분개 대변: INVENTORY_RAW (vs 제품은 INVENTORY_GOODS)
   materialId: bigint("material_id", { mode: "number" }), // 원재료/부자재/외부제품 FK (h_materials.id)
   // ★ 2026-10-16 추가: 판매 SKU (product_skus.id) — 같은 제품의 SKU(1.6kg 박스·kg 등)를 구분해 그 SKU 의 LOT 만 차감
-  //   NULL = 지정 안 함 (SKU 가 하나뿐인 제품은 확정 시 자동, 여럿이면 확정 차단). 적용: drizzle/0051 + scripts/migrations-manual
+  //   NULL = 지정 안 함 (SKU 가 하나뿐인 제품은 확정 시 자동, 여럿이면 확정 차단). 적용: scripts/migrations-manual/2026-10-16-sales-sku-id.sql + startupMigrations.ensureSalesSkuColumn
   skuId: bigint("sku_id", { mode: "number" }),
   // category 필드 제거 - 실제 DB에 없음
   quantity: decimal("quantity", { precision: 10, scale: 3 }).notNull(), // 수량
