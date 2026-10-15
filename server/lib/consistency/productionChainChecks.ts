@@ -8,7 +8,7 @@
  *   PROD_NO_PRODUCT_LOT        — 완료 배치인데 제품 LOT 없음
  *   PROD_LOT_KG_MISMATCH       — 실적(kg) ≠ 제품 LOT 수량 × SKU 판매단위 kg (1% 초과)
  *   PROD_NO_COMPLETION_JOURNAL — 생산완료 분개 대상(생산일 ≥ 전기 시작일, 원가 > 0)인데 [생산완료] BATCH-<id> 분개 없음
- *   SALE_APPROVED_NO_DEDUCTION — 승인·수금 매출(제품)인데 LOT 차감(SALE 거래) 없음
+ *   SALE_APPROVED_NO_DEDUCTION — 승인·수금 매출(제품)인데 LOT 차감 없음 (단품: SALE 거래 / 혼합: bundle_lots 'sales:<id>' 또는 BUNDLE_OUTBOUND reference)
  *   SALE_PENDING_BACKLOG       — 승인 대기 매출 (LOT 차감·분개 전 단계 — 쌓이면 제품 재고가 실제보다 많다)
  * 회계 제외(accounting_excluded=1, B2C 플랫폼 정산분)는 매출 분개를 하지 않는 것이 정상 — 분개 검사 대상 아님.
  * 덤프 10/14 대조 결과와 같은 기준 (실적 kg 은 SKU 환산: 380kg ÷ 0.8kg/팩 = 475팩).
@@ -122,7 +122,12 @@ export async function checkSaleApprovedNoDeduction(conn: Pool, tenantId: number,
       WHERE s.tenant_id = ? AND s.transaction_date BETWEEN ? AND ?
         AND s.status IN ('approved', 'received') AND s.product_id IS NOT NULL AND COALESCE(s.quantity, 0) > 0
         AND NOT EXISTS (SELECT 1 FROM h_inventory_transactions t
-                         WHERE t.tenant_id = s.tenant_id AND t.source_id = s.id AND t.source_type IN ('SALE', 'SALE_LEGACY', 'BUNDLE_OUTBOUND'))
+                         WHERE t.tenant_id = s.tenant_id AND t.source_id = s.id AND t.source_type IN ('SALE', 'SALE_LEGACY'))
+        -- 혼합(번들) 제품은 구성 제품 LOT 에서 나눠 차감 — 거래의 source_id 는 혼합 LOT 이고 판매 번호는 bundle_lots.notes('sales:<id>')
+        --   또는 (2026-10-15~) 거래의 reference_type='sales'·reference_id 에 남는다 (이전 점검은 이걸 못 봐 차감된 혼합 매출을 미차감으로 잡았다)
+        AND NOT EXISTS (SELECT 1 FROM bundle_lots bl WHERE bl.tenant_id = s.tenant_id AND bl.notes = CONCAT('sales:', s.id))
+        AND NOT EXISTS (SELECT 1 FROM h_inventory_transactions t2
+                         WHERE t2.tenant_id = s.tenant_id AND t2.source_type = 'BUNDLE_OUTBOUND' AND t2.reference_type = 'sales' AND t2.reference_id = s.id)
       ORDER BY s.transaction_date DESC`,
     [tenantId, r.from, r.to],
   );
