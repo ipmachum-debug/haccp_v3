@@ -1218,6 +1218,10 @@ function SalesListContent() {
                             <TableCell className="text-sm max-w-[160px] truncate">
                               {isMultiItem && !isFirst && <span className="text-muted-foreground mr-1">└</span>}
                               {sale.itemName || "-"}
+                              {/* 2026-10-16: 판매 SKU (확정 때 이 SKU 의 LOT 에서 차감) */}
+                              {(sale as any).skuName && (
+                                <span className="ml-1 text-[11px] text-muted-foreground" data-testid="sale-sku-name">· {(sale as any).skuName}</span>
+                              )}
                             </TableCell>
                             <TableCell className="text-sm text-right tabular-nums">
                               {parseFloat(String(sale.quantity ?? "0")).toLocaleString()}

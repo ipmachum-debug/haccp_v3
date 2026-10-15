@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -11,6 +11,7 @@ CREATE TABLE `accounting_sales` (
   `item_name` varchar(255) COLLATE utf8mb4_unicode_ci NOT NULL,
   `product_id` bigint DEFAULT NULL,
   `material_id` bigint DEFAULT NULL,
+  `sku_id` bigint DEFAULT NULL,
   `quantity` decimal(10,3) NOT NULL,
   `unit` varchar(20) COLLATE utf8mb4_unicode_ci NOT NULL,
   `unit_price` decimal(15,2) NOT NULL,

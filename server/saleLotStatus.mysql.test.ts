@@ -22,6 +22,8 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
   let admin: mysql.Connection;
   let postProductSale: (saleId: number, userId: number) => Promise<{ alreadyProcessed: boolean }>;
   let applyInventoryDelta: any;
+  let createSale: any;
+  let updateSale: any;
 
   const q = async (sql: string, p: any[] = []) => (await admin.query(sql, p))[0] as any[];
   const num = (v: unknown) => (v == null ? null : Number(v));
@@ -43,6 +45,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
     ({ postProductSale } = await import("./lib/accounting/productSalePost"));
     ({ applyLotDelta: applyInventoryDelta } = await import("./lib/inventory/applyInventoryDelta"));
+    ({ createSale, updateSale } = await import("./db/haccp/haccpIntegration"));
   }, 60000);
 
   afterAll(async () => {
@@ -52,7 +55,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
   });
 
   beforeEach(async () => {
-    for (const t of ["h_inventory", "accounting_sales", "h_inventory_lots", "h_inventory_transactions", "expense_journal_entries", "expense_journal_lines", "accounting_accounts", "h_product_outbound", "bundle_lots"]) {
+    for (const t of ["product_skus", "item_master", "sku_bundles", "h_inventory", "accounting_sales", "h_inventory_lots", "h_inventory_transactions", "expense_journal_entries", "expense_journal_lines", "accounting_accounts", "h_product_outbound", "bundle_lots"]) {
       await q(`DELETE FROM ${t}`);
     }
     // 단지 시스템 계정 (보정 후 상태)
@@ -162,5 +165,83 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     expect(await lot(700)).toMatchObject({ a: 70, c: 70, status: "available" });
     await q(m![1], [70, 70, 700, T]);
     expect(await lot(700)).toMatchObject({ a: 0, status: "disposed" });
+  });
+
+  // ── 판매 SKU (2026-10-16) ─────────────────────────────────────────────
+  // 하늘사랑 1.6kg: item_master #282 (legacy_product_id 90) — SKU208 박스, SKU209 박스.
+  // 단일 SKU 제품: item_master #300 (legacy 82) — SKU400 kg.
+  const seedSkus = async () => {
+    await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES
+      (282, ?, 'P90', '하늘사랑 1.6kg', 'own_product', 90, 1), (300, ?, 'P82', '인절미', 'own_product', 82, 1), (900, 9, 'X', '다른 회사', 'own_product', 90, 1)`, [T, T]);
+    await q(`INSERT INTO product_skus (id, tenant_id, item_id, sku_code, sku_name, sales_unit, kg_per_sales_unit, is_active, is_default) VALUES
+      (208, ?, 282, 'S208', '하늘사랑 1.6kg 박스A', 'box', 1.6, 1, 1), (209, ?, 282, 'S209', '하늘사랑 1.6kg 박스B', 'box', 1.6, 1, 0),
+      (400, ?, 300, 'S400', '인절미 kg', 'kg', 1, 1, 1), (999, 9, 900, 'S999', '다른 회사 SKU', 'box', 1, 1, 1)`, [T, T, T]);
+  };
+
+  it("판매 SKU 지정: 그 SKU 의 LOT 만 차감 (다른 SKU 의 더 오래된 LOT 은 그대로), 매출에 SKU 기록", async () => {
+    await seedSkus();
+    await q(`INSERT INTO h_inventory_lots (id, tenant_id, product_id, sku_id, lot_number, quantity, current_quantity, available_quantity, unit, unit_price, production_date, status)
+      VALUES (1700, ?, 90, 209, 'L1700', 50, 50, 50, 'box', 4000, '2026-10-01', 'available')`, [T]);
+    await insertSale(10600, "2026-10-15", 30, 30000, 3000);
+    await q(`UPDATE accounting_sales SET sku_id = 208 WHERE id = 10600`);
+    await postProductSale(10600, 4);
+    expect(await lot(1700)).toMatchObject({ a: 50, status: "available" });
+    expect(await lot(1834)).toMatchObject({ a: 328 });
+  });
+
+  it("SKU 가 여럿인 제품을 SKU 없이 확정 → 막힘, 아무것도 바뀌지 않음", async () => {
+    await seedSkus();
+    await insertSale(10601, "2026-10-15", 10, 10000, 1000);
+    await expect(postProductSale(10601, 4)).rejects.toThrow(/SKU 가 2개입니다.*판매 SKU 를 지정/);
+    expect(await lot(1834)).toMatchObject({ a: 358 });
+    expect((await q(`SELECT status FROM accounting_sales WHERE id = 10601`))[0].status).toBe("pending");
+    expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE source_id = 10601`))[0].n)).toBe(0);
+    expect(Number((await q(`SELECT COUNT(*) AS n FROM expense_journal_entries WHERE description LIKE '[매출] SALE-10601 %'`))[0].n)).toBe(0);
+  });
+
+  it("SKU 하나뿐인 제품 → 자동, 그 SKU LOT + SKU 없는 같은 단위(kg) 옛 LOT 은 쓰고 다른 단위(box) 옛 LOT 은 안 씀", async () => {
+    await seedSkus();
+    await q(`INSERT INTO h_inventory_lots (id, tenant_id, product_id, sku_id, lot_number, quantity, current_quantity, available_quantity, unit, unit_price, production_date, status) VALUES
+      (2001, ?, 82, NULL, 'L2001', 10, 10, 10, 'kg', 1000, '2026-09-01', 'available'),
+      (2002, ?, 82, NULL, 'L2002', 99, 99, 99, 'box', 1000, '2026-08-01', 'available'),
+      (2003, ?, 82, 400, 'L2003', 20, 20, 20, 'kg', 1000, '2026-10-10', 'available')`, [T, T, T]);
+    await q(`INSERT INTO accounting_sales (id, tenant_id, transaction_date, item_name, product_id, quantity, unit, unit_price, total_amount, tax_amount, tax_rate, status, created_by, accounting_excluded)
+      VALUES (10602, ?, '2026-10-15', '인절미', 82, 25, 'kg', 1000, 25000, 2500, 10, 'pending', 4, 0)`, [T]);
+    await postProductSale(10602, 4);
+    expect(await lot(2001)).toMatchObject({ a: 0, status: "used" });
+    expect(await lot(2003)).toMatchObject({ a: 5, status: "available" });
+    expect(await lot(2002)).toMatchObject({ a: 99 });
+    expect(Number((await q(`SELECT sku_id FROM accounting_sales WHERE id = 10602`))[0].sku_id)).toBe(400);
+  });
+
+  it("SKU 부족분 음수: 그 SKU 안에서, LOT 이 없으면 자리표시 LOT 에 SKU·판매단위 기록", async () => {
+    await seedSkus();
+    await q(`DELETE FROM h_inventory_lots`);
+    await insertSale(10603, "2026-10-15", 7, 7000, 700);
+    await q(`UPDATE accounting_sales SET sku_id = 209 WHERE id = 10603`);
+    await postProductSale(10603, 4);
+    const ph = (await q(`SELECT sku_id, unit, available_quantity AS a FROM h_inventory_lots WHERE lot_number LIKE 'NEG-P90-%'`))[0];
+    expect([Number(ph.sku_id), ph.unit, Number(ph.a)]).toEqual([209, "box", -7]);
+  });
+
+  it("매출 등록: SKU 로 제품·단위 결정, 다른 회사 SKU·제품 불일치는 거부", async () => {
+    await seedSkus();
+    const r: any = await createSale({ transactionDate: "2026-10-16", partnerId: 1, itemName: "하늘사랑", skuId: 209, quantity: 5, unitPrice: 6020, amount: 30100, taxAmount: 3010, createdBy: 4 }, T);
+    const id = Number(r?.insertId ?? r?.id);
+    const row = (await q(`SELECT product_id, sku_id, unit FROM accounting_sales WHERE id = ?`, [id]))[0];
+    expect([Number(row.product_id), Number(row.sku_id), row.unit]).toEqual([90, 209, "box"]);
+    await expect(createSale({ transactionDate: "2026-10-16", partnerId: 1, itemName: "x", skuId: 999, quantity: 1, unitPrice: 1, amount: 1, taxAmount: 0, createdBy: 4 }, T)).rejects.toThrow(/찾을 수 없습니다/);
+    await expect(createSale({ transactionDate: "2026-10-16", partnerId: 1, itemName: "x", productId: 82, skuId: 208, quantity: 1, unitPrice: 1, amount: 1, taxAmount: 0, createdBy: 4 }, T)).rejects.toThrow(/제품 #90 의 SKU/);
+  });
+
+  it("매출 수정: 상태는 바꿀 수 없음 (유령 승인 차단), 확정된 매출의 SKU 변경 거부, 대기 매출은 SKU 변경 가능", async () => {
+    await seedSkus();
+    await insertSale(10604, "2026-10-15", 3, 3000, 300);
+    await expect(updateSale(10604, { status: "approved" }, T)).rejects.toThrow(/상태는 수정으로 바꿀 수 없습니다/);
+    await updateSale(10604, { status: "pending", skuId: 208 }, T);
+    expect(Number((await q(`SELECT sku_id FROM accounting_sales WHERE id = 10604`))[0].sku_id)).toBe(208);
+    await postProductSale(10604, 4);
+    await expect(updateSale(10604, { skuId: 209 }, T)).rejects.toThrow(/확정된 매출의 SKU 는 바꿀 수 없습니다/);
+    expect((await q(`SELECT status FROM accounting_sales WHERE id = 10604`))[0].status).toBe("approved");
   });
 });
