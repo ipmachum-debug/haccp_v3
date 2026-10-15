@@ -77,3 +77,21 @@ describe("생산 흐름 점검", () => {
     expect(kgMismatch(10, 10.6)).toBe(true);
   });
 });
+
+describe("혼합(번들) 매출 차감 연결 — 오탐 수정 (운영 백업 10/15: 222건 → 85건)", () => {
+  it("판매 미차감 점검이 bundle_lots('sales:<id>')·BUNDLE_OUTBOUND reference 로 혼합 차감을 인정", async () => {
+    await caller().productionChain({ from: "2026-04-01", to: "2026-10-15" });
+    const q = state.executed.find((e) => /accounting_sales s/.test(e.sql) && /approved/.test(e.sql))!;
+    expect(q.sql).toMatch(/bundle_lots bl WHERE bl\.tenant_id = s\.tenant_id AND bl\.notes = CONCAT\('sales:', s\.id\)/);
+    expect(q.sql).toMatch(/t2\.source_type = 'BUNDLE_OUTBOUND' AND t2\.reference_type = 'sales' AND t2\.reference_id = s\.id/);
+    expect(q.sql).not.toMatch(/IN \('SALE', 'SALE_LEGACY', 'BUNDLE_OUTBOUND'\)/); // source_id 로는 혼합 LOT 번호라 매칭 불가
+  });
+  it("혼합 차감 거래에 판매 번호를 함께 기록 (reference_type·reference_id)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const { REPO_ROOT } = await import("./__helpers__/appRoutes");
+    const src = readFileSync(join(REPO_ROOT, "server/lib/production/decomposeBundleOutbound.ts"), "utf-8");
+    expect(src.match(/performed_by, created_by(, notes)?, reference_type, reference_id\)/g)?.length).toBe(2);
+    expect(src.match(/params\.referenceType \?\? null, params\.referenceId \?\? null/g)?.length).toBe(2);
+  });
+});

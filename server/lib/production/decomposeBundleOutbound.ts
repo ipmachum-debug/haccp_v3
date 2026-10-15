@@ -211,11 +211,13 @@ export async function decomposeBundleOutbound(
           `INSERT INTO h_inventory_transactions
              (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
               source_type, source_id, action_type, purpose, unit_cost, amount,
-              performed_by, created_by)
-           VALUES (?, ?, 'usage', ?, 'kg', ?, 'BUNDLE_OUTBOUND', ?, 'POST', 'sales_decompose', ?, ?, ?, ?)`,
+              performed_by, created_by, reference_type, reference_id)
+           VALUES (?, ?, 'usage', ?, 'kg', ?, 'BUNDLE_OUTBOUND', ?, 'POST', 'sales_decompose', ?, ?, ?, ?, ?, ?)`,
           [
             tenantId, lot.id, take, outboundDate, parentLotId,
             lotUnitCost, lotCost, userId, userId,
+            // 2026-10-15: 어떤 매출의 차감인지 거래에도 남긴다 (이전에는 bundle_lots.notes 에만 — 정합성 점검·추적용)
+            params.referenceType ?? null, params.referenceId ?? null,
           ],
         );
         // bundle_lots 매핑 INSERT
@@ -282,12 +284,13 @@ export async function decomposeBundleOutbound(
         `INSERT INTO h_inventory_transactions
            (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
             source_type, source_id, action_type, purpose, unit_cost, amount,
-            performed_by, created_by, notes)
-         VALUES (?, ?, 'usage', ?, 'kg', ?, 'BUNDLE_OUTBOUND', ?, 'POST', 'sales_decompose', ?, ?, ?, ?, ?)`,
+            performed_by, created_by, notes, reference_type, reference_id)
+         VALUES (?, ?, 'usage', ?, 'kg', ?, 'BUNDLE_OUTBOUND', ?, 'POST', 'sales_decompose', ?, ?, ?, ?, ?, ?, ?)`,
         [
           tenantId, sink.id, remaining, outboundDate, parentLotId,
           sinkUnitCost, sinkCost, userId, userId,
           `${b.child_sku_name} 묶음 출고 — 재고 부족분 음수 차감 (실사 때 정리)`,
+          params.referenceType ?? null, params.referenceId ?? null,
         ],
       );
       await conn.execute(
