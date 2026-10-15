@@ -46,6 +46,7 @@ export function EditSaleDialog({
     transactionDate: "",
     partnerId: "none",
     productId: null as number | null, // ★ 2026-04-14: h_products_v2 FK (Module 2)
+    skuId: null as number | null, // ★ 2026-10-16: 판매 SKU (대기 매출에서만 변경)
     itemName: "",
     category: "",
     quantity: "",
@@ -103,6 +104,7 @@ export function EditSaleDialog({
         transactionDate: sale.transactionDate?.split("T")[0] || "",
         partnerId: sale.partnerId?.toString() || "none",
         productId: sale.productId ? Number(sale.productId) : null,
+        skuId: sale.skuId ? Number(sale.skuId) : null,
         itemName: sale.itemName || "",
         category: sale.category || "",
         quantity: sale.quantity?.toString() || "",
@@ -116,6 +118,20 @@ export function EditSaleDialog({
       });
     }
   }, [sale]);
+
+  // ★ 2026-10-16: 제품의 SKU — SKU 가 여럿이면 판매 SKU 를 골라야 확정된다
+  const { data: productSkuList = [] } = trpc.productSku.listByProduct.useQuery(
+    { productId: Number(formData.productId) },
+    { enabled: !!formData.productId },
+  );
+  const isPending = (sale?.status ?? "pending") === "pending";
+  useEffect(() => {
+    // 제품을 바꿨는데 SKU 가 하나뿐이면 자동, 지금 SKU 가 그 제품 것이 아니면 비운다
+    if (!formData.productId || !isPending) return;
+    const list = productSkuList as Array<{ id: number }>;
+    if (formData.skuId && !list.some((k) => k.id === formData.skuId)) setFormData((f) => ({ ...f, skuId: list.length === 1 ? list[0].id : null }));
+    else if (!formData.skuId && list.length === 1) setFormData((f) => ({ ...f, skuId: list[0].id }));
+  }, [productSkuList, formData.productId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 수정 mutation
   const updateMutation = trpc.haccpIntegration.updateSale.useMutation({
@@ -158,8 +174,17 @@ export function EditSaleDialog({
       return;
     }
 
+    const skuList = productSkuList as Array<{ id: number }>;
+    if (isPending && formData.productId && skuList.length > 1 && !formData.skuId) {
+      toast({ title: "입력 오류", description: "판매 SKU 를 선택해주세요 (이 제품은 SKU 가 여럿입니다).", variant: "destructive" });
+      return;
+    }
+    const initialSkuId = sale.skuId ? Number(sale.skuId) : null;
+
     updateMutation.mutate({
       id: sale.id,
+      // 판매 SKU 는 바뀐 경우에만 보낸다 (확정 뒤에는 서버가 거부)
+      skuId: formData.skuId !== initialSkuId ? formData.skuId : undefined,
       transactionDate: formData.transactionDate,
       partnerId: formData.partnerId && formData.partnerId !== "none" ? parseInt(formData.partnerId) : undefined,
       productId: formData.productId || undefined, // ★ 제품 FK
@@ -294,6 +319,31 @@ export function EditSaleDialog({
                 required
                 placeholder="제품 검색... (이름/코드)"
               />
+              {formData.productId && (productSkuList as any[]).length > 0 && (
+                <Select
+                  value={formData.skuId ? String(formData.skuId) : ""}
+                  onValueChange={(v) => setFormData({ ...formData, skuId: v ? Number(v) : null })}
+                  disabled={!isPending}
+                >
+                  <SelectTrigger
+                    className={`h-8 text-xs ${isPending && !formData.skuId && (productSkuList as any[]).length > 1 ? "border-red-400 text-red-600" : ""}`}
+                    aria-label="판매 SKU"
+                    data-testid="edit-sale-sku-select"
+                  >
+                    <SelectValue placeholder="판매 SKU 선택 (필수)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(productSkuList as Array<{ id: number; skuName: string | null; skuCode: string; salesUnit: string | null }>).map((k) => (
+                      <SelectItem key={k.id} value={String(k.id)} className="text-xs">
+                        {k.skuName || k.skuCode} · {k.salesUnit || "-"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              {!isPending && (
+                <p className="text-[11px] text-muted-foreground">확정된 매출은 판매 SKU 를 바꿀 수 없습니다 (이미 그 SKU 의 LOT 에서 차감됨).</p>
+              )}
               {/* ★ PR-T: 매칭 상태 인라인 힌트 */}
               {!formData.productId && formData.itemName && (
                 <p className="text-[11px] text-amber-600 flex items-start gap-1">
@@ -423,11 +473,13 @@ export function EditSaleDialog({
             {/* 상태 */}
             <div className="space-y-2">
               <Label htmlFor="status">상태</Label>
+              {/* 2026-10-16: 상태는 승인·수금·취소 버튼으로만 (수정으로 'approved' 를 넣으면 재고·분개 없는 유령 상태) */}
               <Select
                 value={formData.status}
                 onValueChange={(value) =>
                   setFormData({ ...formData, status: value })
                 }
+                disabled
               >
                 <SelectTrigger id="status">
                   <SelectValue placeholder="상태 선택" />
@@ -439,6 +491,7 @@ export function EditSaleDialog({
                   <SelectItem value="cancelled">취소됨</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="text-[11px] text-muted-foreground">상태는 목록의 승인·수금·취소 버튼으로 바꿉니다.</p>
             </div>
 
             {/* 비고 */}

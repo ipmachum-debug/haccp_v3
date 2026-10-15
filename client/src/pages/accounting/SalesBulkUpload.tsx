@@ -48,6 +48,8 @@ type ParsedRow = {
   itemName: string;
   skuCode: string;  // Phase 8+: 엑셀 SKU 컬럼 원본
   itemMasterId: number | null;
+  /** ★ 2026-10-16 판매 SKU (product_skus.id) — 자사제품 SKU 가 여럿이면 필수 */
+  skuId: number | null;
   itemType: ItemMasterRow['itemType'] | null;  // 매칭된 품목 타입 (4종 중 하나)
   itemMatchScore: number;
   itemMatchResults: FuzzyMatchResult[];
@@ -149,6 +151,27 @@ function SalesBulkUploadContent() {
   const { data: ownProducts } = trpc.itemMaster.list.useQuery({ itemType: "own_product" as any, isActive: 1, limit: 500 });
   const { data: externalProducts } = trpc.itemMaster.list.useQuery({ itemType: "external_product" as any, isActive: 1, limit: 500 });
   const { data: subsidiaryItems } = trpc.itemMaster.list.useQuery({ itemType: "subsidiary" as any, isActive: 1, limit: 500 });
+
+  // ★ 2026-10-16: 자사제품 SKU — 행마다 판매 SKU 를 정한다 (SKU 하나면 자동, SKU 코드·SKU 명·별칭 정확 일치, 아니면 행에서 선택)
+  const { data: ownSkuRows } = trpc.productSku.listAll.useQuery({ itemType: "own_product" });
+  const ownSkus = useMemo(
+    () => (ownSkuRows ?? []) as Array<{ id: number; itemId: number; skuCode: string; skuName: string | null; salesUnit: string | null }>,
+    [ownSkuRows],
+  );
+  const skusOfItem = useCallback((itemMasterId: number | null) => ownSkus.filter((k) => k.itemId === itemMasterId), [ownSkus]);
+  /** 매칭된 품목·엑셀 SKU/품명으로 판매 SKU 고르기 — 모호하면 null */
+  const pickSku = useCallback((itemMasterId: number | null, itemType: string | null, skuCode: string, itemName: string): number | null => {
+    if (itemType !== 'own_product' || !itemMasterId) return null;
+    const cands = skusOfItem(itemMasterId);
+    if (cands.length === 1) return cands[0].id;
+    const norm = (v: string | null | undefined) => String(v ?? '').toLowerCase().replace(/[\s\-_]/g, '');
+    const byCode = skuCode ? cands.find((k) => norm(k.skuCode) === norm(skuCode)) : undefined;
+    if (byCode) return byCode.id;
+    const byName = itemName ? cands.find((k) => norm(k.skuName) === norm(itemName)) : undefined;
+    return byName ? byName.id : null;
+  }, [skusOfItem]);
+  const needsSkuChoice = (r: Pick<ParsedRow, 'itemType' | 'itemMasterId' | 'skuId'>) =>
+    r.itemType === 'own_product' && !r.skuId && skusOfItem(r.itemMasterId).length > 1;
 
   const allItems = useMemo(() => [
     ...(ownProducts?.items ?? []).map((i: ItemMasterRow) => ({ ...i, _displayType: '자사제품' })),
@@ -333,6 +356,11 @@ function SalesBulkUploadContent() {
       else if (itemMatchScore < 0.9 || partnerMatchScore < 0.9) { status = 'warning'; statusMessage = '유사도 확인 필요'; }
       else { status = 'matched'; statusMessage = '매칭 완료'; }
 
+      const skuId = pickSku(itemMasterId, itemType, skuCode, itemName);
+      if (status !== 'error' && needsSkuChoice({ itemType, itemMasterId, skuId })) {
+        status = 'warning'; statusMessage = 'SKU 선택 필요';
+      }
+
       return {
         id: `row-${idx}`,
         rowIndex: idx + 1,
@@ -344,6 +372,7 @@ function SalesBulkUploadContent() {
         itemName,
         skuCode,
         itemMasterId,
+        skuId,
         itemType,
         itemMatchScore,
         itemMatchResults,
@@ -365,7 +394,7 @@ function SalesBulkUploadContent() {
     // ★ PR-C/D (2026-05-11): alias 기반 정확 매칭 — fuzzy 결과 위에 덮어쓰기.
     //   "단지 혼합10종설기" 처럼 등록된 별칭을 가진 행은 fuzzy 점수와 무관하게 alias 우선.
     setTimeout(() => { void runAliasMatch(rows); }, 100);
-  }, [excelRawRows, excelHeaders, headerMapping, partners, allItems]);
+  }, [excelRawRows, excelHeaders, headerMapping, partners, allItems, pickSku, skusOfItem]);
 
   /**
    * ★ PR-C/D (2026-05-11): SKU 별칭 기반 정확 매칭
@@ -380,9 +409,9 @@ function SalesBulkUploadContent() {
     try {
       const result: any = await (utils as any).skuAlias?.bulkMatchPreview?.fetch?.({ texts });
       if (!result || !result.matches || result.matches.length === 0) return;
-      const byText = new Map<string, { itemId: number; skuName: string; matchSource: string }>();
-      for (const m of result.matches as Array<{ text: string; itemId: number; skuName: string; matchSource: string }>) {
-        byText.set(m.text.trim(), { itemId: m.itemId, skuName: m.skuName, matchSource: m.matchSource });
+      const byText = new Map<string, { itemId: number; skuId: number; skuName: string; matchSource: string }>();
+      for (const m of result.matches as Array<{ text: string; itemId: number; skuId: number; skuName: string; matchSource: string }>) {
+        byText.set(m.text.trim(), { itemId: m.itemId, skuId: m.skuId, skuName: m.skuName, matchSource: m.matchSource });
       }
       setParsedRows((prev) =>
         prev.map((r) => {
@@ -394,6 +423,8 @@ function SalesBulkUploadContent() {
             ...r,
             itemMasterId: item.id,
             itemType: item.itemType,
+            // 별칭·SKU 명·SKU 코드 매칭은 SKU 까지 정해 준다 (2026-10-16)
+            skuId: item.itemType === 'own_product' ? (m.skuId ?? null) : null,
             itemMatchScore: 1.0,
             status: r.partnerId ? 'matched' : 'warning',
             statusMessage: `별칭 매칭 (${m.matchSource}) → ${m.skuName}`,
@@ -427,11 +458,14 @@ function SalesBulkUploadContent() {
       if (row.id !== rowId) return row;
       if (type === 'item') {
         const itemRow = selected as ItemMasterRow;
-        const updated = { ...row, itemMasterId: selected.id, itemType: itemRow.itemType, itemMatchScore: 1.0 };
+        // 품목이 바뀌면 판매 SKU 도 다시 정한다 (2026-10-16)
+        const updated = { ...row, itemMasterId: selected.id, itemType: itemRow.itemType, itemMatchScore: 1.0,
+          skuId: pickSku(selected.id, itemRow.itemType, row.skuCode, row.itemName) };
         if (updated.partnerId && updated.transactionDate && updated.quantity > 0 && updated.unitPrice > 0) {
           updated.status = 'matched';
           updated.statusMessage = '매칭 완료';
         }
+        if (needsSkuChoice(updated)) { updated.status = 'warning'; updated.statusMessage = 'SKU 선택 필요'; }
         return updated;
       } else {
         const updated = { ...row, partnerId: selected.id, partnerMatchScore: 1.0 };
@@ -549,14 +583,17 @@ function SalesBulkUploadContent() {
         prev.map((r) => {
           const upd = rowIndexToUpdate.get(r.rowIndex);
           if (!upd) return r;
-          return {
+          const skuId = pickSku(upd.itemMasterId, upd.itemType, r.skuCode, r.itemName);
+          const next: ParsedRow = {
             ...r,
             itemMasterId: upd.itemMasterId,
             itemType: upd.itemType,
+            skuId,
             itemMatchScore: upd.score,
             status: upd.score >= 0.9 ? 'matched' : 'warning',
             statusMessage: `AI 추천: ${upd.reason}`,
           };
+          return needsSkuChoice(next) ? { ...next, status: 'warning', statusMessage: 'SKU 선택 필요' } : next;
         })
       );
       toast({ title: "AI 재매칭 완료", description: `${rowIndexToUpdate.size}건 자동 매칭되었습니다.` });
@@ -590,6 +627,17 @@ function SalesBulkUploadContent() {
       }
     }
 
+    // ★ 2026-10-16: SKU 가 여럿인 자사제품 행은 판매 SKU 를 골라야 올린다 (확정 때 그 SKU 의 LOT 에서 빠진다)
+    const skuMissing = readyRows.filter((r) => needsSkuChoice(r));
+    if (skuMissing.length > 0) {
+      toast({
+        title: `판매 SKU 를 선택해주세요 (${skuMissing.length}행)`,
+        description: skuMissing.slice(0, 5).map((r) => `${r.rowIndex}행 ${r.itemName}`).join(", "),
+        variant: "destructive",
+      });
+      return;
+    }
+
     const uploadItems = readyRows
       .filter(r => r.partnerId && r.itemName && r.quantity > 0 && r.unitPrice > 0)
       .map(r => {
@@ -601,6 +649,7 @@ function SalesBulkUploadContent() {
           // itemType 에 따라 productId 또는 materialId 중 하나만 전송 (XOR)
           productId: legacy?.productId,
           materialId: legacy?.materialId,
+          skuId: r.itemType === 'own_product' ? (r.skuId ?? undefined) : undefined,
           quantity: r.quantity,
           unitPrice: r.unitPrice,
           amount: r.amount,
@@ -1116,6 +1165,28 @@ function SalesBulkUploadContent() {
                             </Button>
                           )}
                         </div>
+                        {row.itemType === 'own_product' && skusOfItem(row.itemMasterId).length > 1 && (
+                          <select
+                            className={`mt-0.5 h-6 w-full rounded border bg-background px-1 text-[11px] ${!row.skuId ? 'border-red-400 text-red-600' : ''}`}
+                            value={row.skuId ?? ''}
+                            aria-label="판매 SKU"
+                            data-testid="bulk-sale-sku-select"
+                            onChange={(e) => {
+                              const v = e.target.value ? Number(e.target.value) : null;
+                              setParsedRows((prev) => prev.map((r) => {
+                                if (r.id !== row.id) return r;
+                                const next = { ...r, skuId: v };
+                                if (r.statusMessage === 'SKU 선택 필요' && v) return { ...next, status: r.partnerId ? 'matched' : 'warning', statusMessage: r.partnerId ? '매칭 완료' : '거래처 매칭 실패' };
+                                return next;
+                              }));
+                            }}
+                          >
+                            <option value="">판매 SKU 선택 (필수)</option>
+                            {skusOfItem(row.itemMasterId).map((k) => (
+                              <option key={k.id} value={k.id}>{k.skuName || k.skuCode} · {k.salesUnit || '-'}</option>
+                            ))}
+                          </select>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs text-right tabular-nums">{row.quantity.toLocaleString()}</TableCell>
                       <TableCell className="text-xs text-right tabular-nums">{row.unitPrice.toLocaleString()}</TableCell>

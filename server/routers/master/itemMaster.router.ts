@@ -468,6 +468,29 @@ export const productSkuRouter = router({
         .orderBy(desc(productSkus.isDefault), asc(productSkus.skuCode));
     }),
   
+  // 제품(h_products_v2.id = item_master.legacy_product_id) 의 SKU — 매출 수정 화면용 (2026-10-16)
+  listByProduct: tenantRequiredProcedure
+    .input(z.object({ productId: z.number().int().positive() }))
+    .query(async ({ input, ctx }) => {
+      const db = await getDb();
+      return db.select({
+        id: productSkus.id,
+        skuCode: productSkus.skuCode,
+        skuName: productSkus.skuName,
+        salesUnit: productSkus.salesUnit,
+        isDefault: productSkus.isDefault,
+      })
+        .from(productSkus)
+        .innerJoin(itemMaster, and(eq(productSkus.itemId, itemMaster.id), eq(itemMaster.tenantId, productSkus.tenantId)))
+        .where(and(
+          eq(productSkus.tenantId, ctx.tenantId),
+          eq(productSkus.isActive, 1),
+          eq(itemMaster.legacyProductId, input.productId),
+          eq(itemMaster.itemType, "own_product"),
+        ))
+        .orderBy(desc(productSkus.isDefault), asc(productSkus.id));
+    }),
+
   // 전체 SKU 목록 (매출 등록용)
   listAll: tenantRequiredProcedure
     .input(z.object({

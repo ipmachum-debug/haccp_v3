@@ -49,7 +49,8 @@ const exec = vi.fn(async (q: string, p: any[] = []) => {
   }
   if (/INSERT INTO h_inventory_lots/.test(q)) {
     const id = ++st.nextId;
-    st.lots.push({ id, product_id: p[1], lot_number: p[2], production_date: p[4], receipt_date: null, created_at: "2026-10-15 19:00:00", available_quantity: 0, current_quantity: 0, quantity: 0, unit_price: 0, status: "available" });
+    // (tenant_id, product_id, sku_id, lot_number, unit, production_date) — 2026-10-16 sku_id 추가
+    st.lots.push({ id, product_id: p[1], lot_number: p[3], production_date: p[5], receipt_date: null, created_at: "2026-10-15 19:00:00", available_quantity: 0, current_quantity: 0, quantity: 0, unit_price: 0, status: "available" });
     return [{ insertId: id }];
   }
   if (/INSERT INTO h_inventory_transactions/.test(q)) {

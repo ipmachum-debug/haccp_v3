@@ -48,6 +48,8 @@ const PACKAGING_UNITS = [
 type SaleItem = {
   id: string;
   itemMasterId?: number;
+  /** ★ 2026-10-16 판매 SKU — 자사제품은 SKU 를 골라야 그 SKU 의 LOT 에서 빠진다 (SKU 가 여럿이면 필수) */
+  skuId?: number;
   itemType?: string;
   itemName: string;
   packagingSize?: number;
@@ -104,6 +106,9 @@ function SalesManagementContent() {
 
   // 거래처 목록 조회 (전체 - customer 타입이 없을 수 있으므로)
   const { data: partners = [] } = trpc.partners.list.useQuery({});
+  // ★ 2026-10-16: 자사제품 SKU (품목별로 골라 쓰기)
+  const { data: ownSkus = [] } = trpc.productSku.listAll.useQuery({ itemType: "own_product" });
+  const skusOf = (itemMasterId?: number) => (ownSkus as Array<{ id: number; itemId: number; skuName: string | null; skuCode: string; salesUnit: string | null; unitPrice: string | null }>).filter((k) => k.itemId === itemMasterId);
 
   // 품목 마스터 조회 (자사제품, 원재료, 외부제품, 부자재)
   const { data: ownProductItems } = trpc.itemMaster.list.useQuery({
@@ -341,13 +346,17 @@ function SalesManagementContent() {
         const quantity = item.quantity;
         const amount = quantity * resolvedUnitPrice;
         const taxAmount = item.taxType === "taxed" ? Math.round(amount * 0.1) : 0;
+        // 자사제품: SKU 가 하나면 자동 선택, 여럿이면 줄에서 고른다
+        const skus = selectedMasterItem.itemType === "own_product" ? skusOf(selectedMasterItem.id) : [];
+        const onlySku = skus.length === 1 ? skus[0] : undefined;
         return {
           ...item,
           itemMasterId: selectedMasterItem.id,
           itemType: selectedMasterItem.itemType,
           itemName: selectedMasterItem.itemName || "",
+          skuId: onlySku?.id,
           unitPrice: resolvedUnitPrice,
-          packagingUnit: selectedMasterItem.baseUnit || "kg",
+          packagingUnit: onlySku?.salesUnit || selectedMasterItem.baseUnit || "kg",
           amount,
           taxAmount,
           totalAmount: amount + taxAmount,
@@ -372,6 +381,12 @@ function SalesManagementContent() {
       toast({ title: "모든 품목 정보를 입력해주세요.", variant: "destructive" });
       return;
     }
+    // ★ 2026-10-16: SKU 가 여럿인 자사제품은 판매 SKU 필수 (확정 때 그 SKU 의 LOT 에서 빠진다)
+    const missingSku = items.filter((item) => item.itemType === "own_product" && !item.skuId && skusOf(item.itemMasterId).length > 1);
+    if (missingSku.length > 0) {
+      toast({ title: "판매 SKU 를 선택해주세요.", description: missingSku.map((i) => i.itemName).join(", "), variant: "destructive" });
+      return;
+    }
 
     setIsSaving(true);
     setSavedSaleIds([]); // 재저장 대비 초기화
@@ -386,6 +401,7 @@ function SalesManagementContent() {
           transactionDate,
           partnerId: Number(selectedPartnerId),
           itemName: item.itemName,
+          skuId: item.skuId,
           quantity: item.quantity,
           unitPrice: item.unitPrice,
           amount: item.amount,
@@ -573,6 +589,34 @@ function SalesManagementContent() {
                         <Search className="h-3 w-3" />
                       </Button>
                     </div>
+                    {item.itemType === "own_product" && skusOf(item.itemMasterId).length > 0 && (
+                      <Select
+                        value={item.skuId ? String(item.skuId) : ""}
+                        onValueChange={(v) => {
+                          const sku = skusOf(item.itemMasterId).find((k) => k.id === Number(v));
+                          setItems((prev) => prev.map((it) => it.id !== item.id ? it : {
+                            ...it,
+                            skuId: sku?.id,
+                            packagingUnit: sku?.salesUnit || it.packagingUnit,
+                          }));
+                        }}
+                      >
+                        <SelectTrigger
+                          className={`mt-0.5 h-6 text-[11px] ${!item.skuId && skusOf(item.itemMasterId).length > 1 ? "border-red-400 text-red-600" : ""}`}
+                          data-testid="sale-sku-select"
+                          aria-label="판매 SKU"
+                        >
+                          <SelectValue placeholder="판매 SKU 선택 (필수)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {skusOf(item.itemMasterId).map((k) => (
+                            <SelectItem key={k.id} value={String(k.id)} className="text-xs">
+                              {k.skuName || k.skuCode} · {k.salesUnit || "-"}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                   </TableCell>
                   <TableCell className="py-1">
                     <div className="flex items-center gap-0.5">

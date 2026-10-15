@@ -1,4 +1,4 @@
-import { getDb, withTransaction } from "../../db";
+import { getDb, withTransaction, getRawConnection } from "../../db";
 import { accountingSales } from "../../../drizzle/schema/schema_accounting_extended";
 import { eq, and, sql } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
@@ -7,6 +7,7 @@ import { formatLocalDate } from "../../utils/timezone";
 import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
 import { lotAvailableOnSql, lotDateExpr } from "../inventory/lotChronology";
 import { documentAmounts } from "./amountContract";
+import { loadSaleSku, resolveSaleSku, type SaleSkuInfo } from "./saleSku";
 
 /**
  * 제품 매출 POST — 완전 통합 (Module 2, 2026-04-14)
@@ -80,6 +81,14 @@ export async function postProductSale(
   //   우선순위: 명시된 ID → product_id(h_products_v2) 매칭 → material_id(h_materials) 매칭
   let resolvedProductId: number | null = productId;
   let resolvedMaterialId: number | null = materialId;
+
+  // ★ 2026-10-16: SKU 가 지정된 매출은 제품을 SKU 에서 정한다 (품명 매칭보다 우선)
+  const saleSkuId = Number((sale as any).skuId ?? 0) || null;
+  if (saleSkuId && !resolvedProductId && !resolvedMaterialId) {
+    const sku = await loadSaleSku(await getRawConnection(), tenantId, saleSkuId);
+    if (!sku) throw new Error(`[${docId}] SKU #${saleSkuId} 를 찾을 수 없습니다 (이 회사 SKU 가 아님).`);
+    if (sku.productId) resolvedProductId = sku.productId;
+  }
 
   if (!resolvedProductId && !resolvedMaterialId && sale.itemName) {
     try {
@@ -241,8 +250,36 @@ export async function postProductSale(
       }
     }
 
-    let bundleParentSkuId: number | null = null;
+    // ★ 2026-10-16: 판매 SKU — 그 SKU 의 LOT 만 차감 (saleSku)
+    //   SKU 지정 → 확인 / 미지정이면 제품의 SKU 가 하나일 때만 자동 / 여럿이면 확정 차단 (다른 SKU·단위 LOT 에서 빠지는 것 방지).
+    //   제품 출고 화면에서 만든 매출(LOT 이미 지정·차감)은 대상 아님.
+    let saleSku: SaleSkuInfo | null = null;
     if (!alreadyDeductedByOutbound && isProductSale && resolvedProductId && saleQty > 0) {
+      const r = await resolveSaleSku(conn, tenantId, { skuId: saleSkuId, productId: resolvedProductId });
+      if (r.kind === "ambiguous") {
+        throw new Error(
+          `[${docId}] 이 제품은 SKU 가 ${r.candidates.length}개입니다 (${r.candidates.map((c) => `#${c.id} ${c.skuName ?? ""}`.trim()).join(", ")}) — ` +
+            `매출에 판매 SKU 를 지정한 뒤 확정하세요.`,
+        );
+      }
+      if (r.kind === "sku") saleSku = r.sku;
+    }
+    // 그 SKU 의 LOT + SKU 없이 만든 옛 LOT 중 단위가 같은 것 (예: kg SKU ↔ SKU 없는 kg LOT). 박스 SKU 는 kg LOT 을 쓰지 않는다.
+    //   운영 백업 10/16: SKU 하나뿐인 제품의 SKU 없는 재고 LOT 63개(대부분 kg) — 이걸 막으면 재고가 있는데 음수로 빠진다.
+    const saleSkuLotCond = saleSku?.salesUnit
+      ? "(sku_id = ? OR (sku_id IS NULL AND LOWER(unit) = LOWER(?)))"
+      : "sku_id = ?";
+    const saleSkuLotParams: any[] = saleSku ? (saleSku.salesUnit ? [saleSku.skuId, saleSku.salesUnit] : [saleSku.skuId]) : [];
+
+    let bundleParentSkuId: number | null = null;
+    if (saleSku) {
+      // SKU 가 정해졌으면 그 SKU 가 혼합(번들) 부모일 때만 분해 차감
+      const [pRows] = await conn.execute(
+        `SELECT 1 FROM sku_bundles WHERE parent_sku_id = ? AND tenant_id = ? LIMIT 1`,
+        [saleSku.skuId, tenantId],
+      );
+      if ((pRows as any[]).length > 0) bundleParentSkuId = saleSku.skuId;
+    } else if (!alreadyDeductedByOutbound && isProductSale && resolvedProductId && saleQty > 0) {
       try {
         const [bundleRows] = await conn.execute(
           `SELECT ps.id AS parent_sku_id
@@ -312,6 +349,7 @@ export async function postProductSale(
            AND status = 'available'
            AND available_quantity > 0.001
            AND ${lotAvailableOnSql()}
+           ${saleSku ? `AND ${saleSkuLotCond}` : ""}
          ORDER BY
            CASE WHEN expiry_date IS NULL THEN 1 ELSE 0 END,
            expiry_date ASC,
@@ -319,7 +357,8 @@ export async function postProductSale(
            id ASC
          FOR UPDATE`,
         // ★ 2026-10-15: 판매일에 있던 LOT 만 (10/08 매출이 10/14 생산 LOT 을 빼던 문제 — lotChronology)
-        [tenantId, lotFilterValue, entryDate],
+        // ★ 2026-10-16: 판매 SKU 가 정해지면 그 SKU 의 LOT 만
+        [tenantId, lotFilterValue, entryDate, ...saleSkuLotParams],
       );
       const availableLots = lotRows as any[];
 
@@ -397,11 +436,12 @@ export async function postProductSale(
           `SELECT id, unit_price FROM h_inventory_lots
            WHERE tenant_id = ? AND ${lotFilterColumn} = ?
              AND ${lotAvailableOnSql()}
+             ${saleSku ? `AND ${saleSkuLotCond}` : ""}
            ORDER BY ${lotDateExpr()} DESC, id DESC
            LIMIT 1
            FOR UPDATE`,
-          // 판매일 기준 가장 최근 LOT — 판매일 뒤에 생긴 LOT 은 음수 자리로도 쓰지 않는다
-          [tenantId, lotFilterValue, entryDate],
+          // 판매일 기준 가장 최근 LOT — 판매일 뒤에 생긴 LOT 은 음수 자리로도 쓰지 않는다 (SKU 가 정해지면 그 SKU 안에서)
+          [tenantId, lotFilterValue, entryDate, ...saleSkuLotParams],
         );
         let sink = (sinkRows as any[])[0] as { id: number; unit_price: any } | undefined;
         if (!sink) {
@@ -409,10 +449,11 @@ export async function postProductSale(
           const lotNumber = `NEG-${isProductSale ? "P" : "M"}${lotFilterValue}-${ymd}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
           const [ins] = await conn.execute(
             `INSERT INTO h_inventory_lots
-               (tenant_id, ${lotFilterColumn}, lot_number, quantity, current_quantity, available_quantity,
+               (tenant_id, ${lotFilterColumn}, sku_id, lot_number, quantity, current_quantity, available_quantity,
                 unit, unit_price, ${isProductSale ? "production_date" : "receipt_date"}, status, created_at, updated_at)
-             VALUES (?, ?, ?, 0, 0, 0, ?, 0, ?, 'available', NOW(), NOW())`,
-            [tenantId, lotFilterValue, lotNumber, sale.unit || "EA", entryDate],
+             VALUES (?, ?, ?, ?, 0, 0, 0, ?, 0, ?, 'available', NOW(), NOW())`,
+            // 자리표시 LOT 도 판매 SKU·판매단위로 (다음 판매·입고가 같은 SKU 로 찾는다)
+            [tenantId, lotFilterValue, saleSku?.skuId ?? null, lotNumber, saleSku?.salesUnit || sale.unit || "EA", entryDate],
           );
           sink = { id: Number((ins as any).insertId), unit_price: 0 };
           console.warn(`[negative-stock] sale_placeholder_lot ${docId} ${lotFilterColumn}=${lotFilterValue} lot=${lotNumber}`);
@@ -593,10 +634,11 @@ export async function postProductSale(
        SET status = 'approved',
            product_id = COALESCE(product_id, ?),
            material_id = COALESCE(material_id, ?),
+           sku_id = COALESCE(sku_id, ?),
            posted_at = NOW(),
            posted_by = ?
        WHERE id = ? AND tenant_id = ? AND status = 'pending'`,
-      [resolvedProductId, resolvedMaterialId, userId, saleId, tenantId],
+      [resolvedProductId, resolvedMaterialId, saleSku?.skuId ?? null, userId, saleId, tenantId],
     );
 
     console.log(

@@ -1,4 +1,4 @@
-import { getDb } from "../connection";
+import { getDb, getRawConnection } from "../connection";
 import { onPurchaseCreated } from "../accounting/materialLedger";
 import { accountingPurchases, accountingSales } from "../../../drizzle/schema";
 import { eq, and} from "drizzle-orm";
@@ -357,6 +357,7 @@ export async function createSale(params: {
   itemName: string;
   productId?: number;   // 완제품 FK (h_products_v2)
   materialId?: number;  // 원재료/부자재/외부제품 FK (h_materials)
+  skuId?: number;       // ★ 2026-10-16: 판매 SKU (product_skus.id) — 제품은 SKU 에서 정한다
   quantity: number;
   unitPrice: number;
   amount: number;
@@ -378,15 +379,19 @@ export async function createSale(params: {
     );
   }
 
+  // ★ 2026-10-16 판매 SKU: 이 회사 SKU 인지·제품과 맞는지 확인하고, 제품·단위는 SKU 에서 (saleSku)
+  const skuFields = await saleSkuFields(tenantId, { skuId: params.skuId, productId: params.productId, materialId: params.materialId, unit: params.unit });
+
   const [sale] = await db.insert(accountingSales).values({
     tenantId: tenantId,
     transactionDate: params.transactionDate,
     partnerId: params.partnerId,
-    productId: params.productId ?? null,
+    productId: skuFields.productId ?? params.productId ?? null,
     materialId: params.materialId ?? null,
+    skuId: skuFields.skuId,
     itemName: params.itemName,
     quantity: params.quantity.toString(),
-    unit: params.unit || "개",
+    unit: skuFields.unit || params.unit || "개",
     unitPrice: params.unitPrice.toString(),
     totalAmount: params.amount.toString(),
     taxAmount: params.taxAmount.toString(),
@@ -607,7 +612,7 @@ export async function getAllSales(filters?: {
 }, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
-  const { partners } = await import("../../../drizzle/schema");
+  const { partners, productSkus } = await import("../../../drizzle/schema");
   const { and, gte, lte, eq, like } = await import("drizzle-orm");
 
   let query = db
@@ -617,6 +622,8 @@ export async function getAllSales(filters?: {
       partnerId: accountingSales.partnerId,
       partnerName: partners.companyName,
       productId: accountingSales.productId, // ★ 2026-04-14 추가 (Module 2)
+      skuId: accountingSales.skuId, // ★ 2026-10-16 판매 SKU
+      skuName: productSkus.skuName,
       itemName: accountingSales.itemName,
       quantity: accountingSales.quantity,
       unit: accountingSales.unit,
@@ -635,6 +642,13 @@ export async function getAllSales(filters?: {
       and(
         eq(accountingSales.partnerId, partners.id),
         eq(partners.tenantId, accountingSales.tenantId),
+      ),
+    )
+    .leftJoin(
+      productSkus,
+      and(
+        eq(accountingSales.skuId, productSkus.id),
+        eq(productSkus.tenantId, accountingSales.tenantId),
       ),
     );
 
@@ -991,6 +1005,7 @@ export async function updateSale(
     transactionDate?: string;
     partnerId?: number;
     productId?: number; // ★ 2026-04-14: h_products FK (Module 2)
+    skuId?: number | null; // ★ 2026-10-16: 판매 SKU — 대기(pending) 매출에서만 바꿀 수 있다
     itemName?: string;
     category?: string;
     quantity?: number;
@@ -1004,6 +1019,34 @@ export async function updateSale(
   }, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
+
+  // ★ 2026-10-16 상태는 승인·수금·취소 버튼으로만 바꾼다 — 수정으로 'approved' 를 넣으면 재고 차감·분개 없이
+  //   승인된 것처럼 보인다 (CLAUDE.md "유령 상태"). 같은 상태를 다시 보내는 것은 허용 (수정 화면이 그대로 보냄).
+  // ★ 2026-10-16 판매 SKU 변경 — 확정 뒤에는 이미 그 LOT 에서 빠졌으므로 바꾸지 않는다
+  if (data.skuId !== undefined || data.status !== undefined) {
+    const conn: any = await getRawConnection();
+    const [cur]: any = await conn.execute(`SELECT status, product_id, material_id, sku_id FROM accounting_sales WHERE id = ? AND tenant_id = ?`, [id, tenantId]);
+    const row = cur?.[0];
+    if (!row) throw new Error(`매출 #${id} 를 찾을 수 없습니다.`);
+    if (data.status !== undefined && data.status !== row.status) {
+      throw new Error(`매출 상태는 수정으로 바꿀 수 없습니다 (${row.status} → ${data.status}). 승인·수금·취소 버튼을 쓰세요.`);
+    }
+  }
+  if (data.skuId !== undefined) {
+    const conn: any = await getRawConnection();
+    const [cur]: any = await conn.execute(`SELECT status, product_id, material_id, sku_id FROM accounting_sales WHERE id = ? AND tenant_id = ?`, [id, tenantId]);
+    const row = cur?.[0];
+    if (!row) throw new Error(`매출 #${id} 를 찾을 수 없습니다.`);
+    const same = (row.sku_id == null && data.skuId == null) || Number(row.sku_id) === Number(data.skuId);
+    if (!same) {
+      if (row.status !== "pending") throw new Error(`확정된 매출의 SKU 는 바꿀 수 없습니다 (현재: ${row.status}). 취소 후 다시 등록하세요.`);
+      if (data.skuId != null) {
+        const f = await saleSkuFields(tenantId, { skuId: data.skuId, productId: data.productId ?? (row.product_id != null ? Number(row.product_id) : undefined), materialId: row.material_id != null ? Number(row.material_id) : undefined, unit: data.unit });
+        (data as any).productId = f.productId ?? data.productId;
+        if (!data.unit && f.unit) data.unit = f.unit;
+      }
+    }
+  }
 
   // category 는 accounting_sales 에 없는 컬럼 → 제거
   const { category: _category, ...rest } = data;
@@ -1033,4 +1076,22 @@ export async function deleteSale(id: number, tenantId: number) {
     .where(and(eq(accountingSales.id, id), eq(accountingSales.tenantId, tenantId as number)));
 
   return { success: true };
+}
+
+
+/**
+ * 매출 SKU 필드 (2026-10-16) — createSale·updateSale 공통.
+ * SKU 가 있으면 이 회사 SKU 인지·제품과 맞는지 확인하고 제품(legacy_product_id)·판매단위를 돌려준다.
+ */
+async function saleSkuFields(
+  tenantId: number | undefined,
+  p: { skuId?: number | null; productId?: number | null; materialId?: number | null; unit?: string | null },
+): Promise<{ skuId: number | null; productId: number | null; unit: string | null }> {
+  if (!p.skuId) return { skuId: null, productId: null, unit: null };
+  if (!tenantId) throw new Error("[보안] tenantId 필수");
+  if (p.materialId) throw new Error(`판매 SKU(#${p.skuId}) 는 제품 매출에만 지정할 수 있습니다 (원재료·부자재 매출 #material ${p.materialId}).`);
+  const { resolveSaleSku } = await import("../../lib/accounting/saleSku");
+  const r = await resolveSaleSku(await getRawConnection() as any, tenantId, { skuId: p.skuId, productId: p.productId ?? null });
+  if (r.kind !== "sku") throw new Error(`SKU #${p.skuId} 를 확인하지 못했습니다.`);
+  return { skuId: r.sku.skuId, productId: r.sku.productId, unit: r.sku.salesUnit };
 }

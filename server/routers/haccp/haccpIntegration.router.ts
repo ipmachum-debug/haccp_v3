@@ -205,6 +205,7 @@ export const haccpIntegrationRouter = router({
           transactionDate: z.string(),
           partnerId: z.number(),
           productId: z.number().optional(), // ★ 2026-04-14: h_products FK (Module 2)
+          skuId: z.number().int().positive().optional(), // ★ 2026-10-16: 판매 SKU
           itemName: z.string(),
           quantity: z.number(),
           unitPrice: z.number(),
@@ -290,6 +291,7 @@ export const haccpIntegrationRouter = router({
           transactionDate: z.string().optional(),
           partnerId: z.number().optional(),
           productId: z.number().optional(), // ★ 2026-04-14: h_products FK (Module 2)
+          skuId: z.number().int().positive().nullable().optional(), // ★ 2026-10-16: 판매 SKU (대기 매출에서만 변경)
           itemName: z.string().optional(),
           category: z.string().optional(),
           quantity: z.number().optional(),
@@ -526,6 +528,7 @@ export const haccpIntegrationRouter = router({
           itemName: z.string(),
           productId: z.number().optional(),   // 완제품 FK (매칭 엔진 결과)
           materialId: z.number().optional(),  // 원재료/부자재/외부제품 FK (매칭 엔진 결과)
+          skuId: z.number().int().positive().optional(), // ★ 2026-10-16: 매칭된 판매 SKU (SKU 코드·별칭·AI 매칭)
           quantity: z.number(),
           unitPrice: z.number(),
           amount: z.number(),
