@@ -3,7 +3,7 @@
  * Shared constants, components, and utility render functions for print preview.
  */
 import React from "react";
-import { ApprovalSeal } from "@/components/SealGenerator";
+import { StampCellContent } from "@/components/checklist/ApprovalStampBox";
 
 export const FORM_TYPE_LABELS: Record<string, string> = {
   air_compressor_filter: "에어컴프레서 필터 점검표",
@@ -68,6 +68,31 @@ export const CHECKLIST_LABEL_MAP: Record<string, string> = {
 };
 
 // ============================================================================
+// 결재란 — 인쇄 (2026-10-15, 화면 결재란 ApprovalStampBox 와 같은 2줄 모양)
+// 이전: 역할 줄(작 성/검 토/승 인) → 사각 도장(역할·이름·날짜) → 이름 줄 — 역할·이름이 세 번씩 나왔다.
+// 지금: 역할은 위에 한 번, 직인은 원 안에 이름 + 짧은 날짜. 결재 전 칸은 예정자 이름 회색. 이름 줄 없음.
+// ============================================================================
+const PRINT_ROLES = [
+  { key: "author", label: "작성" },
+  { key: "reviewer", label: "검토" },
+  { key: "approver", label: "승인" },
+] as const;
+
+type PrintStampInput = {
+  authorName: string; reviewerName: string; approverName: string;
+  requestedAt?: string; reviewedAt?: string; approvedAt?: string;
+};
+
+/** 칸별 결재 여부·날짜 — 작성: 이름 있으면 / 검토: 검토·승인 시각 있으면 / 승인: 승인 시각 있으면 (이전 규칙 그대로) */
+export function printStampCells(i: PrintStampInput) {
+  return {
+    author: { name: i.authorName, done: !!i.authorName, date: i.requestedAt },
+    reviewer: { name: i.reviewerName, done: !!i.reviewerName && !!(i.reviewedAt || i.approvedAt), date: i.reviewedAt || i.approvedAt },
+    approver: { name: i.approverName, done: !!i.approverName && !!i.approvedAt, date: i.approvedAt },
+  };
+}
+
+// ============================================================================
 // 상단 결재란 컴포넌트 (독립 사용 시 - CCP 등)
 // ============================================================================
 export function ApprovalHeader({
@@ -79,35 +104,23 @@ export function ApprovalHeader({
   requestedAt?: string; reviewedAt?: string; approvedAt?: string;
   compact?: boolean;
 }) {
-  const sealSize = compact ? 30 : 42;
-  const cellHeight = compact ? "36px" : "50px";
-  const colW = compact ? "50px" : "60px";
+  const cells = printStampCells({ authorName, reviewerName, approverName, requestedAt, reviewedAt, approvedAt });
+  const cellHeight = compact ? "44px" : "52px";
+  const colW = compact ? "48px" : "56px";
   const b = "border border-gray-600";
   return (
-    <table className="border-collapse border border-gray-600 text-xs">
-      <thead>
-        <tr className="bg-gray-50">
-          <th className={`${b} px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>작 성</th>
-          <th className={`${b} px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>검 토</th>
-          <th className={`${b} px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>승 인</th>
-        </tr>
-      </thead>
+    <table className="border-collapse border border-gray-600 text-xs" data-testid="print-approval-header">
       <tbody>
-        <tr>
-          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: cellHeight }}>
-            {authorName ? <ApprovalSeal approverName={authorName} approvalDate={requestedAt} approvalType="작성" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미작성</div>}
-          </td>
-          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: cellHeight }}>
-            {reviewerName && (reviewedAt || approvedAt) ? <ApprovalSeal approverName={reviewerName} approvalDate={reviewedAt || approvedAt} approvalType="검토" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미검토</div>}
-          </td>
-          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: cellHeight }}>
-            {approverName && approvedAt ? <ApprovalSeal approverName={approverName} approvalDate={approvedAt} approvalType="승인" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미승인</div>}
-          </td>
-        </tr>
         <tr className="bg-gray-50">
-          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{authorName || "-"}</td>
-          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{reviewerName || "-"}</td>
-          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{approverName || "-"}</td>
+          <th rowSpan={2} className={`${b} px-0.5 text-center text-[9px] font-medium [writing-mode:vertical-rl]`} style={{ width: 18 }}>결재</th>
+          {PRINT_ROLES.map((r) => <th key={r.key} className={`${b} px-1 py-0 font-medium text-[9px]`} style={{ width: colW }}>{r.label}</th>)}
+        </tr>
+        <tr>
+          {PRINT_ROLES.map((r) => (
+            <td key={r.key} className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: cellHeight }}>
+              <StampCellContent {...cells[r.key]} />
+            </td>
+          ))}
         </tr>
       </tbody>
     </table>
@@ -116,14 +129,13 @@ export function ApprovalHeader({
 
 // ============================================================================
 // 제목 + 결재란 통합 컴포넌트 (모든 문서 공통)
-// 하나의 테이블로 제목·결재란·정보행을 연결하여 빈틈 없이 렌더링
 // ┌──────────────────────────┬────┬────┬────┐
 // │       문서 제목           │작성│검토│승인│
 // │       (부제목)           ├────┼────┼────┤
 // │                          │ 印 │ 印 │ 印 │
-// ├──────────────────────────┼────┼────┼────┤
-// │ 점검일자: ... 작성자: ...│이름│이름│이름│
-// └──────────────────────────┴────┴────┴────┘
+// ├──────────────────────────┴────┴────┴────┤
+// │ 점검일자: ...  작성자: ...                │
+// └──────────────────────────────────────────┘
 // ============================================================================
 export function TitleWithApproval({
   title, subtitle, doc, infoLeft
@@ -131,56 +143,40 @@ export function TitleWithApproval({
   title: string;
   subtitle?: string;
   doc?: any;
-  /** 3번째 행 왼쪽 영역 (점검일자, 작성자 등) - ReactNode */
+  /** 3번째 행 (점검일자, 작성자 등) - ReactNode */
   infoLeft?: React.ReactNode;
 }) {
-  const authorName = doc?.authorName || "";
-  const reviewerName = doc?.reviewerName || "";
-  const approverName = doc?.approverName || "";
-  const requestedAt = doc?.formData?.date || doc?.requestedAt || "";
-  const reviewedAt = doc?.reviewedAt || "";
-  const approvedAt = doc?.approvedAt || "";
+  const cells = printStampCells({
+    authorName: doc?.authorName || "", reviewerName: doc?.reviewerName || "", approverName: doc?.approverName || "",
+    requestedAt: doc?.formData?.date || doc?.requestedAt || "", reviewedAt: doc?.reviewedAt || "", approvedAt: doc?.approvedAt || "",
+  });
   const b = "border border-gray-600";
   const colW = "50px";
-  const sealSize = 30;
 
   return (
-    <table className="w-full border-collapse text-xs mb-0" style={{ borderBottom: "none" }}>
+    <table className="w-full border-collapse text-xs mb-0" style={{ borderBottom: "none" }} data-testid="print-title-approval">
       <tbody>
         {/* Row 1: 제목(rowspan=2) + 작성/검토/승인 라벨 */}
         <tr>
-          <td
-            rowSpan={2}
-            className={`${b} text-center align-middle font-bold text-base`}
-            style={{ padding: "8px 12px" }}
-          >
+          <td rowSpan={2} className={`${b} text-center align-middle font-bold text-base`} style={{ padding: "8px 12px" }}>
             {title}
             {subtitle && <><br /><span className="text-sm font-normal text-gray-500">{subtitle}</span></>}
           </td>
-          <td className={`${b} px-1 py-0 font-medium text-[9px] text-center bg-gray-50`} style={{ width: colW }}>작 성</td>
-          <td className={`${b} px-1 py-0 font-medium text-[9px] text-center bg-gray-50`} style={{ width: colW }}>검 토</td>
-          <td className={`${b} px-1 py-0 font-medium text-[9px] text-center bg-gray-50`} style={{ width: colW }}>승 인</td>
+          {PRINT_ROLES.map((r) => <td key={r.key} className={`${b} px-1 py-0 font-medium text-[9px] text-center bg-gray-50`} style={{ width: colW }}>{r.label}</td>)}
         </tr>
-        {/* Row 2: 날인(직인) */}
+        {/* Row 2: 직인 */}
         <tr>
-          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: "36px" }}>
-            {authorName ? <ApprovalSeal approverName={authorName} approvalDate={requestedAt} approvalType="작성" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미작성</div>}
-          </td>
-          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: "36px" }}>
-            {reviewerName && (reviewedAt || approvedAt) ? <ApprovalSeal approverName={reviewerName} approvalDate={reviewedAt || approvedAt} approvalType="검토" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미검토</div>}
-          </td>
-          <td className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: "36px" }}>
-            {approverName && approvedAt ? <ApprovalSeal approverName={approverName} approvalDate={approvedAt} approvalType="승인" size={sealSize} /> : <div className="text-gray-300 text-[8px]">미승인</div>}
-          </td>
+          {PRINT_ROLES.map((r) => (
+            <td key={r.key} className={`${b} px-0.5 py-0.5 text-center align-middle`} style={{ height: "48px" }}>
+              <StampCellContent {...cells[r.key]} />
+            </td>
+          ))}
         </tr>
-        {/* Row 3: 정보행 (점검일자/작성자 등) + 이름 */}
+        {/* Row 3: 정보행 (점검일자/작성자 등) — 이름 줄 없이 전체 폭 */}
         <tr className="bg-gray-50">
-          <td className={`${b} px-3 py-1 text-sm`}>
+          <td colSpan={4} className={`${b} px-3 py-1 text-sm`}>
             {infoLeft || <span className="text-gray-400">-</span>}
           </td>
-          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{authorName || "-"}</td>
-          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{reviewerName || "-"}</td>
-          <td className={`${b} px-0.5 py-0 text-center text-[8px] text-gray-600`}>{approverName || "-"}</td>
         </tr>
       </tbody>
     </table>

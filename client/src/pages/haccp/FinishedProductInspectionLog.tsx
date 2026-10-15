@@ -15,7 +15,8 @@ import {
 import { format } from "date-fns";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { ApprovalSeal } from "@/components/SealGenerator";
+import { ApprovalHeader } from "@/components/print/PrintHelpers";
+import { stampTableHtml, STAMP_TABLE_CSS } from "@/lib/print/stampHtml";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 // ===========================================================================
@@ -89,20 +90,6 @@ const ROWS_PER_PAGE = 25;
 
 function generatePrintHTML(items: FinishedProductItem[], year: number, month: number, approvalInfo: any) {
   const ai = approvalInfo || {};
-  // 인쇄용 직인 SVG: 라벨 + 이름 2단 구조 (날짜는 표시하지 않음)
-  const sealSVG = (name: string, _date: string, type: string) => {
-    const displayName = name.length === 2 ? name[0] + " " + name[1] : name.length === 3 ? name : name.slice(0, 3);
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 34 34" style="display:block;margin:0 auto;">
-      <rect x="1" y="1" width="32" height="32" rx="1" ry="1" fill="none" stroke="#D42020" stroke-width="1.6" opacity="0.85"/>
-      <line x1="1" y1="13" x2="33" y2="13" stroke="#D42020" stroke-width="0.7" opacity="0.7"/>
-      <text x="17" y="8" text-anchor="middle" dominant-baseline="central" font-size="7" fill="#D42020" font-weight="700" opacity="0.85">${type}</text>
-      <text x="17" y="23" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#D42020" font-weight="700" opacity="0.85">${displayName}</text>
-    </svg>`;
-  };
-  const sealCell = (name?: string, _date?: string, type?: string) => {
-    if (name) return sealSVG(name, "", type || "");
-    return `<span style="color:#d1d5db;font-size:8px;">\uBBF8${type === "\uC791\uC131" ? "\uC791\uC131" : type === "\uAC80\uD1A0" ? "\uAC80\uD1A0" : "\uC2B9\uC778"}</span>`;
-  };
   const markClass = (v: string) => v === '\u25CB' ? 'mark-pass' : v === '\u00D7' ? 'mark-fail' : '';
   const resultClass = (v: string) => v === '\uC801\uD569' ? 'result-pass' : v === '\uBD80\uC801\uD569' ? 'result-fail' : '';
 
@@ -133,20 +120,7 @@ function generatePrintHTML(items: FinishedProductItem[], year: number, month: nu
           <div class="subtitle">Finished Product Shipping Inspection Log</div>
           <div class="period">\uAC80\uC0AC\uAE30\uAC04: <strong>${year}\uB144 ${month}\uC6D4</strong>${totalPages > 1 ? ` (${p + 1}/${totalPages})` : ''}</div>
         </div>
-        <table class="seal-table">
-          <tr><th colspan="3" class="seal-header">\uACB0 \uC7AC</th></tr>
-          <tr><th class="seal-role">\uC791 \uC131</th><th class="seal-role">\uAC80 \uD1A0</th><th class="seal-role">\uC2B9 \uC778</th></tr>
-          <tr>
-            <td class="seal-cell">${sealCell(ai.requesterName, ai.requestedAt, "\uC791\uC131")}</td>
-            <td class="seal-cell">${sealCell(ai.reviewerName, ai.reviewedAt, "\uAC80\uD1A0")}</td>
-            <td class="seal-cell">${sealCell(ai.approverName, ai.approvedAt, "\uC2B9\uC778")}</td>
-          </tr>
-          <tr>
-            <td class="seal-name">${ai.requesterName || "-"}</td>
-            <td class="seal-name">${ai.reviewerName || "-"}</td>
-            <td class="seal-name">${ai.approverName || "-"}</td>
-          </tr>
-        </table>
+        ${stampTableHtml({ authorName: ai.requesterName, reviewerName: ai.reviewerName, approverName: ai.approverName, requestedAt: ai.requestedAt, reviewedAt: ai.reviewedAt, approvedAt: ai.approvedAt })}
       </div>
       <table class="data-table">
         <thead><tr>
@@ -185,12 +159,7 @@ td, th { border: 1px solid #4b5563; padding: 3px 5px; font-size: 9px; }
 .title-area .subtitle { font-size: 9px; color: #6b7280; margin-top: 2px; }
 .title-area .period { font-size: 10px; color: #374151; margin-top: 4px; }
 .title-area .period strong { font-weight: 700; }
-.seal-table { border-collapse: collapse; table-layout: fixed; width: auto !important; }
-.seal-table th, .seal-table td { border: 1px solid #4b5563; text-align: center; overflow: hidden; }
-.seal-table .seal-header { background: #f3f4f6; font-size: 8px; font-weight: 700; padding: 0 1px; }
-.seal-table .seal-role { background: #f9fafb; font-size: 7px; font-weight: 500; padding: 0; width: 34px; }
-.seal-table .seal-cell { height: 34px; width: 34px; vertical-align: middle; padding: 0; }
-.seal-table .seal-name { background: #f9fafb; font-size: 6px; color: #4b5563; padding: 0; width: 34px; }
+${STAMP_TABLE_CSS}
 .data-table th { background: #f0fdf4; font-size: 8px; font-weight: 600; text-align: center; padding: 3px 2px; white-space: nowrap; }
 .data-table td { font-size: 9px; text-align: center; padding: 2px 4px; }
 .data-table .td-left { text-align: left; }
@@ -238,7 +207,6 @@ function FinishedProductDocument({
   const thCls = `${bCls} px-1 py-1 text-[8px] font-semibold bg-green-50 text-center whitespace-nowrap`;
   const tdCls = `${bCls} px-1 py-0.5 text-[9px] text-center`;
   const ai = approvalInfo || {};
-  const sealSize = 30;
   const markColor = (v: string) => v === '\u25CB' ? 'text-green-700 font-bold' : v === '\u00D7' ? 'text-red-600 font-bold' : 'text-gray-400';
   const resultColor = (v: string) => v === '\uC801\uD569' ? 'text-green-700 font-bold' : v === '\uBD80\uC801\uD569' ? 'text-red-600 font-bold' : 'text-gray-400';
 
@@ -252,34 +220,7 @@ function FinishedProductDocument({
           <p className="text-xs text-gray-500 mt-0.5">Finished Product Shipping Inspection Log</p>
           <p className="text-xs text-gray-600 mt-1">검사기간: <span className="font-bold">{year}년 {month}월</span></p>
         </div>
-        <table className="border-collapse border border-gray-600 text-xs">
-          <thead>
-            <tr><th colSpan={3} className="border border-gray-600 px-0 py-0 bg-gray-100 text-center font-bold text-[9px]">결 재</th></tr>
-            <tr className="bg-gray-50">
-              <th className="border border-gray-600 px-0 py-0 font-medium text-[8px]" style={{width:'32px'}}>작 성</th>
-              <th className="border border-gray-600 px-0 py-0 font-medium text-[8px]" style={{width:'32px'}}>검 토</th>
-              <th className="border border-gray-600 px-0 py-0 font-medium text-[8px]" style={{width:'32px'}}>승 인</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <td className="border border-gray-600 text-center align-middle p-0" style={{height:'32px'}}>
-                {ai.requesterName ? <ApprovalSeal approverName={ai.requesterName} approvalDate={ai.requestedAt} approvalType="작성" size={sealSize} /> : <span className="text-gray-300 text-[8px]">미작성</span>}
-              </td>
-              <td className="border border-gray-600 text-center align-middle p-0" style={{height:'32px'}}>
-                {ai.reviewerName && ai.reviewedAt ? <ApprovalSeal approverName={ai.reviewerName} approvalDate={ai.reviewedAt} approvalType="검토" size={sealSize} /> : <span className="text-gray-300 text-[8px]">미검토</span>}
-              </td>
-              <td className="border border-gray-600 text-center align-middle p-0" style={{height:'32px'}}>
-                {ai.approverName && ai.approvedAt ? <ApprovalSeal approverName={ai.approverName} approvalDate={ai.approvedAt} approvalType="승인" size={sealSize} /> : <span className="text-gray-300 text-[8px]">미승인</span>}
-              </td>
-            </tr>
-            <tr className="bg-gray-50">
-              <td className="border border-gray-600 px-0 py-0 text-center text-[8px] text-gray-600">{ai.requesterName || "-"}</td>
-              <td className="border border-gray-600 px-0 py-0 text-center text-[8px] text-gray-600">{ai.reviewerName || "-"}</td>
-              <td className="border border-gray-600 px-0 py-0 text-center text-[8px] text-gray-600">{ai.approverName || "-"}</td>
-            </tr>
-          </tbody>
-        </table>
+        <ApprovalHeader compact authorName={ai.requesterName || ""} reviewerName={ai.reviewerName || ""} approverName={ai.approverName || ""} requestedAt={ai.requestedAt} reviewedAt={ai.reviewedAt} approvedAt={ai.approvedAt} />
       </div>
 
       {/* Data Table */}
