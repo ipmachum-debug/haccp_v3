@@ -19,12 +19,14 @@
  *   - 계정이 없으면 ensureSystemAccounts 로 시드 후 재조회 (운영 수작업 불필요).
  *   - 유령 재고 원장(h_inventory_transactions) 은 쓰지 않는다. 재고는 completeBatch 의 SKU LOT 이 정본.
  *   - 호출 지점: runBatchCompletionHooks (배치를 completed 로 만드는 모든 경로의 끝). 실패해도 완료는 유지.
+ *   - 같은 트랜잭션에서 제품 LOT 단가를 생산원가로 맞춘다 (productLotUnitCost — 2026-10-15).
  */
 
 import { getRawConnection, withTransaction } from "../../db/connection";
 import { resolveSystemAccount, insertJournalLine, ensureSystemAccounts } from "../../db/accounting/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 import { resolveBatchBusinessDate } from "./batchBusinessDate";
+import { valueProductLotsInTx, type ProductLotCostResult } from "./productLotUnitCost";
 
 export const DEFAULT_START_DATE = "2026-10-12";
 
@@ -59,7 +61,7 @@ export function journalMarker(batchId: number): string {
 }
 
 export type ProductionJournalResult =
-  | { posted: true; journalEntryId: number; amount: number; entryDate: string }
+  | { posted: true; journalEntryId: number; amount: number; entryDate: string; lotCost: ProductLotCostResult }
   | { posted: false; reason: "disabled" | "before_start" | "already" | "zero_cost" | "not_completed" | "not_found" | "no_accounts"; detail?: string };
 
 export async function postProductionCompletionJournal(p: {
@@ -126,6 +128,11 @@ export async function postProductionCompletionJournal(p: {
     );
     const journalEntryId = Number((je as any).insertId);
 
+    // 제품 LOT 단가 = 생산원가 — 같은 트랜잭션 (둘 다 되거나 둘 다 안 됨, 2026-10-15 #521 리뷰)
+    //   분개가 이미 있으면 위에서 "already" 로 끝나므로 단가도 다시 바꾸지 않는다 (확정).
+    //   움직임이 있는 LOT 은 valueProductLotsInTx 가 건너뛰고 has_movement 를 돌려준다 — 분개는 그대로 전기.
+    const lotCost = await valueProductLotsInTx(conn, p.batchId, p.tenantId, amount);
+
     await insertJournalLine(conn, {
       tenantId: p.tenantId, journalEntryId,
       accountId: finished.id, accountCode: finished.code, accountName: finished.name,
@@ -138,6 +145,6 @@ export async function postProductionCompletionJournal(p: {
     });
 
     console.info(`[productionJournal] batch=${p.batchId} tenant=${p.tenantId} entry=${journalEntryId} amount=${amount} date=${entryDate}`);
-    return { posted: true, journalEntryId, amount, entryDate } as ProductionJournalResult;
+    return { posted: true, journalEntryId, amount, entryDate, lotCost } as ProductionJournalResult;
   }, `productionJournal:${p.batchId}`);
 }
