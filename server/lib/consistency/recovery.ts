@@ -16,6 +16,7 @@
 import type { Pool, PoolConnection } from "mysql2/promise";
 import { withTransaction } from "../../db/connection";
 import { resolveSystemAccount } from "../../db/accounting/journalHelper";
+import { documentAmounts } from "../accounting/amountContract";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 
 export interface RecoveryOptions {
@@ -135,9 +136,8 @@ export async function recoverPaidPurchaseJournals(
   for (const p of targets) {
     const tid = Number(p.tenant_id);
     const accs = tenantAccountCache.get(tid)!;
-    const totalAmount = Number(p.total_amount || 0);
-    const taxAmount = Number(p.tax_amount || 0);
-    const supplyAmount = Math.max(0, totalAmount - taxAmount);
+    // 금액 계약 (amountContract, 2026-10-15): total_amount = 공급가 → 외상매입금(합계) = 공급가 + 세액
+    const { supply: supplyAmount, tax: taxAmount, gross: totalAmount } = documentAmounts({ totalAmount: p.total_amount, taxAmount: p.tax_amount });
     const entryDate = typeof p.transaction_date === "string"
       ? p.transaction_date
       : new Date(p.transaction_date).toISOString().slice(0, 10);

@@ -27,6 +27,7 @@
  *   - scripts/backfill-sales-journals.ts (과거 received 데이터 복구)
  */
 
+import { documentAmounts, findPostedEntryLines, sumAccount } from "./amountContract";
 import { withTransaction, getRawConnection } from "../../db";
 import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
@@ -58,14 +59,14 @@ export async function markSaleReceived(
   // 트랜잭션 외부: 사전 조회 (빠른 실패)
   const conn0 = await getRawConnection();
   const [saleRows] = await conn0.execute(
-    `SELECT id, status, partner_id, total_amount, transaction_date, item_name,
+    `SELECT id, status, partner_id, total_amount, tax_amount, transaction_date, item_name,
             accounting_excluded
        FROM accounting_sales WHERE id = ? AND tenant_id = ? LIMIT 1`,
     [saleId, tenantId],
   );
   const sale = (saleRows as Array<{
     id: number; status: string; partner_id: number | null;
-    total_amount: string; transaction_date: string; item_name: string | null;
+    total_amount: string; tax_amount: string | null; transaction_date: string; item_name: string | null;
     accounting_excluded: number;
   }>)[0];
 
@@ -94,8 +95,9 @@ export async function markSaleReceived(
     throw new Error(`승인(approved) 상태만 수금 처리 가능. 현재: ${sale.status}`);
   }
 
-  const totalAmount = Number(sale.total_amount);
-  if (!(totalAmount > 0)) {
+  // 금액 계약 (amountContract): total_amount = 공급가. 수금액은 아래 트랜잭션에서 원 매출 전표의 외상매출금으로 정한다.
+  const fallbackGross = documentAmounts({ totalAmount: sale.total_amount, taxAmount: sale.tax_amount }).gross;
+  if (!(fallbackGross > 0)) {
     throw new Error(`매출 금액이 0 이하입니다 (saleId=${saleId})`);
   }
 
@@ -156,8 +158,13 @@ export async function markSaleReceived(
       throw new Error(`승인 상태만 수금 가능. 현재: ${curStatus}`);
     }
 
-    // 2. 분개 헤더 INSERT
+    // 2. 수금액 = 원 매출 전표([매출] SALE-<id>)의 외상매출금 차변 — 2026-10-15
+    //    이전엔 total_amount(공급가)로 회수해 세액만큼 외상매출금이 남았다. 금액 계약 이전에 전기된 매출도
+    //    그 전표에 적힌 외상매출금만큼만 회수해야 맞물린다. 원 전표가 없으면 합계(공급가 + 세액).
     const docId = `SALE-${saleId}`;
+    const posted = await findPostedEntryLines(conn, tenantId, `[매출] ${docId}`);
+    const postedAr = posted ? sumAccount(posted.lines, Number(receivableAcc.id), "debit") : 0;
+    const totalAmount = postedAr > 0 ? postedAr : fallbackGross;
     const description = `[수금] ${docId} ${sale.item_name ?? ""}`.trim();
     const [jeResult] = await conn.execute(
       `INSERT INTO expense_journal_entries

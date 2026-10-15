@@ -1,3 +1,4 @@
+import { documentAmounts } from "./amountContract";
 import { getDb, withTransaction } from "../../db";
 import { accountingPurchases } from "../../../drizzle/schema/schema_accounting_extended";
 import { eq, sql } from "drizzle-orm";
@@ -48,9 +49,10 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
   const docId = `PURCHASE-${purchaseId}`;
   const lotNumber = `LOT-${Date.now()}-${purchaseId}`;
   const qty = purchase.quantity?.toString() || "0";
-  const totalAmount = Number(purchase.totalAmount || 0);
-  const taxAmount = Number(purchase.taxAmount || 0);
-  const supplyAmount = totalAmount - taxAmount;
+  // ★ 2026-10-15 금액 계약 (amountContract): total_amount = 공급가, 외상매입금 = 공급가 + 세액.
+  //   이전엔 total − tax 를 공급가로 써서 원재료·외상매입금이 세액만큼 적게 전기됐다.
+  const { supply: supplyAmount, tax: taxAmount, gross: grossAmount } = documentAmounts(purchase);
+  const totalAmount = grossAmount; // 이벤트 payload 호환 (합계)
   const entryDate = typeof purchase.transactionDate === 'string'
     ? purchase.transactionDate
     : formatLocalDate(purchase.transactionDate as Date);
@@ -376,7 +378,7 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
       `INSERT INTO expense_journal_entries
          (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [tenantId, purchaseId, entryDate, `[매입] ${docId} ${purchase.itemName || ""}`, totalAmount, totalAmount, userId]
+      [tenantId, purchaseId, entryDate, `[매입] ${docId} ${purchase.itemName || ""}`, grossAmount, grossAmount, userId]
     );
     const journalEntryId = Number((jeResult as any).insertId);
 
@@ -400,7 +402,7 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
     await insertJournalLine(conn, {
       tenantId, journalEntryId,
       accountId: payableAcc.id, accountCode: payableAcc.code, accountName: payableAcc.name,
-      debitAmount: 0, creditAmount: totalAmount,
+      debitAmount: 0, creditAmount: grossAmount,
       description: `매입: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
       partnerId: (purchase as any).partnerId || null,
     });

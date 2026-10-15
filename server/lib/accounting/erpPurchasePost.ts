@@ -8,6 +8,7 @@
  */
 import { getDb, withTransaction } from "../../db";
 import { resolveSystemAccount, insertJournalLine, SYSTEM_ACCOUNTS } from "../../core-erp/accounting/journal";
+import { documentAmounts } from "./amountContract";
 
 export async function erpPostPurchase(purchaseId: number, userId: number) {
   return withTransaction(async (conn) => {
@@ -21,12 +22,13 @@ export async function erpPostPurchase(purchaseId: number, userId: number) {
 
     const purchase = (rows as any[])?.[0];
     if (!purchase) throw new Error(`매입 ID ${purchaseId}를 찾을 수 없습니다.`);
-    if (purchase.status === "approved") return { success: true, alreadyPosted: true };
+    // 확정·지급된 매입은 다시 확정하지 않는다 (2026-10-15). 확정은 pending 에서만.
+    if (purchase.status === "approved" || purchase.status === "paid") return { success: true, alreadyPosted: true };
+    if (purchase.status !== "pending") throw new Error(`확정할 수 없는 상태입니다: ${purchase.status} (ID: ${purchaseId})`);
 
     const tenantId = purchase.tenant_id;
-    const totalAmount = Number(purchase.total_amount) || 0;
-    const taxAmount = Number(purchase.tax_amount) || 0;
-    const supplyAmount = totalAmount - taxAmount;
+    // 금액 계약 (amountContract, 2026-10-15): total_amount = 공급가, 외상매입금 = 공급가 + 세액
+    const { supply: supplyAmount, tax: taxAmount, gross: grossAmount } = documentAmounts({ totalAmount: purchase.total_amount, taxAmount: purchase.tax_amount });
     const entryDate = purchase.transaction_date || new Date().toISOString().slice(0, 10);
 
     // 분개 헤더 생성
@@ -34,7 +36,7 @@ export async function erpPostPurchase(purchaseId: number, userId: number) {
       `INSERT INTO expense_journal_entries
          (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [tenantId, purchaseId, entryDate, `[매입] ${purchase.item_name || ""}`, totalAmount, totalAmount, userId]
+      [tenantId, purchaseId, entryDate, `[매입] PURCHASE-${purchaseId} ${purchase.item_name || ""}`, grossAmount, grossAmount, userId]
     );
     const journalEntryId = Number((jeResult as any).insertId);
 
@@ -50,7 +52,7 @@ export async function erpPostPurchase(purchaseId: number, userId: number) {
     await insertJournalLine(conn, {
       tenantId, journalEntryId,
       accountId: inventoryAcc.id, accountCode: inventoryAcc.code, accountName: inventoryAcc.name,
-      debitAmount: supplyAmount > 0 ? supplyAmount : totalAmount, creditAmount: 0,
+      debitAmount: supplyAmount, creditAmount: 0,
       description: `매입: ${purchase.item_name || ""}`, sortOrder: sortOrder++,
     });
 
@@ -68,7 +70,7 @@ export async function erpPostPurchase(purchaseId: number, userId: number) {
     await insertJournalLine(conn, {
       tenantId, journalEntryId,
       accountId: payableAcc.id, accountCode: payableAcc.code, accountName: payableAcc.name,
-      debitAmount: 0, creditAmount: totalAmount,
+      debitAmount: 0, creditAmount: grossAmount,
       description: `외상매입금: ${purchase.item_name || ""}`, sortOrder: sortOrder++,
     });
 

@@ -8,6 +8,7 @@
  */
 import { withTransaction } from "../../db";
 import { resolveSystemAccount, insertJournalLine, SYSTEM_ACCOUNTS } from "../../core-erp/accounting/journal";
+import { documentAmounts } from "./amountContract";
 
 export async function erpPostSale(saleId: number, userId: number) {
   return withTransaction(async (conn) => {
@@ -21,12 +22,13 @@ export async function erpPostSale(saleId: number, userId: number) {
 
     const sale = (rows as any[])?.[0];
     if (!sale) throw new Error(`매출 ID ${saleId}를 찾을 수 없습니다.`);
-    if (sale.status === "approved") return { success: true, alreadyPosted: true };
+    // 확정·수금된 매출은 다시 확정하지 않는다 (2026-10-15). 확정은 pending 에서만.
+    if (sale.status === "approved" || sale.status === "received") return { success: true, alreadyPosted: true };
+    if (sale.status !== "pending") throw new Error(`확정할 수 없는 상태입니다: ${sale.status} (ID: ${saleId})`);
 
     const tenantId = sale.tenant_id;
-    const totalAmount = Number(sale.total_amount) || 0;
-    const taxAmount = Number(sale.tax_amount) || 0;
-    const supplyAmount = totalAmount - taxAmount;
+    // 금액 계약 (amountContract): total_amount = 공급가, 외상매출금 = 공급가 + 세액
+    const { supply: supplyAmount, tax: taxAmount, gross: grossAmount } = documentAmounts({ totalAmount: sale.total_amount, taxAmount: sale.tax_amount });
 
     // B2C(회계 제외) 매출은 분개 생략, 상태만 변경
     if (sale.accounting_excluded) {
@@ -44,7 +46,7 @@ export async function erpPostSale(saleId: number, userId: number) {
       `INSERT INTO expense_journal_entries
          (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [tenantId, saleId, entryDate, `[매출] ${sale.item_name || ""}`, totalAmount, totalAmount, userId]
+      [tenantId, saleId, entryDate, `[매출] SALE-${saleId} ${sale.item_name || ""}`, grossAmount, grossAmount, userId]
     );
     const journalEntryId = Number((jeResult as any).insertId);
 
@@ -60,7 +62,7 @@ export async function erpPostSale(saleId: number, userId: number) {
     await insertJournalLine(conn, {
       tenantId, journalEntryId,
       accountId: arAcc.id, accountCode: arAcc.code, accountName: arAcc.name,
-      debitAmount: totalAmount, creditAmount: 0,
+      debitAmount: grossAmount, creditAmount: 0,
       description: `외상매출금: ${sale.item_name || ""}`, sortOrder: sortOrder++,
     });
 
@@ -68,7 +70,7 @@ export async function erpPostSale(saleId: number, userId: number) {
     await insertJournalLine(conn, {
       tenantId, journalEntryId,
       accountId: revenueAcc.id, accountCode: revenueAcc.code, accountName: revenueAcc.name,
-      debitAmount: 0, creditAmount: supplyAmount > 0 ? supplyAmount : totalAmount,
+      debitAmount: 0, creditAmount: supplyAmount,
       description: `매출: ${sale.item_name || ""}`, sortOrder: sortOrder++,
     });
 
