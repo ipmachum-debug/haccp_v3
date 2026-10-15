@@ -13,6 +13,7 @@ import { getEffectiveTenantId } from "./_helpers";
 import { toKSTDate, todayKST } from "../../utils/timezone";
 import { TRPCError } from "@trpc/server";
 import { getRawConnection } from "../../db/connection";
+import { assertDailyLogGate, checkDailyLogGate } from "../../lib/production/dailyLogApprovalGate";
 import {
   ACTIVE_REQUEST_STATUSES, CHECKLIST_REFERENCE_TYPES, clearReviewStamps, decideDelete, decideSubmit, decideUpdate,
   isChecklistReference, applyApprovalStamp, stampDate, classifySubmitted, type RecordStatus, type StampKind,
@@ -84,6 +85,12 @@ async function finishApprovedBatch(batchId: number, tenantId: number, tag: strin
   } catch (hookErr: any) {
     console.error(`[${tag}] 배치 #${batchId} 완료 훅 실패:`, hookErr);
   }
+}
+
+/** 일괄 처리 결과 문구 — 실제 처리 건수와 실패 사유 */
+function bulkMessage(verb: string, ok: number, failed: Array<{ approvalRequestId: number; message: string }>): string {
+  if (failed.length === 0) return `${ok}건 ${verb} 완료`;
+  return `${ok}건 ${verb} 완료, ${failed.length}건 ${verb} 안 됨 — ${failed.slice(0, 3).map((f) => `#${f.approvalRequestId}: ${f.message}`).join(" / ")}${failed.length > 3 ? ` 외 ${failed.length - 3}건` : ""}`;
 }
 
 /** 트랜잭션 실행 — 실패하면 되돌린다 */
@@ -371,6 +378,8 @@ export const genericChecklistRouter = router({
       if (!db) throw new Error("데이터베이스 연결 실패");
 
       if (input.action === "approve") {
+        // 일일일지 측정 기록 관문 — 부작용 전에 (2026-10-15)
+        await assertDailyLogGate(ctx.tenantId, input.approvalRequestId);
         // 배치 검토 시 h_batches 상태를 under_review로 변경
         // ★ db.execute(sql`...`) 반환값은 MySQL2 tuple [rows, fields]
         //    → 첫 row 접근은 result[0][0] 이어야 함 (기존 result[0].field 는 undefined)
@@ -461,6 +470,7 @@ export const genericChecklistRouter = router({
       );
 
       if (input.action === "approve") {
+        await assertDailyLogGate(ctx.tenantId, input.approvalRequestId);
         if (refId) {
           if (requestType === 'batch_production' && referenceType === 'batch') {
             // 배치 승인: h_batches 상태를 'completed'로 변경 + 완료일 설정
@@ -536,8 +546,11 @@ export const genericChecklistRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
       let successCount = 0;
+      const failed: Array<{ approvalRequestId: number; message: string }> = [];
       for (const id of input.approvalRequestIds) {
         try {
+          const gate = await checkDailyLogGate(ctx.tenantId, id);
+          if (!gate.ok) { failed.push({ approvalRequestId: id, message: gate.message }); continue; }
           const res: any = await db.execute(sql`
             UPDATE h_approval_requests
             SET status = 'pending_approval', reviewed_by = ${ctx.user.id}, reviewed_at = NOW(), review_comments = ${input.comments || null}
@@ -548,13 +561,16 @@ export const genericChecklistRouter = router({
             const refRes: any = await db.execute(sql`SELECT reference_id, reference_type FROM h_approval_requests WHERE id = ${id} AND tenant_id = ${ctx.tenantId}`);
             const ref = (refRes?.[0] || [])[0] || {};
             await syncChecklistRecord(ref.reference_id, ref.reference_type, getEffectiveTenantId(ctx), { stamp: "review" }, ctx.user.name ?? "");
+            successCount++;
+          } else {
+            failed.push({ approvalRequestId: id, message: "검토할 수 있는 상태가 아닙니다 (이미 처리됐거나 없는 요청)" });
           }
-          successCount++;
-        } catch (e) {
+        } catch (e: any) {
           console.error(`일괄 검토 실패 (id=${id}):`, e);
+          failed.push({ approvalRequestId: id, message: e?.message || "검토 실패" });
         }
       }
-      return { success: true, message: `${successCount}건 검토 완료`, count: successCount };
+      return { success: failed.length === 0, message: bulkMessage("검토", successCount, failed), count: successCount, failed };
     }),
   // 일괄 승인 (여러 건을 한번에 최종 승인)
   batchApproveChecklists: tenantRequiredProcedure
@@ -566,6 +582,7 @@ export const genericChecklistRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
       let successCount = 0;
+      const failed: Array<{ approvalRequestId: number; message: string }> = [];
       for (const id of input.approvalRequestIds) {
         try {
           // 승인 요청 정보 조회 (reference_id, request_type, reference_type)
@@ -580,6 +597,10 @@ export const genericChecklistRouter = router({
           const requestType = firstRow.request_type;
           const referenceType = firstRow.reference_type;
           const reqStatus = firstRow.status;
+
+          // 일일일지 측정 기록 관문 — 배치·직인 등 부작용 전에 (2026-10-15)
+          const gate = await checkDailyLogGate(ctx.tenantId, id);
+          if (!gate.ok) { failed.push({ approvalRequestId: id, message: gate.message }); continue; }
 
           if (refId) {
             if (requestType === 'batch_production' && referenceType === 'batch') {
@@ -623,17 +644,19 @@ export const genericChecklistRouter = router({
               }, ctx.user.name ?? "");
             }
           }
-          await db.execute(sql`
+          const upd: any = await db.execute(sql`
             UPDATE h_approval_requests
             SET status = 'approved', approved_by = ${ctx.user.id}, approved_at = NOW(), notes = ${input.comments || null}
             WHERE id = ${id} AND status IN ('pending_approval', 'pending_review', 'pending') AND tenant_id = ${ctx.tenantId}
           `);
-          successCount++;
-        } catch (e) {
+          if (Number(upd?.[0]?.affectedRows ?? upd?.affectedRows ?? 0) > 0) successCount++;
+          else failed.push({ approvalRequestId: id, message: "승인할 수 있는 상태가 아닙니다 (이미 처리됐거나 없는 요청)" });
+        } catch (e: any) {
           console.error(`일괄 승인 실패 (id=${id}):`, e);
+          failed.push({ approvalRequestId: id, message: e?.message || "승인 실패" });
         }
       }
-      return { success: true, message: `${successCount}건 승인 완료`, count: successCount };
+      return { success: failed.length === 0, message: bulkMessage("승인", successCount, failed), count: successCount, failed };
     }),
   // 승인자가 검토+승인 동시 처리 (검토 자동 완료)
   approveWithAutoReview: tenantRequiredProcedure
@@ -661,6 +684,7 @@ export const genericChecklistRouter = router({
         `[approveWithAutoReview] 시작: approvalRequestId=${input.approvalRequestId}, ` +
           `requestType=${requestType}, referenceType=${referenceType}, refId=${refId}`,
       );
+      await assertDailyLogGate(ctx.tenantId, input.approvalRequestId);
 
       if (refId) {
         if (requestType === 'batch_production' && referenceType === 'batch') {

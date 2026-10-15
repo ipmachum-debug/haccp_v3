@@ -120,3 +120,107 @@ export function countMissingBySection(missing: MissingMeasurement[]): Record<Mea
   for (const m of missing) c[m.section] += 1;
   return c;
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 승인 관문용 전체 검증 (2026-10-15, Codex 일일일지 감사)
+//   빈 값뿐 아니라 숫자가 아닌 값·입력 가능 범위 밖·실제 측정시각 누락까지 본다.
+//   범위는 "기준(적합)" 이 아니라 "입력 오류" 판정용 — 기준 밖 실측값(예: 냉동고 -10℃)은 그대로 통과시키고
+//   평가(부적합)·이탈 조치로 기록한다. 값을 바꾸거나 자동으로 적합 처리하지 않는다.
+//   측정시각은 실제 측정한 시각만 인정한다 (예정 시각을 미리 넣지 않는다 — 자동 생성은 빈 값).
+// ─────────────────────────────────────────────────────────────────────────────
+
+export type MeasurementIssueKind = "missing" | "not_number" | "out_of_range" | "no_time";
+
+export interface MeasurementIssue extends MissingMeasurement {
+  kind: MeasurementIssueKind;
+  value?: string;
+}
+
+/** 입력 가능 범위 (℃ / %RH) — 오타·단위 혼동만 거른다 */
+export const MEASUREMENT_INPUT_RANGE: Record<string, { min: number; max: number; unit: string }> = {
+  "온도": { min: -30, max: 60, unit: "℃" },
+  "습도": { min: 0, max: 100, unit: "%" },
+  "급속냉동고": { min: -80, max: 20, unit: "℃" },
+  "냉동고": { min: -60, max: 20, unit: "℃" },
+  "냉장고 온도": { min: -20, max: 30, unit: "℃" },
+};
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export const ISSUE_KIND_LABELS: Record<MeasurementIssueKind, string> = {
+  missing: "미측정",
+  not_number: "숫자 아님",
+  out_of_range: "입력 범위 밖",
+  no_time: "측정시각 없음",
+};
+
+export type NormalizedSlot = { section: MeasurementSection; slot: string; time: unknown; values: Array<{ field: string; value: unknown }> };
+
+/** 측정 칸을 한 모양으로 읽기 — 배열형·객체형 공통 (참고 패널·검증 공용) */
+export function readMeasurements(formData: any): NormalizedSlot[] {
+  return normalizeSlots(formData);
+}
+
+function normalizeSlots(formData: any): NormalizedSlot[] {
+  const fd = formData && typeof formData === "object" ? formData : {};
+  const out: NormalizedSlot[] = [];
+  const th = fd.temperatureHumidity;
+  TH_SLOTS.forEach((s, i) => {
+    if (Array.isArray(th)) {
+      const row = th[i] || {};
+      out.push({ section: "temperatureHumidity", slot: `${row.roomName || s.room} ${row.timePeriod || s.period}`, time: row.checkTime,
+        values: [{ field: "온도", value: row.temperature }, { field: "습도", value: row.humidity }] });
+    } else {
+      const row = (th && typeof th === "object" ? th[s.key] : null) || {};
+      out.push({ section: "temperatureHumidity", slot: `${s.room} ${s.period}`, time: row.time,
+        values: [{ field: "온도", value: row.temp }, { field: "습도", value: row.humidity }] });
+    }
+  });
+  const fz = fd.freezerTemperature;
+  AM_PM.forEach((p, i) => {
+    const row = (Array.isArray(fz) ? fz[i] : fz && typeof fz === "object" ? fz[p.key] : null) || {};
+    out.push({ section: "freezerTemperature", slot: (Array.isArray(fz) && row.timePeriod) || p.period, time: Array.isArray(fz) ? row.checkTime : row.time,
+      values: [
+        { field: "급속냉동고", value: Array.isArray(fz) ? row.rapidFreezerTemp : row.rapidFreezer },
+        { field: "냉동고", value: Array.isArray(fz) ? row.freezerTemp : row.freezer },
+      ] });
+  });
+  const rf = fd.refrigeratorTemperature;
+  AM_PM.forEach((p, i) => {
+    const row = (Array.isArray(rf) ? rf[i] : rf && typeof rf === "object" ? rf[p.key] : null) || {};
+    out.push({ section: "refrigeratorTemperature", slot: (Array.isArray(rf) && row.timePeriod) || p.period, time: Array.isArray(rf) ? row.checkTime : row.time,
+      values: [{ field: "냉장고 온도", value: Array.isArray(rf) ? row.temperature : row.temp }] });
+  });
+  return out;
+}
+
+/** 승인 관문 검증 — 빈 값·숫자 아님·입력 범위 밖·측정시각 없음 (기준 이탈은 대상 아님) */
+export function findMeasurementIssues(formData: any): MeasurementIssue[] {
+  const out: MeasurementIssue[] = [];
+  for (const s of normalizeSlots(formData)) {
+    for (const { field, value } of s.values) {
+      const base = { section: s.section, slot: s.slot, field, label: `${s.slot} ${field}` };
+      if (isBlankMeasurement(value)) { out.push({ ...base, kind: "missing" }); continue; }
+      const raw = String(value).trim();
+      const n = typeof value === "number" ? value : /^[-+]?\d+(\.\d+)?$/.test(raw) ? Number(raw) : NaN;
+      if (!Number.isFinite(n)) { out.push({ ...base, kind: "not_number", value: raw }); continue; }
+      const range = MEASUREMENT_INPUT_RANGE[field];
+      if (range && (n < range.min || n > range.max)) out.push({ ...base, kind: "out_of_range", value: raw });
+    }
+    if (!TIME_RE.test(String(s.time ?? "").trim())) {
+      out.push({ section: s.section, slot: s.slot, field: "측정시각", label: `${s.slot} 측정시각`, kind: "no_time" });
+    }
+  }
+  return out;
+}
+
+/** 관문 메시지 — "미측정 14건, 측정시각 없음 8건 (원재료실1 오전 온도, …)" */
+export function summarizeIssues(issues: MeasurementIssue[], max = 4): string {
+  if (issues.length === 0) return "";
+  const counts = new Map<MeasurementIssueKind, number>();
+  for (const i of issues) counts.set(i.kind, (counts.get(i.kind) ?? 0) + 1);
+  const head = [...counts].map(([k, c]) => `${ISSUE_KIND_LABELS[k]} ${c}건`).join(", ");
+  const sample = issues.slice(0, max).map((i) => (i.value != null ? `${i.label}=${i.value}` : i.label)).join(", ");
+  const rest = issues.length - max;
+  return `${head} (${sample}${rest > 0 ? ` 외 ${rest}건` : ""})`;
+}
