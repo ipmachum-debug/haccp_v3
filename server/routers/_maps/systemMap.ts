@@ -1,6 +1,7 @@
 /**
  * 시스템 도메인 라우터 매핑 — _root.ts 분해 (2026-04-19)
  */
+import { consistencyRouter } from "../system/consistency.router";
 import {
   approvalRouter,
   auditLogRouter,
@@ -61,6 +62,7 @@ export const systemRouterMap = {
   delegation: delegationRouter,
   workflow: workflowRouter,
   favorites: favoritesRouter,
+  consistency: consistencyRouter,
   scheduler: schedulerRouter,
   uploadHistory: uploadHistoryRouter,
   banner: bannerRouter,

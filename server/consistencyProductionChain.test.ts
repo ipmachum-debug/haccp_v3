@@ -1,0 +1,79 @@
+/**
+ * 재고·LOT 정합성 점검 — 생산 흐름 (2026-10-15)
+ *  - 읽기 전용: 실행되는 SQL 은 전부 SELECT
+ *  - 회사 격리: 생산 흐름 조회의 첫 바인딩은 tenantId
+ *  - kg 환산 비교·기간 검증·생산완료 분개 시작일
+ *  - 관리자 전용
+ * SQL 결과 값은 10/14 덤프에서 수작업 대조와 같은 값임을 확인함 (미출고 15줄/4월 2배치, kg 불일치 4월 1건, 판매 미차감 6월 6건).
+ */
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+const state = vi.hoisted(() => ({ executed: [] as Array<{ sql: string; params: any[] }> }));
+vi.mock("./db/connection", () => ({
+  getDb: vi.fn(async () => null),
+  getRawConnection: vi.fn(async () => ({
+    execute: vi.fn(async (sql: string, params: any[]) => {
+      state.executed.push({ sql, params });
+      if (/kg_per_sales_unit/.test(sql)) return [[
+        { batch_id: 1082, batch_code: "30080-20261006-001", planned_date: "2026-10-06", actual_quantity: 380, lot_kg: 380, unconvertible_lots: 0 },
+        { batch_id: 483, batch_code: "30063-20260407-001", planned_date: "2026-04-07", actual_quantity: 48, lot_kg: 46.8, unconvertible_lots: 0 },
+        { batch_id: 9, batch_code: "X", planned_date: "2026-10-06", actual_quantity: 10, lot_kg: null, unconvertible_lots: 1 },
+      ]];
+      if (/pending_count/.test(sql)) return [[{ month: "2026-09", pending_count: 441, pending_amount: 1 }]];
+      return [[]];
+    }),
+  })),
+}));
+
+import { consistencyRouter, validateRange } from "./routers/system/consistency.router";
+import { kgMismatch, productionJournalStartDate } from "./lib/consistency/productionChainChecks";
+
+const caller = (role = "admin") => consistencyRouter.createCaller({ user: { id: 4, role, tenantId: 2 }, tenantId: 2, req: {} as any, res: {} as any } as any);
+
+beforeEach(() => { state.executed = []; delete process.env.PRODUCTION_JOURNAL_START_DATE; });
+
+describe("생산 흐름 점검", () => {
+  it("읽기 전용 — 모든 SQL 이 SELECT, 생산 흐름 조회는 회사가 첫 조건", async () => {
+    const r = await caller().productionChain({ from: "2026-10-01", to: "2026-10-14" });
+    expect(state.executed.length).toBeGreaterThanOrEqual(9);
+    for (const e of state.executed) expect(e.sql.trim()).toMatch(/^SELECT/i);
+    const chain = state.executed.filter((e) => /h_batches b|accounting_sales s/.test(e.sql));
+    expect(chain.length).toBe(7);
+    for (const e of chain) expect(e.params[0]).toBe(2);
+    expect(r.range).toEqual({ from: "2026-10-01", to: "2026-10-14" });
+  });
+
+  it("kg 불일치: 4월 #483(48 vs 46.8)·환산 불가 LOT 은 잡고, #1082(380=475팩×0.8) 는 정상", async () => {
+    const r = await caller().productionChain({ from: "2026-04-01", to: "2026-10-14" });
+    const f = r.findings.find((x: any) => x.code === "PROD_LOT_KG_MISMATCH")!;
+    expect(f.count).toBe(2);
+    expect(f.samples.map((s: any) => s.batch_id)).toEqual([483, 9]);
+    expect(r.findings.find((x: any) => x.code === "SALE_PENDING_BACKLOG")).toMatchObject({ count: 441, severity: "medium" });
+  });
+
+  it("생산완료 분개 — 시작일(기본 2026-10-12) 이전 기간이면 조회하지 않음, 이후는 시작일부터", async () => {
+    expect(productionJournalStartDate()).toBe("2026-10-12");
+    await caller().productionChain({ from: "2026-09-01", to: "2026-09-30" });
+    expect(state.executed.some((e) => /\[생산완료\] BATCH-/.test(e.sql))).toBe(false);
+    state.executed = [];
+    await caller().productionChain({ from: "2026-10-01", to: "2026-10-14" });
+    const j = state.executed.find((e) => /\[생산완료\] BATCH-/.test(e.sql))!;
+    expect(j.params).toEqual([2, "2026-10-12", "2026-10-14"]);
+  });
+
+  it("기간 검증·관리자 전용", async () => {
+    expect(validateRange("2026-10-14", "2026-10-01")).toMatch(/늦습니다/);
+    expect(validateRange("2025-01-01", "2026-10-14")).toMatch(/1년/);
+    expect(validateRange("2026-01-01", "2026-10-14")).toBeNull();
+    await expect(caller().productionChain({ from: "2026-10-14", to: "2026-10-01" })).rejects.toThrow(/늦습니다/);
+    await expect(caller("worker").productionChain({ from: "2026-10-01", to: "2026-10-14" })).rejects.toThrow();
+  });
+
+  it("kgMismatch — 1% 또는 0.5kg 허용", () => {
+    expect(kgMismatch(380, 380)).toBe(false);
+    expect(kgMismatch(48, 46.8)).toBe(true);
+    expect(kgMismatch(1000, 995)).toBe(false);
+    expect(kgMismatch(10, 10.4)).toBe(false);
+    expect(kgMismatch(10, 10.6)).toBe(true);
+  });
+});
