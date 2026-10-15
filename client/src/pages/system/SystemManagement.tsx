@@ -2,7 +2,8 @@ import { useState } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
-import { Users, Settings, Building2, FileCheck, CreditCard } from "lucide-react";
+import { Users, Settings, Building2, FileCheck, CreditCard, ShieldCheck } from "lucide-react";
+import ConsistencyCheckPanel from "./ConsistencyCheckPanel";
 import UserManagement from "./UserManagement";
 import AdminSettings from "./AdminSettings";
 import DepartmentManagement from "./DepartmentManagement";
@@ -13,10 +14,11 @@ import SubscriptionManagement from "./SubscriptionManagement";
 import { useTenantModules } from "@/hooks/useTenantModules";
 
 export default function SystemManagement() {
-  const [activeTab, setActiveTab] = useState<"users" | "settings" | "organization" | "approval" | "subscription">("users");
+  const [activeTab, setActiveTab] = useState<"users" | "settings" | "organization" | "approval" | "subscription" | "consistency">("users");
 
   const { hasHACCP } = useTenantModules();
-  const tabCount = hasHACCP ? 5 : 4;
+  // 탭 수 (정합성 점검 포함) — 동적 클래스 대신 리터럴 (Tailwind 생성 보장)
+  const gridCols = hasHACCP ? "grid-cols-6" : "grid-cols-5";
 
   return (
     <DashboardLayout>
@@ -29,7 +31,7 @@ export default function SystemManagement() {
       </div>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)}>
-        <TabsList className={`grid w-full max-w-4xl grid-cols-${tabCount}`}>
+        <TabsList className={`grid w-full max-w-5xl ${gridCols}`}>
           <TabsTrigger value="users" className="flex items-center gap-2">
             <Users className="h-4 w-4" />
             사용자 관리
@@ -52,6 +54,10 @@ export default function SystemManagement() {
             문서 결재
           </TabsTrigger>
           )}
+          <TabsTrigger value="consistency" className="flex items-center gap-2" data-testid="tab-consistency">
+            <ShieldCheck className="h-4 w-4" />
+            정합성 점검
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="users" className="space-y-4">
@@ -106,6 +112,10 @@ export default function SystemManagement() {
           <DocumentApprovalSettingsPage />
         </TabsContent>
         )}
+
+        <TabsContent value="consistency" className="space-y-4">
+          <ConsistencyCheckPanel />
+        </TabsContent>
       </Tabs>
     </div>
     </DashboardLayout>
