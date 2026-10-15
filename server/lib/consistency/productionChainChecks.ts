@@ -10,6 +10,7 @@
  *   PROD_NO_COMPLETION_JOURNAL — 생산완료 분개 대상(생산일 ≥ 전기 시작일, 원가 > 0)인데 [생산완료] BATCH-<id> 분개 없음
  *   SALE_APPROVED_NO_DEDUCTION — 승인·수금 매출(제품)인데 LOT 차감 없음 (단품: SALE 거래 / 혼합: bundle_lots 'sales:<id>' 또는 BUNDLE_OUTBOUND reference)
  *   SALE_PENDING_BACKLOG       — 승인 대기 매출 (LOT 차감·분개 전 단계 — 쌓이면 제품 재고가 실제보다 많다)
+ *   PROD_LOT_COST_MISMATCH     — 제품 LOT 원가 합(수량 × 단가) ≠ 배치 원가 (전기 시작일 이후, 2026-10-15)
  *   JOURNAL_WRONG_ACCOUNT      — 생산완료·매출원가 분개가 엉뚱한 계정에 전기됨 (2026-10-15)
  *   SYSTEM_ACCOUNT_NAME_MISMATCH — 시스템 계정 역할과 이름 불일치 (예: 매출원가 역할이 '급여' 계정)
  * 회계 제외(accounting_excluded=1, B2C 플랫폼 정산분)는 매출 분개를 하지 않는 것이 정상 — 분개 검사 대상 아님.
@@ -150,6 +151,40 @@ export async function checkSalePendingBacklog(conn: Pool, tenantId: number, r: C
     message: "승인 전 매출은 제품 LOT 을 차감하지 않는다 — 쌓이면 제품 재고가 실제보다 많게 보인다." };
 }
 
+/** LOT 원가 합 vs 배치 원가 — 1% 또는 10원 중 큰 값까지 허용 (단가 소수 2자리 반올림) */
+export function lotCostMismatch(batchCost: number, lotValue: number): boolean {
+  return Math.abs(batchCost - lotValue) > Math.max(10, Math.abs(batchCost) * 0.01);
+}
+
+/**
+ * 제품 LOT 단가 = 생산원가 검증 (2026-10-15)
+ * 판매 승인 매출원가 = LOT 단가 × 수량. LOT 에 판매가가 들어가 있으면 원가가 판매가로 잡히고,
+ * 단가 0 이면 매출원가 분개가 없다. 생산완료 분개와 같은 범위(전기 시작일 이후 생산) 만 본다.
+ */
+export async function checkLotCostMismatch(conn: Pool, tenantId: number, r: ChainRange): Promise<Finding> {
+  const start = productionJournalStartDate();
+  const from = r.from > start ? r.from : start;
+  if (from > r.to) return finding("PROD_LOT_COST_MISMATCH", "제품 LOT 원가 단가 불일치", "high", [], `원가 단가 시작일(${start}) 이전 기간 — 대상 없음`);
+  const [rows]: any = await conn.execute(
+    `SELECT b.id AS batch_id, b.batch_code, b.planned_date,
+            CASE WHEN COALESCE(b.material_cost, 0) > 0 THEN b.material_cost
+                 WHEN COALESCE(b.actual_cost, 0) > 0 THEN b.actual_cost
+                 ELSE (SELECT COALESCE(SUM(i.total_price), 0) FROM h_batch_inputs i WHERE i.batch_id = b.id AND i.tenant_id = b.tenant_id) END AS batch_cost,
+            (SELECT COALESCE(SUM(l.quantity * COALESCE(l.unit_price, 0)), 0) FROM h_inventory_lots l
+              WHERE l.batch_id = b.id AND l.tenant_id = b.tenant_id AND l.product_id IS NOT NULL) AS lot_value,
+            (SELECT COUNT(*) FROM h_inventory_lots l
+              WHERE l.batch_id = b.id AND l.tenant_id = b.tenant_id AND l.product_id IS NOT NULL AND COALESCE(l.unit_price, 0) = 0) AS zero_price_lots
+       FROM h_batches b
+      WHERE b.tenant_id = ? AND b.status = 'completed' AND b.planned_date BETWEEN ? AND ?
+        AND EXISTS (SELECT 1 FROM h_inventory_lots l WHERE l.batch_id = b.id AND l.tenant_id = b.tenant_id AND l.product_id IS NOT NULL)
+      ORDER BY b.planned_date DESC`,
+    [tenantId, from, r.to],
+  );
+  const bad = (rows as any[]).filter((x) => Number(x.batch_cost) > 0 && lotCostMismatch(Number(x.batch_cost), Number(x.lot_value)));
+  return finding("PROD_LOT_COST_MISMATCH", "제품 LOT 원가 단가 불일치 (LOT 수량 × 단가 ≠ 배치 원가)", "high", bad,
+    "판매 매출원가는 LOT 단가로 계산된다 — 판매가·0 이 들어가 있으면 원가가 틀린다. 생산일 기준 전기 시작일 이후 배치.");
+}
+
 /**
  * 자동분개 계정 검증 (2026-10-15) — 분개가 "있는지" 뿐 아니라 "맞는 계정인지"
  *   [생산완료]: 차변 = 제품(INVENTORY_FINISHED), 대변 = 원재료(INVENTORY_RAW)
@@ -215,6 +250,7 @@ export async function runProductionChainChecks(conn: Pool, tenantId: number, ran
     checkNoProductLot(conn, tenantId, range),
     checkLotKgMismatch(conn, tenantId, range),
     checkNoCompletionJournal(conn, tenantId, range),
+    checkLotCostMismatch(conn, tenantId, range),
     checkSaleApprovedNoDeduction(conn, tenantId, range),
     checkSalePendingBacklog(conn, tenantId, range),
     checkJournalWrongAccount(conn, tenantId, range),
