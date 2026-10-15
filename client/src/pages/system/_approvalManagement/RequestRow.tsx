@@ -17,6 +17,7 @@ import {
   FileText,
 } from "lucide-react";
 import type { ApprovalRequest } from "./types";
+import { stepActorLabel } from "./stepActor";
 import {
   REQUEST_TYPE_LABELS,
   REQUEST_TYPE_ICONS,
@@ -27,6 +28,7 @@ import {
 } from "./constants";
 
 export type RequestRowMode = "review" | "approve" | "readonly";
+
 
 export interface RequestRowProps {
   request: ApprovalRequest;
@@ -81,10 +83,13 @@ export function RequestRow({
         ? format(new Date(request.createdAt), "MM.dd")
         : "-";
 
-  const resolvedWriter = writerName || request.requester?.name || "?";
+  // 작성은 이미 끝난 단계 — 실제 요청자 우선, 없을 때만 지정 작성자
+  const resolvedWriter = request.requester?.name || writerName || "?";
   const isReviewed =
     request.status === "pending_approval" || request.status === "approved";
   const isApproved = request.status === "approved";
+  const reviewerLabel = stepActorLabel(isReviewed, request.reviewer?.name, reviewerName);
+  const approverLabel = stepActorLabel(isApproved, request.approver?.name, approverName);
 
   return (
     <div
@@ -140,8 +145,8 @@ export function RequestRow({
               }
             >
               {isReviewed ? "\u2713" : "\u25CB"}검토
-              {reviewerName && (
-                <span className="ml-0.5 text-gray-500">·{reviewerName}</span>
+              {reviewerLabel && (
+                <span className="ml-0.5 text-gray-500" data-testid="step-reviewer">·{reviewerLabel}</span>
               )}
             </span>
             <span className="text-gray-300 mx-0.5">{">"}</span>
@@ -153,8 +158,8 @@ export function RequestRow({
               }
             >
               {isApproved ? "\u2713" : "\u25CB"}승인
-              {approverName && (
-                <span className="ml-0.5 text-gray-500">·{approverName}</span>
+              {approverLabel && (
+                <span className="ml-0.5 text-gray-500" data-testid="step-approver">·{approverLabel}</span>
               )}
             </span>
           </span>

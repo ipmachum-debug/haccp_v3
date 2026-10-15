@@ -37,11 +37,6 @@ export interface RequestDetailDialogProps {
   request: ApprovalRequest | null;
   canReview: boolean;
   canApprove: boolean;
-  settingNames: {
-    writerName?: string | null;
-    reviewerName?: string | null;
-    approverName?: string | null;
-  } | null;
   ccpFormRecords: CcpFormRecord[];
   ccpListForApproval: CcpInstance[] | undefined;
   onRecordSaved: () => void;
@@ -58,7 +53,6 @@ export function RequestDetailDialog({
   request,
   canReview,
   canApprove,
-  settingNames,
   ccpFormRecords,
   ccpListForApproval,
   onRecordSaved,
@@ -95,19 +89,19 @@ export function RequestDetailDialog({
                 };
               }).checklistFormData;
               const approval = cfd?.approval;
+              // 승인 완료 직인 = 실제 처리자 (2026-10-15, Codex #522 — 요청 3613 처리 한상갑·표시 이정언)
+              //   문서에 찍힌 직인 이름(그 단계가 찍혔을 때만 — 찍기 전 이름은 예정자) → 요청에 저장된 처리자.
+              //   둘 다 없으면 역할명만 — 현재 지정자를 끝난 단계의 처리자로 보여 주지 않는다.
               const writerName =
-                settingNames?.writerName ||
                 approval?.writerName ||
                 request.requester?.name ||
                 "작성자";
               const reviewerName =
-                settingNames?.reviewerName ||
-                approval?.reviewerName ||
+                (approval?.reviewerApproved ? approval.reviewerName : undefined) ||
                 request.reviewer?.name ||
                 "검토자";
               const approverName =
-                settingNames?.approverName ||
-                approval?.approverName ||
+                (approval?.approverApproved ? approval.approverName : undefined) ||
                 request.approver?.name ||
                 "승인자";
               const toDateStr = (d: string | Date | null | undefined): string | undefined =>
