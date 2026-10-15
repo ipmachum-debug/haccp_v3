@@ -6,15 +6,19 @@
  */
 
 import { getRawConnection } from "../connection";
-import { SYSTEM_ACCOUNTS, type SystemAccountCode } from "../../../drizzle/schema/accountingAccounts";
+import { SYSTEM_ACCOUNTS, SYSTEM_ACCOUNT_CATEGORY, type SystemAccountCode } from "../../../drizzle/schema/accountingAccounts";
 
 import { formatLocalDate } from "../../utils/timezone";
 
 /**
  * 시스템 계정 조회 (system_code 기반)
- * - system_code가 설정된 계정을 우선 조회
- * - 없으면 code/name 폴백으로 조회
- * - 결과: { id, code, name } 또는 폴백 기본값
+ * - 1차: system_code 로 조회 — 단 계정 분류(5분류)가 역할과 같아야 한다
+ * - 2차: 코드 정확 일치 → 3차: 이름 정확 일치 (한 건일 때만)
+ *   폴백은 분류가 같고, 다른 역할(system_code)이 붙지 않은 계정만 고른다.
+ * - 못 찾으면 id=0 — 호출부가 ensureSystemAccounts 로 시드하거나 "계정 누락" 으로 멈춘다
+ *
+ * 2026-10-15: 이전엔 `code = ? OR name LIKE '%제품%'` 한 줄 폴백이라 제품(자산) 자리에
+ *   '제품매출'(수익)을 골랐다 (단지 생산완료 분개 751~754, 매출원가 33건). 틀린 계정으로 전기하느니 멈춘다.
  */
 export async function resolveSystemAccount(
   tenantId: number,
@@ -23,40 +27,48 @@ export async function resolveSystemAccount(
   fallbackName?: string
 ): Promise<{ id: number; code: string; name: string }> {
   const conn = await getRawConnection();
+  const category = SYSTEM_ACCOUNT_CATEGORY[systemCode];
 
   // 1차: system_code로 조회
   const [rows1] = await conn.execute(
-    `SELECT id, code, name FROM accounting_accounts
+    `SELECT id, code, name, category FROM accounting_accounts
      WHERE tenant_id = ? AND system_code = ? AND is_active = 'Y'
      LIMIT 1`,
     [tenantId, systemCode],
   );
   if ((rows1 as any[]).length > 0) {
     const r = (rows1 as any[])[0];
-    return { id: r.id, code: r.code, name: r.name };
+    if (!category || !r.category || r.category === category) return { id: r.id, code: r.code, name: r.name };
+    console.warn(
+      `[resolveSystemAccount] 분류 불일치로 거부: tenantId=${tenantId}, systemCode=${systemCode} → #${r.id} ${r.code} ${r.name} (${r.category} ≠ ${category})`,
+    );
   }
 
-  // 2차: code 또는 name 폴백 조회
-  if (fallbackCode || fallbackName) {
-    const conditions: string[] = [];
-    const params: any[] = [tenantId];
-    if (fallbackCode) {
-      conditions.push("code = ?");
-      params.push(fallbackCode);
-    }
-    if (fallbackName) {
-      conditions.push("name LIKE ?");
-      params.push(`%${fallbackName}%`);
-    }
+  // 2차: 코드 정확 일치 / 3차: 이름 정확 일치 — 분류 같고 다른 역할이 붙지 않은 계정만
+  const guard = `tenant_id = ? AND is_active = 'Y' AND (system_code IS NULL OR system_code = '' OR system_code = ?)` +
+    (category ? ` AND category = ?` : "");
+  const guardParams = (v: string) => [tenantId, systemCode, ...(category ? [category] : []), v];
+  if (fallbackCode) {
     const [rows2] = await conn.execute(
-      `SELECT id, code, name FROM accounting_accounts
-       WHERE tenant_id = ? AND (${conditions.join(" OR ")}) AND is_active = 'Y'
-       LIMIT 1`,
-      params,
+      `SELECT id, code, name FROM accounting_accounts WHERE ${guard} AND code = ? LIMIT 2`,
+      guardParams(fallbackCode),
     );
-    if ((rows2 as any[]).length > 0) {
+    if ((rows2 as any[]).length === 1) {
       const r = (rows2 as any[])[0];
       return { id: r.id, code: r.code, name: r.name };
+    }
+  }
+  if (fallbackName) {
+    const [rows3] = await conn.execute(
+      `SELECT id, code, name FROM accounting_accounts WHERE ${guard} AND name = ? LIMIT 2`,
+      guardParams(fallbackName),
+    );
+    if ((rows3 as any[]).length === 1) {
+      const r = (rows3 as any[])[0];
+      return { id: r.id, code: r.code, name: r.name };
+    }
+    if ((rows3 as any[]).length > 1) {
+      console.warn(`[resolveSystemAccount] 이름 '${fallbackName}' 계정이 여러 개라 고르지 않음: tenantId=${tenantId}, systemCode=${systemCode}`);
     }
   }
 
@@ -467,10 +479,11 @@ export async function ensureSystemAccounts(tenantId: number, createdBy: number) 
     );
     let codeToUse = seed.code;
     if ((codeExisting as any[]).length > 0) {
-      // 기존 계정에 system_code 가 비어 있으면 그 계정을 채택
+      // 기존 계정에 system_code 가 비어 있고 분류가 같으면 그 계정을 채택
+      // (분류가 다른 계정 — 예: 수익 계정 — 을 재고 역할로 채택하지 않는다, 2026-10-15)
       const [upd]: any = await conn.execute(
-        `UPDATE accounting_accounts SET system_code = ? WHERE tenant_id = ? AND code = ? AND system_code IS NULL`,
-        [seed.systemCode, tenantId, seed.code],
+        `UPDATE accounting_accounts SET system_code = ? WHERE tenant_id = ? AND code = ? AND system_code IS NULL AND category = ?`,
+        [seed.systemCode, tenantId, seed.code, seed.category],
       );
       if (Number(upd?.affectedRows ?? 0) > 0) continue;
       // code 가 다른 역할(system_code)의 계정에 쓰이고 있음 → altCode 로 신설, 없으면 건너뜀

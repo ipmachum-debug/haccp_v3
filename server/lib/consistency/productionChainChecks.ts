@@ -10,6 +10,8 @@
  *   PROD_NO_COMPLETION_JOURNAL — 생산완료 분개 대상(생산일 ≥ 전기 시작일, 원가 > 0)인데 [생산완료] BATCH-<id> 분개 없음
  *   SALE_APPROVED_NO_DEDUCTION — 승인·수금 매출(제품)인데 LOT 차감 없음 (단품: SALE 거래 / 혼합: bundle_lots 'sales:<id>' 또는 BUNDLE_OUTBOUND reference)
  *   SALE_PENDING_BACKLOG       — 승인 대기 매출 (LOT 차감·분개 전 단계 — 쌓이면 제품 재고가 실제보다 많다)
+ *   JOURNAL_WRONG_ACCOUNT      — 생산완료·매출원가 분개가 엉뚱한 계정에 전기됨 (2026-10-15)
+ *   SYSTEM_ACCOUNT_NAME_MISMATCH — 시스템 계정 역할과 이름 불일치 (예: 매출원가 역할이 '급여' 계정)
  * 회계 제외(accounting_excluded=1, B2C 플랫폼 정산분)는 매출 분개를 하지 않는 것이 정상 — 분개 검사 대상 아님.
  * 덤프 10/14 대조 결과와 같은 기준 (실적 kg 은 SKU 환산: 380kg ÷ 0.8kg/팩 = 475팩).
  * ═══════════════════════════════════════════════════════════════
@@ -107,7 +109,8 @@ export async function checkNoCompletionJournal(conn: Pool, tenantId: number, r: 
         AND (COALESCE(b.material_cost, 0) > 0
              OR (SELECT COALESCE(SUM(i.total_price), 0) FROM h_batch_inputs i WHERE i.batch_id = b.id AND i.tenant_id = b.tenant_id) > 0)
         AND NOT EXISTS (SELECT 1 FROM expense_journal_entries e
-                         WHERE e.tenant_id = b.tenant_id AND e.description LIKE CONCAT('[생산완료] BATCH-', b.id, '%'))
+                         WHERE e.tenant_id = b.tenant_id
+                           AND (e.description = CONCAT('[생산완료] BATCH-', b.id) OR e.description LIKE CONCAT('[생산완료] BATCH-', b.id, ' %')))
       ORDER BY b.planned_date DESC`,
     [tenantId, from, r.to],
   );
@@ -147,6 +150,64 @@ export async function checkSalePendingBacklog(conn: Pool, tenantId: number, r: C
     message: "승인 전 매출은 제품 LOT 을 차감하지 않는다 — 쌓이면 제품 재고가 실제보다 많게 보인다." };
 }
 
+/**
+ * 자동분개 계정 검증 (2026-10-15) — 분개가 "있는지" 뿐 아니라 "맞는 계정인지"
+ *   [생산완료]: 차변 = 제품(INVENTORY_FINISHED), 대변 = 원재료(INVENTORY_RAW)
+ *   [매출원가]: 차변 = 매출원가(COST_OF_GOODS), 대변 = 자산(재고) 계정
+ * 단지 10/12 생산완료 4건이 차변 '제품매출'(수익)으로 전기된 사고를 잡는 점검.
+ */
+export async function checkJournalWrongAccount(conn: Pool, tenantId: number, r: ChainRange): Promise<Finding> {
+  const [rows]: any = await conn.execute(
+    `SELECT e.id AS entry_id, e.entry_date, SUBSTRING(e.description, 1, 40) AS description, l.id AS line_id,
+            CASE WHEN l.debit_amount > 0 THEN '차변' ELSE '대변' END AS side,
+            l.account_code, a.name AS account_name, a.category, a.system_code, l.debit_amount + l.credit_amount AS amount
+       FROM expense_journal_entries e
+       JOIN expense_journal_lines l ON l.journal_entry_id = e.id AND l.tenant_id = e.tenant_id
+       LEFT JOIN accounting_accounts a ON a.id = l.account_id AND a.tenant_id = e.tenant_id
+      WHERE e.tenant_id = ? AND e.entry_date BETWEEN ? AND ?
+        AND (
+          (e.description LIKE '[생산완료] BATCH-%' AND (
+             (l.debit_amount > 0 AND COALESCE(a.system_code, '') <> 'INVENTORY_FINISHED')
+          OR (l.credit_amount > 0 AND COALESCE(a.system_code, '') <> 'INVENTORY_RAW')))
+          OR
+          (e.description LIKE '[매출원가]%' AND (
+             (l.debit_amount > 0 AND COALESCE(a.system_code, '') <> 'COST_OF_GOODS')
+          OR (l.credit_amount > 0 AND COALESCE(a.category, '') <> 'assets')))
+        )
+      ORDER BY e.entry_date DESC, e.id DESC`,
+    [tenantId, r.from, r.to],
+  );
+  return finding("JOURNAL_WRONG_ACCOUNT", "자동분개 계정 오류 (생산완료·매출원가)", "critical", rows,
+    "생산완료: 차변 제품(1430)/대변 원재료(1410). 매출원가: 차변 매출원가/대변 재고(자산). 보정은 승인 후 별도 작업.");
+}
+
+/** 시스템 계정 이름 점검 — 역할과 이름이 어긋난 계정 (예: 매출원가 역할이 '급여' 계정에 붙음) */
+export const SYSTEM_ACCOUNT_NAME_HINTS: Record<string, string[]> = {
+  COST_OF_GOODS: ["원가"],
+  INVENTORY_FINISHED: ["제품"],
+  INVENTORY_RAW: ["원재료", "원료"],
+  INVENTORY_GOODS: ["상품"],
+  SALES_REVENUE: ["매출"],
+  ACCOUNTS_RECEIVABLE: ["매출채권", "외상매출", "미수"],
+  ACCOUNTS_PAYABLE: ["매입채무", "외상매입", "미지급"],
+};
+export function systemAccountNameMismatch(systemCode: string, name: string, category?: string): boolean {
+  const hints = SYSTEM_ACCOUNT_NAME_HINTS[systemCode];
+  if (!hints) return false;
+  if (systemCode === "INVENTORY_FINISHED" && category && category !== "assets") return true;
+  return !hints.some((h) => String(name ?? "").includes(h));
+}
+export async function checkSystemAccountNames(conn: Pool, tenantId: number): Promise<Finding> {
+  const [rows]: any = await conn.execute(
+    `SELECT id AS account_id, code, name, category, system_code FROM accounting_accounts
+      WHERE tenant_id = ? AND system_code IS NOT NULL AND system_code <> '' AND is_active = 'Y' ORDER BY code`,
+    [tenantId],
+  );
+  const bad = (rows as any[]).filter((x) => systemAccountNameMismatch(x.system_code, x.name, x.category));
+  return finding("SYSTEM_ACCOUNT_NAME_MISMATCH", "시스템 계정 역할과 계정 이름 불일치", "high", bad,
+    "자동분개는 역할(system_code)로 계정을 고른다 — 이름이 다른 계정에 역할이 붙어 있으면 그 계정으로 전기된다.");
+}
+
 export async function runProductionChainChecks(conn: Pool, tenantId: number, range: ChainRange): Promise<Finding[]> {
   return Promise.all([
     checkInputsNotIssued(conn, tenantId, range),
@@ -156,5 +217,7 @@ export async function runProductionChainChecks(conn: Pool, tenantId: number, ran
     checkNoCompletionJournal(conn, tenantId, range),
     checkSaleApprovedNoDeduction(conn, tenantId, range),
     checkSalePendingBacklog(conn, tenantId, range),
+    checkJournalWrongAccount(conn, tenantId, range),
+    checkSystemAccountNames(conn, tenantId),
   ]);
 }
