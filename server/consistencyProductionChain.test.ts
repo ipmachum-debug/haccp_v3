@@ -26,7 +26,7 @@ vi.mock("./db/connection", () => ({
 }));
 
 import { consistencyRouter, validateRange } from "./routers/system/consistency.router";
-import { kgMismatch, productionJournalStartDate, systemAccountNameMismatch } from "./lib/consistency/productionChainChecks";
+import { kgMismatch, productionJournalStartDate, systemAccountNameMismatch, lotCostMismatch } from "./lib/consistency/productionChainChecks";
 
 const caller = (role = "admin") => consistencyRouter.createCaller({ user: { id: 4, role, tenantId: 2 }, tenantId: 2, req: {} as any, res: {} as any } as any);
 
@@ -38,7 +38,7 @@ describe("생산 흐름 점검", () => {
     expect(state.executed.length).toBeGreaterThanOrEqual(9);
     for (const e of state.executed) expect(e.sql.trim()).toMatch(/^SELECT/i);
     const chain = state.executed.filter((e) => /h_batches b|accounting_sales s/.test(e.sql));
-    expect(chain.length).toBe(7);
+    expect(chain.length).toBe(8);
     for (const e of chain) expect(e.params[0]).toBe(2);
     expect(r.range).toEqual({ from: "2026-10-01", to: "2026-10-14" });
   });
@@ -75,6 +75,23 @@ describe("생산 흐름 점검", () => {
     expect(kgMismatch(1000, 995)).toBe(false);
     expect(kgMismatch(10, 10.4)).toBe(false);
     expect(kgMismatch(10, 10.6)).toBe(true);
+  });
+});
+
+describe("제품 LOT 원가 단가 점검 (단지 10/12: 판매가 3,800·9,000·0·0 이 LOT 단가)", () => {
+  it("1% 또는 10원까지 허용 — 판매가·0 은 불일치", () => {
+    expect(lotCostMismatch(924024.87, 475 * 1945.32)).toBe(false);
+    expect(lotCostMismatch(924024.87, 475 * 3800)).toBe(true);
+    expect(lotCostMismatch(434028.46, 0)).toBe(true);
+    expect(lotCostMismatch(500, 509)).toBe(false);
+  });
+  it("전기 시작일 이후·회사 조건으로 조회, 시작일 이전 기간은 조회 안 함", async () => {
+    await caller().productionChain({ from: "2026-10-01", to: "2026-10-14" });
+    const q = state.executed.find((e) => /lot_value/.test(e.sql))!;
+    expect(q.params).toEqual([2, "2026-10-12", "2026-10-14"]);
+    state.executed = [];
+    await caller().productionChain({ from: "2026-09-01", to: "2026-09-30" });
+    expect(state.executed.some((e) => /lot_value/.test(e.sql))).toBe(false);
   });
 });
 
