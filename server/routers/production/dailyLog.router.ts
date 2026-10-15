@@ -102,15 +102,15 @@ export const dailyLogRouter = router({
         const tenantId = ctx.tenantId;
         const siteId = input.siteId || ctx.user.siteId || ctx.tenantId || 1;
 
-        // 제출(검토 요청) 시 온·습도 실측값 필수 — 임시저장(draft)은 빈 값 허용.
-        // 측정하지 않은 값이 검토·승인 단계로 넘어가는 것을 막는다.
+        // 제출(검토 요청) 시 온·습도 실측값·측정시각 필수 — 임시저장(draft)은 빈 값 허용.
+        // 측정하지 않은 값이 검토·승인 단계로 넘어가는 것을 막는다 (승인 관문과 같은 검사, 2026-10-15).
         if (input.status === 'submitted') {
-          const { findMissingMeasurements, summarizeMissing } = await import("../../../shared/dailyLogMeasurements");
-          const missing = findMissingMeasurements(input.formData);
-          if (missing.length > 0) {
+          const { findMeasurementIssues, summarizeIssues } = await import("../../../shared/dailyLogMeasurements");
+          const issues = findMeasurementIssues(input.formData);
+          if (issues.length > 0) {
             throw new TRPCError({
               code: 'PRECONDITION_FAILED',
-              message: `온·습도 미측정 ${missing.length}건 (${summarizeMissing(missing)}) — 측정값을 입력한 뒤 제출하세요.`,
+              message: `측정 기록 미완료 — ${summarizeIssues(issues)}. 실제 측정값과 측정시각을 입력한 뒤 제출하세요.`,
             });
           }
         }

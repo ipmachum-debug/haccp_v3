@@ -21,7 +21,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 import { todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
-import { findMissingMeasurements, summarizeMissing, countMissingBySection, isBlankMeasurement } from "@shared/dailyLogMeasurements";
+import { findMissingMeasurements, countMissingBySection, isBlankMeasurement, findMeasurementIssues, summarizeIssues, readMeasurements, SECTION_LABELS } from "@shared/dailyLogMeasurements";
 
 /** 측정값이 비어 있는 입력칸 강조 (제출 전까지 "미측정" 상태를 눈에 보이게) */
 const unmeasuredCls = (v: unknown) => (isBlankMeasurement(v) ? "border-amber-400 bg-amber-50/40" : "");
@@ -106,7 +106,6 @@ export default function DailyLogForm() {
   const [activeTab, setActiveTab] = useState("hygiene");
   const [recordId, setRecordId] = useState<number | null>(paramId ? parseInt(paramId) : null);
   const [recordStatus, setRecordStatus] = useState<string>("new");
-  const [preFilledFrom, setPreFilledFrom] = useState<string | null>(null);
 
   // 문서결재설정에서 작성자 자동 로드
   const { data: approvalSetting } = (trpc as any).organization.approvalSettings.getByType.useQuery(
@@ -141,7 +140,7 @@ export default function DailyLogForm() {
 
   const { data: previousData, isLoading: loadingPrev } = trpc.dailyLog.getPreviousFormData.useQuery(
     { beforeDate: logDate },
-    { enabled: !!logDate && !existingLog }
+    { enabled: !!logDate }
   );
 
   const saveMutation = trpc.dailyLog.saveFullForm.useMutation({
@@ -244,21 +243,12 @@ export default function DailyLogForm() {
       // 해당 날짜 데이터 존재 → 로드
       setRecordId(existingLog.id);
       setRecordStatus(existingLog.status);
-      setPreFilledFrom(null);
       applyFormData(existingLog.formData, false);
-    } else if (previousData) {
-      // 이전 데이터 pre-fill
-      setRecordId(null);
-      setRecordStatus("new");
-      setPreFilledFrom(previousData.sourceDate);
-      applyFormData(previousData.formData, true);
-      // 온도/배치 데이터도 이전값 유지 (사용자가 필요 시 수정)
-      setBatchData([]);
     } else {
-      // 최초 작성 → 빈 폼
+      // 신규 작성 → 빈 폼. 전일 기록이 있으면 "참고" 패널로만 보여 준다 (2026-10-15, Codex 일일일지 감사 P2)
+      //   이전엔 전일 form_data 를 통째로 적용해 측정값·측정시각·점검 결과까지 오늘 기록처럼 채워졌다.
       setRecordId(null);
       setRecordStatus("new");
-      setPreFilledFrom(null);
       setHygieneChecks(structuredClone(DEFAULT_HYGIENE_CHECKS));
       setHygieneNotes({ ...EMPTY_NOTES });
       setForeignMaterialChecks(structuredClone(DEFAULT_FOREIGN_CHECKS));
@@ -288,14 +278,15 @@ export default function DailyLogForm() {
     refrigeratorIssues,
   });
 
-  // 온·습도 미측정 칸 — 제출 차단 + 화면 표시용
+  // 온·습도 미측정 칸 — 화면 표시용 / 측정 기록 검사(미측정·숫자 아님·입력 범위 밖·측정시각 없음) — 제출 차단 (서버 승인 관문과 같은 검사)
   const missingMeasurements = findMissingMeasurements({ temperatureHumidity, freezerTemperature, refrigeratorTemperature });
   const missingBySection = countMissingBySection(missingMeasurements);
+  const measurementIssues = findMeasurementIssues({ temperatureHumidity, freezerTemperature, refrigeratorTemperature });
 
   const handleSave = () => saveMutation.mutate({ logDate, formData: buildFormData(), status: 'draft' });
   const handleSubmit = () => {
-    if (missingMeasurements.length > 0) {
-      toast.error(`온·습도 미측정 ${missingMeasurements.length}건: ${summarizeMissing(missingMeasurements)} — 측정값을 입력한 뒤 제출하세요.`);
+    if (measurementIssues.length > 0) {
+      toast.error(`측정 기록 미완료 — ${summarizeIssues(measurementIssues)}. 실제 측정값과 측정시각을 입력한 뒤 제출하세요.`);
       return;
     }
     saveMutation.mutate({ logDate, formData: buildFormData(), status: 'submitted' });
@@ -330,15 +321,9 @@ export default function DailyLogForm() {
           {recordStatus === 'submitted' && <Badge className="bg-blue-100 text-blue-700">제출됨</Badge>}
           {recordStatus === 'approved' && <Badge className="bg-green-100 text-green-700">승인완료</Badge>}
 
-          {preFilledFrom && (
-            <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 border-yellow-300">
-              <Copy className="h-3 w-3 mr-1" />
-              {preFilledFrom} 데이터 기반
-            </Badge>
-          )}
-          {missingMeasurements.length > 0 && recordStatus !== 'approved' && (
-            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-800 border-amber-400" title={summarizeMissing(missingMeasurements, 14)}>
-              온·습도 미측정 {missingMeasurements.length}건
+          {measurementIssues.length > 0 && recordStatus !== 'approved' && (
+            <Badge variant="outline" className="text-xs bg-amber-50 text-amber-800 border-amber-400" title={summarizeIssues(measurementIssues, 22)} data-testid="daily-log-issues">
+              측정 기록 미완료 {measurementIssues.length}건
             </Badge>
           )}
 
@@ -361,6 +346,28 @@ export default function DailyLogForm() {
           </Button>
         </div>
       </div>
+
+      {/* 전일 기록 — 참고만 (오늘 측정값·점검 결과로 채우지 않는다) */}
+      {previousData && recordStatus !== 'approved' && (
+        <Card className="border-dashed bg-muted/30" data-testid="daily-log-reference">
+          <CardContent className="pt-4 text-xs">
+            <div className="mb-2 flex items-center gap-2 font-medium text-muted-foreground">
+              <Copy className="h-3.5 w-3.5" />참고: {previousData.sourceDate} 기록 — 오늘 측정값이 아닙니다. 실제로 측정한 값과 시각을 아래에 입력하세요.
+            </div>
+            <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3">
+              {readMeasurements(previousData.formData).map((m, i) => (
+                <div key={i} className="flex gap-2 text-muted-foreground">
+                  <span className="min-w-[9rem]">{SECTION_LABELS[m.section].split(" ")[0]} · {m.slot}</span>
+                  <span className="tabular-nums">
+                    {m.values.map((v) => `${v.field} ${isBlankMeasurement(v.value) ? "—" : String(v.value)}`).join(" / ")}
+                    {` · ${String(m.time ?? "").trim() || "시각 없음"}`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 작성자 정보 (문서결재설정에서 자동) */}
       {authorName && (

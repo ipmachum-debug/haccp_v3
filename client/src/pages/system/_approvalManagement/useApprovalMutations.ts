@@ -155,8 +155,10 @@ export function useApprovalMutations(cfg: ApprovalMutationsConfig) {
 
   // 일괄 검토 완료
   const batchReviewMutation = trpc.genericChecklist.batchReviewChecklists.useMutation({
-    onSuccess: (data: { message?: string }) => {
-      toast.success("일괄 검토 완료", { description: data.message });
+    onSuccess: (data: { message?: string; failed?: Array<{ approvalRequestId: number; message: string }> }) => {
+      // 일부가 막히면(예: 일일일지 측정 기록 미완료) 성공 토스트가 아니라 경고로 — 실제 처리 건수와 사유 (2026-10-15)
+      if (data.failed?.length) toast.warning("일괄 검토 — 일부 처리 안 됨", { description: data.message, duration: 10000 });
+      else toast.success("일괄 검토 완료", { description: data.message });
       cfg.setSelectedIds([]);
       cfg.setBatchConfirmDialogOpen(false);
       cfg.refetchReview();
@@ -168,8 +170,10 @@ export function useApprovalMutations(cfg: ApprovalMutationsConfig) {
 
   // 일괄 최종 승인
   const batchApproveMutation = trpc.genericChecklist.batchApproveChecklists.useMutation({
-    onSuccess: (data: { message?: string }) => {
-      toast.success("일괄 승인 완료", { description: data.message });
+    onSuccess: (data: { message?: string; failed?: Array<{ approvalRequestId: number; message: string }> }) => {
+      // 일부가 막히면(예: 일일일지 측정 기록 미완료) 성공 토스트가 아니라 경고로 — 실제 처리 건수와 사유 (2026-10-15)
+      if (data.failed?.length) toast.warning("일괄 승인 — 일부 처리 안 됨", { description: data.message, duration: 10000 });
+      else toast.success("일괄 승인 완료", { description: data.message });
       cfg.setSelectedIds([]);
       cfg.setBatchConfirmDialogOpen(false);
       cfg.refetchApproval();

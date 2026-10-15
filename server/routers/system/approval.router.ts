@@ -4,6 +4,15 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { or } from "drizzle-orm";
 import { getDb } from "../../db";
+import { assertDailyLogGate, checkDailyLogGate } from "../../lib/production/dailyLogApprovalGate";
+
+/** 승인 요청이 이 회사 것인지 — approveRequest 는 id 로만 찾으므로 라우터에서 먼저 확인 (2026-10-15) */
+async function assertOwnRequest(tenantId: number, requestId: number) {
+  const { getRawConnection } = await import("../../db/connection");
+  const conn: any = await getRawConnection();
+  const [rows]: any = await conn.execute(`SELECT id FROM h_approval_requests WHERE id = ? AND tenant_id = ? LIMIT 1`, [requestId, tenantId]);
+  if (!rows?.[0]) throw new TRPCError({ code: "NOT_FOUND", message: "승인 요청을 찾을 수 없습니다" });
+}
 
 export const approvalRouter = router({
     // 승인 대시보드 - 전체 승인 대기 항목 조회
@@ -182,7 +191,10 @@ export const approvalRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { approveRequest, getApprovalRequestById, createNotification } = await import("../../db");
-        
+        // 회사 확인 + 일일일지 측정 기록 관문 — 승인 처리 전에 (2026-10-15)
+        await assertOwnRequest(ctx.tenantId, input.requestId);
+        await assertDailyLogGate(ctx.tenantId, input.requestId);
+
         // 승인 처리
         const result = await approveRequest(input.requestId, ctx.user.id, input.notes);
         
@@ -220,6 +232,9 @@ export const approvalRouter = router({
         
         for (const requestId of input.requestIds) {
           try {
+            await assertOwnRequest(ctx.tenantId, requestId);
+            const gate = await checkDailyLogGate(ctx.tenantId, requestId);
+            if (!gate.ok) throw new Error(gate.message);
             const result = await approveRequest(requestId, ctx.user.id, input.notes);
             results.push({ requestId, success: true, result });
             
@@ -492,6 +507,9 @@ export const approvalRouter = router({
           });
         }
 
+        // 일일일지 측정 기록 관문 (2026-10-15)
+        await assertDailyLogGate(ctx.tenantId, input.approvalRequestId);
+
         // pending_review 로 전이 (검토자 단계)
         await conn.execute(
           `UPDATE h_approval_requests
@@ -550,6 +568,11 @@ export const approvalRouter = router({
           const isAuthor = Number(row.requested_by) === Number(ctx.user.id);
           if (!isAuthor && !isAdmin) {
             skipped.push({ id: reqId, reason: "forbidden" });
+            continue;
+          }
+          const gate = await checkDailyLogGate(ctx.tenantId, reqId);
+          if (!gate.ok) {
+            skipped.push({ id: reqId, reason: `daily_log_unmeasured: ${gate.message}` });
             continue;
           }
           submitted.push(reqId);
