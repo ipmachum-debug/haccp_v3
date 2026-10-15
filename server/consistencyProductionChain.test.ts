@@ -26,7 +26,7 @@ vi.mock("./db/connection", () => ({
 }));
 
 import { consistencyRouter, validateRange } from "./routers/system/consistency.router";
-import { kgMismatch, productionJournalStartDate } from "./lib/consistency/productionChainChecks";
+import { kgMismatch, productionJournalStartDate, systemAccountNameMismatch } from "./lib/consistency/productionChainChecks";
 
 const caller = (role = "admin") => consistencyRouter.createCaller({ user: { id: 4, role, tenantId: 2 }, tenantId: 2, req: {} as any, res: {} as any } as any);
 
@@ -54,10 +54,10 @@ describe("생산 흐름 점검", () => {
   it("생산완료 분개 — 시작일(기본 2026-10-12) 이전 기간이면 조회하지 않음, 이후는 시작일부터", async () => {
     expect(productionJournalStartDate()).toBe("2026-10-12");
     await caller().productionChain({ from: "2026-09-01", to: "2026-09-30" });
-    expect(state.executed.some((e) => /\[생산완료\] BATCH-/.test(e.sql))).toBe(false);
+    expect(state.executed.some((e) => /\[생산완료\] BATCH-/.test(e.sql) && /h_batches b/.test(e.sql))).toBe(false);
     state.executed = [];
     await caller().productionChain({ from: "2026-10-01", to: "2026-10-14" });
-    const j = state.executed.find((e) => /\[생산완료\] BATCH-/.test(e.sql))!;
+    const j = state.executed.find((e) => /\[생산완료\] BATCH-/.test(e.sql) && /h_batches b/.test(e.sql))!;
     expect(j.params).toEqual([2, "2026-10-12", "2026-10-14"]);
   });
 
@@ -75,6 +75,32 @@ describe("생산 흐름 점검", () => {
     expect(kgMismatch(1000, 995)).toBe(false);
     expect(kgMismatch(10, 10.4)).toBe(false);
     expect(kgMismatch(10, 10.6)).toBe(true);
+  });
+});
+
+describe("자동분개 계정 검증 (단지 10/12 생산완료 4건·매출원가 33건이 제품매출로 전기)", () => {
+  it("생산완료·매출원가 분개의 계정 역할을 대조하는 조회를 회사·기간으로 실행", async () => {
+    const r = await caller().productionChain({ from: "2026-10-01", to: "2026-10-14" });
+    const q = state.executed.find((e) => /expense_journal_lines l/.test(e.sql))!;
+    expect(q.params).toEqual([2, "2026-10-01", "2026-10-14"]);
+    expect(q.sql).toMatch(/l\.debit_amount > 0 AND COALESCE\(a\.system_code, ''\) <> 'INVENTORY_FINISHED'/);
+    expect(q.sql).toMatch(/l\.credit_amount > 0 AND COALESCE\(a\.system_code, ''\) <> 'INVENTORY_RAW'/);
+    expect(q.sql).toMatch(/l\.credit_amount > 0 AND COALESCE\(a\.category, ''\) <> 'assets'/);
+    expect(r.findings.find((x: any) => x.code === "JOURNAL_WRONG_ACCOUNT")).toMatchObject({ severity: "critical", count: 0 });
+    expect(r.findings.find((x: any) => x.code === "SYSTEM_ACCOUNT_NAME_MISMATCH")).toBeTruthy();
+  });
+  it("생산완료 분개 존재 점검은 BATCH-110 이 BATCH-1104 에 걸리지 않게 공백까지 비교", async () => {
+    await caller().productionChain({ from: "2026-10-01", to: "2026-10-14" });
+    const q = state.executed.find((e) => /\[생산완료\] BATCH-/.test(e.sql) && /h_batches b/.test(e.sql))!;
+    expect(q.sql).toMatch(/LIKE CONCAT\('\[생산완료\] BATCH-', b\.id, ' %'\)/);
+  });
+  it("시스템 계정 이름 점검 — 매출원가 역할이 '급여', 제품 역할이 수익 계정이면 잡음", () => {
+    expect(systemAccountNameMismatch("COST_OF_GOODS", "급여")).toBe(true);
+    expect(systemAccountNameMismatch("COST_OF_GOODS", "매출원가")).toBe(false);
+    expect(systemAccountNameMismatch("INVENTORY_FINISHED", "제품매출", "revenue")).toBe(true);
+    expect(systemAccountNameMismatch("INVENTORY_FINISHED", "제품", "assets")).toBe(false);
+    expect(systemAccountNameMismatch("ACCOUNTS_PAYABLE", "미지급금")).toBe(false);
+    expect(systemAccountNameMismatch("CASH", "아무거나")).toBe(false);
   });
 });
 

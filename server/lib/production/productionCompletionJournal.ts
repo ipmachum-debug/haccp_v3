@@ -109,9 +109,10 @@ export async function postProductionCompletionJournal(p: {
 
   return await withTransaction(async (conn) => {
     // 멱등: 같은 배치 전표가 있으면 건너뜀 (tenant 격리 + 마커 접두)
+    //   마커 뒤 공백까지 비교 — `BATCH-110%` 가 BATCH-1104 전표에 걸려 "이미 전기" 로 건너뛰던 문제 차단
     const [exist] = await conn.execute(
-      `SELECT id FROM expense_journal_entries WHERE tenant_id = ? AND description LIKE ? LIMIT 1 FOR UPDATE`,
-      [p.tenantId, `${marker}%`],
+      `SELECT id FROM expense_journal_entries WHERE tenant_id = ? AND (description = ? OR description LIKE ?) LIMIT 1 FOR UPDATE`,
+      [p.tenantId, marker, `${marker} %`],
     );
     if ((exist as any[]).length > 0) {
       return { posted: false, reason: "already", detail: `entry#${(exist as any[])[0].id}` } as ProductionJournalResult;

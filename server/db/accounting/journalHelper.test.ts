@@ -8,31 +8,11 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 const mockExecute = vi.fn();
 const mockConnection = { execute: mockExecute };
 
-vi.mock("../db", () => ({
+vi.mock("../connection", () => ({
   getRawConnection: vi.fn(() => Promise.resolve(mockConnection)),
 }));
 
-// Mock SYSTEM_ACCOUNTS
-vi.mock("../../drizzle/schema/accountingAccounts", () => ({
-  SYSTEM_ACCOUNTS: {
-    CASH: "CASH",
-    BANK_DEPOSIT: "BANK_DEPOSIT",
-    ACCOUNTS_PAYABLE: "ACCOUNTS_PAYABLE",
-    ACCOUNTS_PAYABLE_CARD: "ACCOUNTS_PAYABLE_CARD",
-    VAT_INPUT: "VAT_INPUT",
-    VAT_OUTPUT: "VAT_OUTPUT",
-    ACCOUNTS_RECEIVABLE: "ACCOUNTS_RECEIVABLE",
-    INVENTORY_RAW: "INVENTORY_RAW",
-    INVENTORY_GOODS: "INVENTORY_GOODS",
-    SALES_REVENUE: "SALES_REVENUE",
-    SERVICE_REVENUE: "SERVICE_REVENUE",
-    COST_OF_GOODS: "COST_OF_GOODS",
-    CAPITAL: "CAPITAL",
-    RETAINED_EARNINGS: "RETAINED_EARNINGS",
-  },
-}));
-
-import { resolveSystemAccount, getPaymentSystemAccount, insertJournalLine } from "./journalHelper";
+import { resolveSystemAccount, getPaymentSystemAccount, insertJournalLine, ensureSystemAccounts } from "./journalHelper";
 
 describe("getPaymentSystemAccount", () => {
   it("maps 'cash' to CASH system account", () => {
@@ -76,63 +56,104 @@ describe("getPaymentSystemAccount", () => {
 });
 
 describe("resolveSystemAccount", () => {
-  beforeEach(() => {
+  /** 계정표를 흉내 내는 가짜 DB — 실제 SQL 의 조건(역할·분류·코드·이름 정확 일치)을 그대로 적용 */
+  type Acc = { id: number; tenant_id: number; code: string; name: string; category: string; system_code: string | null };
+  const useAccounts = (accounts: Acc[]) => {
     mockExecute.mockReset();
-  });
+    mockExecute.mockImplementation(async (sql: string, params: any[]) => {
+      const active = accounts.filter((a) => a.tenant_id === params[0]);
+      if (!/system_code IS NULL/.test(sql)) return [active.filter((a) => a.system_code === params[1]).slice(0, 1)];
+      const hasCat = /category = \?/.test(sql);
+      const [, sc, ...rest] = params;
+      const cat = hasCat ? rest[0] : undefined;
+      const value = rest[rest.length - 1];
+      const field = /AND code = \?/.test(sql) ? "code" : "name";
+      return [active.filter((a) => (!a.system_code || a.system_code === sc) && (!hasCat || a.category === cat) && a[field] === value).slice(0, 2)];
+    });
+  };
+  // 단지(테넌트 2) 실제 계정표 일부 — 제품(1430) 계정 없음, '제품매출' 만 있음
+  const DANJI: Acc[] = [
+    { id: 54, tenant_id: 2, code: "1410", name: "원재료", category: "assets", system_code: "INVENTORY_RAW" },
+    { id: 55, tenant_id: 2, code: "4010", name: "제품매출", category: "revenue", system_code: "SALES_REVENUE" },
+    { id: 63, tenant_id: 2, code: "1420", name: "상품", category: "assets", system_code: "INVENTORY_GOODS" },
+    { id: 29, tenant_id: 2, code: "5010", name: "급여", category: "expenses", system_code: "COST_OF_GOODS" },
+  ];
+  beforeEach(() => { vi.spyOn(console, "warn").mockImplementation(() => {}); });
 
-  it("returns account found by system_code (primary lookup)", async () => {
-    mockExecute.mockResolvedValueOnce([[{ id: 5, code: "1010", name: "현금" }]]);
-
-    const result = await resolveSystemAccount(1, "CASH", "1010", "현금");
-    expect(result).toEqual({ id: 5, code: "1010", name: "현금" });
-    // Should have called execute once (system_code lookup succeeded)
+  it("역할(system_code)로 찾으면 그 계정", async () => {
+    useAccounts(DANJI);
+    expect(await resolveSystemAccount(2, "INVENTORY_RAW", "1410", "원재료")).toEqual({ id: 54, code: "1410", name: "원재료" });
     expect(mockExecute).toHaveBeenCalledTimes(1);
-    expect(mockExecute.mock.calls[0][1]).toEqual([1, "CASH"]);
   });
 
-  it("falls back to code/name lookup when system_code not found", async () => {
-    // First call: system_code lookup returns empty
-    mockExecute.mockResolvedValueOnce([[]]);
-    // Second call: fallback lookup returns result
-    mockExecute.mockResolvedValueOnce([[{ id: 10, code: "1350", name: "부가세대급금" }]]);
-
-    const result = await resolveSystemAccount(1, "VAT_INPUT", "1350", "부가세대급금");
-    expect(result).toEqual({ id: 10, code: "1350", name: "부가세대급금" });
-    expect(mockExecute).toHaveBeenCalledTimes(2);
+  it("제품 계정이 없고 '제품매출' 만 있으면 — 제품매출을 고르지 않고 id=0 (사고 재현: 단지 생산완료 751~754)", async () => {
+    useAccounts(DANJI);
+    const r = await resolveSystemAccount(2, "INVENTORY_FINISHED", "1430", "제품");
+    expect(r.id).toBe(0);
+    expect(r).toEqual({ id: 0, code: "1430", name: "제품" });
   });
 
-  it("returns fallback defaults (id=0) when nothing found", async () => {
-    // Both lookups return empty
-    mockExecute.mockResolvedValueOnce([[]]);
-    mockExecute.mockResolvedValueOnce([[]]);
-
-    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const result = await resolveSystemAccount(1, "NONEXISTENT" as any, "9999", "없는계정");
-
-    expect(result).toEqual({ id: 0, code: "9999", name: "없는계정" });
-    expect(consoleSpy).toHaveBeenCalled();
-    consoleSpy.mockRestore();
+  it("이름 폴백은 정확 일치만 — 같은 분류·역할 없는 '제품' 계정이면 채택", async () => {
+    useAccounts([...DANJI, { id: 90, tenant_id: 2, code: "1435", name: "제품", category: "assets", system_code: null }]);
+    expect(await resolveSystemAccount(2, "INVENTORY_FINISHED", "1430", "제품")).toEqual({ id: 90, code: "1435", name: "제품" });
   });
 
-  it("returns systemCode as code/name when no fallbacks provided and nothing found", async () => {
-    mockExecute.mockResolvedValueOnce([[]]);
-
-    const consoleSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const result = await resolveSystemAccount(1, "CASH");
-
-    expect(result).toEqual({ id: 0, code: "CASH", name: "CASH" });
-    consoleSpy.mockRestore();
+  it("코드가 같아도 분류가 다르면 거부 (1430 이 수익 계정)", async () => {
+    useAccounts([...DANJI, { id: 91, tenant_id: 2, code: "1430", name: "기타", category: "revenue", system_code: null }]);
+    expect((await resolveSystemAccount(2, "INVENTORY_FINISHED", "1430", "제품")).id).toBe(0);
   });
 
-  it("skips fallback query when no fallbackCode/fallbackName provided", async () => {
-    mockExecute.mockResolvedValueOnce([[]]);
+  it("다른 역할이 붙은 계정은 폴백으로 고르지 않음", async () => {
+    useAccounts([{ id: 92, tenant_id: 2, code: "1430", name: "제품", category: "assets", system_code: "WIP" }]);
+    expect((await resolveSystemAccount(2, "INVENTORY_FINISHED", "1430", "제품")).id).toBe(0);
+  });
 
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    await resolveSystemAccount(1, "CASH");
+  it("역할이 붙어 있어도 분류가 다르면 거부", async () => {
+    useAccounts([{ id: 93, tenant_id: 2, code: "4010", name: "제품매출", category: "revenue", system_code: "INVENTORY_FINISHED" }]);
+    expect((await resolveSystemAccount(2, "INVENTORY_FINISHED", "1430", "제품")).id).toBe(0);
+  });
 
-    // Only 1 call (system_code), no fallback query
+  it("같은 이름이 여러 개면 고르지 않음", async () => {
+    useAccounts([
+      { id: 94, tenant_id: 2, code: "1431", name: "제품", category: "assets", system_code: null },
+      { id: 95, tenant_id: 2, code: "1432", name: "제품", category: "assets", system_code: null },
+    ]);
+    expect((await resolveSystemAccount(2, "INVENTORY_FINISHED", undefined, "제품")).id).toBe(0);
+  });
+
+  it("다른 회사 계정은 보지 않음", async () => {
+    useAccounts([{ id: 96, tenant_id: 1, code: "1430", name: "제품", category: "assets", system_code: "INVENTORY_FINISHED" }]);
+    expect((await resolveSystemAccount(2, "INVENTORY_FINISHED", "1430", "제품")).id).toBe(0);
+  });
+
+  it("폴백 없이 못 찾으면 역할 이름으로 id=0", async () => {
+    useAccounts([]);
+    expect(await resolveSystemAccount(1, "CASH")).toEqual({ id: 0, code: "CASH", name: "CASH" });
     expect(mockExecute).toHaveBeenCalledTimes(1);
-    vi.restoreAllMocks();
+  });
+});
+
+describe("ensureSystemAccounts — 코드가 같아도 분류가 다른 계정은 채택하지 않음", () => {
+  it("계정이 없으면 제품(1430, 자산) 신설", async () => {
+    mockExecute.mockReset();
+    mockExecute.mockResolvedValue([[]]);
+    await ensureSystemAccounts(2, 1);
+    const ins = mockExecute.mock.calls.find(([q, p]) => /INSERT INTO accounting_accounts/.test(q) && p[4] === "INVENTORY_FINISHED")!;
+    expect(ins[1].slice(1, 4)).toEqual(["assets", "1430", "제품"]);
+  });
+  it("같은 코드 계정이 있으면 분류가 같을 때만 채택 (UPDATE 에 category 조건·값)", async () => {
+    mockExecute.mockReset();
+    mockExecute.mockImplementation(async (q: string) => {
+      if (/system_code = \? LIMIT 1/.test(q)) return [[]];
+      if (/UPDATE accounting_accounts SET system_code/.test(q)) return [{ affectedRows: 0 }];
+      return [[{ id: 1 }]]; // 코드 이미 사용 중
+    });
+    await ensureSystemAccounts(2, 1);
+    const adopt = mockExecute.mock.calls.filter(([q]) => /UPDATE accounting_accounts SET system_code/.test(q));
+    expect(adopt.length).toBeGreaterThan(10);
+    for (const [q] of adopt) expect(q).toMatch(/AND category = \?/);
+    const fin = adopt.find(([, p]) => p[0] === "INVENTORY_FINISHED")!;
+    expect(fin[1]).toEqual(["INVENTORY_FINISHED", 2, "1430", "assets"]);
   });
 });
 

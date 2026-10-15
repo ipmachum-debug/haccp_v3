@@ -84,3 +84,17 @@ export const SYSTEM_ACCOUNTS = {
 } as const;
 
 export type SystemAccountCode = typeof SYSTEM_ACCOUNTS[keyof typeof SYSTEM_ACCOUNTS];
+
+/**
+ * 시스템 계정 역할별 5분류 (2026-10-15)
+ * 자동분개가 계정을 고를 때 분류가 다르면 거부한다 — 재고(자산) 자리에 매출(수익)이 들어가는 사고 차단
+ * (단지: '제품' 이름 폴백이 '제품매출' 을 골라 생산완료 4건·매출원가 33건이 매출 계정으로 전기됨).
+ */
+export const SYSTEM_ACCOUNT_CATEGORY: Record<SystemAccountCode, "assets" | "liabilities" | "equity" | "revenue" | "expenses"> = {
+  CASH: "assets", BANK_DEPOSIT: "assets", ACCOUNTS_RECEIVABLE: "assets", VAT_INPUT: "assets",
+  INVENTORY_RAW: "assets", INVENTORY_GOODS: "assets", INVENTORY_FINISHED: "assets", WIP: "assets",
+  ACCOUNTS_PAYABLE: "liabilities", ACCOUNTS_PAYABLE_CARD: "liabilities", VAT_OUTPUT: "liabilities",
+  CAPITAL: "equity", RETAINED_EARNINGS: "equity",
+  SALES_REVENUE: "revenue", SERVICE_REVENUE: "revenue",
+  COST_OF_GOODS: "expenses", PRODUCTION_LOSS: "expenses",
+};
