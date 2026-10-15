@@ -736,6 +736,27 @@ async function startServer() {
     serveStatic(app);
   }
 
+  // ★ 2026-10-16 (Codex #527 배포 리뷰 P2): 필수 스키마를 listen 전에 확인.
+  //   부팅 마이그레이션(아래 listen 콜백)은 실패를 삼키므로, 새 코드가 읽는 필수 컬럼이 끝내 없으면
+  //   요청을 받지 않고 종료한다 (PM2 wait_ready 가 ready 를 못 받아 구 인스턴스가 계속 응답).
+  //   DB 에 연결할 수 없으면 기존처럼 계속 뜬다 (DB 장애와 스키마 누락을 구분).
+  if (process.env.DATABASE_URL) {
+    let schemaCheck: { ok: boolean; missing: string[]; warnings: string[] } | null = null;
+    try {
+      const { getRawConnection } = await import("../db/connection");
+      const { ensureRequiredSchema } = await import("../db/startupMigrations");
+      schemaCheck = await ensureRequiredSchema(await getRawConnection(), { allowDdl: process.env.RUN_STARTUP_MIGRATIONS !== "false" });
+    } catch (err) {
+      console.error("[Server] 필수 스키마 확인 불가 (DB 연결 문제로 보고 계속 시작):", err);
+    }
+    if (schemaCheck && !schemaCheck.ok) {
+      console.error(`[Server] ❌ 필수 스키마 누락 — 요청을 받지 않고 종료합니다: ${schemaCheck.missing.join(", ")}`);
+      console.error("[Server]    scripts/migrations-manual 의 SQL 을 실행한 뒤 다시 시작하세요.");
+      process.exit(1);
+    }
+    for (const w of schemaCheck?.warnings ?? []) console.warn(`[Server] 스키마 경고: ${w}`);
+  }
+
   const preferredPort = parseInt(process.env.PORT || "3000");
   const port = await findAvailablePort(preferredPort);
 

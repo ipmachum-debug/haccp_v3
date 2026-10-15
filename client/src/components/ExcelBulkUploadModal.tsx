@@ -7,6 +7,7 @@
  * Props로 mode('purchase' | 'sale')를 받아 매입/매출 구분.
  */
 import { useState, useMemo, useCallback, useRef } from "react";
+import { pickSaleSkuId, needsSaleSkuChoice, saleSkuIdForPayload } from "@/lib/sales/saleSkuChoice";
 import { trpc } from "@/lib/trpc";
 import type { RouterOutput } from "@/lib/trpcTypes";
 
@@ -71,6 +72,8 @@ type ParsedRow = {
   memo: string;
   status: RowStatus;
   statusMessage: string;
+  /** ★ 2026-10-16: 판매 SKU (매출 모드, 자사제품) — SKU 가 여럿이면 필수. 확정 때 그 SKU 의 LOT 에서 빠진다 */
+  skuId?: number | null;
   /** ★ 2026-10-14: 묶음(혼합) 지정 — 매출 확정 시 단품으로 분해 차감 */
   bundleSkuId?: number | null;
   bundleName?: string | null;
@@ -227,11 +230,29 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
   }, [bundleParents]);
   const learnAliasesMutation = trpc.skuAlias.learnAliases.useMutation();
 
+  // ★ 2026-10-16: 판매 SKU (매출 모드) — 자사제품 SKU 가 하나면 자동, SKU 코드·SKU 명·학습 별칭 정확 일치면 그 SKU,
+  //   아니면 행에서 고른다. SKU 가 여럿인데 안 고른 행은 "SKU 선택 필요" + 등록 차단. 매입 모드는 그대로.
+  const { data: ownSkuRows } = trpc.productSku.listAll.useQuery({ itemType: "own_product" }, { enabled: open && !isPurchase });
+  const skusOfItem = useCallback(
+    (itemMasterId: number | null | undefined) =>
+      ((ownSkuRows ?? []) as Array<{ id: number; itemId: number; skuCode: string; skuName: string | null; salesUnit: string | null }>).filter((k) => k.itemId === itemMasterId),
+    [ownSkuRows],
+  );
+  const pickSaleSku = useCallback((itemMasterId: number | null, itemType: string | null, skuCode: string, itemName: string): number | null => {
+    if (isPurchase || itemType !== 'own_product' || !itemMasterId) return null;
+    return pickSaleSkuId(skusOfItem(itemMasterId), { skuCode, itemName });
+  }, [isPurchase, skusOfItem]);
+  /** 판매 SKU 를 골라야 하는 행 — 매출·자사제품·묶음 아님·SKU 여럿·미선택 */
+  const needsSaleSku = useCallback((r: Pick<ParsedRow, 'itemType' | 'itemMasterId' | 'skuId' | 'bundleSkuId'>) =>
+    needsSaleSkuChoice({ isPurchase, itemType: r.itemType, bundleSkuId: r.bundleSkuId, skuId: r.skuId, candidateCount: skusOfItem(r.itemMasterId).length }),
+  [isPurchase, skusOfItem]);
+
   /** 행 상태 재계산 (매칭 변경 후) */
   const recomputeRowStatus = (row: ParsedRow): ParsedRow => {
     if (row.status === 'error') return row;
     if (!row.partnerId) return { ...row, status: 'warning', statusMessage: '거래처 매칭 실패' };
     if (!row.itemMasterId) return { ...row, status: 'warning', statusMessage: '품목 매칭 미확인' };
+    if (needsSaleSku(row)) return { ...row, status: 'warning', statusMessage: 'SKU 선택 필요' };
     if (row.itemMatchScore < 0.9 || row.partnerMatchScore < 0.9) return { ...row, status: 'warning', statusMessage: '유사도 확인 필요' };
     return { ...row, status: 'matched', statusMessage: row.learned ? '학습된 매칭' : '매칭 완료' };
   };
@@ -258,6 +279,8 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
           itemType: (item?.itemType ?? 'own_product') as ParsedRow['itemType'],
           itemMatchScore: 1,
           learned: m.matchSource === 'alias',
+          // 별칭·SKU 명·SKU 코드 일치는 SKU 까지 정해 준다 (2026-10-16)
+          skuId: (item?.itemType ?? 'own_product') === 'own_product' ? m.skuId : null,
           bundleSkuId: bundle ? m.skuId : null,
           bundleName: bundle ? bundle.parentSkuName : null,
           productIdOverride: bundle?.productId ?? null,
@@ -484,6 +507,12 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
       else if (itemMatchScore < 0.9 || partnerMatchScore < 0.9) { status = 'warning'; statusMessage = '유사도 확인 필요'; }
       else { status = 'matched'; statusMessage = '매칭 완료'; }
 
+      // ★ 2026-10-16 판매 SKU (매출 모드)
+      const skuId = pickSaleSku(itemMasterId, itemType, skuCode, itemName);
+      if (status !== 'error' && needsSaleSku({ itemType, itemMasterId, skuId, bundleSkuId: null })) {
+        status = 'warning'; statusMessage = 'SKU 선택 필요';
+      }
+
       return {
         id: `row-${idx}`,
         rowIndex: idx + 1,
@@ -495,6 +524,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         itemName,
         skuCode,
         itemMasterId,
+        skuId,
         itemType,
         itemMatchScore,
         itemMatchResults,
@@ -519,7 +549,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
     // ★ 2026-10-14: 매출 — 학습된 별칭 우선 적용
     if (mode !== 'purchase') void applyLearnedAliases(rows);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [excelRawRows, excelHeaders, headerMapping, partners, allItems, mode, bundleBySkuId]);
+  }, [excelRawRows, excelHeaders, headerMapping, partners, allItems, mode, bundleBySkuId, pickSaleSku, needsSaleSku]);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Step 3: 매칭 수정
@@ -546,6 +576,8 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
           itemMatchScore: 1.0,
           userConfirmed: true,
           learned: false,
+          // 품목이 바뀌면 판매 SKU 도 다시 정한다 (묶음이면 묶음 대표 SKU) — 2026-10-16
+          skuId: bundle ? bundle.parentSkuId : pickSaleSku(sel.id, sel.itemType ?? row.itemType, row.skuCode, row.itemName),
           bundleSkuId: bundle ? bundle.parentSkuId : null,
           bundleName: bundle ? bundle.parentSkuName : null,
           productIdOverride: bundle?.productId ?? null,
@@ -553,6 +585,10 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         if (updated.partnerId && updated.transactionDate && updated.quantity > 0 && updated.unitPrice > 0) {
           updated.status = 'matched';
           updated.statusMessage = '매칭 완료';
+        }
+        if (updated.status !== 'error' && needsSaleSku(updated)) {
+          updated.status = 'warning';
+          updated.statusMessage = 'SKU 선택 필요';
         }
         return updated;
       } else {
@@ -672,14 +708,19 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         prev.map((r) => {
           const upd = rowIndexToUpdate.get(r.rowIndex);
           if (!upd) return r;
-          return {
+          const next: ParsedRow = {
             ...r,
             itemMasterId: upd.itemMasterId,
             itemType: upd.itemType,
+            skuId: pickSaleSku(upd.itemMasterId, upd.itemType, r.skuCode, r.itemName),
+            bundleSkuId: null,
+            bundleName: null,
+            productIdOverride: null,
             itemMatchScore: upd.score,
             status: upd.score >= 0.9 ? ('matched' as RowStatus) : ('warning' as RowStatus),
             statusMessage: `AI 추천: ${upd.reason}`,
           };
+          return needsSaleSku(next) ? { ...next, status: 'warning' as RowStatus, statusMessage: 'SKU 선택 필요' } : next;
         })
       );
       toast({ title: "AI 재매칭 완료", description: `${rowIndexToUpdate.size}건 자동 매칭되었습니다.` });
@@ -735,6 +776,16 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         setIsUploading(false);
       }
     } else {
+      // ★ 2026-10-16: SKU 가 여럿인 자사제품 행은 판매 SKU 를 골라야 올린다
+      const skuMissing = readyRows.filter((r) => needsSaleSku(r));
+      if (skuMissing.length > 0) {
+        toast({
+          title: `판매 SKU 를 선택해주세요 (${skuMissing.length}행)`,
+          description: skuMissing.slice(0, 5).map((r) => `${r.rowIndex}행 ${r.itemName}`).join(", "),
+          variant: "destructive",
+        });
+        return;
+      }
       // 매출 업로드 — itemType 에 따라 productId vs materialId 라우팅 (Phase 8+)
       const itemLegacyMap = new Map<number, { productId?: number; materialId?: number }>();
       for (const it of allItems) {
@@ -759,6 +810,8 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
             itemName: r.itemName,
             productId,
             materialId: productId ? undefined : legacy?.materialId,
+            // 판매 SKU — 묶음이면 묶음 대표 SKU (확정 시 분해 차감), 아니면 고른 SKU
+            skuId: saleSkuIdForPayload(r),
             quantity: r.quantity,
             unitPrice: r.unitPrice,
             amount: r.amount,
@@ -1072,6 +1125,30 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                           </button>
                         )}
                       </div>
+                    )}
+                    {/* ★ 2026-10-16 판매 SKU — 매출·자사제품·SKU 여럿 (묶음 지정 행은 묶음 대표 SKU) */}
+                    {!isPurchase && row.itemType === 'own_product' && !row.bundleSkuId && skusOfItem(row.itemMasterId).length > 1 && (
+                      interactive ? (
+                        <select
+                          className={`mt-0.5 h-6 w-full rounded border bg-background px-1 text-[10px] ${!row.skuId ? 'border-red-400 text-red-600' : ''}`}
+                          value={row.skuId ?? ''}
+                          aria-label="판매 SKU"
+                          data-testid="excel-sale-sku-select"
+                          onChange={(e) => {
+                            const v = e.target.value ? Number(e.target.value) : null;
+                            setParsedRows((prev) => prev.map((r) => (r.id !== row.id ? r : recomputeRowStatus({ ...r, skuId: v, status: r.status === 'error' ? 'error' : 'ready' }))));
+                          }}
+                        >
+                          <option value="">판매 SKU 선택 (필수)</option>
+                          {skusOfItem(row.itemMasterId).map((k) => (
+                            <option key={k.id} value={k.id}>{k.skuName || k.skuCode} · {k.salesUnit || '-'}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className={`text-[9px] mt-0.5 ${row.skuId ? 'text-muted-foreground' : 'text-red-600'}`} data-testid="excel-sale-sku-label">
+                          {row.skuId ? `SKU · ${skusOfItem(row.itemMasterId).find((k) => k.id === row.skuId)?.skuName ?? row.skuId}` : 'SKU 선택 필요'}
+                        </div>
+                      )
                     )}
                     {tableMode === 'match' && row.statusMessage && row.status !== 'matched' && (
                       <div className="text-[9px] text-muted-foreground mt-0.5">{row.statusMessage}</div>
@@ -1660,6 +1737,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
                     itemMatchScore: 1,
                     userConfirmed: true,
                     learned: false,
+                    skuId: choice.parentSkuId,
                     bundleSkuId: choice.parentSkuId,
                     bundleName: choice.parentSkuName,
                     productIdOverride: choice.productId,

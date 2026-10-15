@@ -1,3 +1,5 @@
+// ⚠️ 2026-10-16: 이 화면은 라우트에 연결돼 있지 않다. 실제 매출 엑셀 일괄등록은 매출 조회(SalesList) →
+//   ExcelBulkUploadModal(mode="sale") 이다. 수정은 그쪽에 (판매 SKU 규칙: client/src/lib/sales/saleSkuChoice.ts).
 import { useState, useMemo, useCallback, useRef } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
