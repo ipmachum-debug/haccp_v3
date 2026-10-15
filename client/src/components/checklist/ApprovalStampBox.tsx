@@ -26,6 +26,21 @@ export function shortStampDate(d: string | null | undefined): string {
   return m ? `${Number(m[2])}.${String(Number(m[3])).padStart(2, "0")}` : String(d);
 }
 
+/** 직인 칸 내용 — 화면 결재란·인쇄 결재란 공통 (결재 완료: 원 안 이름 + 짧은 날짜 / 결재 전: 예정자 회색) */
+export function StampCellContent({ name, done, date }: { name?: string | null; done: boolean; date?: string | null }) {
+  const d = shortStampDate(date);
+  return done ? (
+    <div className="flex flex-col items-center gap-0.5">
+      <span className="flex h-9 w-9 items-center justify-center rounded-full border-[1.5px] border-red-500 text-[10px] font-bold leading-none text-red-600 print:border-red-600">
+        <span className="max-w-[30px] truncate">{name || "인"}</span>
+      </span>
+      {d && <span className="text-[9px] tabular-nums text-gray-500">{d}</span>}
+    </div>
+  ) : (
+    <span className="text-[10px] text-gray-400">{name || "—"}</span>
+  );
+}
+
 export function ApprovalStampBox({ approval }: { approval: StampInfo }) {
   return (
     <table className="border-collapse text-[11px] leading-tight" data-testid="approval-stamp-box" aria-label="결재란">
@@ -44,19 +59,9 @@ export function ApprovalStampBox({ approval }: { approval: StampInfo }) {
           {ROLES.map((r) => {
             const name = (approval[`${r.key}Name`] ?? "") as string;
             const done = !!approval[`${r.key}Approved`];
-            const date = shortStampDate(approval[`${r.key}Date`] as string | null | undefined);
             return (
               <td key={r.key} className="h-[52px] w-14 border border-gray-400 p-0.5 text-center align-middle" data-testid={`stamp-${r.key}`}>
-                {done ? (
-                  <div className="flex flex-col items-center gap-0.5">
-                    <span className="flex h-9 w-9 items-center justify-center rounded-full border-[1.5px] border-red-500 text-[10px] font-bold leading-none text-red-600 print:border-red-600">
-                      <span className="max-w-[30px] truncate">{name || "인"}</span>
-                    </span>
-                    {date && <span className="text-[9px] tabular-nums text-gray-500">{date}</span>}
-                  </div>
-                ) : (
-                  <span className="text-[10px] text-gray-400">{name || "—"}</span>
-                )}
+                <StampCellContent name={name} done={done} date={approval[`${r.key}Date`] as string | null | undefined} />
               </td>
             );
           })}

@@ -211,3 +211,33 @@ describe("건강일지 재작성 — 다음 결재자는 현재 담당자 (Codex
     expect(src).toMatch(/setApproval\(prev => approvalOnRewrite\(prev as any, designated\) as any\)/);
   });
 });
+
+describe("인쇄 결재란 — 화면과 같은 2줄 (대표 요청)", async () => {
+  const { stampTableHtml, escapeHtml } = await import("../client/src/lib/print/stampHtml");
+  it("HTML 출력: 결재 시각이 없으면 직인 대신 회색 이름 (이전: 이름만 있으면 직인), 이름 줄 없음, 이름은 이스케이프", () => {
+    const html = stampTableHtml({ authorName: "이준석", reviewerName: "이정언", approverName: "<b>한</b>", requestedAt: "2026-10-15", reviewedAt: "", approvedAt: "" });
+    expect(html.match(/class="st-seal"/g)?.length).toBe(1);                 // 작성만 직인
+    expect(html).toContain('<span class="st-pending">이정언</span>');
+    expect(html).toContain("&lt;b&gt;한&lt;/b&gt;");
+    expect(html).not.toContain("<b>");
+    expect(html.match(/<tr>/g)?.length).toBe(2);                             // 2줄
+    expect(html).toContain('<div class="st-date">10.15</div>');
+    expect(escapeHtml(`"'&`)).toBe("&quot;&#39;&amp;");
+  });
+  it("검토는 승인 시각만 있어도 직인 (이전 규칙 유지)", () => {
+    const html = stampTableHtml({ authorName: "A", reviewerName: "B", approverName: "C", approvedAt: "2026-10-16" });
+    expect(html.match(/class="st-seal"/g)?.length).toBe(3);
+  });
+  it("인쇄 공통 컴포넌트·두 일지가 새 결재란을 쓰고 옛 사각 도장·이름 줄 없음", () => {
+    const helpers = readFileSync(join(REPO_ROOT, "client/src/components/print/PrintHelpers.tsx"), "utf-8");
+    expect(helpers).not.toMatch(/ApprovalSeal/);
+    expect(helpers).not.toMatch(/>작 성</);
+    expect(helpers).toMatch(/<td colSpan=\{4\}/);
+    for (const p of ["client/src/pages/quality/VisualInspectionLog.tsx", "client/src/pages/haccp/FinishedProductInspectionLog.tsx"]) {
+      const src = readFileSync(join(REPO_ROOT, p), "utf-8");
+      expect(src, p).toMatch(/stampTableHtml\(/);
+      expect(src, p).toMatch(/<ApprovalHeader compact/);
+      expect(src, p).not.toMatch(/seal-name/);
+    }
+  });
+});
