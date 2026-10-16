@@ -433,4 +433,34 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await generateExpiredAlerts(9)).toBe(1);
     });
   });
+
+  describe("매입 등록·확정 — 수불부 한 번, 입고전표는 실제 LOT (2026-10-16, Codex DB 감사: 원료 605·635 이중 가산, 매입 422~427)", () => {
+    let createPurchase: any;
+    beforeAll(async () => {
+      ({ createPurchase } = await import("./db/haccp/haccpIntegration"));
+    });
+    beforeEach(async () => {
+      for (const t of ["accounting_purchases", "h_inbound_headers", "h_inbound_lines", "partners", "h_materials", "material_ledger_daily"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO accounting_accounts (id, tenant_id, category, code, system_code, name, is_active) VALUES
+        (70, ?, 'liabilities', '2010', 'ACCOUNTS_PAYABLE', '외상매입금', 'Y'), (71, ?, 'assets', '1350', 'VAT_INPUT', '부가세대급금', 'Y')`, [T, T]);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (635, ?, 'M635', '우유(국내산)', 'kg', 1)`, [T]);
+    });
+
+    it("우유 6개 × 0.9kg: LOT 5.4kg, 수불부 입고 5.4 (이전 11.4 = 5.4kg + 6개), 입고전표 LOT 번호·재고 수량 = 실제 LOT", async () => {
+      const res = await createPurchase({
+        transactionDate: "2026-10-12", partnerId: 0, itemName: "우유(국내산)", materialId: 635,
+        quantity: 6, packagingSize: 0.9, unit: "개", unitPrice: 3000, amount: 18000, taxAmount: 0, taxRate: 0, createdBy: 4,
+      }, T);
+      expect(res.posted).toBe(true);
+      const lots = await q(`SELECT id, lot_number, quantity + 0 AS q, unit FROM h_inventory_lots WHERE material_id = 635`);
+      expect(lots).toHaveLength(1);
+      expect([Number(lots[0].q), lots[0].unit]).toEqual([5.4, "kg"]);
+      const led = await q(`SELECT receiving_qty + 0 AS r FROM material_ledger_daily WHERE material_id = 635 AND ledger_date = '2026-10-12'`);
+      expect(led.map((r: any) => Number(r.r))).toEqual([5.4]);
+      const line = (await q(`SELECT lot_number, purchase_quantity + 0 AS pq, purchase_unit, stock_quantity + 0 AS sq, stock_unit FROM h_inbound_lines`))[0];
+      expect([line.lot_number, Number(line.pq), line.purchase_unit, Number(line.sq), line.stock_unit]).toEqual([lots[0].lot_number, 6, "개", 5.4, "kg"]);
+      // 재고 이동도 한 벌 (등록 receipt 만, 확정은 LOT 재사용)
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE lot_id = ?`, [lots[0].id]))[0].n)).toBe(1);
+    });
+  });
 });
