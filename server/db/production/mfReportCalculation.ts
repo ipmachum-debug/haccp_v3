@@ -8,6 +8,7 @@
 // 승인 워크플로, PDF 출력, 보정 배합비, 오차 분석,
 // 공정그룹 매핑, 배치 배합비 조정 계산
 // ═══════════════════════════════════════════════════════════════
+import { mergeIngredientRows, type IncomingIngredient } from "../../lib/production/mfIngredientMerge";
 import { getDb } from "../connection";
 import {
   hMfReports,
@@ -992,9 +993,14 @@ export async function updateMfReport(data: {
     isDeductible: number;
     materialType: "RAW" | "MIXED" | "FLAVOR_SPECIFIC";
     flavorName?: string;
-    processGroupId?: number;
-    adjustedWeightKg?: number;
+    processGroupId?: number | null;
+    adjustedWeightKg?: number | null;
     isAdditional?: number;
+    id?: number;
+    childSkuId?: number | null;
+    pieceCount?: number | null;
+    pieceWeightG?: number | null;
+    correctedQuantity?: number | null;
   }>;
 }, tenantId: number) {
   const db = await getDb();
@@ -1038,25 +1044,17 @@ export async function updateMfReport(data: {
   }
 
   // 4. 기존 재료 삭제 후 새로 INSERT
+  //   ★ 2026-10-16: 화면이 보내지 않은 값(CCP 공정 지정·수율조정·보정배합·혼합 SKU 등)은 같은 id 의 원래 행에서
+  //   이어받는다 (mfIngredientMerge). 이전에는 보낸 값만 INSERT 해 보고서 422 버전2 의 CCP 공정 지정이 전부 사라졌다.
   if (data.ingredients && data.ingredients.length > 0) {
+    const existing = await db.select().from(hMfIngredients)
+      .where(eq(hMfIngredients.mfReportVersionId, versionId));
+
     await db.delete(hMfIngredients)
       .where(eq(hMfIngredients.mfReportVersionId, versionId));
 
     await db.insert(hMfIngredients).values(
-      data.ingredients.map((ing, index) => ({
-        mfReportVersionId: versionId,
-        lineNo: index + 1,
-        materialId: ing.materialId || null,
-        intermediateId: ing.intermediateId || null,
-        quantity: ing.quantity.toString(),
-        unit: ing.unit,
-        isDeductible: ing.isDeductible,
-        materialType: ing.materialType,
-        flavorName: ing.flavorName || null,
-        processGroupId: ing.processGroupId || null,
-        adjustedWeightKg: ing.adjustedWeightKg ? ing.adjustedWeightKg.toString() : null,
-        isAdditional: ing.isAdditional || 0
-      }))
+      mergeIngredientRows(data.ingredients as IncomingIngredient[], existing as any[], versionId) as any[]
     );
   }
 

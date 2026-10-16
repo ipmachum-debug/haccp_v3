@@ -68,6 +68,7 @@ export default function MfReportEdit() {
 
   // === 원재료 구성 (배합비 100% 재료) ===
   const [ingredients, setIngredients] = useState<Array<{
+    id?: number; // 원래 원료 행 id — 저장 시 보내지 않은 값(보정배합 등)을 서버가 이 행에서 이어받는다
     materialId?: number;
     intermediateId?: number;
     quantity: number;
@@ -82,6 +83,7 @@ export default function MfReportEdit() {
 
   // === 추가 원재료 (배합비 100%에 미포함, 정제수 등) ===
   const [additionalIngredients, setAdditionalIngredients] = useState<Array<{
+    id?: number;
     materialId?: number;
     quantity: number;
     unit: string;
@@ -121,6 +123,7 @@ export default function MfReportEdit() {
         for (const ing of reportDetail.ingredients) {
           if (ing.isAdditional === 1) {
             addIngs.push({
+              id: ing.id != null ? Number(ing.id) : undefined,
               materialId: ing.materialId || undefined,
               quantity: Number(ing.quantity) || 0,
               unit: ing.unit || "kg",
@@ -129,6 +132,7 @@ export default function MfReportEdit() {
             });
           } else {
             mainIngs.push({
+              id: ing.id != null ? Number(ing.id) : undefined,
               materialId: ing.materialId || undefined,
               intermediateId: ing.intermediateId || undefined,
               quantity: Number(ing.quantity) || 0,
@@ -362,10 +366,10 @@ export default function MfReportEdit() {
     }
 
     // 메인 재료 + 추가 원재료 합쳐서 저장
-    // processGroupId: null → 0 또는 undefined로 변환 (zod optional number)
-    // adjustedWeightKg: null → undefined로 변환
+    // processGroupId·adjustedWeightKg: 미지정은 null 로 명시 (2026-10-16 — 생략하면 서버가 원래 행 값을 유지한다)
     const allIngredients = [
       ...ingredients.map(ing => ({
+        id: ing.id,
         materialId: ing.materialId,
         intermediateId: ing.intermediateId,
         quantity: ing.quantity,
@@ -373,19 +377,20 @@ export default function MfReportEdit() {
         isDeductible: ing.isDeductible,
         materialType: ing.materialType,
         flavorName: ing.flavorName,
-        processGroupId: (ing.processGroupId != null && ing.processGroupId > 0) ? ing.processGroupId : undefined,
-        adjustedWeightKg: (ing.adjustedWeightKg != null && ing.adjustedWeightKg > 0) ? ing.adjustedWeightKg : undefined,
+        processGroupId: (ing.processGroupId != null && ing.processGroupId > 0) ? ing.processGroupId : null,
+        adjustedWeightKg: (ing.adjustedWeightKg != null && ing.adjustedWeightKg > 0) ? ing.adjustedWeightKg : null,
         isAdditional: 0,
       })),
       ...additionalIngredients.map(add => ({
+        id: add.id,
         materialId: add.materialId,
         quantity: add.quantity,
         unit: add.unit || "kg",
         isDeductible: 0,
         materialType: "RAW" as const,
         flavorName: add.description,
-        processGroupId: (add.processGroupId != null && add.processGroupId > 0) ? add.processGroupId : undefined,
-        adjustedWeightKg: (add.quantity && add.quantity > 0) ? add.quantity : undefined,
+        processGroupId: (add.processGroupId != null && add.processGroupId > 0) ? add.processGroupId : null,
+        adjustedWeightKg: (add.quantity && add.quantity > 0) ? add.quantity : null,
         isAdditional: 1,
       })),
     ];

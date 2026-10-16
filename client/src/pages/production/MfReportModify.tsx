@@ -16,6 +16,7 @@ import { formatLocalDate } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 interface IngredientRow {
+  id?: number; // 원래 원료 행 id — 이 화면이 다루지 않는 값(CCP 공정 지정·수율조정 등)은 서버가 이 행에서 이어받는다
   materialId?: number;
   intermediateId?: number;
   quantity: number;
@@ -49,6 +50,7 @@ export default function MfReportModify() {
 
   // === 원재료 구성 ===
   const [ingredients, setIngredients] = useState<IngredientRow[]>([]);
+  const [additionalRows, setAdditionalRows] = useState<IngredientRow[]>([]);
 
   // === 새 원재료 추가 폼 ===
   const [newIngredient, setNewIngredient] = useState<IngredientRow>({
@@ -89,6 +91,7 @@ export default function MfReportModify() {
         const mainIngredients = ingSource
           .filter((ing: any) => !ing.isAdditional || ing.isAdditional === 0)
           .map((ing: any) => ({
+            id: ing.id != null ? Number(ing.id) : undefined,
             materialId: ing.materialId || undefined,
             intermediateId: ing.intermediateId || undefined,
             quantity: parseFloat(ing.quantity) || 0,
@@ -99,6 +102,22 @@ export default function MfReportModify() {
             materialName: ing.materialName || undefined,
           }));
         setIngredients(mainIngredients);
+        // ★ 2026-10-16: 이 화면은 추가 원재료(정제수 등, 배합비 100% 미포함) 를 편집하지 않는다.
+        //   이전에는 저장 때 빼고 보내 추가 원재료 행이 통째로 삭제됐다 → 그대로 다시 보낸다.
+        setAdditionalRows(
+          ingSource
+            .filter((ing: any) => Number(ing.isAdditional) === 1)
+            .map((ing: any) => ({
+              id: ing.id != null ? Number(ing.id) : undefined,
+              materialId: ing.materialId || undefined,
+              intermediateId: ing.intermediateId || undefined,
+              quantity: parseFloat(ing.quantity) || 0,
+              unit: ing.unit || "kg",
+              isDeductible: ing.isDeductible ?? 0,
+              materialType: ing.materialType || "RAW",
+              flavorName: ing.flavorName || undefined,
+            })),
+        );
       }
     }
   }, [reportDetail, latestVersion]);
@@ -163,15 +182,31 @@ export default function MfReportModify() {
       yieldBasis,
       unitWeightG: unitWeightG ? parseFloat(unitWeightG) : undefined,
       batchTargetKg: batchTargetKg ? parseFloat(batchTargetKg) : undefined,
-      ingredients: ingredients.map((ing) => ({
-        materialId: ing.materialId,
-        intermediateId: ing.intermediateId,
-        quantity: ing.quantity,
-        unit: ing.unit,
-        isDeductible: ing.isDeductible ?? 1,
-        materialType: ing.materialType,
-        flavorName: ing.flavorName,
-      })),
+      // processGroupId·adjustedWeightKg 는 이 화면에서 다루지 않으므로 보내지 않는다 → 서버가 id 로 원래 값 유지
+      ingredients: [
+        ...ingredients.map((ing) => ({
+          id: ing.id,
+          materialId: ing.materialId,
+          intermediateId: ing.intermediateId,
+          quantity: ing.quantity,
+          unit: ing.unit,
+          isDeductible: ing.isDeductible ?? 1,
+          materialType: ing.materialType,
+          flavorName: ing.flavorName,
+          isAdditional: 0,
+        })),
+        ...additionalRows.map((ing) => ({
+          id: ing.id,
+          materialId: ing.materialId,
+          intermediateId: ing.intermediateId,
+          quantity: ing.quantity,
+          unit: ing.unit,
+          isDeductible: ing.isDeductible ?? 0,
+          materialType: ing.materialType,
+          flavorName: ing.flavorName,
+          isAdditional: 1,
+        })),
+      ],
     });
   };
 

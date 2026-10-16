@@ -14,6 +14,8 @@
 //   - h_ccp_rows <-> h_ccp_form_rows 양방향 동기화
 //   - CCP-4P 금속검출 제품별 순차 시간 배분
 // ═══════════════════════════════════════════════════════════════
+import { selectBomVersion } from "../../lib/identity/itemIdentityService";
+import { ccpInputKgByGroup, CCP_BOM_ROWS_SQL } from "../../lib/production/ccpBomInput";
 import { getDb, getRawConnection } from "../connection";
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import {
@@ -241,61 +243,14 @@ export async function syncCcpRowsToFormRows(params: {
   let bomBatchKg: number | null = null;
   if (productId) {
     try {
-      // BOM 최신 승인 버전의 원재료 조회 + batch_target_kg(1배치 기준 중량)
-      const [bomRows] = await rawConn.execute<any[]>(
-        `SELECT i.process_group_id,
-                i.corrected_quantity, i.quantity, i.unit, i.adjusted_weight_kg,
-                i.material_id, i.material_type,
-                im.item_name as material_name, im.base_unit,
-                v.batch_target_kg
-         FROM h_mf_ingredients i
-         LEFT JOIN item_master im ON im.id = i.material_id
-         JOIN h_mf_report_versions v ON v.id = i.mf_report_version_id
-           AND v.approval_status = 'APPROVED'
-         JOIN h_mf_reports r ON r.id = v.mf_report_id
-           AND r.product_id = ? AND r.tenant_id = ?
-         WHERE i.process_group_id IS NOT NULL
-           AND i.material_id IS NOT NULL
-         ORDER BY i.line_no`,
-        [productId, tenantId],
-      );
-
-      if ((bomRows as any[]).length > 0) {
-        // BOM 배치 사이즈: h_mf_report_versions.batch_target_kg (1배치 기준 생산량, 예: 100kg)
-        bomBatchKg = parseFloat((bomRows as any[])[0]?.batch_target_kg) || null;
-
-        // 공정그룹별 투입량 합산 (정제수 제외)
-        for (const bom of bomRows as any[]) {
-          const pgId = Number(bom.process_group_id);
-          if (!pgId) continue;
-
-          // 정제수 판별: material_name에 '정제수' 포함 또는 material_type 기반
-          const matName = (bom.material_name || "").toLowerCase();
-          const isWater = matName.includes("정제수") || matName.includes("purified water")
-                       || matName === "water" || matName === "물";
-          if (isWater) continue;
-
-          // 투입량 결정: adjusted_weight_kg > corrected_quantity > quantity
-          let qtyKg = 0;
-          if (bom.adjusted_weight_kg != null) {
-            qtyKg = parseFloat(bom.adjusted_weight_kg);
-          } else {
-            const raw = parseFloat(bom.corrected_quantity || bom.quantity || "0");
-            // unit 별 환산:
-            // '%' → 배합비율, batch_target_kg 기준 kg 환산
-            // 'g' → ÷1000 → kg
-            // 'kg' 또는 기타 → 그대로 kg
-            if (bom.unit === "%" && bomBatchKg && bomBatchKg > 0) {
-              qtyKg = (raw / 100) * bomBatchKg;
-            } else if (bom.unit === "g") {
-              qtyKg = raw / 1000;
-            } else {
-              qtyKg = raw; // kg 기준
-            }
-          }
-
-          bomInputQtyMap[pgId] = (bomInputQtyMap[pgId] || 0) + qtyKg;
-        }
+      // BOM 원재료 → 공정별 투입량 (정제수 제외) + batch_target_kg(1배치 기준 중량)
+      // ★ 2026-10-16: 배치 생성과 같은 버전 하나 기준 (selectBomVersion + ccpInputKgByGroup).
+      //   이전에는 APPROVED 버전을 전부 JOIN 해 합산 → 승인 버전 2개인 제품은 두 배 (우유설기 9/14 9.19kg = 4.55 + 4.635).
+      //   원료별 CCP 공정 지정(process_group_id, NULL 포함)은 읽기만 하고 바꾸지 않는다.
+      const picked = await loadCcpBomInput(rawConn, Number(productId), tenantId);
+      if (picked) {
+        bomBatchKg = picked.batchKg;
+        bomInputQtyMap = picked.inputByGroup;
       }
     } catch (bomErr) {
       console.error("[syncCcpRowsToFormRows] BOM 투입량 계산 실패 (총생산량 폴백):", bomErr);
@@ -562,49 +517,11 @@ export async function syncCcpRowsToFormRows(params: {
     let localBomInputQtyMap = bomInputQtyMap;
     if (!localBomBatchKg && instanceProductId && instanceProductId !== productId) {
       try {
-        const [fallbackBomRows] = await rawConn.execute<any[]>(
-          `SELECT i.process_group_id,
-                  i.corrected_quantity, i.quantity, i.unit, i.adjusted_weight_kg,
-                  i.material_id, i.material_type,
-                  im.item_name as material_name, im.base_unit,
-                  v.batch_target_kg
-           FROM h_mf_ingredients i
-           LEFT JOIN item_master im ON im.id = i.material_id
-           JOIN h_mf_report_versions v ON v.id = i.mf_report_version_id
-             AND v.approval_status = 'APPROVED'
-           JOIN h_mf_reports r ON r.id = v.mf_report_id
-             AND r.product_id = ? AND r.tenant_id = ?
-           WHERE i.process_group_id IS NOT NULL
-             AND i.material_id IS NOT NULL
-           ORDER BY i.line_no`,
-          [instanceProductId, tenantId],
-        );
-        if ((fallbackBomRows as any[]).length > 0) {
-          localBomBatchKg = parseFloat((fallbackBomRows as any[])[0]?.batch_target_kg) || null;
-          const fallbackMap: Record<number, number> = {};
-          for (const bom of fallbackBomRows as any[]) {
-            const pgId = Number(bom.process_group_id);
-            if (!pgId) continue;
-            const matName = (bom.material_name || "").toLowerCase();
-            const isWater = matName.includes("정제수") || matName.includes("purified water")
-                         || matName === "water" || matName === "물";
-            if (isWater) continue;
-            let qtyKg = 0;
-            if (bom.adjusted_weight_kg != null) {
-              qtyKg = parseFloat(bom.adjusted_weight_kg);
-            } else {
-              const raw = parseFloat(bom.corrected_quantity || bom.quantity || "0");
-              if (bom.unit === "%" && localBomBatchKg && localBomBatchKg > 0) {
-                qtyKg = (raw / 100) * localBomBatchKg;
-              } else if (bom.unit === "g") {
-                qtyKg = raw / 1000;
-              } else {
-                qtyKg = raw;
-              }
-            }
-            fallbackMap[pgId] = (fallbackMap[pgId] || 0) + qtyKg;
-          }
-          localBomInputQtyMap = fallbackMap;
+        // ★ 2026-10-16: 위 주 조회와 같은 규칙 (버전 하나 기준, 버전끼리 합산 없음)
+        const fb = await loadCcpBomInput(rawConn, Number(instanceProductId), tenantId);
+        if (fb) {
+          localBomBatchKg = fb.batchKg;
+          localBomInputQtyMap = fb.inputByGroup;
           // 인스턴스 product_id의 실제 제품명 조회 (h_products_v2)
           try {
             const [prodNameRows] = await rawConn.execute<any[]>(
@@ -1576,4 +1493,29 @@ export async function syncCcpRowsToFormRows(params: {
   }
 
   return { synced: totalSynced };
+}
+
+/**
+ * CCP 공정별 투입량 (정제수 제외) — 배치가 쓰는 품목제조보고 버전 하나 기준 (2026-10-16, ccpBomInput 참고).
+ * 공정이 지정된 원료 행이 없으면 null (호출측은 기존처럼 총생산량 폴백).
+ */
+async function loadCcpBomInput(
+  rawConn: any,
+  productId: number,
+  tenantId: number,
+): Promise<{ batchKg: number | null; inputByGroup: Record<number, number> } | null> {
+  const pick = await selectBomVersion(productId, tenantId, rawConn);
+  if (!pick) return null;
+  const [rows] = await rawConn.execute(CCP_BOM_ROWS_SQL, [pick.reportId, pick.versionId]);
+  if ((rows as any[]).length === 0) return null;
+  const [vRows] = await rawConn.execute(`SELECT batch_target_kg FROM h_mf_report_versions WHERE id = ?`, [pick.versionId]);
+  const batchKg = parseFloat((vRows as any[])[0]?.batch_target_kg) || null;
+  const inputByGroup: Record<number, number> = {};
+  for (const [pg, v] of ccpInputKgByGroup(rows as any[], pick.versionId)) {
+    inputByGroup[pg] = v.kg;
+    if (v.versionId !== pick.versionId) {
+      console.warn(`[ccpBomInput] product=${productId} 공정 ${pg}: 배치 버전 ${pick.versionId} 에 공정 지정 원료가 없어 버전 ${v.versionId} 값 사용`);
+    }
+  }
+  return { batchKg, inputByGroup };
 }

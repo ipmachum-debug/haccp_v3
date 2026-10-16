@@ -365,7 +365,16 @@ async function importBomData(
     let versionId: number;
     if (existingVer.length > 0) {
       versionId = existingVer[0].id;
-      await conn.execute(`DELETE FROM h_mf_ingredients WHERE mf_report_version_id = ?`, [versionId]);
+      // ★ 2026-10-16: 이미 원료가 있는 버전은 덮어쓰지 않는다. 이전에는 전부 DELETE 후 비율만 INSERT 해
+      //   CCP 공정 지정·차감 여부·수율조정·추가 원재료가 사라졌다 (엑셀에는 원래 행 id 가 없어 원본과 맞출 수 없음).
+      //   배합 변경은 품목제조보고 화면에서 하거나 새 버전으로 만든다.
+      const [cnt] = (await conn.execute(
+        `SELECT COUNT(*) AS n FROM h_mf_ingredients WHERE mf_report_version_id = ?`, [versionId]
+      )) as any[];
+      if (Number(cnt?.[0]?.n ?? 0) > 0) {
+        results.step2.skippedExistingBom = (results.step2.skippedExistingBom ?? 0) + 1;
+        continue;
+      }
     } else {
       const [verRes] = (await conn.execute(
         `INSERT INTO h_mf_report_versions (mf_report_id, version_no, effective_from, change_reason, approval_status, composition_total_rule, yield_basis, batch_target_kg, tenant_id, created_by) VALUES (?, 1, CURDATE(), '엑셀임포트', 'APPROVED', '100%', 'PER_BATCH_KG', 70, ?, ?)`,
