@@ -256,6 +256,23 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     expect(ret.map((r: any) => Number(r.amt))).toEqual([1066197.6, 1066197.6, 1066197.6]);
   });
 
+  it("회차마다 단가가 다르면 복원 금액도 그 회차 금액 — 수량·금액 순액 모두 0 (Codex #541 재검증 P2)", async () => {
+    const { cancelProductSale } = await import("./lib/accounting/productSaleCancel");
+    await insertSale(10536, "2026-10-15", 240, 1444800, 144480);
+    for (const price of [4442.49, 5000, 3000]) {
+      await q(`UPDATE h_inventory_lots SET unit_price = ? WHERE id = 1834`, [price]);
+      await postProductSale(10536, 4);
+      await cancelProductSale(10536, 4, T);
+      await q(`UPDATE accounting_sales SET status = 'pending' WHERE id = 10536`);
+    }
+    const ret = await q(`SELECT amount + 0 AS amt FROM h_inventory_transactions WHERE source_type = 'SALE_CANCEL' AND source_id = 10536 ORDER BY id`);
+    expect(ret.map((r: any) => Number(r.amt))).toEqual([1066197.6, 1200000, 720000]);
+    const net = (await q(`SELECT SUM(CASE WHEN transaction_type = 'usage' THEN quantity ELSE -quantity END) + 0 AS qty,
+      SUM(CASE WHEN transaction_type = 'usage' THEN amount ELSE -amount END) + 0 AS amt FROM h_inventory_transactions WHERE source_id = 10536 AND source_type IN ('SALE', 'SALE_CANCEL')`))[0];
+    expect([Number(net.qty), Number(net.amt)]).toEqual([0, 0]);
+    expect(await lot(1834)).toMatchObject({ a: 358 });
+  });
+
   it("혼합 반복 2회 + 옛 거래(매출 참조 없음) 원가: 부모·자식 LOT 로 원 차감 단가 연결, 복원 금액 순액 0 (Codex #538 P1·P2)", async () => {
     const { cancelProductSale } = await import("./lib/accounting/productSaleCancel");
     await q(`INSERT INTO h_inventory_lots (id, tenant_id, product_id, sku_id, lot_number, quantity, current_quantity, available_quantity, unit, unit_price, production_date, status)

@@ -19,6 +19,7 @@
 import mysql from "mysql2/promise";
 import { getDbConfigFromEnv } from "./_lib/db-env";
 import { groupedTimeFor, isHHmm } from "./_lib/ccpGroupedTimes";
+import { parseOnlyIds } from "./_lib/onlyIds";
 
 const arg = (name: string, def: string) =>
   process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=")[1] ?? def;
@@ -29,8 +30,15 @@ const GROUPS = arg("groups", "2,3").split(",").map(Number).filter(Number.isFinit
 const CREATED_FROM = arg("created-from", "2026-04-13");
 const BATCH_SIZE = Number(arg("batch-size", "3"));
 const INTERVAL = Number(arg("interval", "10"));
-// --only=1717,1718 : 이 기록지만 (1건 시험 적용용). 미지정이면 조건에 맞는 전체
-const ONLY = arg("only", "").split(",").map((v) => Number(v.trim())).filter((n) => Number.isFinite(n) && n > 0);
+// --only=1717,1718 : 이 기록지만 (1건 시험 적용용). 미지정이면 조건에 맞는 전체.
+//   잘못된 값(빈 값·숫자 아님·0·음수·소수)은 DB 연결 전에 종료 — 전체로 번지지 않게 (Codex #541 재검증 P1)
+let ONLY: number[] = [];
+try {
+  ONLY = parseOnlyIds(process.argv) ?? [];
+} catch (e: any) {
+  console.error(`❌ ${e.message}`);
+  process.exit(2);
+}
 const BACKUP = "h_ccp_form_rows_time_fix_20261016";
 const REASON = "2026-10-16 공정 그룹 설정 오류(순차 1대 → 실제 묶음 순차 3대)로 측정시각 정정";
 

@@ -109,12 +109,13 @@ export async function cancelProductSale(
       }
     }
     const [returnedRows] = await conn.execute(
-      `SELECT lot_id, SUM(quantity) AS qty FROM h_inventory_transactions
+      `SELECT lot_id, SUM(quantity) AS qty, SUM(COALESCE(amount, 0)) AS amt FROM h_inventory_transactions
         WHERE tenant_id = ? AND source_type = 'SALE_CANCEL' AND source_id = ?
         GROUP BY lot_id`,
       [tenantId, saleId],
     );
     const returned = new Map<number, number>((returnedRows as any[]).map((r) => [Number(r.lot_id), Number(r.qty || 0)]));
+    const returnedAmt = new Map<number, number>((returnedRows as any[]).map((r) => [Number(r.lot_id), Number(r.amt || 0)]));
 
     const perLot = new Map<number, { deducted: number; amount: number; fromSale: boolean }>();
     for (const r of saleUsageRows as any[]) {
@@ -140,8 +141,10 @@ export async function cancelProductSale(
     for (const [lotId, d] of perLot) {
       const restoreQty = Math.round((d.deducted - (returned.get(lotId) ?? 0)) * 1000) / 1000;
       if (restoreQty <= 0.0005) continue;
-      const unitCost = d.deducted > 0 ? d.amount / d.deducted : 0;
-      const lotCost = Math.round(restoreQty * unitCost * 100) / 100;
+      // 금액도 수량처럼 "원 차감 금액 − 이미 복원한 금액" — 회차마다 단가가 달라도 순액 0 (Codex #541 재검증 P2).
+      //   (이전: 누적 평균 단가 × 남은 수량 → 500·1,000 두 회차면 두 번째 복원 7,500, 순액 2,500 남음)
+      const lotCost = Math.round((d.amount - (returnedAmt.get(lotId) ?? 0)) * 100) / 100;
+      const unitCost = restoreQty > 0 ? lotCost / restoreQty : 0;
 
       const [lotLockRows] = await conn.execute(
         `SELECT available_quantity, current_quantity, quantity, unit FROM h_inventory_lots
