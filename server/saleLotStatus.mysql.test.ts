@@ -160,13 +160,50 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     const { getSaleFootprint } = await import("./lib/accounting/saleFootprint");
     await insertSale(10536, "2026-10-15", 240, 1444800, 144480);
     await postProductSale(10536, 4);
-    await q(`UPDATE accounting_sales SET status = 'received' WHERE id = 10536`); // 현행 취소는 received 만 받음
-    await cancelProductSale(10536, 4, T);
+    await cancelProductSale(10536, 4, T); // 승인 상태에서 정식 취소 (2026-10-16 — 화면과 같은 조건)
     expect(await lot(1834)).toMatchObject({ a: 358 });
     expect(await getSaleFootprint(admin, T, 10536)).toMatchObject({ netDeducted: 0, postedJournals: 1, reversedJournals: 1, live: false });
+    // 원 전표 그대로 상쇄: 매출·매출원가 둘 다
+    const net = async (prefix: string) => (await q(`SELECT COALESCE(SUM(l.debit_amount - l.credit_amount), 0) + 0 AS n FROM expense_journal_entries e JOIN expense_journal_lines l ON l.journal_entry_id = e.id WHERE l.account_id = ? AND (e.description LIKE ? OR e.description LIKE ?)`, [prefix === "ar" ? 62 : 29, `[매출%] SALE-10536 %`, `[매출원가%] SALE-10536 %`]))[0].n;
+    expect([Number(await net("ar")), Number(await net("cogs"))]).toEqual([0, 0]);
+    const ret = await q(`SELECT quantity + 0 AS qty, unit FROM h_inventory_transactions WHERE source_type = 'SALE_CANCEL' AND source_id = 10536`);
+    expect(ret.map((r: any) => [Number(r.qty), r.unit])).toEqual([[240, "box"]]);
     await q(`UPDATE accounting_sales SET status = 'pending' WHERE id = 10536`);
     await postProductSale(10536, 4);
     expect(await lot(1834)).toMatchObject({ a: 118 });
+  });
+
+  it("매출 취소 상태 조건: 수금 완료 거부, 차감 없는 대기 매출은 분개 없이 취소, 제품 출고 매출은 출고 화면으로", async () => {
+    const { cancelProductSale } = await import("./lib/accounting/productSaleCancel");
+    await insertSale(10536, "2026-10-15", 240, 1444800, 144480);
+    await postProductSale(10536, 4);
+    await q(`UPDATE accounting_sales SET status = 'received' WHERE id = 10536`);
+    await expect(cancelProductSale(10536, 4, T)).rejects.toThrow(/수금을 먼저 취소/);
+    expect(await lot(1834)).toMatchObject({ a: 118 });
+    await insertSale(501, "2026-10-15", 1, 1000, 100);
+    await cancelProductSale(501, 4, T);
+    expect((await q(`SELECT status FROM accounting_sales WHERE id = 501`))[0].status).toBe("cancelled");
+    expect(Number((await q(`SELECT COUNT(*) AS n FROM expense_journal_entries WHERE description LIKE '%SALE-501 %'`))[0].n)).toBe(0);
+    await insertSale(502, "2026-10-15", 1, 1000, 100);
+    await q(`UPDATE accounting_sales SET source_type = 'product_outbound', source_id = 1 WHERE id = 502`);
+    await expect(cancelProductSale(502, 4, T)).rejects.toThrow(/제품 출고 화면/);
+  });
+
+  it("혼합(번들) 매출 취소: bundle_lots 'sales:<id>' 의 구성품 LOT 을 kg 그대로 복원 (참조 없는 옛 차감 포함), 복원 후 흔적 0", async () => {
+    const { cancelProductSale } = await import("./lib/accounting/productSaleCancel");
+    const { getSaleFootprint } = await import("./lib/accounting/saleFootprint");
+    await q(`INSERT INTO h_inventory_lots (id, tenant_id, product_id, sku_id, lot_number, quantity, current_quantity, available_quantity, unit, unit_price, production_date, status)
+      VALUES (950, ?, 70, 300, 'L950', 10, 7.6, 7.6, 'kg', 5000, '2026-10-10', 'available'), (951, ?, 71, 301, 'NEG-951', 0, -0.4, -0.4, 'kg', 0, '2026-10-15', 'available')`, [T, T]);
+    await insertSale(600, "2026-10-15", 1, 30000, 3000);
+    await q(`UPDATE accounting_sales SET status = 'approved' WHERE id = 600`);
+    await q(`INSERT INTO bundle_lots (tenant_id, parent_lot_id, child_lot_id, deducted_qty_kg, notes) VALUES (?, 1834, 950, 2.4, 'sales:600'), (?, 1834, 951, 0.4, 'sales:600'), (?, 1834, 950, 1, 'sales:6000')`, [T, T, T]);
+    expect((await getSaleFootprint(admin, T, 600)).live).toBe(true);
+    await cancelProductSale(600, 4, T);
+    const lots = await q(`SELECT id, available_quantity + 0 AS a, current_quantity + 0 AS c FROM h_inventory_lots WHERE id IN (950, 951) ORDER BY id`);
+    expect(lots.map((l: any) => [Number(l.id), Number(l.a), Number(l.c)])).toEqual([[950, 10, 10], [951, 0, 0]]);
+    const ret = await q(`SELECT lot_id, quantity + 0 AS qty, unit FROM h_inventory_transactions WHERE source_type = 'SALE_CANCEL' AND source_id = 600 ORDER BY lot_id`);
+    expect(ret.map((r: any) => [Number(r.lot_id), Number(r.qty), r.unit])).toEqual([[950, 2.4, "kg"], [951, 0.4, "kg"]]);
+    expect((await getSaleFootprint(admin, T, 600)).live).toBe(false);
   });
 
   it("일괄 복구 조건(saleHasFootprintSql): 반쪽 승인만 대상, 확정 흔적 있는 매출·다른 회사 흔적은 구분", async () => {
@@ -331,6 +368,27 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     });
     beforeEach(async () => { await q(`DELETE FROM h_product_outbound`); });
     const base = { lotId: 1834, productName: "하늘사랑 1.6kg", quantity: 10, unit: "box", unitPrice: 6020, partnerId: 11, releaseDate: "2026-10-16", releaseType: "sale", createdBy: 4 };
+
+    it("출고 취소: LOT 가용·현재 수량 복원, 승인된 연결 매출의 매출·매출원가 전표 역분개 후 매출 취소 — 수금 완료면 거부", async () => {
+      const { cancelProductOutbound } = await import("./db/production/productOutboundManagement");
+      const r = await createProductOutbound(base, T);
+      await postProductSale(r.saleId, 4); // 승인 — 출고가 이미 차감했으므로 원가만
+      expect(await lot(1834)).toMatchObject({ a: 348 });
+      const je = async () => Number((await q(`SELECT COUNT(*) AS n FROM expense_journal_entries WHERE description LIKE ?`, [`%SALE-${r.saleId} %`]))[0].n);
+      const before = await je();
+      await q(`UPDATE accounting_sales SET status = 'received' WHERE id = ?`, [r.saleId]);
+      await expect(cancelProductOutbound(r.outboundId, 4, T)).rejects.toThrow(/수금을 먼저 취소/);
+      await q(`UPDATE accounting_sales SET status = 'approved' WHERE id = ?`, [r.saleId]);
+      await cancelProductOutbound(r.outboundId, 4, T);
+      expect(await lot(1834)).toMatchObject({ a: 358, c: 358, status: "available" });
+      expect(await je()).toBe(before * 2); // 원 전표마다 역분개 1건
+      const ar = (await q(`SELECT COALESCE(SUM(l.debit_amount - l.credit_amount), 0) + 0 AS n FROM expense_journal_entries e JOIN expense_journal_lines l ON l.journal_entry_id = e.id WHERE l.account_id = 62 AND e.description LIKE ?`, [`%SALE-${r.saleId} %`]))[0].n;
+      expect(Number(ar)).toBe(0);
+      expect((await q(`SELECT status FROM accounting_sales WHERE id = ?`, [r.saleId]))[0].status).toBe("cancelled");
+      const tx = await q(`SELECT transaction_type, source_id, quantity + 0 AS qty, unit FROM h_inventory_transactions WHERE source_type = 'PRODUCT_OUTBOUND_CANCEL'`);
+      expect(tx.map((t: any) => [t.transaction_type, Number(t.source_id), Number(t.qty), t.unit])).toEqual([["return", r.outboundId, 10, "box"]]);
+      await expect(cancelProductOutbound(r.outboundId, 4, T)).rejects.toThrow(/이미 취소/);
+    });
 
     it("정상: 출고 행(SKU 포함)·원장(출고 번호 연결)·LOT 차감·매출(제품·SKU·세액) 이 함께", async () => {
       const r = await createProductOutbound(base, T);

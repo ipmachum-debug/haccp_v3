@@ -5,7 +5,7 @@
  *   10/14 에 상태만 pending 으로 되돌려져(bulkRestoreApprovedToPending) 다시 확정 → 같은 수량을 한 번 더 차감.
  *   상태 컬럼만 보고 "아직 안 한 매출" 로 판단했기 때문.
  * 고정: 확정·복구는 상태가 아니라 원장 흔적으로 판단한다.
- *   - 재고: SALE/usage + 번들 분해(BUNDLE_OUTBOUND, reference sales) − SALE_CANCEL/return 의 순수량 > 0
+ *   - 재고: SALE/usage + 혼합(번들) 구성품 차감(bundle_lots 'sales:<id>' — 참조 없는 옛 거래 포함) − SALE_CANCEL/return 순수량 > 0
  *   - 분개: `[매출] SALE-<id>` 전표 수 > `[매출취소] SALE-<id>` 전표 수
  * 정상 취소(productSaleCancel)는 재고를 되돌리고 역분개를 남기므로 흔적 0 → 다시 대기·확정 가능.
  */
@@ -19,14 +19,15 @@ export function saleHasFootprintSql(s = "s"): string {
   return `(
     (SELECT COALESCE(SUM(CASE
               WHEN t.source_type = 'SALE' AND t.transaction_type = 'usage' THEN t.quantity
-              WHEN t.source_type = 'BUNDLE_OUTBOUND' AND t.transaction_type = 'usage' THEN t.quantity
               WHEN t.source_type = 'SALE_CANCEL' THEN -t.quantity
               ELSE 0 END), 0)
        FROM h_inventory_transactions t
       WHERE t.tenant_id = ${s}.tenant_id
-        AND ( (t.source_type IN ('SALE', 'SALE_CANCEL') AND t.source_id = ${s}.id)
-           OR (t.source_type = 'BUNDLE_OUTBOUND' AND t.reference_type = 'sales' AND t.reference_id = ${s}.id) )
-    ) > ${EPS}
+        AND t.source_type IN ('SALE', 'SALE_CANCEL') AND t.source_id = ${s}.id
+    )
+    + (SELECT COALESCE(SUM(b.deducted_qty_kg), 0) FROM bundle_lots b
+        WHERE b.tenant_id = ${s}.tenant_id AND b.notes = CONCAT('sales:', ${s}.id))
+    > ${EPS}
     OR
     (SELECT COUNT(*) FROM expense_journal_entries e WHERE e.tenant_id = ${s}.tenant_id AND ${marker("[매출]")})
       > (SELECT COUNT(*) FROM expense_journal_entries e WHERE e.tenant_id = ${s}.tenant_id AND ${marker("[매출취소]")})
@@ -37,15 +38,15 @@ export type SaleFootprint = { netDeducted: number; postedJournals: number; rever
 
 export async function getSaleFootprint(conn: any, tenantId: number, saleId: number): Promise<SaleFootprint> {
   const [txRows] = await conn.execute(
-    `SELECT COALESCE(SUM(CASE
-              WHEN source_type IN ('SALE', 'BUNDLE_OUTBOUND') AND transaction_type = 'usage' THEN quantity
-              WHEN source_type = 'SALE_CANCEL' THEN -quantity
-              ELSE 0 END), 0) AS net
-       FROM h_inventory_transactions
-      WHERE tenant_id = ?
-        AND ( (source_type IN ('SALE', 'SALE_CANCEL') AND source_id = ?)
-           OR (source_type = 'BUNDLE_OUTBOUND' AND reference_type = 'sales' AND reference_id = ?) )`,
-    [tenantId, saleId, saleId],
+    `SELECT
+       (SELECT COALESCE(SUM(CASE
+                 WHEN source_type = 'SALE' AND transaction_type = 'usage' THEN quantity
+                 WHEN source_type = 'SALE_CANCEL' THEN -quantity
+                 ELSE 0 END), 0)
+          FROM h_inventory_transactions
+         WHERE tenant_id = ? AND source_type IN ('SALE', 'SALE_CANCEL') AND source_id = ?)
+     + (SELECT COALESCE(SUM(deducted_qty_kg), 0) FROM bundle_lots WHERE tenant_id = ? AND notes = ?) AS net`,
+    [tenantId, saleId, tenantId, `sales:${saleId}`],
   );
   const count = async (prefix: string) => {
     const docId = `SALE-${saleId}`;
