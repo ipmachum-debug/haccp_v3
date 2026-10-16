@@ -10,7 +10,7 @@ import { getDb, withTransaction } from "../../db";
 import { resolveSystemAccount, insertJournalLine, SYSTEM_ACCOUNTS } from "../../core-erp/accounting/journal";
 import { documentAmounts } from "./amountContract";
 
-export async function erpPostPurchase(purchaseId: number, userId: number) {
+export async function erpPostPurchase(purchaseId: number, userId: number, expectedTenantId?: number) {
   return withTransaction(async (conn) => {
     // 매입 데이터 조회 + 잠금
     const [rows] = await conn.execute(
@@ -22,6 +22,8 @@ export async function erpPostPurchase(purchaseId: number, userId: number) {
 
     const purchase = (rows as any[])?.[0];
     if (!purchase) throw new Error(`매입 ID ${purchaseId}를 찾을 수 없습니다.`);
+    // ★ 2026-10-16: 호출자 회사와 다르면 거부 (postDispatcher 와 이중 방어)
+    if (expectedTenantId != null && Number(expectedTenantId) !== Number(purchase.tenant_id)) throw new Error(`매입 ID ${purchaseId}를 찾을 수 없습니다.`);
     // 확정·지급된 매입은 다시 확정하지 않는다 (2026-10-15). 확정은 pending 에서만.
     if (purchase.status === "approved" || purchase.status === "paid") return { success: true, alreadyPosted: true };
     if (purchase.status !== "pending") throw new Error(`확정할 수 없는 상태입니다: ${purchase.status} (ID: ${purchaseId})`);
@@ -76,8 +78,8 @@ export async function erpPostPurchase(purchaseId: number, userId: number) {
 
     // 상태 변경
     await conn.execute(
-      `UPDATE accounting_purchases SET status = 'approved' WHERE id = ?`,
-      [purchaseId]
+      `UPDATE accounting_purchases SET status = 'approved' WHERE id = ? AND tenant_id = ?`,
+      [purchaseId, tenantId]
     );
 
     return { success: true, journalEntryId };

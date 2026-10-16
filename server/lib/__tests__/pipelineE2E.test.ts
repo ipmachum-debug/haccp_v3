@@ -128,7 +128,7 @@ describe("파이프라인 시나리오 (구매→입고→생산→완료→회�
   it("전체 흐름의 함수 체인이 올바른 시그니처로 존재", async () => {
     // Step 1: 매입 확정 → LOT + 재고원장 + 회계분개
     const { postPurchase } = await import("../accounting/purchasePost");
-    expect(postPurchase.length).toBe(2); // (purchaseId, userId)
+    expect(postPurchase.length).toBe(3); // (purchaseId, userId, expectedTenantId) — 2026-10-16 호출자 회사 대조
 
     // Step 2: 배치 시작 → 원료 자동 출고
     const { autoIssueMaterialsForBatch } = await import("../production/autoMaterialIssue");

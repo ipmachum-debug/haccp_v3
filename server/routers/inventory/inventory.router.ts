@@ -1331,7 +1331,8 @@ export const inventoryRouter = router({
           releaseDate: z.string(),
           releaseType: z.enum(["sale", "delivery", "sample", "return", "other"]),
           lotNumber: z.string().optional(),
-          notes: z.string().optional()
+          notes: z.string().optional(),
+          taxRate: z.number().min(0).max(100).optional(), // 매출 세율(%) — 기본 10, 면세 0 (2026-10-16)
         })
       )
       .mutation(async ({ input, ctx }) => {

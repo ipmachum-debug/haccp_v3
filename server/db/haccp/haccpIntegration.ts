@@ -332,7 +332,7 @@ export async function createPurchase(params: {
   if (purchaseId > 0) {
     try {
       const { postPurchase } = await import("../../lib/accounting/purchasePost");
-      await postPurchase(purchaseId, params.createdBy);
+      await postPurchase(purchaseId, params.createdBy, tenantId);
       posted = true;
     } catch (e: any) {
       postError = e?.message ?? String(e);

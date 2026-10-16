@@ -11,7 +11,7 @@
  *   차변: 매출원가(5110) / 대변: 제품재고(1140)  — 원가 인식
  */
 
-import { getDb, getRawConnection } from "../connection";
+import { getDb, getRawConnection, withTransaction } from "../connection";
 import { todayKST } from "../../utils/timezone";
 import { resolveBatchBusinessDate } from "../../lib/production/batchBusinessDate";
 import { hInventoryLots, hInventoryTransactions } from "../../../drizzle/schema";
@@ -59,6 +59,19 @@ export async function ensureProductOutboundTable() {
   try {
     await conn.execute(`ALTER TABLE h_product_outbound MODIFY COLUMN batch_id BIGINT NULL`);
   } catch { /* 이미 NULL 허용 */ }
+  // ★ 2026-10-16 (Codex DB 점검 P1): 출고 INSERT 가 sku_id·sku_name 을 쓰는데 운영 테이블에 없었다
+  //   → LOT 차감 뒤 INSERT 가 실패해 차감만 남을 수 있었다. 없으면 만든다 (멱등).
+  //   수동 경로: scripts/migrations-manual/2026-10-16-product-outbound-sku.sql
+  for (const [col, ddl] of [
+    ["sku_id", "ADD COLUMN sku_id BIGINT NULL AFTER lot_id"],
+    ["sku_name", "ADD COLUMN sku_name VARCHAR(200) NULL AFTER sku_id"],
+  ] as const) {
+    const [c]: any = await conn.execute(
+      `SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'h_product_outbound' AND COLUMN_NAME = ? LIMIT 1`,
+      [col],
+    );
+    if (!(c as any[]).length) await conn.execute(`ALTER TABLE h_product_outbound ${ddl}`);
+  }
   tableEnsured = true;
 }
 
@@ -491,7 +504,14 @@ export async function getProductAvailableForRelease(tenantId: number) {
   return [...lotResults, ...batchResults];
 }
 
-/* ───────── 제품 출고 등록 (LOT 차감 + 매출전표) ───────── */
+/* ───────── 제품 출고 등록 (LOT 차감 + 매출전표) ─────────
+ * ★ 2026-10-16 (Codex 운영 DB 점검 P1) — 한 트랜잭션으로 다시 씀
+ *   이전: 트랜잭션·잠금 없이 LOT 차감 → 원장 → 출고 INSERT(없는 sku 컬럼) 순서라, 뒤 단계가 실패하면 차감만 남았다.
+ *     매출 자동 생성 실패는 로그만 남기고 삼켰고, 그 매출에는 제품·SKU·세액이 없었다.
+ *   지금: LOT 잠금(FOR UPDATE) → 가용 확인 → 출고 행 → 원장(출고 번호 연결) → LOT 차감 → 매출 생성.
+ *     어느 단계든 실패하면 전부 되돌린다. 매출에는 제품·SKU·세액(taxRate, 기본 10%)을 넣는다.
+ *   출고 매출을 확정하면 productSalePost 가 이 출고의 LOT 으로 원가만 계산한다 (이중 차감 없음).
+ */
 export async function createProductOutbound(params: {
   lotId?: number;
   batchId?: number;
@@ -508,169 +528,147 @@ export async function createProductOutbound(params: {
   createdBy: number;
   skuId?: number;
   skuName?: string;
+  /** 매출 세율(%) — 기본 10, 면세 0 */
+  taxRate?: number;
 }, tenantId: number) {
+  if (!tenantId) throw new Error("[보안] tenantId 필수");
+  if (!(params.quantity > 0)) throw new Error("출고 수량은 0 보다 커야 합니다.");
   await ensureProductOutboundTable();
-  const conn = await getRawConnection();
-  const db = await getDb();
 
-  let lotNumber = params.lotNumber || "";
-  let batchCode = "";
-  let lot: any = null;
+  return withTransaction(async (conn: any) => {
+    let lotNumber = params.lotNumber || "";
+    let batchCode = "";
+    let lot: any = null;
+    let productId: number | null = null;
 
-  // LOT 기반 출고 (우선)
-  if (params.lotId) {
-    // LOT 가용 재고 확인 (SKU 정보 포함)
-    const [lotResult] = await conn.execute(
-      `SELECT id, lot_number, available_quantity, batch_id, product_id, unit, sku_id, sku_name
-       FROM h_inventory_lots WHERE id = ? AND tenant_id = ? AND status = 'available'`,
-      [params.lotId, tenantId]
-    );
-    const lots = lotResult as any[];
-    if (!lots.length) throw new Error("제품 LOT를 찾을 수 없습니다.");
-    lot = lots[0];
-    const avail = parseFloat(lot.available_quantity || "0");
-    if (params.quantity > avail) {
-      throw new Error(`출고 가능 수량 초과. 가용: ${avail.toFixed(2)}, 요청: ${params.quantity}`);
-    }
-
-    lotNumber = lot.lot_number;
-    
-    // LOT 재고 차감
-    const newAvail = Math.max(0, avail - params.quantity);
-    await conn.execute(
-      `UPDATE h_inventory_lots SET available_quantity = ?, 
-       status = IF(? <= 0, 'used', 'available'),
-       updated_at = NOW()
-       WHERE id = ? AND tenant_id = ?`,
-      [newAvail.toString(), newAvail, params.lotId, tenantId]
-    );
-
-    // 출고 트랜잭션 기록
-    // PR-§5.2-2 (part 2): material_id NULL — 제품 LOT 출고 (h_materials 무관)
-    if (db) {
-      await db.insert(hInventoryTransactions).values({
-        tenantId,
-        lotId: params.lotId,
-        transactionType: "outbound",
-        quantity: params.quantity.toString(),
-        unit: lot.unit || params.unit,
-        notes: `제품출고 (${params.releaseType === "sale" ? "판매" : params.releaseType === "delivery" ? "납품" : params.releaseType})${params.partnerName ? ` → ${params.partnerName}` : ""}`,
-        createdBy: params.createdBy,
-        performedBy: params.createdBy,
-        transactionDate: params.releaseDate,
-      } as any);
-    }
-
-    // 배치 코드 조회
-    if (lot.batch_id) {
-      const [batchResult] = await conn.execute(`SELECT batch_code FROM h_batches WHERE id = ?`, [lot.batch_id]);
-      batchCode = (batchResult as any[])[0]?.batch_code || "";
-    }
-  }
-  // 레거시: 배치 기반 (LOT 미생성 배치)
-  else if (params.batchId) {
-    const [batchResult] = await conn.execute(
-      `SELECT id, batch_code, product_id, actual_quantity, planned_quantity, status, lot_number
-       FROM h_batches WHERE id = ? AND tenant_id = ?`,
-      [params.batchId, tenantId]
-    );
-    const batches = batchResult as any[];
-    if (!batches.length) throw new Error("배치를 찾을 수 없습니다.");
-    const batch = batches[0];
-    if (batch.status !== "completed" && batch.status !== "shipped") {
-      throw new Error("완료된 배치만 출고할 수 있습니다.");
-    }
-
-    const [outboundResult] = await conn.execute(
-      `SELECT COALESCE(SUM(quantity), 0) as total_shipped
-       FROM h_product_outbound WHERE batch_id = ? AND tenant_id = ? AND status != 'cancelled'`,
-      [params.batchId, tenantId]
-    );
-    const totalShipped = parseFloat((outboundResult as any[])[0]?.total_shipped || "0");
-    const availableQty = parseFloat(batch.actual_quantity || batch.planned_quantity || "0") - totalShipped;
-    if (params.quantity > availableQty && availableQty > 0) {
-      throw new Error(`출고 가능 수량 초과. 가용: ${availableQty.toFixed(2)}, 요청: ${params.quantity}`);
-    }
-
-    batchCode = batch.batch_code;
-    lotNumber = params.lotNumber || batch.lot_number || batch.batch_code;
-
-    // 전량 출고 시 배치 상태 변경
-    const newTotalShipped = totalShipped + params.quantity;
-    const totalProduced = parseFloat(batch.actual_quantity || batch.planned_quantity || "0");
-    if (newTotalShipped >= totalProduced) {
-      await conn.execute(
-        `UPDATE h_batches SET status = 'shipped' WHERE id = ? AND tenant_id = ?`,
-        [params.batchId, tenantId]
+    if (params.lotId) {
+      // LOT 잠금 + 가용 확인
+      const [lotRows]: any = await conn.execute(
+        `SELECT id, lot_number, available_quantity, batch_id, product_id, unit, unit_price, sku_id, sku_name, status
+           FROM h_inventory_lots WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+        [params.lotId, tenantId],
       );
+      lot = (lotRows as any[])[0];
+      if (!lot || lot.status !== "available") throw new Error("제품 LOT를 찾을 수 없습니다 (사용 가능한 LOT 아님).");
+      if (!lot.product_id) throw new Error("제품 LOT 이 아닙니다 (원재료 LOT 은 제품 출고 대상 아님).");
+      const avail = parseFloat(lot.available_quantity || "0");
+      if (params.quantity > avail + 0.0005) {
+        throw new Error(`출고 가능 수량 초과. 가용: ${avail.toFixed(3)}, 요청: ${params.quantity}`);
+      }
+      lotNumber = lot.lot_number;
+      productId = Number(lot.product_id);
+      if (lot.batch_id) {
+        const [br]: any = await conn.execute(`SELECT batch_code FROM h_batches WHERE id = ? AND tenant_id = ?`, [lot.batch_id, tenantId]);
+        batchCode = (br as any[])[0]?.batch_code || "";
+      }
+    } else if (params.batchId) {
+      // 레거시: 배치 기반 (LOT 미생성 배치) — 재고 LOT 차감 없음
+      const [batchRows]: any = await conn.execute(
+        `SELECT id, batch_code, product_id, actual_quantity, planned_quantity, status, lot_number
+           FROM h_batches WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+        [params.batchId, tenantId],
+      );
+      const batch = (batchRows as any[])[0];
+      if (!batch) throw new Error("배치를 찾을 수 없습니다.");
+      if (batch.status !== "completed" && batch.status !== "shipped") throw new Error("완료된 배치만 출고할 수 있습니다.");
+      const [shipped]: any = await conn.execute(
+        `SELECT COALESCE(SUM(quantity), 0) AS total_shipped FROM h_product_outbound
+          WHERE batch_id = ? AND tenant_id = ? AND status != 'cancelled'`,
+        [params.batchId, tenantId],
+      );
+      const totalShipped = parseFloat((shipped as any[])[0]?.total_shipped || "0");
+      const totalProduced = parseFloat(batch.actual_quantity || batch.planned_quantity || "0");
+      const availableQty = totalProduced - totalShipped;
+      if (params.quantity > availableQty && availableQty > 0) {
+        throw new Error(`출고 가능 수량 초과. 가용: ${availableQty.toFixed(2)}, 요청: ${params.quantity}`);
+      }
+      batchCode = batch.batch_code;
+      lotNumber = params.lotNumber || batch.lot_number || batch.batch_code;
+      productId = batch.product_id ? Number(batch.product_id) : null;
+      if (totalShipped + params.quantity >= totalProduced) {
+        await conn.execute(`UPDATE h_batches SET status = 'shipped' WHERE id = ? AND tenant_id = ?`, [params.batchId, tenantId]);
+      }
+    } else {
+      throw new Error("lotId 또는 batchId가 필요합니다.");
     }
-  } else {
-    throw new Error("lotId 또는 batchId가 필요합니다.");
-  }
 
-  const totalAmount = params.quantity * params.unitPrice;
+    const totalAmount = Math.round(params.quantity * params.unitPrice * 100) / 100;
+    const outboundSkuId = params.skuId || (lot ? lot.sku_id : null) || null;
+    const outboundSkuName = params.skuName || (lot ? lot.sku_name : null) || null;
+    const displayItemName = outboundSkuName ? `${params.productName} [${outboundSkuName}]` : params.productName;
 
-  // 출고 시 SKU 정보 결정: 파라미터 > LOT에서 읽은 값
-  const outboundSkuId = params.skuId || (params.lotId && lot ? lot.sku_id : null);
-  const outboundSkuName = params.skuName || (params.lotId && lot ? lot.sku_name : null);
-  const displayItemName = outboundSkuName ? `${params.productName} [${outboundSkuName}]` : params.productName;
+    // 출고 행
+    const [ins]: any = await conn.execute(
+      `INSERT INTO h_product_outbound (
+        tenant_id, batch_id, lot_id, sku_id, sku_name, product_name, quantity, unit, unit_price, total_amount,
+        partner_id, partner_name, release_date, release_type, lot_number, notes, status, created_by, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, NOW())`,
+      [
+        tenantId, params.batchId || null, params.lotId || null, outboundSkuId, outboundSkuName,
+        params.productName, params.quantity, params.unit, params.unitPrice, totalAmount,
+        params.partnerId || null, params.partnerName || null, params.releaseDate, params.releaseType,
+        lotNumber, params.notes || null, params.createdBy,
+      ],
+    );
+    const outboundId = Number((ins as any).insertId);
 
-  // 출고 레코드 생성 (SKU 정보 포함)
-  const [insertResult] = await conn.execute(
-    `INSERT INTO h_product_outbound (
-      tenant_id, batch_id, lot_id, sku_id, sku_name, product_name, quantity, unit, unit_price, total_amount,
-      partner_id, partner_name, release_date, release_type, lot_number, notes, status, created_by, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed', ?, NOW())`,
-    [
-      tenantId, params.batchId || null, params.lotId || null,
-      outboundSkuId || null, outboundSkuName || null,
-      params.productName, params.quantity, params.unit,
-      params.unitPrice, totalAmount,
-      params.partnerId || null, params.partnerName || null,
-      params.releaseDate, params.releaseType,
-      lotNumber, params.notes || null, params.createdBy
-    ]
-  );
-  const outboundId = (insertResult as any).insertId;
-
-  // 회계 연동 — 매출전표 자동 생성 (sale/delivery만, SKU 명칭 반영)
-  // ★ 2026-04-15: 사용자 요청 — '제품출고 자동생성' 안내 문구 제거
-  //   LOT/배치/SKU 정보는 source_id 와 소스 테이블 조회로 추적 가능하므로
-  //   notes 에는 별도 정보를 넣지 않음 (빈 비고 → 깔끔한 거래명세표)
-  let accountingSaleCreated = false;
-  if (params.releaseType === "sale" || params.releaseType === "delivery") {
-    try {
+    if (lot) {
+      // 원장 — 출고 번호로 연결 (이전엔 source 없이 기록돼 출고와 원장이 이어지지 않았다)
+      const unitCost = Number(lot.unit_price || 0);
       await conn.execute(
-        `INSERT INTO accounting_sales (
-          tenant_id, transaction_date, partner_id, item_name, quantity, unit, unit_price,
-          total_amount, status, notes, source_type, source_id, created_by, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'product_outbound', ?, ?, NOW())`,
+        `INSERT INTO h_inventory_transactions
+           (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+            reference_type, reference_id, source_type, source_id, unit_cost, amount, notes, created_by, performed_by)
+         VALUES (?, ?, 'outbound', ?, ?, ?, 'product_outbound', ?, 'PRODUCT_OUTBOUND', ?, ?, ?, ?, ?, ?)`,
         [
-          tenantId, params.releaseDate,
-          params.partnerId || null,
-          displayItemName,
-          params.quantity, params.unit, params.unitPrice,
-          totalAmount,
-          null,
-          outboundId,
-          params.createdBy
-        ]
+          tenantId, lot.id, params.quantity, lot.unit || params.unit, params.releaseDate,
+          outboundId, outboundId, unitCost, Math.round(params.quantity * unitCost * 100) / 100,
+          `제품출고 #${outboundId} (${params.releaseType === "sale" ? "판매" : params.releaseType === "delivery" ? "납품" : params.releaseType})${params.partnerName ? ` → ${params.partnerName}` : ""}`,
+          params.createdBy, params.createdBy,
+        ],
       );
-      accountingSaleCreated = true;
-    } catch (err) {
-      console.error('[createProductOutbound] 매출전표 생성 실패:', err);
+      // LOT 차감 — current_quantity 먼저(원래 quantity 기준), status 는 줄어든 available 로 (MySQL 좌→우 평가)
+      await conn.execute(
+        `UPDATE h_inventory_lots
+            SET current_quantity = COALESCE(current_quantity, quantity) - ?,
+                available_quantity = available_quantity - ?,
+                status = CASE WHEN available_quantity <= 0.001 THEN 'used' ELSE status END,
+                updated_at = NOW()
+          WHERE id = ? AND tenant_id = ?`,
+        [params.quantity, params.quantity, lot.id, tenantId],
+      );
     }
-  }
 
-  return {
-    outboundId,
-    batchCode,
-    lotNumber,
-    productName: params.productName,
-    quantity: params.quantity,
-    totalAmount,
-    accountingSaleCreated
-  };
+    // 매출 자동 생성 (판매·납품) — 실패하면 출고 전체를 되돌린다
+    let saleId: number | null = null;
+    if (params.releaseType === "sale" || params.releaseType === "delivery") {
+      const taxRate = params.taxRate ?? 10;
+      const taxAmount = Math.round(totalAmount * taxRate) / 100;
+      const [sr]: any = await conn.execute(
+        `INSERT INTO accounting_sales (
+          tenant_id, transaction_date, partner_id, item_name, product_id, sku_id, quantity, unit, unit_price,
+          total_amount, tax_amount, tax_rate, status, notes, source_type, source_id, created_by, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', NULL, 'product_outbound', ?, ?, NOW())`,
+        [
+          tenantId, params.releaseDate, params.partnerId || null, displayItemName, productId, outboundSkuId,
+          params.quantity, params.unit, params.unitPrice, totalAmount, taxAmount, taxRate.toFixed(2),
+          outboundId, params.createdBy,
+        ],
+      );
+      saleId = Number((sr as any).insertId);
+    }
+
+    return {
+      outboundId,
+      saleId,
+      batchCode,
+      lotNumber,
+      productName: params.productName,
+      quantity: params.quantity,
+      totalAmount,
+      accountingSaleCreated: saleId != null,
+    };
+  }, "createProductOutbound");
 }
 
 /* ───────── 제품 출고 이력 조회 — UNION 뷰 (2026-04-22) ─────────

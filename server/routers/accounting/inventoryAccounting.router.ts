@@ -14,7 +14,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { purchaseId: number }, ctx: any }) => {
-      await dispatchPostPurchase(input.purchaseId, ctx.user.id);
+      await dispatchPostPurchase(input.purchaseId, ctx.user.id, ctx.tenantId);
       return { success: true, message: "매입이 승인되었습니다." };
     }),
 
@@ -90,7 +90,7 @@ export const inventoryAccountingRouter = router({
       })
     )
     .mutation(async ({ input, ctx }: { input: { saleId: number }, ctx: any }) => {
-      await dispatchPostSale(input.saleId, ctx.user.id);
+      await dispatchPostSale(input.saleId, ctx.user.id, ctx.tenantId);
       return { success: true, message: "제품 출고/판매가 확정되었습니다." };
     }),
 
