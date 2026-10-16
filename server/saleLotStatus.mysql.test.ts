@@ -859,4 +859,46 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(exp instanceof Date ? exp.toISOString().slice(0, 10) : String(exp).slice(0, 10)).toBe("2026-10-16");
     });
   });
+
+  describe("원물·공정 기준 연결 — 배치 투입 계획·CCP 투입량 (2026-10-16, 수율 기준 PR C)", () => {
+    let createBatch: any;
+    beforeAll(async () => {
+      ({ createBatch } = await import("./db/production/batchCRUD"));
+    });
+    beforeEach(async () => {
+      for (const t of ["h_mf_reports", "h_mf_report_versions", "h_mf_ingredients", "h_batch_mass_basis", "h_batches", "h_batch_inputs", "item_master", "h_materials"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active) VALUES
+        (168, ?, 'M168', '멥쌀(국내산)', 'raw_material', 'kg', 1), (191, ?, 'M191', '정제수', 'raw_material', 'kg', 1),
+        (177, ?, 'M177', '설탕', 'raw_material', 'kg', 1), (188, ?, 'M188', '우유(국내산)', 'raw_material', 'kg', 1),
+        (199, ?, 'M199', '천일염', 'raw_material', 'kg', 1)`, [T, T, T, T, T]);
+      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status, report_type) VALUES (373, ?, 38, 'R373', '2026-03-31', 'ACTIVE', 'BASIC')`, [T]);
+      await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg, reference_finished_kg, mass_basis_enabled)
+        VALUES (472, ?, 373, 2, '2026-05-08', 'APPROVED', 5, 12.5, 1)`, [T]);
+      // 운영 저장값 그대로 (Codex 확인 2026-10-16): 정제수도 차감·공정 2
+      await q(`INSERT INTO h_mf_ingredients (id, mf_report_version_id, line_no, material_id, quantity, unit, is_deductible, material_type, process_group_id, basis_raw_kg, pretreatment_factor) VALUES
+        (6852, 472, 1, 168, '73.3', '%', 1, 'RAW', 2, 8, 1.25), (6853, 472, 2, 191, '7.3', '%', 1, 'RAW', 2, 0.8, NULL),
+        (6854, 472, 3, 177, '9.1', '%', 1, 'RAW', 2, 1, NULL), (6855, 472, 4, 188, '9.1', '%', 1, 'RAW', 2, 1, NULL),
+        (6856, 472, 5, 199, '1.2', '%', 1, 'RAW', 2, 0.13, NULL)`);
+    });
+    const newBatch = (kg: string, code: string) => createBatch({ siteId: 1, productId: 38, batchCode: code, plannedQuantity: kg, plannedDate: new Date("2026-10-17T00:00:00+09:00"), createdBy: 4, tenantId: T });
+    const inputs = async (bid: number) => (await q(`SELECT material_id, planned_quantity + 0 AS pq FROM h_batch_inputs WHERE batch_id = ? ORDER BY material_id`, [bid])).map((r: any) => [Number(r.material_id), Number(r.pq)]);
+
+    it("기준을 켠 우유설기 2판(5kg): 원료 투입 계획 = 원물 kg (생멥쌀 3.2 — 배합비 73.3% × 5 = 3.665 아님), 스냅샷 함께 고정", async () => {
+      const bid = await newBatch("5", "MILK-5");
+      expect(await inputs(bid)).toEqual([[168, 3.2], [177, 0.4], [188, 0.4], [191, 0.32], [199, 0.052]]);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_mass_basis WHERE batch_id = ?`, [bid]))[0].n)).toBe(1);
+    });
+
+    it("계획량에 비례 (12.5kg = 준비 5판 → 생멥쌀 8)", async () => {
+      const bid = await newBatch("12.5", "MILK-125");
+      expect((await inputs(bid)).find((r: any) => r[0] === 168)).toEqual([168, 8]);
+    });
+
+    it("기준을 끈 버전은 기존 계산 그대로 (배합비 % × 계획량), 스냅샷 없음", async () => {
+      await q(`UPDATE h_mf_report_versions SET mass_basis_enabled = 0 WHERE id = 472`);
+      const bid = await newBatch("5", "MILK-OFF");
+      expect((await inputs(bid)).find((r: any) => r[0] === 168)).toEqual([168, 3.665]);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_mass_basis WHERE batch_id = ?`, [bid]))[0].n)).toBe(0);
+    });
+  });
 });

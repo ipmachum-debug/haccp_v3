@@ -15,7 +15,7 @@
 //   - CCP-4P 금속검출 제품별 순차 시간 배분
 // ═══════════════════════════════════════════════════════════════
 import { selectBomVersion } from "../../lib/identity/itemIdentityService";
-import { ccpInputKgByGroup, CCP_BOM_ROWS_SQL } from "../../lib/production/ccpBomInput";
+import { ccpInputKgByGroup, CCP_BOM_ROWS_SQL, ccpInputKgFromSnapshot, isWaterName } from "../../lib/production/ccpBomInput";
 import { getDb, getRawConnection } from "../connection";
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import {
@@ -252,6 +252,10 @@ export async function syncCcpRowsToFormRows(params: {
         bomBatchKg = picked.batchKg;
         bomInputQtyMap = picked.inputByGroup;
       }
+      // ★ 2026-10-16 (수율 기준 PR C): 배치에 원물·공정 기준 스냅샷이 있으면 공정 투입량은 그 스냅샷의 공정 kg
+      //   (불린 쌀 등 전처리 후 양) — 배치 생성 때 고정한 값이라 이후 레시피를 고쳐도 이 배치 기록지는 그대로.
+      const fromSnap = await loadCcpInputFromMassBasis(rawConn, batchId, tenantId, bomBatchKg);
+      if (fromSnap) bomInputQtyMap = fromSnap;
     } catch (bomErr) {
       console.error("[syncCcpRowsToFormRows] BOM 투입량 계산 실패 (총생산량 폴백):", bomErr);
     }
@@ -1513,4 +1517,35 @@ async function loadCcpBomInput(
   const inputByGroup: Record<number, number> = {};
   for (const [pg, v] of ccpInputKgByGroup(rows as any[], pick.versionId)) inputByGroup[pg] = v.kg;
   return { batchKg, inputByGroup };
+}
+
+/** 배치 원물·공정 기준 스냅샷 → CCP 공정별 행 투입량 (없으면 null — 기존 BOM 계산 유지) */
+async function loadCcpInputFromMassBasis(
+  rawConn: any,
+  batchId: number,
+  tenantId: number,
+  subBatchKg: number | null,
+): Promise<Record<number, number> | null> {
+  try {
+    const [snap] = await rawConn.execute(
+      `SELECT planned_finished_kg, rows_json FROM h_batch_mass_basis WHERE batch_id = ? AND tenant_id = ? LIMIT 1`,
+      [batchId, tenantId],
+    );
+    const row = (snap as any[])[0];
+    if (!row) return null;
+    const rows: any[] = typeof row.rows_json === "string" ? JSON.parse(row.rows_json) : row.rows_json;
+    const ids = Array.from(new Set(rows.map((r) => Number(r.materialId)).filter((n) => Number.isFinite(n) && n > 0)));
+    const water = new Set<number>();
+    if (ids.length > 0) {
+      const [names] = await rawConn.execute(
+        `SELECT id, item_name FROM item_master WHERE id IN (${ids.map(() => "?").join(",")})`,
+        ids,
+      );
+      for (const n of names as any[]) if (isWaterName(n.item_name)) water.add(Number(n.id));
+    }
+    return ccpInputKgFromSnapshot(rows, water, subBatchKg, Number(row.planned_finished_kg));
+  } catch (err) {
+    console.warn(`[ccpFormSettings] batch=${batchId} 원물·공정 기준 스냅샷 조회 실패 (기존 BOM 계산 유지):`, (err as any)?.message || err);
+    return null;
+  }
 }

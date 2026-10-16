@@ -2,7 +2,7 @@
  * CCP 공정 투입량 — 품목제조보고 버전 하나 기준 (2026-10-16, Codex 수율 기준 검토 #8)
  */
 import { describe, it, expect } from "vitest";
-import { ccpInputKgByGroup, rowKg, isWaterName, type CcpBomRow } from "./ccpBomInput";
+import { ccpInputKgByGroup, rowKg, isWaterName, ccpInputKgFromSnapshot, type CcpBomRow } from "./ccpBomInput";
 
 const row = (version_id: number, version_no: number, pg: number, quantity: number, extra: Partial<CcpBomRow> = {}): CcpBomRow => ({
   version_id, version_no, approval_status: "APPROVED", process_group_id: pg, quantity, unit: "kg", material_name: "멥쌀", batch_target_kg: 100, ...extra,
@@ -54,5 +54,27 @@ describe("rowKg", () => {
     expect(isWaterName("정제수")).toBe(true);
     expect(isWaterName("물")).toBe(true);
     expect(isWaterName("물엿")).toBe(false);
+  });
+});
+
+describe("ccpInputKgFromSnapshot (수율 기준 PR C)", () => {
+  // 우유설기 2판(5kg) 스냅샷 — 기록지 한 행 = batch_target_kg 5kg
+  const milk = [
+    { materialId: 168, processGroupId: 2, processKg: 4 },     // 불린 멥쌀 (원물 3.2 × 1.25)
+    { materialId: 191, processGroupId: 2, processKg: 0.32 },  // 정제수 — 제외
+    { materialId: 177, processGroupId: 2, processKg: 0.4 },
+    { materialId: 188, processGroupId: 2, processKg: 0.4 },
+    { materialId: 199, processGroupId: 2, processKg: 0.052 },
+    { materialId: 300, processGroupId: null, processKg: 9 },  // 공정 미지정 — 넣지 않음
+  ];
+  it("공정 투입량은 원물이 아니라 전처리 후 kg, 정제수·미지정 제외 (4 + 0.4 + 0.4 + 0.052)", () => {
+    expect(ccpInputKgFromSnapshot(milk, new Set([191]), 5, 5)).toEqual({ 2: 4.852 });
+  });
+  it("배치가 12.5kg 이면 기록지 한 행(5kg) 기준으로 나눔", () => {
+    const big = milk.map((r) => ({ ...r, processKg: r.processKg * 2.5 }));
+    expect(ccpInputKgFromSnapshot(big, new Set([191]), 5, 12.5)).toEqual({ 2: 4.852 });
+  });
+  it("행 기준량이 없으면 배치 전체량", () => {
+    expect(ccpInputKgFromSnapshot(milk, new Set([191]), null, 5)).toEqual({ 2: 4.852 });
   });
 });

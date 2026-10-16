@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고·배치) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고·배치·투입) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -715,4 +715,29 @@ CREATE TABLE `h_batches` (
   UNIQUE KEY `h_batches_completion_idempotency_key_unique` (`completion_idempotency_key`),
   KEY `h_batches_tenant_id_tenants_id_fk` (`tenant_id`),
   KEY `fk_batches_product` (`product_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `h_batch_inputs`;
+
+CREATE TABLE `h_batch_inputs` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `batch_id` bigint NOT NULL,
+  `material_id` bigint NOT NULL,
+  `process_group_id` int DEFAULT NULL,
+  `lot_id` bigint DEFAULT NULL,
+  `planned_quantity` decimal(10,3) NOT NULL,
+  `actual_quantity` decimal(10,3) DEFAULT NULL,
+  `unit` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `input_time` timestamp NULL DEFAULT NULL,
+  `input_by` bigint DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `unit_price` decimal(10,2) DEFAULT NULL,
+  `total_price` decimal(10,2) DEFAULT NULL,
+  `inventory_deducted` tinyint NOT NULL DEFAULT '0',
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `tenant_id` int NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`),
+  KEY `h_batch_inputs_tenant_id_tenants_id_fk` (`tenant_id`),
+  KEY `fk_batch_inputs_batch` (`batch_id`),
+  KEY `fk_batch_inputs_material` (`material_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

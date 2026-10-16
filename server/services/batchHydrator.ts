@@ -439,6 +439,7 @@ async function hydrateBatchInputs(
   const { itemMaster } = await import("../../drizzle/schema/schema_dual_unit");
   const ingredients = await db
     .select({
+      id: hMfIngredients.id,
       materialId: hMfIngredients.materialId,
       quantity: hMfIngredients.quantity,
       correctedQuantity: hMfIngredients.correctedQuantity,
@@ -561,12 +562,28 @@ async function hydrateBatchInputs(
     }
   }
 
+  // ★ 2026-10-16 (수율 기준 PR C): 배치에 원물·공정 기준 스냅샷이 있으면 그 행의 원물 kg (배치 생성 때 고정한 값)
+  let snapRaw: Map<number, number> | null = null;
+  try {
+    const { getRawConnection } = await import("../db/connection");
+    const [snapRows]: any = await (await getRawConnection()).execute(
+      `SELECT rows_json FROM h_batch_mass_basis WHERE batch_id = ? AND tenant_id = ? LIMIT 1`, [batchId, tenantId],
+    );
+    if (snapRows?.[0]) {
+      const rows: any[] = typeof snapRows[0].rows_json === "string" ? JSON.parse(snapRows[0].rows_json) : snapRows[0].rows_json;
+      snapRaw = new Map(rows.filter((r) => r.isDeductible).map((r) => [Number(r.ingredientId), Number(r.rawKg)]));
+    }
+  } catch (e) {
+    console.warn(`[hydrateBatchInputs] batch=${batchId} 기준 스냅샷 조회 실패 (기존 계산):`, (e as any)?.message || e);
+  }
+
   const batchInputs = filteredIngredients
     .map((ing: any) => {
       const ratio = ing.correctedQuantity
         ? parseFloat(ing.correctedQuantity)
         : parseFloat(ing.quantity);
-      const plannedQ = (ratio / 100) * plannedQty;
+      const basisRaw = snapRaw?.get(Number(ing.id));
+      const plannedQ = basisRaw != null ? basisRaw : (ratio / 100) * plannedQty;
       const rawId = Number(ing.materialId);
       const canonicalId = idMap.get(rawId) ?? rawId;
       if (canonicalId !== rawId) {

@@ -68,3 +68,29 @@ export const CCP_BOM_ROWS_SQL = `
      AND i.process_group_id IS NOT NULL
      AND i.material_id IS NOT NULL
    ORDER BY v.version_no, i.line_no`;
+
+/**
+ * 원물·공정 기준 스냅샷이 있는 배치의 CCP 공정 투입량 (2026-10-16, 수율 기준 PR C)
+ *
+ * CCP 기록지의 투입량은 공정에 실제로 들어가는 양 — 불린 쌀처럼 전처리 후 kg(processKg) 이다 (원물 kg 아님).
+ * 스냅샷은 배치 전체(계획 완제품) 기준이므로 기록지 한 행(배치 단위 batch_target_kg) 기준으로 나눈다:
+ *   행 투입량 = 공정 합계 processKg × subBatchKg / plannedFinishedKg   (subBatchKg 가 없으면 배치 전체량)
+ * 정제수는 기존과 같이 제외. 공정이 지정되지 않은 원료는 넣지 않는다 (공정 지정은 읽기만).
+ */
+export function ccpInputKgFromSnapshot(
+  rows: Array<{ materialId: number | null; processGroupId: number | null; processKg: number }>,
+  waterMaterialIds: Set<number>,
+  subBatchKg: number | null,
+  plannedFinishedKg: number,
+): Record<number, number> {
+  const scale = subBatchKg && subBatchKg > 0 && plannedFinishedKg > 0 ? subBatchKg / plannedFinishedKg : 1;
+  const out: Record<number, number> = {};
+  for (const r of rows) {
+    const pg = Number(r.processGroupId);
+    if (!pg) continue;
+    if (r.materialId != null && waterMaterialIds.has(Number(r.materialId))) continue;
+    out[pg] = (out[pg] ?? 0) + Number(r.processKg || 0) * scale;
+  }
+  for (const k of Object.keys(out)) out[Number(k)] = Math.round(out[Number(k)] * 1000) / 1000;
+  return out;
+}
