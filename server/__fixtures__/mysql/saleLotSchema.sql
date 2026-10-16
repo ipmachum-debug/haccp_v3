@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고·배치) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -669,3 +669,50 @@ CREATE TABLE `h_mf_report_versions` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 DROP TABLE IF EXISTS `h_batch_mass_basis`;
+
+DROP TABLE IF EXISTS `h_batches`;
+
+CREATE TABLE `h_batches` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `site_id` bigint NOT NULL,
+  `batch_code` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `day_batch_group` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `batch_order` int DEFAULT NULL,
+  `product_id` bigint NOT NULL,
+  `recipe_id` bigint DEFAULT NULL,
+  `planned_quantity` decimal(10,2) NOT NULL,
+  `actual_quantity` decimal(10,2) DEFAULT NULL,
+  `actual_yield` decimal(10,2) DEFAULT NULL,
+  `loss_quantity` decimal(10,2) DEFAULT NULL,
+  `material_cost` decimal(15,2) DEFAULT NULL,
+  `labor_cost` decimal(15,2) DEFAULT NULL,
+  `overhead_cost` decimal(15,2) DEFAULT NULL,
+  `total_cost` decimal(15,2) DEFAULT NULL,
+  `unit_cost` decimal(15,2) DEFAULT NULL,
+  `planned_date` date NOT NULL,
+  `start_time` timestamp NULL DEFAULT NULL,
+  `end_time` timestamp NULL DEFAULT NULL,
+  `status` enum('planned','in_progress','paused','completed','under_review','failed','cancelled','shipped','archived') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'planned',
+  `mode` enum('auto','manual') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'auto',
+  `manual_start_time` timestamp NULL DEFAULT NULL,
+  `manual_end_time` timestamp NULL DEFAULT NULL,
+  `lot_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `expiry_date` date DEFAULT NULL,
+  `revenue` decimal(15,2) DEFAULT NULL,
+  `planned_cost` decimal(15,2) DEFAULT NULL,
+  `actual_cost` decimal(15,2) DEFAULT NULL,
+  `cost_finalized_at` timestamp NULL DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `completion_idempotency_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `completed_at` timestamp NULL DEFAULT NULL,
+  `completion_report_url` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_by` bigint NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  `tenant_id` int NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `h_batches_batch_code_unique` (`batch_code`),
+  UNIQUE KEY `h_batches_completion_idempotency_key_unique` (`completion_idempotency_key`),
+  KEY `h_batches_tenant_id_tenants_id_fk` (`tenant_id`),
+  KEY `fk_batches_product` (`product_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
