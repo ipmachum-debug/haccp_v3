@@ -1,5 +1,4 @@
 import { getDb, getRawConnection } from "../connection";
-import { onPurchaseCreated } from "../accounting/materialLedger";
 import { accountingPurchases, accountingSales } from "../../../drizzle/schema";
 import { eq, and} from "drizzle-orm";
 
@@ -300,19 +299,9 @@ export async function createPurchase(params: {
   }
 
   // === 원료수불부 입고 연동 ===
-  if (resolvedMaterialId) {
-    try {
-      await onPurchaseCreated({
-        materialId: resolvedMaterialId,
-        quantity: params.quantity,
-        packagingSize: params.packagingSize,
-        transactionDate: params.transactionDate,
-        unitPrice: params.unitPrice,
-      }, tenantId as number);
-    } catch (e) {
-      console.error("[원료수불부] 입고 연동 실패:", e);
-    }
-  }
+  // ★ 2026-10-16: 여기서 더하지 않는다 — 아래 postPurchase (B-3) 가 확정 시 한 번 기록한다.
+  //   이전에는 등록 때 onPurchaseCreated 로 한 번, postPurchase 로 또 한 번 더해 수불부 입고가 이중 가산됐다
+  //   (10/12 원료 605·635, Codex DB 감사). 확정이 실패한 매입은 승인 버튼으로 확정할 때 기록된다.
 
   // ── 회계 확정 (postPurchase) ──
   // ★ 2026-08-21 추가

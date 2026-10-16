@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -400,4 +400,156 @@ CREATE TABLE `h_stock_alerts` (
   `tenant_id` int NOT NULL,
   PRIMARY KEY (`id`),
   KEY `h_stock_alerts_tenant_id_tenants_id_fk` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `accounting_purchases`;
+
+CREATE TABLE `accounting_purchases` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `transaction_date` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `partner_id` bigint DEFAULT NULL,
+  `item_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `material_id` bigint DEFAULT NULL,
+  `quantity` decimal(10,3) NOT NULL,
+  `unit` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `unit_price` decimal(15,2) NOT NULL,
+  `total_amount` decimal(15,2) NOT NULL,
+  `tax_amount` decimal(15,2) DEFAULT '0.00',
+  `tax_rate` decimal(5,2) DEFAULT '10.00',
+  `evidence_type` enum('tax_invoice','receipt','statement','none') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'none',
+  `evidence_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source_id` bigint DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `status` enum('pending','approved','paid','cancelled') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'pending',
+  `account_category_id` int DEFAULT NULL,
+  `posted_at` timestamp NULL DEFAULT NULL,
+  `posted_by` bigint DEFAULT NULL,
+  `canceled_at` timestamp NULL DEFAULT NULL,
+  `canceled_by` bigint DEFAULT NULL,
+  `created_by` bigint NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  `tenant_id` int NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`),
+  KEY `transaction_date_idx` (`transaction_date`),
+  KEY `partner_id_idx` (`partner_id`),
+  KEY `source_idx` (`source_type`,`source_id`),
+  KEY `idx_purchases_material_id` (`material_id`),
+  KEY `tenant_id_idx` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `h_inbound_headers`;
+
+CREATE TABLE `h_inbound_headers` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `inbound_number` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `site_id` bigint NOT NULL,
+  `supplier_id` bigint DEFAULT NULL,
+  `inbound_date` date NOT NULL,
+  `status` enum('draft','confirmed','cancelled') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'draft',
+  `confirmed_at` timestamp NULL DEFAULT NULL,
+  `confirmed_by` bigint DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_by` bigint NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  `tenant_id` int NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `h_inbound_headers_inbound_number_unique` (`inbound_number`),
+  KEY `h_inbound_headers_tenant_id_tenants_id_fk` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `h_inbound_lines`;
+
+CREATE TABLE `h_inbound_lines` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `header_id` bigint NOT NULL,
+  `line_number` int NOT NULL,
+  `material_id` bigint NOT NULL,
+  `purchase_quantity` decimal(10,3) NOT NULL,
+  `purchase_unit` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `stock_quantity` decimal(10,3) NOT NULL,
+  `stock_unit` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `unit_price` decimal(10,2) NOT NULL,
+  `total_price` decimal(12,2) NOT NULL,
+  `lot_number` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `expiry_date` date DEFAULT NULL,
+  `location` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  `tenant_id` int NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `h_inbound_lines_tenant_id_tenants_id_fk` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `partners`;
+
+CREATE TABLE `partners` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `partner_type` enum('supplier','customer','subcontractor') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `biz_no` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `supplier_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `supplier_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `certifications` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `rating` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `company_name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `ceo_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `contact_person` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `biz_type` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `biz_item` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `address` varchar(500) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `phone` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `fax` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `email` varchar(320) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bank_name` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `bank_account` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `grade` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `payment_terms_days` int DEFAULT NULL,
+  `credit_limit` decimal(15,2) DEFAULT NULL,
+  `default_discount_rate` decimal(5,2) DEFAULT NULL,
+  `is_active` tinyint NOT NULL DEFAULT '1',
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  `tenant_id` int NOT NULL DEFAULT '1',
+  `customer_type` enum('b2b','b2c_platform','b2c_direct') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'b2b' COMMENT '거래처 유형: b2b / b2c_platform (B2C 전자상거래) / b2c_direct',
+  `metadata` json DEFAULT NULL COMMENT '거래처 자유 custom field (CRM Phase 1)',
+  PRIMARY KEY (`id`),
+  KEY `partners_tenant_id_tenants_id_fk` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `domain_events`;
+
+CREATE TABLE `domain_events` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `tenant_id` int NOT NULL,
+  `event_type` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `aggregate_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `aggregate_id` bigint NOT NULL,
+  `payload` json NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `created_by` bigint DEFAULT NULL,
+  `processed_at` timestamp NULL DEFAULT NULL,
+  `processing_attempts` int NOT NULL DEFAULT '0',
+  `last_error` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  PRIMARY KEY (`id`),
+  KEY `idx_domain_events_unprocessed` (`processed_at`,`processing_attempts`,`id`),
+  KEY `idx_domain_events_tenant` (`tenant_id`,`created_at`),
+  KEY `idx_domain_events_aggregate` (`aggregate_type`,`aggregate_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `h_material_price_history`;
+
+CREATE TABLE `h_material_price_history` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `material_id` bigint NOT NULL,
+  `old_price` decimal(10,2) DEFAULT NULL,
+  `new_price` decimal(10,2) NOT NULL,
+  `changed_by` bigint DEFAULT NULL,
+  `changed_at` timestamp NOT NULL DEFAULT (now()),
+  `reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `tenant_id` int NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`),
+  KEY `h_material_price_history_tenant_id_tenants_id_fk` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

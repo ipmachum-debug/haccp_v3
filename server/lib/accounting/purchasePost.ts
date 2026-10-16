@@ -229,9 +229,25 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
     //   - material_id 포함 → 재고관리 입고내역 INNER JOIN 에서 정상 표시
     //   - supplier_name 포함 → 공급업체 표시
     let lotId: number;
+    // 입고전표·수불부에 쓰는 LOT 번호와 재고 수량·단위 — 실제 LOT 과 같아야 한다 (2026-10-16, Codex DB 감사).
+    //   이전: 등록 때 만든 LOT(MAT-…, 85kg) 을 재사용하면서도 입고전표엔 새로 지은 LOT-… 번호와 매입 단위(5개),
+    //   수불부엔 5(개) 를 더해 kg 수불부에 개수가 섞였다 (매입 422~427).
+    let stockLotNumber = lotNumber;
+    let stockQty = qty;
+    let stockUnit = purchase.unit || "EA";
     if (skipInventory) {
       // 등록 시 이미 만들어진 LOT 을 재사용한다 (새로 만들면 재고가 두 배가 된다)
       lotId = reuseLotId as number;
+      const [reuseRows] = await conn.execute(
+        `SELECT lot_number, quantity, unit FROM h_inventory_lots WHERE id = ? AND tenant_id = ?`,
+        [lotId, tenantId],
+      );
+      const reuse = (reuseRows as any[])[0];
+      if (reuse) {
+        stockLotNumber = String(reuse.lot_number);
+        stockQty = String(reuse.quantity);
+        stockUnit = String(reuse.unit || stockUnit);
+      }
     } else {
       const [lotResult] = await conn.execute(
         `INSERT INTO h_inventory_lots
@@ -341,11 +357,11 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
            VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             tenantId, inboundHeaderId, resolvedMaterialId,
-            qty, purchase.unit || "EA",
-            qty, purchase.unit || "EA",
+            qty, purchase.unit || "EA",          // 매입 수량·단위 (문서 기준)
+            stockQty, stockUnit,                  // 재고 수량·단위 (LOT 기준)
             purchase.unitPrice?.toString() || "0",
             purchase.totalAmount?.toString() || "0",
-            lotNumber,
+            stockLotNumber,
             null, // expiry_date (매입에 없음)
             `매입 확정: ${purchase.itemName || ""}`,
           ]
@@ -357,6 +373,8 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
 
     // (B-3) 원료수불 material_ledger_daily 반영
     // ★ 2026-04-13 추가: 당월 총 입고량 집계에 즉시 반영
+    // ★ 2026-10-16: 매입 입고의 수불부 기록은 여기 한 곳만 (createPurchase 의 onPurchaseCreated 제거 — 이중 가산).
+    //   수량은 LOT 기준 재고 수량·단위 (수불부는 원료 기준 단위, 매입 단위 '개' 를 섞지 않음).
     if (resolvedMaterialId) {
       try {
         await conn.execute(
@@ -368,7 +386,7 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
              updated_at = NOW()`,
           [
             tenantId, resolvedMaterialId, purchase.transactionDate,
-            qty,
+            stockQty,
             `매입 확정 PURCHASE-${purchaseId}`,
           ]
         );
