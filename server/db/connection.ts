@@ -1,5 +1,7 @@
 import { drizzle } from "drizzle-orm/mysql2";
 import mysql, { Pool, PoolConnection } from "mysql2/promise";
+// drizzle TIMESTAMP·DATETIME 변환을 아래 세션 time_zone(+09:00) 과 맞춘다 (2026-10-16, 감사 시각 9시간 미래 표시)
+import "./drizzleKstTime";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _rawConnection: Pool | null = null;
@@ -60,7 +62,10 @@ export async function getRawConnection(): Promise<Pool> {
         user: url.username,
         password: decodeURIComponent(url.password),
         database: url.pathname.slice(1),
-        charset: 'utf8mb4'
+        charset: 'utf8mb4',
+        // ★ 2026-10-16: 세션 time_zone(+09:00) 과 같게 명시 — mysql2 기본 'local' 은 Node 프로세스 TZ 를 따라
+        //   서버 TZ 가 Asia/Seoul 이 아니면 TIMESTAMP 를 9시간 어긋나게 읽고 쓴다 (운영 PM2 는 Asia/Seoul 이라 동작 동일).
+        timezone: '+09:00'
       });
 
       // 각 연결마다 character set + KST 타임존 강제 설정 (mysql2는 다중 statement 미지원 → 분리 실행)

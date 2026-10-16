@@ -828,4 +828,35 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(r.items[0].id).toBe(1120);
     });
   });
+
+  describe("시각 경계 — drizzle 과 raw 연결이 같은 순간을 읽음 (2026-10-16, Codex 대시보드 날짜 검토 #2)", () => {
+    it("DB 가 기록한 18:11:35(KST 세션) 를 drizzle·raw 모두 09:11:35Z 로, drizzle 이 쓴 시각도 같은 KST 벽시계로 저장", async () => {
+      const { getDb, getRawConnection } = await import("./db/connection");
+      const { hStockAlerts, hInventoryLots } = await import("../drizzle/schema/part2");
+      const { eq } = await import("drizzle-orm");
+      const db: any = await getDb();
+      await q(`DELETE FROM h_stock_alerts`);
+      // 세션 time_zone 은 +09:00 — 감사·알림처럼 DB 가 기록한 값과 같은 모양
+      await q(`SET time_zone = '+09:00'`);
+      await q(`INSERT INTO h_stock_alerts (id, tenant_id, site_id, alert_type, message, alert_date, created_at) VALUES (9001, ?, 0, 'expired', 't', '2026-10-16 18:11:35', '2026-10-16 18:11:35')`, [T]);
+      const viaDrizzle = (await db.select({ c: hStockAlerts.createdAt }).from(hStockAlerts).where(eq(hStockAlerts.id, 9001)))[0].c as Date;
+      expect(viaDrizzle.toISOString()).toBe("2026-10-16T09:11:35.000Z"); // 이전: 18:11:35Z (9시간 미래)
+      const raw = await getRawConnection();
+      const [rr]: any = await raw.query(`SELECT created_at FROM h_stock_alerts WHERE id = 9001`);
+      expect((rr[0].created_at as Date).toISOString()).toBe(viaDrizzle.toISOString()); // 두 경로가 같은 순간
+      // drizzle 로 쓰기 — 자정 직전 23:59:30 KST
+      await db.update(hStockAlerts).set({ resolvedAt: new Date("2026-10-16T14:59:30Z") }).where(eq(hStockAlerts.id, 9001));
+      const [w]: any = await raw.query(`SELECT DATE_FORMAT(resolved_at, '%Y-%m-%d %H:%i:%s') AS kst, DATE(resolved_at) AS d FROM h_stock_alerts WHERE id = 9001`);
+      expect(w[0].kst).toBe("2026-10-16 23:59:30"); // 이전: 14:59:30 (9시간 이르게 저장)
+      // DB 기본값(NOW) 으로 만든 행 — drizzle 로 읽은 순간이 지금과 같음
+      await db.insert(hStockAlerts).values({ id: 9002, tenantId: T, siteId: 0, alertType: "expired", message: "now" } as any);
+      const created = (await db.select({ c: hStockAlerts.createdAt }).from(hStockAlerts).where(eq(hStockAlerts.id, 9002)))[0].c as Date;
+      expect(Math.abs(created.getTime() - Date.now())).toBeLessThan(60_000);
+      // DATE(업무일) 는 변환하지 않음 — 기존 그대로
+      await q(`DELETE FROM h_inventory_lots WHERE id = 9101`);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, lot_number, quantity, available_quantity, unit, expiry_date) VALUES (9101, ?, 'TZ1', 1, 1, 'kg', '2026-10-16')`, [T]);
+      const exp = (await db.select({ e: hInventoryLots.expiryDate }).from(hInventoryLots).where(eq(hInventoryLots.id, 9101)))[0].e;
+      expect(exp instanceof Date ? exp.toISOString().slice(0, 10) : String(exp).slice(0, 10)).toBe("2026-10-16");
+    });
+  });
 });
