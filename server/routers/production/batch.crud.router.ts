@@ -803,6 +803,11 @@ export const batchCrudRouter = router({
           fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
           /** planned_date <= toDate (YYYY-MM-DD). 캘린더 월 범위 조회용 */
           toDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+          /**
+           * 정렬 (2026-10-16): 기본 'created' = 입력일 최신순 (기존 그대로).
+           * 'planned' = 생산일(planned_date) 최신순, 같은 날은 id 최신순, 생산일 없는 행은 뒤로 — 대시보드 최근 생산 배치용.
+           */
+          sort: z.enum(["created", "planned"]).optional(),
         }).optional()
       )
       .query(async ({ input, ctx }) => {

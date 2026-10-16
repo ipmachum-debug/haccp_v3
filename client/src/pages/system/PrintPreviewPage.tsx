@@ -358,11 +358,25 @@ export default function PrintPreviewPage() {
       const formType = firstDoc.formType || firstDoc.requestType || "";
       const titleLabel = FORM_TYPE_LABELS[formType] || firstDoc.title || formType;
       const fd = firstDoc.formData || {};
-      let dateStr = fd.date || fd.workDate || fd.checkDate || fd.inspectionDate || fd.formDate || "";
-      if (!dateStr && firstDoc.requestedAt) {
-        const d = firstDoc.requestedAt instanceof Date ? firstDoc.requestedAt : new Date(firstDoc.requestedAt);
-        if (!isNaN(d.getTime())) dateStr = d.toISOString().split("T")[0];
-      }
+      // ★ 2026-10-16 (Codex 대시보드 날짜 검토): 업무일(작업일·생산일) 을 먼저 — CCP 기록지는 formData 안 기록의 workDate.
+      //   결재 요청 시각(requestedAt) 은 업무일이 하나도 없을 때만, 그것도 로컬(KST) 날짜로 (toISOString 은 UTC 라 하루 밀림).
+      const ymd = (v: unknown): string => {
+        if (!v) return "";
+        if (typeof v === "string") {
+          // 날짜만 있는 문자열(YYYY-MM-DD 등) 은 그대로. 시각이 붙은 ISO(…T15:00:00Z — 서버 DATE 직렬화) 는 아래에서 로컬 날짜로.
+          const m = v.match(/^(\d{4})[-/.](\d{2})[-/.](\d{2})$/);
+          if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+        }
+        const d = v instanceof Date ? v : new Date(v as any);
+        if (isNaN(d.getTime())) return "";
+        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+      };
+      const ccpRec0 = (fd.ccpFormRecords || [])[0];
+      const ccpRec1 = fd.ccpFormRecord?.record || fd.ccpFormRecord;
+      let dateStr = ymd(fd.date) || ymd(fd.workDate) || ymd(fd.checkDate) || ymd(fd.inspectionDate) || ymd(fd.formDate)
+        || ymd(ccpRec0?.workDate) || ymd(ccpRec0?.work_date) || ymd(ccpRec1?.workDate) || ymd(ccpRec1?.work_date)
+        || ymd(fd.plannedDate) || ymd(fd.batch?.plannedDate);
+      if (!dateStr && firstDoc.requestedAt) dateStr = ymd(firstDoc.requestedAt instanceof Date ? firstDoc.requestedAt : new Date(firstDoc.requestedAt));
       const datePart = dateStr ? `_${dateStr.replace(/\//g, "-")}` : "";
       let productPart = "";
       if (["batch_production", "batch_approval", "ccp_form"].includes(formType)) {

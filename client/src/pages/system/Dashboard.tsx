@@ -199,6 +199,11 @@ export default function Dashboard() {
     staleTime: 2 * 60 * 1000,
     gcTime: 5 * 60 * 1000,
   });
+  // 최근 생산 배치 표 — 생산일(planned_date) 최신순 6건, 서버에서 정렬 후 자름 (2026-10-16)
+  const { data: recentBatchesData } = trpc.batch.list.useQuery({ sort: "planned", limit: 6 }, {
+    staleTime: 2 * 60 * 1000,
+    gcTime: 5 * 60 * 1000,
+  });
   const markAsRead = trpc.notification.markAsRead.useMutation();
 
   // ─── Derived Data ───
@@ -860,25 +865,25 @@ export default function Dashboard() {
             </div>
           </CardHeader>
           <CardContent className="pt-0">
-            {batches.length > 0 ? (
+            {(recentBatchesData?.items?.length ?? 0) > 0 ? (
               <div className="premium-table-container">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-border/60">
                       <th className="text-left py-3 px-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">{L("batch")}코드</th>
-                      <th className="text-left py-3 px-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">생성일</th>
+                      <th className="text-left py-3 px-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">생산일</th>
                       <th className="text-left py-3 px-4 text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">상태</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {batches.slice(0, 6).map((batch: any) => (
+                    {(recentBatchesData?.items ?? []).map((batch: any) => (
                       <tr key={batch.id} className="border-b border-border/40 last:border-0 hover:bg-accent/30 transition-colors cursor-pointer" onClick={() => window.location.href = `/dashboard/batch/${batch.id}`}>
                         <td className="py-3 px-4">
                           <span className="text-sm font-medium text-foreground">{batch.batchCode}</span>
                         </td>
                         <td className="py-3 px-4">
                           <span className="text-sm text-muted-foreground">
-                            {new Date(batch.createdAt).toLocaleDateString("ko-KR")}
+                            {batch.plannedDateYmd ?? "생산일 미지정"}
                           </span>
                         </td>
                         <td className="py-3 px-4">

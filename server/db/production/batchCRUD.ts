@@ -378,6 +378,8 @@ export async function getAllBatches(filters?: {
   fromDate?: string;
   /** planned_date <= toDate (YYYY-MM-DD). 캘린더 뷰에서 월 범위 조회용 */
   toDate?: string;
+  /** 'created'(기본, 입력일 최신순) | 'planned'(생산일 최신순 — 대시보드 최근 생산 배치) */
+  sort?: "created" | "planned";
 }) {
   const db = await getDb();
   if (!db) return { items: [], total: 0, page: 1, limit: 50 };
@@ -430,11 +432,14 @@ export async function getAllBatches(filters?: {
   const total = Number((countRows as any[])[0]?.cnt || 0);
 
   const [dataRows] = await conn.execute<any[]>(
-    `SELECT b.*, p.product_name, p.product_code
+    // ★ 2026-10-16: 생산일 정렬은 페이지를 자르기 전에 서버에서 (Codex 대시보드 날짜 검토 P2).
+    //   입력일 순 첫 50건을 화면에서 다시 정렬하면 늦게 입력된 과거 생산일·최근 생산일 배치가 빠진다.
+    //   planned_date_ymd: DATE 를 문자열 그대로 — Date/UTC 왕복으로 하루 밀리지 않게.
+    `SELECT b.*, DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS planned_date_ymd, p.product_name, p.product_code
      FROM h_batches b
      LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
      ${whereClause}
-     ORDER BY b.created_at DESC
+     ORDER BY ${filters?.sort === "planned" ? "(b.planned_date IS NULL) ASC, b.planned_date DESC, b.id DESC" : "b.created_at DESC"}
      LIMIT ? OFFSET ?`,
     [...params, String(limit), String(offset)]
   );
@@ -452,6 +457,8 @@ export async function getAllBatches(filters?: {
       plannedQuantity: row.planned_quantity,
       actualQuantity: row.actual_quantity || null,
       plannedDate: row.planned_date,
+      /** 생산일 YYYY-MM-DD (DB DATE 그대로, 없으면 null) — 표시용 */
+      plannedDateYmd: row.planned_date_ymd ?? null,
       startTime: row.start_time || null,
       endTime: row.end_time || null,
       status: row.status,

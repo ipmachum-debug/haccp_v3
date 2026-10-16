@@ -788,4 +788,44 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_mass_basis`))[0].n)).toBe(0);
     });
   });
+
+  describe("대시보드 최근 생산 배치 — 생산일 기준 (2026-10-16, Codex 대시보드 날짜 검토 P2)", () => {
+    let getAllBatches: any;
+    beforeAll(async () => {
+      ({ getAllBatches } = await import("./db/production/batchCRUD"));
+    });
+    beforeEach(async () => {
+      await q(`DELETE FROM h_batches`);
+      // 운영 실측과 같은 모양: 10/13·10/14 생산분을 10/15 에 입력, 10/12 생산분은 그보다 먼저 입력
+      const rows: Array<[number, string, string]> = [
+        [1104, "2026-10-12", "2026-10-13 09:00:00"],
+        [1110, "2026-10-13", "2026-10-15 09:20:00"], [1111, "2026-10-13", "2026-10-15 09:20:00"], [1112, "2026-10-13", "2026-10-15 09:20:00"],
+        [1113, "2026-10-14", "2026-10-15 09:23:00"], [1114, "2026-10-14", "2026-10-15 09:23:00"], [1115, "2026-10-14", "2026-10-15 09:23:00"],
+        [1120, "2026-10-09", "2026-10-16 08:00:00"], // 가장 늦게 입력됐지만 생산일은 가장 이름
+      ];
+      for (const [id, d, c] of rows) {
+        await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, created_by, created_at)
+          VALUES (?, ?, 1, ?, 90, 100, ?, 'completed', 4, ?)`, [id, T, `B${id}`, d, c]);
+      }
+    });
+
+    it("생산일 최신순, 같은 날은 id 최신순, 날짜는 DB DATE 문자열 그대로 (하루 밀림 없음)", async () => {
+      const r = await getAllBatches({ tenantId: T, sort: "planned", limit: 6 });
+      expect(r.items.map((b: any) => [b.id, b.plannedDateYmd])).toEqual([
+        [1115, "2026-10-14"], [1114, "2026-10-14"], [1113, "2026-10-14"], [1112, "2026-10-13"], [1111, "2026-10-13"], [1110, "2026-10-13"],
+      ]);
+    });
+
+    it("페이지 경계에서도 서버 정렬이 이어짐 — 늦게 입력된 과거 생산일(10/09) 은 맨 뒤", async () => {
+      const p1 = await getAllBatches({ tenantId: T, sort: "planned", limit: 3, page: 1 });
+      const p2 = await getAllBatches({ tenantId: T, sort: "planned", limit: 3, page: 2 });
+      const p3 = await getAllBatches({ tenantId: T, sort: "planned", limit: 3, page: 3 });
+      expect([...p1.items, ...p2.items, ...p3.items].map((b: any) => b.id)).toEqual([1115, 1114, 1113, 1112, 1111, 1110, 1104, 1120]);
+    });
+
+    it("기본 정렬(입력일 최신순) 은 그대로 — 다른 목록·엑셀 영향 없음", async () => {
+      const r = await getAllBatches({ tenantId: T, limit: 1 });
+      expect(r.items[0].id).toBe(1120);
+    });
+  });
 });
