@@ -144,6 +144,7 @@ export async function createBatch(batch: {
         const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit");
         const ingredientsRaw = await db
           .select({
+            id: hMfIngredients.id,
             materialId: hMfIngredients.materialId,
             quantity: hMfIngredients.quantity,
             correctedQuantity: hMfIngredients.correctedQuantity,
@@ -157,6 +158,17 @@ export async function createBatch(batch: {
           .where(eq(hMfIngredients.mfReportVersionId, latestVersion[0].id))
           .orderBy(hMfIngredients.lineNo);
         const ingredients = ingredientsRaw;
+
+        // ★ 2026-10-16 (수율 기준 PR C): 원물·공정 기준을 켠 버전이면 먼저 스냅샷을 고정하고, 원료 투입 계획(=자동 출고량)을
+        //   스냅샷의 행별 원물 kg 로 잡는다. 꺼진 버전·스냅샷 실패는 기존 계산(배합비 × 생산량) 그대로.
+        let massBasisRawByIngredient: Map<number, number> | null = null;
+        try {
+          const { recordBatchMassBasis } = await import("./batchMassBasis");
+          const mb = await recordBatchMassBasis(batchId, tenantId, batch.productId, plannedQty);
+          massBasisRawByIngredient = recordedRawKgByIngredient(mb);
+        } catch (mbErr) {
+          console.error("[createBatch] 원물·공정 기준 스냅샷 실패 (기존 계산으로 진행):", mbErr);
+        }
 
         // 4. 배합비 x 생산량으로 원재료 투입 계획 생성 (보정 배합비 기준)
         // 정제수도 투입 계획에 포함 (투입량 표시), 원가 계산에서만 제외
@@ -270,7 +282,9 @@ export async function createBatch(batch: {
               const ratio = ing.correctedQuantity
                 ? parseFloat(ing.correctedQuantity)
                 : parseFloat(ing.quantity);
-              const plannedQ = (ratio / 100) * plannedQty;
+              // 기준 스냅샷이 있으면 그 행의 원물 kg (불리기 전, 재고 출고 기준) — 없으면 기존 배합비 × 생산량
+              const basisRaw = massBasisRawByIngredient?.get(Number(ing.id));
+              const plannedQ = basisRaw != null ? basisRaw : (ratio / 100) * plannedQty;
               const rawId = Number(ing.materialId);
               const canonicalId = idMap.get(rawId) ?? rawId;
               const unitPrice = priceMap.get(canonicalId) ?? 0;
@@ -304,15 +318,15 @@ export async function createBatch(batch: {
     console.error("[createBatch] 원재료 투입 자동생성 실패 (배치 생성은 유지):", error);
   }
 
-  // ★ 2026-10-16 (수율 기준 PR B): 원물·공정·완제품 기준 스냅샷 — 기준 사용이 켜진 버전만, 기록만 (출고는 아직 기존 계산)
-  try {
-    const { recordBatchMassBasis } = await import("./batchMassBasis");
-    await recordBatchMassBasis(batchId, tenantId, batch.productId, plannedQty);
-  } catch (error) {
-    console.error("[createBatch] 원물·공정 기준 스냅샷 실패 (배치 생성은 유지):", error);
-  }
-
   return batchId;
+}
+
+/** 스냅샷이 기록된 경우 원료 행 id → 원물 kg (차감 대상 행만). 기록 안 됐으면 null → 기존 계산 */
+export function recordedRawKgByIngredient(
+  mb: { recorded: boolean; snapshot?: { rows: Array<{ ingredientId: number; rawKg: number; isDeductible: boolean }> } } | null | undefined,
+): Map<number, number> | null {
+  if (!mb?.recorded || !mb.snapshot) return null;
+  return new Map(mb.snapshot.rows.filter((r) => r.isDeductible).map((r) => [r.ingredientId, r.rawKg]));
 }
 
 export async function getBatchById(batchId: number, tenantId?: number) {
