@@ -10,7 +10,7 @@ import { withTransaction } from "../../db";
 import { resolveSystemAccount, insertJournalLine, SYSTEM_ACCOUNTS } from "../../core-erp/accounting/journal";
 import { documentAmounts } from "./amountContract";
 
-export async function erpPostSale(saleId: number, userId: number) {
+export async function erpPostSale(saleId: number, userId: number, expectedTenantId?: number) {
   return withTransaction(async (conn) => {
     // 매출 데이터 조회 + 잠금
     const [rows] = await conn.execute(
@@ -22,6 +22,8 @@ export async function erpPostSale(saleId: number, userId: number) {
 
     const sale = (rows as any[])?.[0];
     if (!sale) throw new Error(`매출 ID ${saleId}를 찾을 수 없습니다.`);
+    // ★ 2026-10-16: 호출자 회사와 다르면 거부 (postDispatcher 와 이중 방어)
+    if (expectedTenantId != null && Number(expectedTenantId) !== Number(sale.tenant_id)) throw new Error(`매출 ID ${saleId}를 찾을 수 없습니다.`);
     // 확정·수금된 매출은 다시 확정하지 않는다 (2026-10-15). 확정은 pending 에서만.
     if (sale.status === "approved" || sale.status === "received") return { success: true, alreadyPosted: true };
     if (sale.status !== "pending") throw new Error(`확정할 수 없는 상태입니다: ${sale.status} (ID: ${saleId})`);
@@ -33,8 +35,8 @@ export async function erpPostSale(saleId: number, userId: number) {
     // B2C(회계 제외) 매출은 분개 생략, 상태만 변경
     if (sale.accounting_excluded) {
       await conn.execute(
-        `UPDATE accounting_sales SET status = 'approved' WHERE id = ?`,
-        [saleId]
+        `UPDATE accounting_sales SET status = 'approved' WHERE id = ? AND tenant_id = ?`,
+        [saleId, tenantId]
       );
       return { success: true, accountingExcluded: true };
     }
@@ -86,8 +88,8 @@ export async function erpPostSale(saleId: number, userId: number) {
 
     // 상태 변경
     await conn.execute(
-      `UPDATE accounting_sales SET status = 'approved' WHERE id = ?`,
-      [saleId]
+      `UPDATE accounting_sales SET status = 'approved' WHERE id = ? AND tenant_id = ?`,
+      [saleId, tenantId]
     );
 
     return { success: true, journalEntryId };

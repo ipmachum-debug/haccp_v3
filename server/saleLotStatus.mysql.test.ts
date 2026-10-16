@@ -259,4 +259,66 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     expect(r2.ok).toBe(false);
     await ensureRequiredSchema(admin, { allowDdl: true }); // 뒷정리
   });
+
+  // ── Codex 운영 DB 점검 P1 (2026-10-16) ─────────────────────────────────
+  it("확정은 호출자 회사의 전표만 — 다른 회사(9) 로 부르면 '찾을 수 없음', 아무것도 바뀌지 않음", async () => {
+    await insertSale(10700, "2026-10-15", 10, 10000, 1000);
+    await expect(postProductSale(10700, 4, 9 as any)).rejects.toThrow(/찾을 수 없습니다/);
+    expect((await q(`SELECT status FROM accounting_sales WHERE id = 10700`))[0].status).toBe("pending");
+    expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE source_id = 10700`))[0].n)).toBe(0);
+    expect(await lot(1834)).toMatchObject({ a: 358 });
+  });
+
+  describe("직접 제품출고 — 한 트랜잭션", () => {
+    let createProductOutbound: any;
+    beforeAll(async () => {
+      ({ createProductOutbound } = await import("./db/production/productOutboundManagement"));
+      await q(`DELETE FROM h_product_outbound`);
+    });
+    beforeEach(async () => { await q(`DELETE FROM h_product_outbound`); });
+    const base = { lotId: 1834, productName: "하늘사랑 1.6kg", quantity: 10, unit: "box", unitPrice: 6020, partnerId: 11, releaseDate: "2026-10-16", releaseType: "sale", createdBy: 4 };
+
+    it("정상: 출고 행(SKU 포함)·원장(출고 번호 연결)·LOT 차감·매출(제품·SKU·세액) 이 함께", async () => {
+      const r = await createProductOutbound(base, T);
+      expect(await lot(1834)).toMatchObject({ a: 348, status: "available" });
+      const ob = (await q(`SELECT sku_id, lot_id, status FROM h_product_outbound WHERE id = ?`, [r.outboundId]))[0];
+      expect([Number(ob.sku_id), Number(ob.lot_id), ob.status]).toEqual([208, 1834, "confirmed"]);
+      const tx = await q(`SELECT transaction_type, source_type, source_id, quantity FROM h_inventory_transactions WHERE source_type = 'PRODUCT_OUTBOUND'`);
+      expect(tx.map((t: any) => [t.transaction_type, Number(t.source_id), Number(t.quantity)])).toEqual([["outbound", r.outboundId, 10]]);
+      const sale = (await q(`SELECT product_id, sku_id, total_amount, tax_amount, status, source_type, source_id FROM accounting_sales WHERE id = ?`, [r.saleId]))[0];
+      expect([Number(sale.product_id), Number(sale.sku_id), Number(sale.total_amount), Number(sale.tax_amount), sale.status, sale.source_type, Number(sale.source_id)])
+        .toEqual([90, 208, 60200, 6020, "pending", "product_outbound", r.outboundId]);
+    });
+
+    it("매출 생성이 실패하면(장애 주입) LOT 차감·원장·출고 행 모두 되돌림", async () => {
+      await q(`ALTER TABLE accounting_sales DROP COLUMN tax_rate`);
+      try {
+        await expect(createProductOutbound(base, T)).rejects.toThrow();
+      } finally {
+        await q(`ALTER TABLE accounting_sales ADD COLUMN tax_rate decimal(5,2) DEFAULT '10.00' AFTER tax_amount`);
+      }
+      expect(await lot(1834)).toMatchObject({ a: 358 });
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_product_outbound`))[0].n)).toBe(0);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE source_type = 'PRODUCT_OUTBOUND'`))[0].n)).toBe(0);
+    });
+
+    it("동시 출고 2건(각 200, 가용 358) — LOT 잠금으로 하나만 성공, 음수 없음", async () => {
+      const results = await Promise.allSettled([
+        createProductOutbound({ ...base, quantity: 200 }, T),
+        createProductOutbound({ ...base, quantity: 200 }, T),
+      ]);
+      expect(results.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+      expect(String((results.find((x) => x.status === "rejected") as any).reason?.message)).toMatch(/출고 가능 수량 초과/);
+      expect(await lot(1834)).toMatchObject({ a: 158 });
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_product_outbound`))[0].n)).toBe(1);
+    });
+
+    it("다른 회사 LOT·원재료 LOT·사용 불가 LOT 은 출고 거부", async () => {
+      await expect(createProductOutbound(base, 9)).rejects.toThrow(/찾을 수 없습니다/);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status) VALUES (777, ?, 5, 'L777', 10, 10, 10, 'kg', 'available')`, [T]);
+      await expect(createProductOutbound({ ...base, lotId: 777, quantity: 1 }, T)).rejects.toThrow(/제품 LOT 이 아닙니다/);
+      await q(`UPDATE h_inventory_lots SET status = 'used' WHERE id = 1834`);
+      await expect(createProductOutbound(base, T)).rejects.toThrow(/사용 가능한 LOT 아님/);
+    });
+  });
 });

@@ -697,7 +697,7 @@ export const purchaseOrderRouter = router({
         if (!newPurchaseId) throw new Error("매입전표 INSERT 실패 (insertId 없음)");
 
         // (2) postPurchase 호출 — LOT + 재고 이력 + 입고전표 + 수불부 + 회계 분개 전체 처리
-        await dispatchPostPurchase(newPurchaseId, ctx.user.id);
+        await dispatchPostPurchase(newPurchaseId, ctx.user.id, ctx.tenantId);
         createdPurchases.push(newPurchaseId);
 
         // (3) 라인 received_qty 업데이트

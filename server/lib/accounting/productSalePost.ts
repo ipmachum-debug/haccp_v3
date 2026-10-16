@@ -34,6 +34,7 @@ import { loadSaleSku, resolveSaleSku, type SaleSkuInfo } from "./saleSku";
 export async function postProductSale(
   saleId: number,
   userId: number,
+  expectedTenantId?: number,
 ): Promise<{ alreadyProcessed: boolean }> {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
@@ -63,6 +64,10 @@ export async function postProductSale(
 
   const tenantId = sale.tenantId;
   if (!tenantId) throw new Error("[보안] tenantId is required for productSalePost");
+  // ★ 2026-10-16: 호출자 회사와 다르면 거부 (postDispatcher 와 이중 방어)
+  if (expectedTenantId != null && Number(expectedTenantId) !== Number(tenantId)) {
+    throw new Error(`매출 전표 ID ${saleId} 를 찾을 수 없습니다.`);
+  }
 
   // ── 2. 공통 값 ──────────────────────────────────────────
   // ★ 2026-10-15 금액 계약 (amountContract): total_amount = 공급가, 합계 = 공급가 + 세액.

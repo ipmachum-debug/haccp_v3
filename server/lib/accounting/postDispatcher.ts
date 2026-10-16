@@ -27,28 +27,42 @@ async function getTenantIdFromSale(saleId: number): Promise<number> {
   return rows?.[0]?.tenant_id;
 }
 
-export async function dispatchPostPurchase(purchaseId: number, userId: number) {
+/**
+ * ★ 2026-10-16 (Codex 운영 DB 점검 P1): 호출자 회사와 전표 회사 대조
+ *   이전엔 전표 id 로 전표를 읽고 **전표의 tenant_id** 로 처리했다 — 다른 회사 전표 id 를 넣으면 그 회사 전표가 확정됐다.
+ *   이제 호출자 tenantId 를 필수로 받아, 전표가 그 회사 것이 아니면 "찾을 수 없음" 으로 거부한다 (존재 여부도 숨김).
+ */
+function assertSameTenant(kind: "매입" | "매출", id: number, docTenantId: number | undefined, callerTenantId: number) {
+  if (!callerTenantId) throw new Error("[보안] tenantId 필수");
+  if (!docTenantId || Number(docTenantId) !== Number(callerTenantId)) {
+    throw new Error(`${kind} 전표 ID ${id} 를 찾을 수 없습니다.`);
+  }
+}
+
+export async function dispatchPostPurchase(purchaseId: number, userId: number, callerTenantId: number) {
   const tenantId = await getTenantIdFromPurchase(purchaseId);
+  assertSameTenant("매입", purchaseId, tenantId, callerTenantId);
   const haccp = await isHaccpEnabled(tenantId);
 
   if (haccp) {
     const { postPurchase } = await import("./purchasePost");
-    return postPurchase(purchaseId, userId);
+    return postPurchase(purchaseId, userId, callerTenantId);
   } else {
     const { erpPostPurchase } = await import("./erpPurchasePost");
-    return erpPostPurchase(purchaseId, userId);
+    return erpPostPurchase(purchaseId, userId, callerTenantId);
   }
 }
 
-export async function dispatchPostSale(saleId: number, userId: number) {
+export async function dispatchPostSale(saleId: number, userId: number, callerTenantId: number) {
   const tenantId = await getTenantIdFromSale(saleId);
+  assertSameTenant("매출", saleId, tenantId, callerTenantId);
   const haccp = await isHaccpEnabled(tenantId);
 
   if (haccp) {
     const { postProductSale } = await import("./productSalePost");
-    return postProductSale(saleId, userId);
+    return postProductSale(saleId, userId, callerTenantId);
   } else {
     const { erpPostSale } = await import("./erpSalePost");
-    return erpPostSale(saleId, userId);
+    return erpPostSale(saleId, userId, callerTenantId);
   }
 }

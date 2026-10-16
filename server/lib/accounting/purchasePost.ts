@@ -19,7 +19,7 @@ import { publishEvent } from "../../platform/event-bus";
  * **트랜잭션:**
  * - LOT + 재고원장 + 회계분개 + 상태변경이 원자적으로 실행
  */
-export async function postPurchase(purchaseId: number, userId: number): Promise<{ alreadyProcessed: boolean }> {
+export async function postPurchase(purchaseId: number, userId: number, expectedTenantId?: number): Promise<{ alreadyProcessed: boolean }> {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
@@ -40,6 +40,10 @@ export async function postPurchase(purchaseId: number, userId: number): Promise<
 
   const tenantId = purchase.tenantId;
   if (!tenantId) throw new Error('[보안] tenantId is required for purchasePost');
+  // ★ 2026-10-16: 호출자 회사와 다르면 거부 (postDispatcher 와 이중 방어)
+  if (expectedTenantId != null && Number(expectedTenantId) !== Number(tenantId)) {
+    throw new Error(`매입 전표 ID ${purchaseId}를 찾을 수 없습니다.`);
+  }
 
   // 이미 처리됨 → 멱등 반환
   if (purchase.status === "paid") {
