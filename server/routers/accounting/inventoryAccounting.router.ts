@@ -36,23 +36,27 @@ export const inventoryAccountingRouter = router({
   purchaseMarkPaid: tenantRequiredProcedure
     .input(z.object({ purchaseId: z.number() }))
     .mutation(async ({ input, ctx }: { input: { purchaseId: number }, ctx: any }) => {
-      const pool = await getRawConnection();
-      const [rows]: any = await pool.execute(
-        `SELECT status FROM accounting_purchases WHERE id = ? AND tenant_id = ? FOR UPDATE`,
-        [input.purchaseId, ctx.tenantId],
-      );
-      const current = rows?.[0];
-      if (!current) throw new Error(`매입 전표 #${input.purchaseId} 없음`);
-      if (current.status === "cancelled") throw new Error("취소된 전표는 지급 처리할 수 없습니다.");
-      if (current.status === "paid") return { success: true, message: "이미 지급 완료 상태입니다." };
-      if (current.status !== "approved") {
-        throw new Error(`승인(approved) 상태만 지급 처리 가능. 현재: ${current.status}`);
-      }
-      await pool.execute(
-        `UPDATE accounting_purchases SET status = 'paid' WHERE id = ? AND tenant_id = ?`,
-        [input.purchaseId, ctx.tenantId],
-      );
-      return { success: true, message: "매입이 지급 완료 처리되었습니다." };
+      // ★ 2026-10-16 (Codex #537 검토 P1): 잠금·검사·변경을 한 트랜잭션으로, 변경은 approved 일 때만.
+      //   이전에는 풀에서 FOR UPDATE(잠금이 바로 풀림) 후 조건 없이 UPDATE → 동시에 취소되면 cancelled 를 paid 로 덮어씀.
+      return await withTransaction(async (conn) => {
+        const [rows]: any = await conn.execute(
+          `SELECT status FROM accounting_purchases WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+          [input.purchaseId, ctx.tenantId],
+        );
+        const current = rows?.[0];
+        if (!current) throw new Error(`매입 전표 #${input.purchaseId} 없음`);
+        if (current.status === "cancelled") throw new Error("취소된 전표는 지급 처리할 수 없습니다.");
+        if (current.status === "paid") return { success: true, message: "이미 지급 완료 상태입니다." };
+        if (current.status !== "approved") {
+          throw new Error(`승인(approved) 상태만 지급 처리 가능. 현재: ${current.status}`);
+        }
+        const [res]: any = await conn.execute(
+          `UPDATE accounting_purchases SET status = 'paid' WHERE id = ? AND tenant_id = ? AND status = 'approved'`,
+          [input.purchaseId, ctx.tenantId],
+        );
+        if (Number(res?.affectedRows ?? 0) !== 1) throw new Error("다른 처리와 겹쳐 지급 처리하지 못했습니다. 새로고침 후 다시 시도하세요.");
+        return { success: true, message: "매입이 지급 완료 처리되었습니다." };
+      });
     }),
 
   // 매입 지급 취소 (paid → approved) — 2026-10-16
@@ -97,8 +101,9 @@ export const inventoryAccountingRouter = router({
         `SELECT COUNT(*) AS n FROM h_inventory_transactions
           WHERE tenant_id = ? AND transaction_type = 'receipt'
             AND ( (reference_type = 'accounting_purchase' AND reference_id = ?)
-               OR (source_type = 'accounting_purchases' AND source_id = ?) )`,
-        [ctx.tenantId, input.purchaseId, input.purchaseId],
+               OR (source_type = 'accounting_purchases' AND source_id = ?)
+               OR (UPPER(reference_type) = 'PURCHASE' AND source_id = ?) )`,
+        [ctx.tenantId, input.purchaseId, input.purchaseId, input.purchaseId],
       );
       if (Number(rcpt?.[0]?.n ?? 0) > 0) {
         throw new Error("입고된 적 있는 매입은 복구할 수 없습니다. 취소로 재고·분개가 되돌려졌으니 새로 등록하세요.");
