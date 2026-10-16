@@ -1,8 +1,8 @@
 import { getDb } from "../../db";
 import { hStockAlerts, hInventoryLots } from "../../../drizzle/schema/part2";
-import { eq, and, lte, isNull } from "drizzle-orm";
+import { eq, and, lt, gt, isNull, isNotNull, sql } from "drizzle-orm";
 
-import { formatLocalDate } from "../../utils/timezone";
+import { formatLocalDate, todayKST } from "../../utils/timezone";
 
 /**
  * 소비기한 기반 알람 자동 생성
@@ -61,39 +61,52 @@ export async function generateExpiryAlerts(
 
 /**
  * 만료된 LOT 알람 자동 생성 (스케줄러용)
- * 
- * 매일 실행되는 스케줄러에서 호출하여 만료된 LOT에 대한 알람을 생성합니다.
- * @param tenantId 테넌트 ID (테넌트 격리)
+ *
+ * 매일 실행되는 스케줄러에서 호출하여 소비기한이 지났는데 재고가 남은 LOT 에 알람을 만든다.
+ *
+ * 2026-10-16 (Codex DB 감사): 이전 조건은 `status='active'`(LOT 상태값에 없음) + `expiry_date <= 오늘 AND expiry_date IS NULL`
+ *   (동시에 참일 수 없음) 이라 한 번도 알람이 생기지 않았다. 스케줄러는 tenantId 없이 부르므로 `tenant_id = NULL` 조건도
+ *   전부 거짓이었다. → 전 회사(또는 지정 회사) 대상, 소비기한 < 오늘(KST), 남은 재고 > 0, 폐기 아닌 LOT.
+ *   FEFO 는 같은 기준(소비기한 당일까지 사용 가능)으로 이 LOT 들을 출고에서 뺀다.
+ * @param tenantId 테넌트 ID (없으면 전 회사)
+ * @returns 새로 만든 알람 수
  */
-export async function generateExpiredAlerts(tenantId?: number): Promise<void> {
+export async function generateExpiredAlerts(tenantId?: number): Promise<number> {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const todayStr = formatLocalDate(today);
+  const todayStr = todayKST();
 
-  // 오늘 만료된 LOT 조회 (테넌트 격리)
   const expiredLots = await db
-    .select()
+    .select({
+      id: hInventoryLots.id,
+      tenantId: hInventoryLots.tenantId,
+      inventoryId: hInventoryLots.inventoryId,
+      lotNumber: hInventoryLots.lotNumber,
+      expiryDate: hInventoryLots.expiryDate,
+      availableQuantity: hInventoryLots.availableQuantity,
+      unit: hInventoryLots.unit,
+    })
     .from(hInventoryLots)
     .where(
       and(
-        eq(hInventoryLots.tenantId, tenantId as number),
-        eq(hInventoryLots.status, "active" as any) ,
-        lte(hInventoryLots.expiryDate, todayStr as any) ,
-        isNull(hInventoryLots.expiryDate)
+        tenantId != null ? eq(hInventoryLots.tenantId, tenantId) : undefined,
+        isNotNull(hInventoryLots.expiryDate),
+        lt(hInventoryLots.expiryDate, todayStr as any),
+        gt(hInventoryLots.availableQuantity, 0.001 as any),
+        sql`COALESCE(${hInventoryLots.status}, 'available') <> 'disposed'`,
       )
     );
 
+  let created = 0;
   for (const lot of expiredLots) {
-    // 이미 만료 알람이 있는지 확인 (테넌트 격리)
+    // 이미 열린 만료 알람이 있으면 건너뜀 (테넌트 격리)
     const existingAlert = await db
-      .select()
+      .select({ id: hStockAlerts.id })
       .from(hStockAlerts)
       .where(
         and(
-          eq(hStockAlerts.tenantId, tenantId as number),
+          eq(hStockAlerts.tenantId, lot.tenantId),
           eq(hStockAlerts.lotId, lot.id),
           eq(hStockAlerts.alertType, "expired"),
           isNull(hStockAlerts.resolvedAt)
@@ -101,25 +114,19 @@ export async function generateExpiredAlerts(tenantId?: number): Promise<void> {
       )
       .limit(1)
       .then((rows) => rows[0]);
+    if (existingAlert) continue;
 
-    if (!existingAlert) {
-      // 만료 알람 생성 (테넌트 격리)
-      await db.insert(hStockAlerts).values({
-        tenantId,
-        inventoryId: lot.inventoryId,
-        lotId: lot.id,
-        alertType: "expired",
-        severity: "critical",
-        message: `소비기한이 만료되었습니다. (만료일: ${lot.expiryDate})`,
-        threshold: null,
-        currentValue: null,
-        scheduledDate: todayStr,
-        resolvedAt: null,
-        resolvedBy: null,
-        createdBy: 1, // 시스템 자동 생성
-      } as any);
-
-      console.log(`[ALERT] 소비기한 만료 알람 생성 (LOT: ${lot.id}, 만료일: ${lot.expiryDate})`);
-    }
+    await db.insert(hStockAlerts).values({
+      tenantId: lot.tenantId,
+      siteId: 0, // NOT NULL·기본값 없음 (LOT 에 site_id 컬럼 없음, h_inventory.site_id 도 운영에서 전부 NULL)
+      inventoryId: lot.inventoryId,
+      lotId: lot.id,
+      alertType: "expired",
+      severity: "critical",
+      message: `소비기한이 지났습니다. LOT ${lot.lotNumber ?? lot.id} (만료일: ${lot.expiryDate}, 남은 재고 ${Number(lot.availableQuantity)}${lot.unit ?? ""}) — 생산·출고에서 자동 제외됩니다. 폐기 처리하세요.`,
+    });
+    created++;
   }
+  if (created > 0) console.log(`[ALERT] 소비기한 만료 알람 ${created}건 생성 (기준일 ${todayStr})`);
+  return created;
 }

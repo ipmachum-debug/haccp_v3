@@ -72,18 +72,21 @@ export async function reconcileNegativeLots(
     return result;
   }
 
+  const txDate = p.transactionDate ?? new Date().toISOString().slice(0, 10);
+
   // 2. 양수 LOT (FEFO: 유통기한 빠른 것부터, 없으면 뒤로)
+  //   소비기한이 상계일 전에 지난 LOT 은 쓰지 않는다 (2026-10-16, FEFO 와 같은 기준) — 기한 경과 재고로 빚을 갚으면
+  //   장부상 기한 경과 원료를 생산에 쓴 것이 된다.
   const [posRows] = await conn.execute<any[]>(
     `SELECT id, available_quantity, unit, inventory_id
        FROM h_inventory_lots
       WHERE material_id = ? AND tenant_id = ? AND available_quantity > ${EPS}
         AND COALESCE(status, 'available') IN ('available', 'reserved')
+        AND (expiry_date IS NULL OR expiry_date >= ?)
       ORDER BY COALESCE(expiry_date, '9999-12-31') ASC, id ASC`,
-    [p.materialId, p.tenantId],
+    [p.materialId, p.tenantId, txDate],
   );
   const positives = (posRows as any[]).map((r) => ({ ...r, avail: parseFloat(r.available_quantity) }));
-
-  const txDate = p.transactionDate ?? new Date().toISOString().slice(0, 10);
   const srcTag = p.source ?? "reconcile";
 
   for (const neg of negatives) {

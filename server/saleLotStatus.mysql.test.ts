@@ -321,4 +321,62 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await expect(createProductOutbound(base, T)).rejects.toThrow(/사용 가능한 LOT 아님/);
     });
   });
+
+  describe("원료 FEFO — 소비기한·사용 불가 상태 제외 (2026-10-16, Codex DB 감사: 기한 지난 LOT 6건 실사용)", () => {
+    let allocateLotsFEFO: any;
+    let generateExpiredAlerts: (tenantId?: number) => Promise<number>;
+    beforeAll(async () => {
+      ({ allocateLotsFEFO } = await import("./lib/inventory/fefoLotAllocation"));
+      ({ generateExpiredAlerts } = await import("./lib/inventory/expiryAlertGenerator"));
+    });
+    const matLot = async (id: number, expiry: string | null, avail: number, status = "available", tenant = T) =>
+      q(`INSERT INTO h_inventory_lots (id, tenant_id, inventory_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, unit_price, expiry_date, status)
+         VALUES (?, ?, 50, 600, ?, ?, ?, ?, 'kg', 1000, ?, ?)`, [id, tenant, `M${id}`, Math.max(avail, 0), avail, avail, expiry, status]);
+    const seed = async () => {
+      await matLot(901, "2026-10-10", 30);               // 10/16 기준 기한 경과
+      await matLot(902, "2026-10-16", 5);                // 소비기한 당일 — 사용 가능
+      await matLot(903, null, 100, "disposed");          // 폐기
+      await matLot(904, "2026-12-01", 7, "used");        // 과거 상태 버그로 'used' 지만 재고 있음 — 사용 가능
+      await matLot(905, "2026-11-30", 10);
+      await matLot(906, "2026-10-01", 3);                // 가장 최근 id 지만 기한 경과 — 음수 자리로도 안 씀
+      await matLot(907, null, 50, "reserved");           // 보류
+    };
+
+    it("기한 경과·폐기·보류 LOT 은 건너뛰고, 당일 소비기한과 재고 남은 'used' LOT 은 쓴다", async () => {
+      await seed();
+      const a = await allocateLotsFEFO(50, 20, "kg", T, 600, undefined, { asOfDate: "2026-10-16" });
+      expect(a.map((x: any) => [x.lotId, x.quantity])).toEqual([[902, 5], [905, 10], [904, 5]]);
+    });
+
+    it("모자라면 음수 자리는 쓸 수 있는 LOT 중 가장 최근 — 기한 경과 LOT #906 의 남은 3kg 을 빼지 않는다", async () => {
+      await seed();
+      const a = await allocateLotsFEFO(50, 40, "kg", T, 600, undefined, { asOfDate: "2026-10-16", allowNegative: true });
+      expect(a.map((x: any) => [x.lotId, x.quantity, !!x.negative])).toEqual([[902, 5, false], [905, 28, true], [904, 7, false]]);
+      expect(a.some((x: any) => [901, 903, 906, 907].includes(x.lotId))).toBe(false);
+    });
+
+    it("과거 날짜 생산은 그날 기준 — 10/09 생산이면 10/10 기한 #901 은 쓰고, 10/01 기한 #906 은 안 쓴다", async () => {
+      await seed();
+      const a = await allocateLotsFEFO(50, 31, "kg", T, 600, undefined, { asOfDate: "2026-10-09" });
+      expect(a.map((x: any) => [x.lotId, x.quantity])).toEqual([[901, 30], [902, 1]]);
+    });
+
+    it("만료 알림: 전 회사 대상, 기한 지남·재고 남음·폐기 아님만, 두 번 돌려도 1건씩", async () => {
+      await q(`DELETE FROM h_stock_alerts`);
+      await matLot(911, "2020-01-01", 4);                 // 알림
+      await matLot(912, "2020-01-01", 0, "used");         // 재고 없음 — 알림 없음
+      await matLot(913, "2020-01-01", 9, "disposed");     // 폐기 — 알림 없음
+      await matLot(914, "2020-01-01", 2, "expired");      // 만료 상태지만 재고 남음 — 알림
+      await matLot(915, "2099-12-31", 5);                 // 기한 전
+      await matLot(916, "2020-01-01", 1, "available", 9); // 다른 회사 — 회사 지정 없이 돌면 알림
+      expect(await generateExpiredAlerts()).toBe(3);
+      expect(await generateExpiredAlerts()).toBe(0);
+      const rows = await q(`SELECT lot_id, tenant_id, site_id, alert_type, severity FROM h_stock_alerts ORDER BY lot_id`);
+      expect(rows.map((r: any) => [Number(r.lot_id), r.tenant_id, Number(r.site_id), r.alert_type, r.severity])).toEqual([
+        [911, T, 0, "expired", "critical"], [914, T, 0, "expired", "critical"], [916, 9, 0, "expired", "critical"],
+      ]);
+      await q(`DELETE FROM h_stock_alerts`);
+      expect(await generateExpiredAlerts(9)).toBe(1);
+    });
+  });
 });
