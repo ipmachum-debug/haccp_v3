@@ -152,6 +152,8 @@ export type TransactionActionType =
   | "approve"      // 승인 (pending → approved)
   | "markPaid"     // 지급 완료 (approved → paid, 매입 전용)
   | "markReceived" // 수금 완료 (approved → received, 매출 전용)
+  | "unpay"        // 지급 취소 (paid → approved, 매입 전용)
+  | "unreceive"    // 수금 취소 (received → approved, 매출 전용)
   | "cancel"       // 취소 (pending/approved → cancelled)
   | "restore"      // 복구 (cancelled → pending)
   | "edit"         // 수정 (pending/approved 만)
@@ -170,8 +172,8 @@ export function getAvailableActions(
         : ["markReceived", "edit", "cancel"];
     case "paid":
     case "received":
-      // 지급/수금 완료 상태는 더 이상 변경 불가 (조회/PDF만)
-      return [];
+      // 지급/수금 완료 — 지급·수금 취소만 (2026-10-16). 매출·매입 취소는 그 뒤 승인 상태에서.
+      return type === "purchase" ? ["unpay"] : ["unreceive"];
     case "cancelled":
       return ["restore"];
     case "mixed":
