@@ -5,6 +5,8 @@ import { sql, SQL } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { getEffectiveTenantId } from "./_helpers";
 import { bomProductV2IdExpr } from "../../lib/identity/itemIdentityService";
+import { createAuditLog } from "../../db/system/auditApprovalSupplier";
+import { AUDITED_GROUP_FIELDS, diffAuditedGroupFields } from "../../lib/haccp/processGroupAudit";
 
 export const processGroupsRouter = router({
   // ========== 공정 그룹 관리 API ==========
@@ -145,9 +147,29 @@ export const processGroupsRouter = router({
       if (input.equipIntervalMin !== undefined) setClauses.push(sql`equip_interval_min = ${input.equipIntervalMin}`);
       if (input.equipBatchSize !== undefined) setClauses.push(sql`equip_batch_size = ${input.equipBatchSize}`);
 
+      // ★ 2026-10-16: 설정 변경 이력 — 증숙 2개 공정이 4/12~4/15 사이 '묶음 순차 3대' → '순차 1대' 로 바뀌었는데
+      //   누가·언제 바꿨는지 남은 기록이 없었다 (그 뒤 6개월 CCP 기록지 측정시각이 순차로 생성).
+      //   한계기준·운영 방식이 바뀌면 audit_logs 에 변경 전/후를 남긴다.
+      const before = await readAuditedGroupFields(db, input.id, tenantId);
+
       if (setClauses.length > 0) {
         const setClause = sql.join(setClauses, sql`, `);
         await db.execute(sql`UPDATE ccp_process_groups SET ${setClause} WHERE id = ${input.id} AND tenant_id = ${tenantId}`);
+      }
+
+      const after = await readAuditedGroupFields(db, input.id, tenantId);
+      const changes = diffAuditedGroupFields(before, after);
+      if (changes) {
+        await createAuditLog({
+          action: "ccp_process_group.update",
+          entityType: "ccp_process_group",
+          entityId: input.id,
+          userId: ctx.user?.id,
+          userEmail: ctx.user?.email,
+          userRole: ctx.user?.role,
+          changes,
+          description: `공정 그룹 설정 변경: ${String(after?.name ?? input.id)} — ${Object.keys(changes).join(", ")}`,
+        }, tenantId);
       }
 
       if (input.equipmentIds !== undefined) {
@@ -634,3 +656,11 @@ export const processGroupsRouter = router({
       return { valid: allValid, products: results };
     }),
 });
+
+async function readAuditedGroupFields(db: any, id: number, tenantId: number): Promise<Record<string, unknown> | null> {
+  const result: any = await db.execute(
+    sql`SELECT ${sql.raw(AUDITED_GROUP_FIELDS.join(", "))} FROM ccp_process_groups WHERE id = ${id} AND tenant_id = ${tenantId} LIMIT 1`,
+  );
+  const rows = Array.isArray(result?.[0]) ? result[0] : result;
+  return rows?.[0] ?? null;
+}
