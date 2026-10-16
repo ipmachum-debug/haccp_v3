@@ -2,7 +2,7 @@
  * 품목제조보고 저장 — 화면이 보내지 않은 값은 원래 행에서 이어받는다 (2026-10-16, 보고서 422 버전2 CCP 공정 지정 소실)
  */
 import { describe, it, expect } from "vitest";
-import { mergeIngredientRows } from "./mfIngredientMerge";
+import { mergeIngredientRows, unknownIngredientIds } from "./mfIngredientMerge";
 
 const existing = [
   { id: 7142, processGroupId: 1, adjustedWeightKg: null, correctedQuantity: "44.3", isAdditional: 0, childSkuId: null, pieceCount: null, pieceWeightG: null },
@@ -47,5 +47,13 @@ describe("mergeIngredientRows", () => {
   it("행 순서대로 line_no 를 다시 매긴다", () => {
     const rows = mergeIngredientRows([{ ...base, id: 7143 }, { ...base, id: 7142 }], existing, 464);
     expect(rows.map((r) => r.lineNo)).toEqual([1, 2]);
+  });
+});
+
+describe("unknownIngredientIds — 오래된 화면 거부 (Codex 배포 검토 P2)", () => {
+  it("현재 버전에 없는 id·같은 id 두 번은 거부 대상, id 없는 새 행은 괜찮음", () => {
+    expect(unknownIngredientIds([{ ...base, id: 7142 }, { ...base }], existing)).toEqual([]);
+    expect(unknownIngredientIds([{ ...base, id: 8001 }], existing)).toEqual([8001]);
+    expect(unknownIngredientIds([{ ...base, id: 7142 }, { ...base, id: 7142 }], existing)).toEqual([7142]);
   });
 });

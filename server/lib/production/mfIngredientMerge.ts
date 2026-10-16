@@ -68,3 +68,24 @@ export function mergeIngredientRows(incoming: IncomingIngredient[], existing: Ex
     };
   });
 }
+
+/**
+ * 화면이 보낸 원래 행 id 중 현재 버전에 없는 것 (2026-10-16, Codex 배포 검토 P2).
+ * 다른 사용자가 먼저 저장했거나 오래 열어 둔 화면이면 생긴다. 있으면 아무것도 지우기 전에 거부해야 한다
+ * — 모르는 id 는 원본이 없어 생략한 값(CCP 공정 지정 등)이 비워진다. 재료·이름·순서로 메우지 않는다.
+ */
+export function unknownIngredientIds(incoming: IncomingIngredient[], existing: ExistingIngredient[]): number[] {
+  const known = new Set(existing.map((e) => Number(e.id)));
+  const seen = new Set<number>();
+  const bad: number[] = [];
+  for (const ing of incoming) {
+    if (ing.id == null) continue;
+    const id = Number(ing.id);
+    if (!known.has(id) || seen.has(id)) bad.push(id); // 같은 id 두 번도 거부
+    seen.add(id);
+  }
+  return bad;
+}
+
+export const STALE_INGREDIENTS_MESSAGE =
+  "배합이 다른 곳에서 먼저 저장되어 화면 정보가 오래되었습니다. 새로고침 후 다시 저장하세요. (저장되지 않았습니다)";

@@ -26,7 +26,7 @@
  */
 
 import { getRawConnection } from "../db";
-import { resolveBomProductIds, inPlaceholders } from "../lib/identity/itemIdentityService";
+import { resolveBomProductIds, inPlaceholders, selectBomVersion } from "../lib/identity/itemIdentityService";
 
 export interface ProcessGroupInfo {
   id: number;
@@ -147,11 +147,13 @@ export async function getProcessGroupsForProduct(args: {
     ? `g.equip_group_mode, g.equip_interval_min, g.equip_batch_size,`
     : `'sequential' AS equip_group_mode, 10 AS equip_interval_min, 1 AS equip_batch_size,`;
 
-  // 2026-10-07: BOM product_id 가 v2 id 또는 item_master id (bomProductResolver)
-  const bomPids = await resolveBomProductIds(productId, tenantId, conn);
-
   // ── 1. BOM 기반 (CCP-4P 제외: 별도로 항상 추가)
-  const [bomRows] = await conn.execute<any[]>(
+  // ★ 2026-10-16: 배치가 쓰는 품목제조보고 버전 하나의 원료 공정 지정만 (selectBomVersion).
+  //   이전에는 APPROVED 버전 전부의 공정을 합쳐 — 새 버전에서 원료를 다른 공정으로 옮겨도(보고서 418 호두 공정4→1)
+  //   옛 공정 CCP 기록지가 계속 생겼다. 공정 지정(NULL 포함)은 읽기만 한다.
+  //   BOM product_id 가 v2 id 또는 item_master id 인 경우도 selectBomVersion 이 처리 (bomProductResolver).
+  const bomPick = await selectBomVersion(productId, tenantId, conn);
+  const [bomRows] = bomPick ? await conn.execute<any[]>(
     `SELECT DISTINCT
        g.id, g.name, g.ccp_type,
        g.temperature_min, g.temperature_max,
@@ -159,24 +161,18 @@ export async function getProcessGroupsForProduct(args: {
        g.pressure_min, g.pressure_max,
        ${equipSelect}
        COUNT(i.id) AS ingredient_count
-     FROM h_mf_reports r
-     JOIN h_mf_report_versions v
-       ON v.mf_report_id = r.id
-      AND v.approval_status = 'APPROVED'
-     JOIN h_mf_ingredients i
-       ON i.mf_report_version_id = v.id
-      AND i.process_group_id IS NOT NULL
+     FROM h_mf_ingredients i
      JOIN ccp_process_groups g
        ON g.id = i.process_group_id
       AND g.tenant_id = ?
       AND g.status = 'active'
       AND g.ccp_type != 'CCP-4P'
-     WHERE r.product_id IN (${inPlaceholders(bomPids)})
-       AND r.tenant_id = ?
+     WHERE i.mf_report_version_id = ?
+       AND i.process_group_id IS NOT NULL
      GROUP BY g.id
      ORDER BY g.ccp_type, g.sort_order, g.id`,
-    [tenantId, ...bomPids, tenantId],
-  );
+    [tenantId, bomPick.versionId],
+  ) : [[] as any[]];
 
   // ── 2. 수동 매핑 (ccp_process_group_products)
   const [manualRows] = await conn.execute<any[]>(

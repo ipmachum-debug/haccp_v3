@@ -55,7 +55,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
   });
 
   beforeEach(async () => {
-    for (const t of ["product_skus", "item_master", "sku_bundles", "h_inventory", "accounting_sales", "h_inventory_lots", "h_inventory_transactions", "expense_journal_entries", "expense_journal_lines", "accounting_accounts", "h_product_outbound", "bundle_lots"]) {
+    for (const t of ["h_mf_ingredients", "product_skus", "item_master", "sku_bundles", "h_inventory", "accounting_sales", "h_inventory_lots", "h_inventory_transactions", "expense_journal_entries", "expense_journal_lines", "accounting_accounts", "h_product_outbound", "bundle_lots"]) {
       await q(`DELETE FROM ${t}`);
     }
     // 단지 시스템 계정 (보정 후 상태)
@@ -461,6 +461,56 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect([line.lot_number, Number(line.pq), line.purchase_unit, Number(line.sq), line.stock_unit]).toEqual([lots[0].lot_number, 6, "개", 5.4, "kg"]);
       // 재고 이동도 한 벌 (등록 receipt 만, 확정은 LOT 재사용)
       expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE lot_id = ?`, [lots[0].id]))[0].n)).toBe(1);
+    });
+  });
+
+  describe("품목제조보고 원료 저장 — 행 id 유지, 오래된 화면 거부 (2026-10-16, Codex PR #534 배포 검토 P2)", () => {
+    let saveVersionIngredients: any;
+    let db: any;
+    beforeAll(async () => {
+      ({ saveVersionIngredients } = await import("./db/production/mfIngredientStore"));
+      db = await (await import("./db/connection")).getDb();
+    });
+    const rows = async () => q(`SELECT id, line_no, material_id, quantity, process_group_id, adjusted_weight_kg + 0 AS adj, is_additional FROM h_mf_ingredients WHERE mf_report_version_id = 464 ORDER BY line_no`);
+    beforeEach(async () => {
+      await q(`DELETE FROM h_mf_ingredients`);
+      await q(`INSERT INTO h_mf_ingredients (id, mf_report_version_id, line_no, material_id, quantity, unit, is_deductible, material_type, process_group_id, adjusted_weight_kg, is_additional) VALUES
+        (7142, 464, 1, 645, '43', '%', 1, 'RAW', 1, NULL, 0),
+        (7143, 464, 2, 700, '57', '%', 1, 'RAW', NULL, 18.5, 0),
+        (7150, 464, 3, 191, '3', 'kg', 0, 'RAW', 1, 3, 1),
+        (9001, 999, 1, 645, '100', '%', 1, 'RAW', 4, NULL, 0)`);
+    });
+    const base = { unit: "%", isDeductible: 1, materialType: "RAW" };
+
+    it("공정 지정을 안 보내도 유지, 행 id 그대로, 두 번 연속 저장해도 유지 (이전: 두 번째 저장에서 옛 id → NULL)", async () => {
+      const payload = [{ ...base, id: 7142, materialId: 645, quantity: 44 }, { ...base, id: 7143, materialId: 700, quantity: 56 }, { ...base, id: 7150, materialId: 191, quantity: 3, unit: "kg", isDeductible: 0 }];
+      await saveVersionIngredients(db, 464, payload);
+      await saveVersionIngredients(db, 464, payload);
+      expect((await rows()).map((r: any) => [Number(r.id), r.quantity, r.process_group_id, r.adj == null ? null : Number(r.adj), r.is_additional])).toEqual([
+        [7142, "44", 1, null, 0], [7143, "56", null, 18.5, 0], [7150, "3", 1, 3, 1],
+      ]);
+    });
+
+    it("현재 없는 id(다른 사람이 먼저 저장) 가 있으면 아무것도 바꾸지 않고 거부", async () => {
+      await expect(saveVersionIngredients(db, 464, [{ ...base, id: 7142, materialId: 645, quantity: 10 }, { ...base, id: 8001, materialId: 700, quantity: 90 }]))
+        .rejects.toThrow(/새로고침 후 다시 저장/);
+      expect((await rows()).map((r: any) => [Number(r.id), r.quantity])).toEqual([[7142, "43"], [7143, "57"], [7150, "3"]]);
+    });
+
+    it("다른 버전의 id 도 거부 (버전 9001 행을 끌어오지 않음)", async () => {
+      await expect(saveVersionIngredients(db, 464, [{ ...base, id: 9001, materialId: 645, quantity: 100 }])).rejects.toThrow(/새로고침/);
+      expect(Number((await q(`SELECT process_group_id FROM h_mf_ingredients WHERE id = 9001`))[0].process_group_id)).toBe(4);
+    });
+
+    it("보내지 않은 행은 삭제, id 없는 새 행은 추가 (공정 지정 추정 없음), 명시적 null 은 비움", async () => {
+      await saveVersionIngredients(db, 464, [
+        { ...base, id: 7142, materialId: 645, quantity: 50, processGroupId: null },
+        { ...base, materialId: 615, quantity: 50 },
+      ]);
+      const r = await rows();
+      expect(r.map((x: any) => [x.material_id, x.process_group_id, x.line_no])).toEqual([[645, null, 1], [615, null, 2]]);
+      expect(Number(r[0].id)).toBe(7142);
+      expect(r.some((x: any) => [7143, 7150].includes(Number(x.id)))).toBe(false);
     });
   });
 });

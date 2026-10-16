@@ -8,7 +8,8 @@
 // 승인 워크플로, PDF 출력, 보정 배합비, 오차 분석,
 // 공정그룹 매핑, 배치 배합비 조정 계산
 // ═══════════════════════════════════════════════════════════════
-import { mergeIngredientRows, type IncomingIngredient } from "../../lib/production/mfIngredientMerge";
+import { type IncomingIngredient } from "../../lib/production/mfIngredientMerge";
+import { saveVersionIngredients } from "./mfIngredientStore";
 import { getDb } from "../connection";
 import {
   hMfReports,
@@ -1043,19 +1044,12 @@ export async function updateMfReport(data: {
       .where(eq(hMfReportVersions.id, versionId));
   }
 
-  // 4. 기존 재료 삭제 후 새로 INSERT
-  //   ★ 2026-10-16: 화면이 보내지 않은 값(CCP 공정 지정·수율조정·보정배합·혼합 SKU 등)은 같은 id 의 원래 행에서
-  //   이어받는다 (mfIngredientMerge). 이전에는 보낸 값만 INSERT 해 보고서 422 버전2 의 CCP 공정 지정이 전부 사라졌다.
+  // 4. 원료 행 저장 — 행 id 유지 UPDATE/INSERT/DELETE (mfIngredientStore)
+  //   ★ 2026-10-16: 화면이 보내지 않은 값(CCP 공정 지정·수율조정·보정배합·혼합 SKU 등)은 같은 id 의 원래 행에서 이어받고,
+  //   오래된 화면(현재 없는 id) 은 아무것도 바꾸지 않고 거부한다. 이전에는 전부 DELETE 후 보낸 값만 INSERT 해
+  //   보고서 422 버전2 의 CCP 공정 지정이 전부 사라졌다.
   if (data.ingredients && data.ingredients.length > 0) {
-    const existing = await db.select().from(hMfIngredients)
-      .where(eq(hMfIngredients.mfReportVersionId, versionId));
-
-    await db.delete(hMfIngredients)
-      .where(eq(hMfIngredients.mfReportVersionId, versionId));
-
-    await db.insert(hMfIngredients).values(
-      mergeIngredientRows(data.ingredients as IncomingIngredient[], existing as any[], versionId) as any[]
-    );
+    await saveVersionIngredients(db, versionId, data.ingredients as IncomingIngredient[]);
   }
 
   return { success: true, mfReportId, versionId };

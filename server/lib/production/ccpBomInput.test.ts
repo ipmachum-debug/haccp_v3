@@ -14,16 +14,22 @@ describe("ccpInputKgByGroup", () => {
     expect(ccpInputKgByGroup(rows, 11).get(2)).toEqual({ kg: 4.635, versionId: 11 });
   });
 
-  it("배치 버전에 공정 지정이 없으면 그 공정이 지정된 최신 승인 버전 하나 (보고서 422: 버전2 지정 없음 → 버전1)", () => {
-    const rows = [row(426, 1, 1, 60), row(426, 1, 1, 37), row(500, 0, 1, 999, { approval_status: "DRAFT" })];
-    expect(ccpInputKgByGroup(rows, 464).get(1)).toEqual({ kg: 97, versionId: 426 });
+  it("다른 버전 값으로 메우지 않는다 — 보고서 418: 버전2 가 호두를 공정4→1 로 옮김 → 공정4 없음, 기준량도 섞지 않음 (Codex 배포 검토 P2)", () => {
+    const rows = [
+      row(422, 1, 1, 50, { batch_target_kg: 100 }), row(422, 1, 4, 1.2, { unit: "%", batch_target_kg: 100, material_name: "호두분태" }),
+      row(481, 2, 1, 40, { batch_target_kg: 95 }), row(481, 2, 1, 1.2, { unit: "%", batch_target_kg: 95, material_name: "호두분태" }),
+    ];
+    const m = ccpInputKgByGroup(rows, 481);
+    expect([...m.keys()]).toEqual([1]);
+    expect(m.get(1)!.kg).toBeCloseTo(40 + 1.14, 9);
   });
 
-  it("공정마다 따로 고른다 — 배치 버전에 있는 공정은 그 버전, 없는 공정만 이전 승인 버전 (보고서 418: 버전1 1·4 / 버전2 1)", () => {
-    const rows = [row(1, 1, 1, 50), row(1, 1, 4, 10), row(2, 2, 1, 40)];
-    const m = ccpInputKgByGroup(rows, 2);
-    expect(m.get(1)).toEqual({ kg: 40, versionId: 2 });
-    expect(m.get(4)).toEqual({ kg: 10, versionId: 1 });
+  it("배치 버전에 공정 지정 원료가 하나도 없으면 빈 결과 (호출측 기존 폴백) — 이전 버전으로 되살리지 않음", () => {
+    expect(ccpInputKgByGroup([row(426, 1, 1, 60)], 464).size).toBe(0);
+  });
+
+  it("정제수만 있는 공정은 결과에 없다 (기존과 같음)", () => {
+    expect(ccpInputKgByGroup([row(1, 1, 5, 3, { material_name: "정제수" })], 1).size).toBe(0);
   });
 
   it("배치 버전이 DRAFT(승인 버전 없음 fallback) 여도 그 버전을 쓴다", () => {

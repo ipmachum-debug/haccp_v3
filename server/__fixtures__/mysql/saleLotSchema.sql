@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -552,4 +552,31 @@ CREATE TABLE `h_material_price_history` (
   `tenant_id` int NOT NULL DEFAULT '1',
   PRIMARY KEY (`id`),
   KEY `h_material_price_history_tenant_id_tenants_id_fk` (`tenant_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `h_mf_ingredients`;
+
+CREATE TABLE `h_mf_ingredients` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `mf_report_version_id` bigint NOT NULL,
+  `line_no` int NOT NULL,
+  `material_id` bigint DEFAULT NULL,
+  `intermediate_id` bigint DEFAULT NULL,
+  `child_sku_id` bigint DEFAULT NULL,
+  `piece_count` int DEFAULT NULL,
+  `piece_weight_g` decimal(10,2) DEFAULT NULL,
+  `quantity` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `corrected_quantity` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `unit` varchar(10) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `is_deductible` tinyint NOT NULL DEFAULT '1',
+  `material_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'RAW',
+  `flavor_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `process_group_id` int DEFAULT NULL,
+  `adjusted_weight_kg` decimal(10,3) DEFAULT NULL,
+  `is_additional` tinyint NOT NULL DEFAULT '0',
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (`id`),
+  KEY `idx_mfi_child_sku` (`child_sku_id`),
+  KEY `fk_mf_ingredients_version` (`mf_report_version_id`),
+  KEY `fk_mf_ingredients_item` (`material_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
