@@ -1270,6 +1270,7 @@ export default function CCPLimitsManagement() {
       {/* 수정 다이얼로그 */}
       {editingGroup && (
         <ProcessGroupFormDialog
+          key={editingGroup.id}
           open={!!editingGroup}
           onOpenChange={(open) => { if (!open) setEditingGroup(null); }}
           initialData={editingGroup}
