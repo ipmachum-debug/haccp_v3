@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -579,4 +579,48 @@ CREATE TABLE `h_mf_ingredients` (
   KEY `idx_mfi_child_sku` (`child_sku_id`),
   KEY `fk_mf_ingredients_version` (`mf_report_version_id`),
   KEY `fk_mf_ingredients_item` (`material_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `ar_ledger`;
+
+CREATE TABLE `ar_ledger` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `customer_partner_id` bigint NOT NULL,
+  `occurred_at` timestamp NOT NULL,
+  `ar_entry_type` enum('debit','payment','credit','writeoff','adjust') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `amount` decimal(18,2) NOT NULL,
+  `due_date` date DEFAULT NULL,
+  `ref_type` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `ref_id` bigint DEFAULT NULL,
+  `memo` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `accounting_account_id` bigint DEFAULT NULL,
+  `created_by` bigint DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `tenant_id` int NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`),
+  KEY `ar_ledger_tenant_id_tenants_id_fk` (`tenant_id`),
+  KEY `ar_ledger_customer_partner_id_partners_id_fk` (`customer_partner_id`),
+  KEY `ar_ledger_created_by_users_id_fk` (`created_by`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `bank_accounts`;
+
+CREATE TABLE `bank_accounts` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `tenant_id` int NOT NULL DEFAULT '1',
+  `bank_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'ì€í–‰ëª…',
+  `account_no` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL COMMENT 'ê³„ì¢Œë²ˆí˜¸',
+  `account_name` varchar(200) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'ì˜ˆê¸ˆì£¼ëª…',
+  `account_type` enum('checking','savings','investment','other') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'checking' COMMENT 'ê³„ì¢Œ ìœ í˜•',
+  `balance` decimal(18,2) NOT NULL DEFAULT '0.00',
+  `currency` varchar(3) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'KRW' COMMENT 'í†µí™”',
+  `default_accounting_account_id` bigint DEFAULT NULL COMMENT 'ê¸°ë³¸ ê³„ì • ê³¼ëª© ID',
+  `is_active` enum('Y','N') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'Y' COMMENT 'í™œì„±í™” ì—¬ë¶€',
+  `is_primary` tinyint NOT NULL DEFAULT '0',
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci COMMENT 'ë©”ëª¨',
+  `created_by` bigint DEFAULT NULL COMMENT 'ìƒì„±ìž ID',
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `bank_accounts_tenant_id_tenants_id_fk` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

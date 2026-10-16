@@ -55,6 +55,28 @@ export const inventoryAccountingRouter = router({
       return { success: true, message: "매입이 지급 완료 처리되었습니다." };
     }),
 
+  // 매입 지급 취소 (paid → approved) — 2026-10-16
+  //   purchaseMarkPaid 는 상태만 바꾼다(분개·AP 원장 없음). 되돌리기도 상태만. 이후 매입 취소 가능.
+  purchaseUnpay: tenantRequiredProcedure
+    .input(z.object({ purchaseId: z.number() }))
+    .mutation(async ({ input, ctx }: { input: { purchaseId: number }, ctx: any }) => {
+      return await withTransaction(async (conn) => {
+        const [rows]: any = await conn.execute(
+          `SELECT status FROM accounting_purchases WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+          [input.purchaseId, ctx.tenantId],
+        );
+        const current = rows?.[0];
+        if (!current) throw new Error(`매입 전표 #${input.purchaseId} 없음`);
+        if (current.status === "approved") return { success: true, message: "이미 승인(미지급) 상태입니다." };
+        if (current.status !== "paid") throw new Error(`지급 완료 상태만 지급 취소할 수 있습니다. 현재: ${current.status}`);
+        await conn.execute(
+          `UPDATE accounting_purchases SET status = 'approved' WHERE id = ? AND tenant_id = ? AND status = 'paid'`,
+          [input.purchaseId, ctx.tenantId],
+        );
+        return { success: true, message: "지급이 취소되어 승인(미지급) 상태가 되었습니다." };
+      });
+    }),
+
   // 매입 복구 (cancelled → pending): 취소를 되돌림
   purchaseRestore: tenantRequiredProcedure
     .input(z.object({ purchaseId: z.number() }))
@@ -139,6 +161,16 @@ export const inventoryAccountingRouter = router({
         receivedDate: input.receivedDate,
         memo: input.memo,
       });
+    }),
+
+  // 매출 수금 취소 (received → approved) — 2026-10-16
+  //   원 [수금] 전표 역분개 + AR adjust 상쇄 + 상태 approved (productSaleUnreceive). 이후 매출 취소 가능.
+  saleUnreceive: tenantRequiredProcedure
+    .input(z.object({ saleId: z.number() }))
+    .mutation(async ({ input, ctx }: { input: { saleId: number }, ctx: any }) => {
+      const { unreceiveSale } = await import("../../lib/accounting/productSaleUnreceive");
+      const r = await unreceiveSale(input.saleId, ctx.user.id, ctx.tenantId);
+      return { success: true, ...r, message: r.alreadyProcessed ? "이미 승인(미수금) 상태입니다." : "수금이 취소되었습니다." };
     }),
 
   // 매출 복구 (cancelled → pending)

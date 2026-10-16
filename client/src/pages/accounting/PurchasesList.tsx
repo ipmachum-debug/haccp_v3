@@ -59,6 +59,7 @@ import {
   Calculator,
   Coins,
   RotateCcw,
+  Undo2,
   Package,
   FileSpreadsheet,
   Upload,
@@ -265,6 +266,17 @@ function PurchasesListContent() {
     },
   });
 
+  // 매입 지급 취소 mutation (paid → approved) — 2026-10-16
+  const unpayMutation = trpc.inventoryAccounting.purchaseUnpay.useMutation({
+    onSuccess: () => {
+      toast({ title: "지급 취소", description: "승인(미지급) 상태로 되돌렸습니다. 이제 매입 취소가 가능합니다." });
+      refetch();
+    },
+    onError: (error: { message: string }) => {
+      toast({ title: "지급 취소 실패", description: error.message, variant: "destructive" });
+    },
+  });
+
   // 매입 복구 mutation (cancelled → pending)
   const restoreMutation = trpc.inventoryAccounting.purchaseRestore.useMutation({
     onSuccess: () => {
@@ -279,13 +291,14 @@ function PurchasesListContent() {
   // ─── 그룹 단위 액션 핸들러 (Promise.all) ─────────────────────
   const handleGroupAction = async (
     group: TransactionGroup,
-    action: "approve" | "markPaid" | "cancel" | "restore",
+    action: "approve" | "markPaid" | "cancel" | "restore" | "unpay",
   ) => {
     const actionLabels: Record<string, string> = {
       approve: "승인",
       markPaid: "지급 완료 처리",
       cancel: "취소",
       restore: "복구",
+      unpay: "지급 취소",
     };
     const label = actionLabels[action];
     const itemText = group.itemCount > 1 ? `${group.itemCount}개 품목` : "이 거래";
@@ -314,6 +327,8 @@ function PurchasesListContent() {
         await Promise.all(targetIds.map((id) => cancelMutation.mutateAsync({ purchaseId: id })));
       } else if (action === "restore") {
         await Promise.all(targetIds.map((id) => restoreMutation.mutateAsync({ purchaseId: id })));
+      } else if (action === "unpay") {
+        await Promise.all(targetIds.map((id) => unpayMutation.mutateAsync({ purchaseId: id })));
       }
       toast({ title: `그룹 ${label} 완료`, description: `${targetIds.length}개 품목 처리됨` });
     } catch (err) {
@@ -756,6 +771,15 @@ function PurchasesListContent() {
                                       title={isMultiItem ? "그룹 전체 지급 완료" : "지급 완료"}
                                       className="h-7 w-7 p-0 bg-emerald-600 hover:bg-emerald-700">
                                       <DollarSign className="h-3.5 w-3.5" />
+                                    </Button>
+                                  )}
+                                  {availableGroupActions.includes("unpay") && (
+                                    <Button size="sm" variant="outline"
+                                      onClick={() => handleGroupAction(group, "unpay")}
+                                      disabled={unpayMutation.isPending}
+                                      title={isMultiItem ? "그룹 전체 지급 취소" : "지급 취소"}
+                                      className="h-7 w-7 p-0 text-orange-600">
+                                      <Undo2 className="h-3.5 w-3.5" />
                                     </Button>
                                   )}
                                   {availableGroupActions.includes("restore") && (

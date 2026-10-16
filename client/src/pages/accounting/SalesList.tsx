@@ -48,6 +48,7 @@ import {
   Calculator,
   Coins,
   RotateCcw,
+  Undo2,
   BarChart3,
   FileSpreadsheet,
   Upload,
@@ -264,6 +265,16 @@ function SalesListContent() {
       toast({ title: "수금 처리 실패", description: error.message, variant: "destructive" });
     },
   });
+  // 매출 수금 취소 (received → approved) — 2026-10-16: [수금] 역분개 + AR 상쇄
+  const unreceiveMutation = trpc.inventoryAccounting.saleUnreceive.useMutation({
+    onSuccess: () => {
+      toast({ title: "수금 취소", description: "승인(미수금) 상태로 되돌렸습니다. 이제 매출 취소가 가능합니다." });
+      refetch();
+    },
+    onError: (error: { message: string }) => {
+      toast({ title: "수금 취소 실패", description: error.message, variant: "destructive" });
+    },
+  });
   const saleRestoreMutation = trpc.inventoryAccounting.saleRestore.useMutation({
     onSuccess: () => {
       toast({ title: "복구 완료", description: "취소된 매출이 대기 상태로 복구되었습니다." });
@@ -355,7 +366,7 @@ function SalesListContent() {
 
   const handleGroupAction = async (
     group: TransactionGroup,
-    action: "approve" | "markReceived" | "cancel" | "restore",
+    action: "approve" | "markReceived" | "cancel" | "restore" | "unreceive",
   ) => {
     // ★ 2026-05-16 PR-Q: silent fail 사고 진단 + 방어
     // ★ 2026-05-20 PR-S: 가시 진단 패널 + 30초 hang 타임아웃 추가
@@ -372,6 +383,7 @@ function SalesListContent() {
       markReceived: "수금 완료 처리",
       cancel: "취소",
       restore: "복구",
+      unreceive: "수금 취소",
     };
     const label = actionLabels[action];
 
@@ -452,6 +464,8 @@ function SalesListContent() {
           return withTimeout(saleCancelMutation.mutateAsync({ saleId: id }), TIMEOUT_MS, `매출#${id} 취소`);
         case "restore":
           return withTimeout(saleRestoreMutation.mutateAsync({ saleId: id }), TIMEOUT_MS, `매출#${id} 복구`);
+        case "unreceive":
+          return withTimeout(unreceiveMutation.mutateAsync({ saleId: id }), TIMEOUT_MS, `매출#${id} 수금취소`);
         default:
           return Promise.reject(new Error(`알 수 없는 액션: ${action}`));
       }
@@ -1314,6 +1328,15 @@ function SalesListContent() {
                                       <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300 text-[9px]" title="B2C 전자상거래 — 수금은 [플랫폼 정산] 메뉴 이용">
                                         회계제외
                                       </Badge>
+                                    )}
+                                    {availableGroupActions.includes("unreceive") && !groupAllExcluded && (
+                                      <Button size="sm" variant="outline"
+                                        onClick={() => handleGroupAction(group, "unreceive")}
+                                        disabled={unreceiveMutation.isPending}
+                                        title={isMultiItem ? "그룹 전체 수금 취소" : "수금 취소"}
+                                        className="h-7 w-7 p-0 text-orange-600">
+                                        <Undo2 className="h-3.5 w-3.5" />
+                                      </Button>
                                     )}
                                     {availableGroupActions.includes("restore") && (
                                       <Button size="sm" variant="outline"

@@ -55,7 +55,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
   });
 
   beforeEach(async () => {
-    for (const t of ["h_mf_ingredients", "product_skus", "item_master", "sku_bundles", "h_inventory", "accounting_sales", "h_inventory_lots", "h_inventory_transactions", "expense_journal_entries", "expense_journal_lines", "accounting_accounts", "h_product_outbound", "bundle_lots"]) {
+    for (const t of ["ar_ledger", "bank_accounts", "h_mf_ingredients", "product_skus", "item_master", "sku_bundles", "h_inventory", "accounting_sales", "h_inventory_lots", "h_inventory_transactions", "expense_journal_entries", "expense_journal_lines", "accounting_accounts", "h_product_outbound", "bundle_lots"]) {
       await q(`DELETE FROM ${t}`);
     }
     // 단지 시스템 계정 (보정 후 상태)
@@ -204,6 +204,34 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     const ret = await q(`SELECT lot_id, quantity + 0 AS qty, unit FROM h_inventory_transactions WHERE source_type = 'SALE_CANCEL' AND source_id = 600 ORDER BY lot_id`);
     expect(ret.map((r: any) => [Number(r.lot_id), Number(r.qty), r.unit])).toEqual([[950, 2.4, "kg"], [951, 0.4, "kg"]]);
     expect((await getSaleFootprint(admin, T, 600)).live).toBe(false);
+  });
+
+  it("수금 취소: 원 [수금] 전표 역분개 + AR 상쇄 → 승인 상태, 그다음 매출 취소까지 / [수금] 없는 수금 완료는 거부", async () => {
+    const { markSaleReceived } = await import("./lib/accounting/productSaleReceive");
+    const { unreceiveSale } = await import("./lib/accounting/productSaleUnreceive");
+    const { cancelProductSale } = await import("./lib/accounting/productSaleCancel");
+    await q(`DELETE FROM ar_ledger`);
+    await q(`INSERT INTO accounting_accounts (id, tenant_id, category, code, system_code, name, is_active) VALUES (80, ?, 'assets', '1010', 'CASH', '현금', 'Y')`, [T]);
+    await insertSale(10536, "2026-10-15", 240, 1444800, 144480);
+    await q(`UPDATE accounting_sales SET partner_id = 11 WHERE id = 10536`);
+    await postProductSale(10536, 4);
+    await markSaleReceived(10536, 4, T, { receivedDate: "2026-10-16" });
+    expect((await q(`SELECT status FROM accounting_sales WHERE id = 10536`))[0].status).toBe("received");
+    const r = await unreceiveSale(10536, 4, T);
+    expect(r.alreadyProcessed).toBe(false);
+    expect((await q(`SELECT status FROM accounting_sales WHERE id = 10536`))[0].status).toBe("approved");
+    const cash = (await q(`SELECT COALESCE(SUM(l.debit_amount - l.credit_amount), 0) + 0 AS n FROM expense_journal_lines l JOIN expense_journal_entries e ON e.id = l.journal_entry_id WHERE l.account_id = 80`))[0].n;
+    expect(Number(cash)).toBe(0);
+    const ar = (await q(`SELECT SUM(CASE WHEN ar_entry_type IN ('debit','adjust') THEN amount ELSE -amount END) + 0 AS n FROM ar_ledger WHERE ref_id = 10536`))[0].n;
+    expect(Number(ar)).toBe(0);
+    expect(await unreceiveSale(10536, 4, T)).toEqual({ alreadyProcessed: true });
+    await cancelProductSale(10536, 4, T);
+    expect(await lot(1834)).toMatchObject({ a: 358 });
+    const receivable = (await q(`SELECT COALESCE(SUM(l.debit_amount - l.credit_amount), 0) + 0 AS n FROM expense_journal_lines l WHERE l.account_id = 62`))[0].n;
+    expect(Number(receivable)).toBe(0);
+    await insertSale(503, "2026-10-15", 1, 1000, 100);
+    await q(`UPDATE accounting_sales SET status = 'received' WHERE id = 503`);
+    await expect(unreceiveSale(503, 4, T)).rejects.toThrow(/수금 전표를 찾을 수 없어/);
   });
 
   it("일괄 복구 조건(saleHasFootprintSql): 반쪽 승인만 대상, 확정 흔적 있는 매출·다른 회사 흔적은 구분", async () => {
