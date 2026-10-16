@@ -27,6 +27,10 @@ export interface IncomingIngredient {
   adjustedWeightKg?: number | null;
   correctedQuantity?: number | null;
   isAdditional?: number;
+  /** 운영 기준 원물 kg (수율 기준 PR B) */
+  basisRawKg?: number | null;
+  /** 전처리 배율 (NULL = 1.0) */
+  pretreatmentFactor?: number | null;
 }
 
 export interface ExistingIngredient {
@@ -38,6 +42,8 @@ export interface ExistingIngredient {
   pieceCount?: number | null;
   pieceWeightG?: string | number | null;
   isAdditional?: number | null;
+  basisRawKg?: string | number | null;
+  pretreatmentFactor?: string | number | null;
 }
 
 const keep = <T,>(incoming: T | undefined, original: T | null | undefined): T | null =>
@@ -65,6 +71,8 @@ export function mergeIngredientRows(incoming: IncomingIngredient[], existing: Ex
       processGroupId: keep(ing.processGroupId, orig?.processGroupId),
       adjustedWeightKg: str(keep(ing.adjustedWeightKg, orig?.adjustedWeightKg as any)),
       isAdditional: ing.isAdditional ?? orig?.isAdditional ?? 0,
+      basisRawKg: str(keep(ing.basisRawKg, orig?.basisRawKg as any)),
+      pretreatmentFactor: str(keep(ing.pretreatmentFactor, orig?.pretreatmentFactor as any)),
     };
   });
 }

@@ -660,6 +660,55 @@ async function ensureSalesSkuColumn(conn: any) {
 }
 
 /**
+ * 원물·공정·완제품 기준 (2026-10-16, 수율 기준 PR B) — 기존 값은 건드리지 않고 컬럼·표만 추가한다.
+ *   h_mf_report_versions.reference_finished_kg   : 이 배합의 완제품 기준량 kg
+ *   h_mf_report_versions.reference_raw_total_kg  : % 행용 기준 원물 합계 kg
+ *   h_mf_report_versions.mass_basis_enabled      : 검증된 버전만 1 (기본 0 — 기존 계산 그대로)
+ *   h_mf_ingredients.basis_raw_kg                : 운영 기준 원물 kg (엑셀 kg 등, 법적 % 와 분리)
+ *   h_mf_ingredients.pretreatment_factor         : 전처리 배율 (생찹쌀→불린 1.4 등, NULL = 1.0)
+ *   h_batch_mass_basis                           : 배치 생성 때 쓴 버전·기준·계산 결과 스냅샷
+ */
+async function ensureMassBasisSchema(conn: any) {
+  const addCol = async (table: string, column: string, ddl: string) => {
+    try {
+      const [cols]: any = await conn.query(
+        `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`,
+        [table, column],
+      );
+      if (!(cols as any[]).length) {
+        await conn.query(`ALTER TABLE \`${table}\` ADD COLUMN ${ddl}, ALGORITHM=INSTANT`);
+        console.log(`[Migration] ${table}.${column} added`);
+      }
+    } catch (err: any) {
+      if (err.code !== "ER_NO_SUCH_TABLE") console.warn(`[Migration] ${table}.${column} failed:`, err.message);
+    }
+  };
+  await addCol("h_mf_report_versions", "reference_finished_kg", "`reference_finished_kg` decimal(12,3) NULL");
+  await addCol("h_mf_report_versions", "reference_raw_total_kg", "`reference_raw_total_kg` decimal(12,3) NULL");
+  await addCol("h_mf_report_versions", "mass_basis_enabled", "`mass_basis_enabled` tinyint NOT NULL DEFAULT 0");
+  await addCol("h_mf_ingredients", "basis_raw_kg", "`basis_raw_kg` decimal(12,4) NULL");
+  await addCol("h_mf_ingredients", "pretreatment_factor", "`pretreatment_factor` decimal(6,4) NULL");
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS h_batch_mass_basis (
+      batch_id bigint NOT NULL PRIMARY KEY,
+      tenant_id int NOT NULL,
+      mf_report_version_id bigint NOT NULL,
+      calc_version varchar(30) NOT NULL,
+      reference_finished_kg decimal(12,3) NOT NULL,
+      planned_finished_kg decimal(12,3) NOT NULL,
+      multiplier decimal(18,8) NOT NULL,
+      total_raw_kg decimal(14,4) NOT NULL,
+      total_process_kg decimal(14,4) NOT NULL,
+      rows_json json NOT NULL,
+      created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      KEY idx_bmb_tenant_version (tenant_id, mf_report_version_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  } catch (err: any) {
+    console.warn("[Migration] h_batch_mass_basis failed:", err.message);
+  }
+}
+
+/**
  * 요청을 받기 전에 반드시 있어야 하는 스키마 (2026-10-16, Codex #527 배포 리뷰 P2)
  *
  * 부팅 마이그레이션은 listen 뒤에 돌고 실패를 삼킨다 → 컬럼 생성이 실패해도 새 코드가 요청을 받을 수 있었다.
@@ -670,10 +719,20 @@ async function ensureSalesSkuColumn(conn: any) {
  */
 export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: string }> = [
   { table: "accounting_sales", column: "sku_id", why: "판매 SKU — select(accountingSales) 가 읽는다 (PR #527)" },
+  // 원물·공정·완제품 기준 (수율 기준 PR B) — select(hMfReportVersions / hMfIngredients) 가 읽는다
+  { table: "h_mf_report_versions", column: "reference_finished_kg", why: "기준 완제품 kg (PR B)" },
+  { table: "h_mf_report_versions", column: "reference_raw_total_kg", why: "기준 원물 합계 kg (PR B)" },
+  { table: "h_mf_report_versions", column: "mass_basis_enabled", why: "원물·공정 기준 사용 여부 (PR B)" },
+  { table: "h_mf_ingredients", column: "basis_raw_kg", why: "운영 기준 원물 kg (PR B)" },
+  { table: "h_mf_ingredients", column: "pretreatment_factor", why: "전처리 배율 (PR B)" },
+  { table: "h_batch_mass_basis", column: "rows_json", why: "배치 기준 스냅샷 (PR B)" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {
-  if (opts.allowDdl) await ensureSalesSkuColumn(conn);
+  if (opts.allowDdl) {
+    await ensureSalesSkuColumn(conn);
+    await ensureMassBasisSchema(conn);
+  }
   const missing: string[] = [];
   for (const c of REQUIRED_COLUMNS) {
     const [rows]: any = await conn.query(

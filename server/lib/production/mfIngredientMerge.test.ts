@@ -57,3 +57,13 @@ describe("unknownIngredientIds — 오래된 화면 거부 (Codex 배포 검토 
     expect(unknownIngredientIds([{ ...base, id: 7142 }, { ...base, id: 7142 }], existing)).toEqual([7142]);
   });
 });
+
+describe("기준 원물 kg·전처리 배율 (수율 기준 PR B) 도 같은 규칙", () => {
+  it("화면이 안 보내면 원래 값 유지, null 이면 비움, 값이면 그 값", () => {
+    const ex = [{ id: 1, processGroupId: 2, basisRawKg: "8.0000", pretreatmentFactor: "1.2500" }];
+    const [keep] = mergeIngredientRows([{ ...base, id: 1 }], ex, 472);
+    expect([keep.basisRawKg, keep.pretreatmentFactor]).toEqual(["8.0000", "1.2500"]);
+    const [cleared] = mergeIngredientRows([{ ...base, id: 1, basisRawKg: null, pretreatmentFactor: 1.4 }], ex, 472);
+    expect([cleared.basisRawKg, cleared.pretreatmentFactor]).toEqual([null, "1.4"]);
+  });
+});

@@ -986,6 +986,9 @@ export async function updateMfReport(data: {
   yieldBasis?: string;
   unitWeightG?: number;
   batchTargetKg?: number;
+  referenceFinishedKg?: number | null;
+  referenceRawTotalKg?: number | null;
+  massBasisEnabled?: boolean;
   ingredients?: Array<{
     materialId?: number;
     intermediateId?: number;
@@ -1002,6 +1005,8 @@ export async function updateMfReport(data: {
     pieceCount?: number | null;
     pieceWeightG?: number | null;
     correctedQuantity?: number | null;
+    basisRawKg?: number | null;
+    pretreatmentFactor?: number | null;
   }>;
 }, tenantId: number) {
   const db = await getDb();
@@ -1038,6 +1043,9 @@ export async function updateMfReport(data: {
   if (data.yieldBasis) versionUpdate.yieldBasis = data.yieldBasis;
   if (data.unitWeightG !== undefined) versionUpdate.unitWeightG = data.unitWeightG || null;
   if (data.batchTargetKg !== undefined) versionUpdate.batchTargetKg = data.batchTargetKg || null;
+  if (data.referenceFinishedKg !== undefined) versionUpdate.referenceFinishedKg = data.referenceFinishedKg ?? null;
+  if (data.referenceRawTotalKg !== undefined) versionUpdate.referenceRawTotalKg = data.referenceRawTotalKg ?? null;
+  if (data.massBasisEnabled !== undefined) versionUpdate.massBasisEnabled = data.massBasisEnabled ? 1 : 0;
 
   if (Object.keys(versionUpdate).length > 0) {
     await db.update(hMfReportVersions).set(versionUpdate)
