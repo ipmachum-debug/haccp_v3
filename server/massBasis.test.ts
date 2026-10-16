@@ -13,7 +13,7 @@ describe("우유설기 — 준비 5판(완제품 12.5kg) / 작업 2판(5kg)", ()
     { key: "멥쌀", rawKg: 8, factor: NON_GLUTINOUS },
     { key: "우유", rawKg: 1 }, { key: "설탕", rawKg: 1 }, { key: "정제수", rawKg: 0.8 }, { key: "소금", rawKg: 0.13 },
   ];
-  it("작업 2판: 생멥쌀 3.2kg 출고, 공정 멥쌀 4.0kg, 나머지도 같은 배수 (×0.4)", () => {
+  it("운영 기준 (CEO 확정, 엑셀 kg): 작업 2판 생멥쌀 3.2kg 출고, 공정 멥쌀 4.0kg, 나머지도 같은 배수 (×0.4)", () => {
     const r = computeMassBasis({ rows: prep, referenceFinishedKg: finishedKgForTrays(5, 2.5), plannedFinishedKg: finishedKgForTrays(2, 2.5) });
     expect(r.multiplier).toBeCloseTo(0.4, 12);
     expect(rowOf(r, "멥쌀").rawKg).toBeCloseTo(3.2, 9);
@@ -28,7 +28,9 @@ describe("우유설기 — 준비 5판(완제품 12.5kg) / 작업 2판(5kg)", ()
     const r = computeMassBasis({ rows: prep, referenceFinishedKg: 12.5, plannedFinishedKg: 5 });
     expect(rowOf(r, "멥쌀").rawKg).not.toBeCloseTo(5 * 0.733, 2);
   });
-  it("PDF 비율 + 원물 합계 10.93kg 유지 조정안: 생멥쌀 3.204676kg / 공정 4.005845kg (엑셀 3.2/4.0 과 구분)", () => {
+  // 비율(percent) 입력 산식 검증용 비교 사례 — 우유설기 운영값이 아니다.
+  // CEO 확정(2026-10-16): 우유설기 운영 기준은 엑셀 kg (준비 5판 원물 생멥쌀 8kg / 완제품 12.5kg, 배율 1.25 → 작업 2판 3.2 / 4.0kg).
+  it("percent 입력 산식: 기준 원물 합계 × % / 100 (예시 수치 10.93kg × 73.3% → 작업 5kg 3.204676 / 공정 4.005845)", () => {
     const r = computeMassBasis({
       rows: [{ key: "멥쌀", percent: 73.3, factor: NON_GLUTINOUS }],
       referenceFinishedKg: 12.5, referenceRawTotalKg: 10.93, plannedFinishedKg: 5,
