@@ -865,6 +865,15 @@ export async function cancelProductOutbound(outboundId: number, userId: number, 
         `SELECT unit FROM h_inventory_lots WHERE id = ? AND tenant_id = ? FOR UPDATE`,
         [record.lot_id, tenantId]
       );
+      // 원 출고 거래의 당시 원가 — 복원 거래도 같은 단가·금액으로 (Codex #538 배포 검토 P2: 이전엔 NULL)
+      const [origRows] = await conn.execute(
+        `SELECT SUM(quantity) AS qty, SUM(COALESCE(amount, quantity * COALESCE(unit_cost, 0))) AS amt
+           FROM h_inventory_transactions
+          WHERE tenant_id = ? AND source_type = 'PRODUCT_OUTBOUND' AND source_id = ? AND lot_id = ?`,
+        [tenantId, outboundId, record.lot_id]
+      );
+      const origQty = Number((origRows as any[])[0]?.qty || 0);
+      const unitCost = origQty > 0 ? Number((origRows as any[])[0]?.amt || 0) / origQty : 0;
       await conn.execute(
         `UPDATE h_inventory_lots
            SET available_quantity = available_quantity + ?,
@@ -877,9 +886,10 @@ export async function cancelProductOutbound(outboundId: number, userId: number, 
       await conn.execute(
         `INSERT INTO h_inventory_transactions
            (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
-            reference_type, reference_id, source_type, source_id, notes, created_by, performed_by)
-         VALUES (?, ?, 'return', ?, ?, ?, 'product_outbound', ?, 'PRODUCT_OUTBOUND_CANCEL', ?, ?, ?, ?)`,
+            reference_type, reference_id, source_type, source_id, unit_cost, amount, notes, created_by, performed_by)
+         VALUES (?, ?, 'return', ?, ?, ?, 'product_outbound', ?, 'PRODUCT_OUTBOUND_CANCEL', ?, ?, ?, ?, ?, ?)`,
         [tenantId, record.lot_id, qty, (lotRows as any[])[0]?.unit || "EA", cancelDate, outboundId, outboundId,
+         Math.round(unitCost * 100) / 100, Math.round(qty * unitCost * 100) / 100,
          `출고 취소 복원 (outboundId: ${outboundId})`, userId, userId]
       );
     } else if (record.batch_id) {

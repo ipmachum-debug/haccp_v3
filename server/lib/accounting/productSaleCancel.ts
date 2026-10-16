@@ -62,54 +62,87 @@ export async function cancelProductSale(
     }
     assertSaleCancellable(currentStatus, (sale as any).sourceType);
 
-    // (A) 원본 SALE usage 거래 조회 — 각 LOT 별로 얼마나 차감됐는지 알려면 모두 필요
-    const [usageTxRows] = await conn.execute(
-      `SELECT id, lot_id, quantity, unit_cost, amount
-       FROM h_inventory_transactions
-       WHERE tenant_id = ?
-         AND UPPER(reference_type) = 'SALE'
-         AND source_id = ?
-         AND transaction_type = 'usage'
-       ORDER BY id ASC`,
+    // (A) LOT 별 "아직 되돌리지 않은" 차감만 복원 (2026-10-16, Codex #538 배포 검토 P1)
+    //   취소 → 복구 → 재확정 → 재취소를 거치면 이 매출의 원 차감이 회차마다 쌓인다. 전부 다시 복원하면 첫 회차 차감이
+    //   두 번 복원돼 재고가 늘어난다 (100 → 90 → 100 → 90 → 110). 그래서 LOT 마다
+    //     원 차감 (일반 SALE usage + 혼합 구성품 bundle_lots 'sales:<id>') − 이미 남긴 SALE_CANCEL return
+    //   만큼만 복원한다. 원 차감 이력은 그대로 둔다. 단위가 다른 LOT 끼리 뭉쳐 상쇄하지 않는다.
+    const [saleUsageRows] = await conn.execute(
+      `SELECT lot_id, SUM(quantity) AS qty, SUM(COALESCE(amount, quantity * COALESCE(unit_cost, 0))) AS amt
+         FROM h_inventory_transactions
+        WHERE tenant_id = ? AND source_id = ? AND transaction_type = 'usage'
+          AND (source_type = 'SALE' OR UPPER(reference_type) = 'SALE')
+        GROUP BY lot_id`,
       [tenantId, saleId],
     );
-    // 혼합(번들) 구성품 차감 — bundle_lots.notes='sales:<id>' 가 정본 (2026-10-15 이전 거래에는 매출 참조가 없음)
     const [bundleRows] = await conn.execute(
-      `SELECT child_lot_id AS lot_id, deducted_qty_kg AS quantity
-         FROM bundle_lots WHERE tenant_id = ? AND notes = ?`,
+      `SELECT child_lot_id AS lot_id, SUM(deducted_qty_kg) AS qty
+         FROM bundle_lots WHERE tenant_id = ? AND notes = ?
+        GROUP BY child_lot_id`,
       [tenantId, `sales:${saleId}`],
     );
-    const bundleCostRows = new Map<number, number>();
+    // 혼합 구성품 원가 — 원 차감 거래의 당시 단가 (현재 LOT 단가로 재계산하지 않음, Codex #538 P2)
+    //   새 규약(2026-10-15~): reference_type='sales', reference_id=매출 → 이 매출의 거래만
+    //   옛 거래(참조 없음): source_id=부모 LOT, lot_id=자식 LOT 로 bundle_lots 와 연결 (같은 쌍의 거래 가중 평균)
+    const bundleUnitCost = new Map<number, number>();
     if ((bundleRows as any[]).length > 0) {
-      const [bc] = await conn.execute(
-        `SELECT lot_id, SUM(amount) AS amount, SUM(quantity) AS qty FROM h_inventory_transactions
-          WHERE tenant_id = ? AND source_type = 'BUNDLE_OUTBOUND' AND reference_type = 'sales' AND reference_id = ?
+      const [refCost] = await conn.execute(
+        `SELECT lot_id, SUM(amount) AS amt, SUM(quantity) AS qty FROM h_inventory_transactions
+          WHERE tenant_id = ? AND source_type = 'BUNDLE_OUTBOUND' AND transaction_type = 'usage'
+            AND reference_type = 'sales' AND reference_id = ?
           GROUP BY lot_id`,
         [tenantId, saleId],
       );
-      for (const r of bc as any[]) bundleCostRows.set(Number(r.lot_id), Number(r.qty) > 0 ? Number(r.amount || 0) / Number(r.qty) : 0);
+      for (const r of refCost as any[]) if (Number(r.qty) > 0) bundleUnitCost.set(Number(r.lot_id), Number(r.amt || 0) / Number(r.qty));
+      const [pairCost] = await conn.execute(
+        `SELECT t.lot_id, SUM(t.amount) AS amt, SUM(t.quantity) AS qty
+           FROM h_inventory_transactions t
+           JOIN (SELECT DISTINCT parent_lot_id, child_lot_id FROM bundle_lots WHERE tenant_id = ? AND notes = ?) b
+             ON t.source_id = b.parent_lot_id AND t.lot_id = b.child_lot_id
+          WHERE t.tenant_id = ? AND t.source_type = 'BUNDLE_OUTBOUND' AND t.transaction_type = 'usage'
+          GROUP BY t.lot_id`,
+        [tenantId, `sales:${saleId}`, tenantId],
+      );
+      for (const r of pairCost as any[]) {
+        const lot = Number(r.lot_id);
+        if (!bundleUnitCost.has(lot) && Number(r.qty) > 0) bundleUnitCost.set(lot, Number(r.amt || 0) / Number(r.qty));
+      }
     }
-    const usageTxs = [
-      ...(usageTxRows as any[]),
-      ...(bundleRows as any[]).map((r) => ({
-        lot_id: r.lot_id, quantity: r.quantity,
-        unit_cost: bundleCostRows.get(Number(r.lot_id)) ?? 0,
-        amount: Number(r.quantity || 0) * (bundleCostRows.get(Number(r.lot_id)) ?? 0),
-        bundle: true,
-      })),
-    ];
+    const [returnedRows] = await conn.execute(
+      `SELECT lot_id, SUM(quantity) AS qty FROM h_inventory_transactions
+        WHERE tenant_id = ? AND source_type = 'SALE_CANCEL' AND source_id = ?
+        GROUP BY lot_id`,
+      [tenantId, saleId],
+    );
+    const returned = new Map<number, number>((returnedRows as any[]).map((r) => [Number(r.lot_id), Number(r.qty || 0)]));
+
+    const perLot = new Map<number, { deducted: number; amount: number; fromSale: boolean }>();
+    for (const r of saleUsageRows as any[]) {
+      const lot = Number(r.lot_id);
+      const cur = perLot.get(lot) ?? { deducted: 0, amount: 0, fromSale: false };
+      cur.deducted += Number(r.qty || 0); cur.amount += Number(r.amt || 0); cur.fromSale = true;
+      perLot.set(lot, cur);
+    }
+    for (const r of bundleRows as any[]) {
+      const lot = Number(r.lot_id);
+      const qty = Number(r.qty || 0);
+      const cur = perLot.get(lot) ?? { deducted: 0, amount: 0, fromSale: false };
+      cur.deducted += qty; cur.amount += qty * (bundleUnitCost.get(lot) ?? 0);
+      perLot.set(lot, cur);
+    }
 
     let totalRestoredCogs = 0;
     let totalRestoredQty = 0;
     const restoredProductId: number | null = (sale as any).productId || null;
+    const usageTxs: Array<{ lot_id: number; bundle: boolean }> = [];
 
-    // (B) LOT 별로 복구
-    for (const tx of usageTxs) {
-      const lotId = Number(tx.lot_id);
-      const restoreQty = Number(tx.quantity || 0);
-      const lotCost = Number(tx.amount || 0);
+    // (B) LOT 별로 복구 — 남은 차감만
+    for (const [lotId, d] of perLot) {
+      const restoreQty = Math.round((d.deducted - (returned.get(lotId) ?? 0)) * 1000) / 1000;
+      if (restoreQty <= 0.0005) continue;
+      const unitCost = d.deducted > 0 ? d.amount / d.deducted : 0;
+      const lotCost = Math.round(restoreQty * unitCost * 100) / 100;
 
-      // LOT 잠금
       const [lotLockRows] = await conn.execute(
         `SELECT available_quantity, current_quantity, quantity, unit FROM h_inventory_lots
          WHERE id = ? AND tenant_id = ? FOR UPDATE`,
@@ -118,7 +151,6 @@ export async function cancelProductSale(
       const lotRow = (lotLockRows as any[])[0];
       if (!lotRow) continue;
 
-      // LOT 수량 복구
       await conn.execute(
         `UPDATE h_inventory_lots
          SET available_quantity = available_quantity + ?,
@@ -129,7 +161,7 @@ export async function cancelProductSale(
         [restoreQty, restoreQty, lotId, tenantId],
       );
 
-      // 재고 원장에 복구 기록 (return 타입, 양수 quantity, 감사 추적)
+      // 재고 원장에 복구 기록 (return 타입, 양수 quantity, LOT 단위, 원 차감 당시 단가)
       // PR-§5.2-2 (part 2): material_id NULL — 제품 판매 취소(SALE_CANCEL/return). productSalePost 와 동일 정책.
       await conn.execute(
         `INSERT INTO h_inventory_transactions
@@ -142,15 +174,16 @@ export async function cancelProductSale(
           lotRow.unit || sale.unit || "EA",
           cancelDate,
           saleId,
-          Number(tx.unit_cost || 0),
+          Math.round(unitCost * 100) / 100,
           lotCost,
-          tx.bundle ? `[매출취소] ${docId} 혼합 구성품 복원` : `[매출취소] ${docId}`,
+          d.fromSale ? `[매출취소] ${docId}` : `[매출취소] ${docId} 혼합 구성품 복원`,
           userId,
         ],
       );
 
+      usageTxs.push({ lot_id: lotId, bundle: !d.fromSale });
       totalRestoredCogs += lotCost;
-      totalRestoredQty += restoreQty;
+      if (d.fromSale) totalRestoredQty += restoreQty;
     }
 
     // (C) 원재료 수불부 (material_ledger_daily) 역수행 — 원재료/부자재/외부제품 매출만.

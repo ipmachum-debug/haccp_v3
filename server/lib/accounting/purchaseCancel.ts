@@ -164,18 +164,16 @@ export async function cancelPurchase(
     }
 
     // (C) h_inbound_headers 상태 변경 (DELETE 금지 - 감사 추적 유지)
-    try {
-      await conn.execute(
-        `UPDATE h_inbound_headers
-         SET status = 'cancelled',
-             notes = CONCAT(COALESCE(notes, ''), ?),
-             updated_at = NOW()
-         WHERE tenant_id = ? AND inbound_number = ?`,
-        [` [취소: ${cancelDate}]`, tenantId, inboundNumber],
-      );
-    } catch (ibErr) {
-      console.error(`[purchaseCancel] h_inbound_headers 상태 변경 실패:`, ibErr);
-    }
+    //   ★ 2026-10-16 (Codex #537 검토 P2): 실패를 삼키지 않는다 — 재고·분개는 되돌렸는데 입고전표만 '확정' 으로
+    //   남으면 육안검사·입고 이력이 취소된 입고를 계속 보여 준다. 실패하면 전체 롤백.
+    await conn.execute(
+      `UPDATE h_inbound_headers
+       SET status = 'cancelled',
+           notes = CONCAT(COALESCE(notes, ''), ?),
+           updated_at = NOW()
+       WHERE tenant_id = ? AND inbound_number = ?`,
+      [` [취소: ${cancelDate}]`, tenantId, inboundNumber],
+    );
 
     // (D) material_ledger_daily 역수행 — 확정(postPurchase)이 기록한 경우에만, LOT 재고 수량으로
     //     (2026-10-16: 수불부 입고는 확정 때 LOT 수량으로 한 번 기록 — PR #533)
