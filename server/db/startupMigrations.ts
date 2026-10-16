@@ -706,6 +706,30 @@ async function ensureMassBasisSchema(conn: any) {
   } catch (err: any) {
     console.warn("[Migration] h_batch_mass_basis failed:", err.message);
   }
+  // 회사별 기능 선택 (2026-10-16): 수율 보정 방식은 회사가 선택 — 기본 꺼짐.
+  //   표를 처음 만들 때만, 이미 레시피에서 기준 사용을 켠 회사는 켜진 상태로 이어받는다 (기존 선택 보존).
+  try {
+    const [exists]: any = await conn.query(
+      `SELECT 1 FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tenant_feature_settings' LIMIT 1`,
+    );
+    if (!(exists as any[]).length) {
+      await conn.query(`CREATE TABLE tenant_feature_settings (
+        tenant_id int NOT NULL,
+        feature_code varchar(60) NOT NULL,
+        enabled tinyint NOT NULL DEFAULT 0,
+        updated_by bigint NULL,
+        updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (tenant_id, feature_code)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+      await conn.query(
+        `INSERT IGNORE INTO tenant_feature_settings (tenant_id, feature_code, enabled)
+         SELECT DISTINCT tenant_id, 'PRODUCTION_MASS_BASIS', 1 FROM h_mf_report_versions WHERE mass_basis_enabled = 1`,
+      );
+      console.log("[Migration] tenant_feature_settings created");
+    }
+  } catch (err: any) {
+    console.warn("[Migration] tenant_feature_settings failed:", err.message);
+  }
 }
 
 /**

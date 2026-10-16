@@ -22,3 +22,16 @@ CREATE TABLE IF NOT EXISTS `h_batch_mass_basis` (
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
   KEY `idx_bmb_tenant_version` (`tenant_id`, `mf_report_version_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 회사별 기능 선택 (PR C 후속, 2026-10-16) — 수율 보정 방식은 회사가 선택, 기본 꺼짐
+CREATE TABLE IF NOT EXISTS `tenant_feature_settings` (
+  `tenant_id` int NOT NULL,
+  `feature_code` varchar(60) NOT NULL,
+  `enabled` tinyint NOT NULL DEFAULT 0,
+  `updated_by` bigint NULL,
+  `updated_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`tenant_id`, `feature_code`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+-- 이미 레시피에서 기준 사용을 켠 회사는 켜진 상태로 이어받음
+INSERT IGNORE INTO `tenant_feature_settings` (`tenant_id`, `feature_code`, `enabled`)
+  SELECT DISTINCT `tenant_id`, 'PRODUCTION_MASS_BASIS', 1 FROM `h_mf_report_versions` WHERE `mass_basis_enabled` = 1;
