@@ -1506,16 +1506,11 @@ async function loadCcpBomInput(
 ): Promise<{ batchKg: number | null; inputByGroup: Record<number, number> } | null> {
   const pick = await selectBomVersion(productId, tenantId, rawConn);
   if (!pick) return null;
-  const [rows] = await rawConn.execute(CCP_BOM_ROWS_SQL, [pick.reportId, pick.versionId]);
+  const [rows] = await rawConn.execute(CCP_BOM_ROWS_SQL, [pick.versionId]);
   if ((rows as any[]).length === 0) return null;
   const [vRows] = await rawConn.execute(`SELECT batch_target_kg FROM h_mf_report_versions WHERE id = ?`, [pick.versionId]);
   const batchKg = parseFloat((vRows as any[])[0]?.batch_target_kg) || null;
   const inputByGroup: Record<number, number> = {};
-  for (const [pg, v] of ccpInputKgByGroup(rows as any[], pick.versionId)) {
-    inputByGroup[pg] = v.kg;
-    if (v.versionId !== pick.versionId) {
-      console.warn(`[ccpBomInput] product=${productId} 공정 ${pg}: 배치 버전 ${pick.versionId} 에 공정 지정 원료가 없어 버전 ${v.versionId} 값 사용`);
-    }
-  }
+  for (const [pg, v] of ccpInputKgByGroup(rows as any[], pick.versionId)) inputByGroup[pg] = v.kg;
   return { batchKg, inputByGroup };
 }
