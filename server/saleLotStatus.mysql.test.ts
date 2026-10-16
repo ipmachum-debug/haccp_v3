@@ -464,6 +464,76 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     });
   });
 
+  describe("매입 취소 — 등록·확정이 남긴 것을 LOT 단위로 되돌림 (2026-10-16, Codex DB 감사: 취소 대칭)", () => {
+    let createPurchase: any;
+    let cancelPurchase: any;
+    beforeAll(async () => {
+      ({ createPurchase } = await import("./db/haccp/haccpIntegration"));
+      ({ cancelPurchase } = await import("./lib/accounting/purchaseCancel"));
+    });
+    beforeEach(async () => {
+      for (const t of ["accounting_purchases", "h_inbound_headers", "h_inbound_lines", "partners", "h_materials", "material_ledger_daily"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO accounting_accounts (id, tenant_id, category, code, system_code, name, is_active) VALUES
+        (70, ?, 'liabilities', '2010', 'ACCOUNTS_PAYABLE', '외상매입금', 'Y'), (71, ?, 'assets', '1350', 'VAT_INPUT', '부가세대급금', 'Y')`, [T, T]);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (635, ?, 'M635', '우유(국내산)', 'kg', 1)`, [T]);
+    });
+    const milk = () => createPurchase({
+      transactionDate: "2026-10-12", partnerId: 0, itemName: "우유(국내산)", materialId: 635,
+      quantity: 6, packagingSize: 0.9, unit: "개", unitPrice: 3000, amount: 18000, taxAmount: 1800, taxRate: 10, createdBy: 4,
+    }, T);
+    const purchaseId = async () => Number((await q(`SELECT id FROM accounting_purchases ORDER BY id DESC LIMIT 1`))[0].id);
+    const lotOf = async () => {
+      const r = (await q(`SELECT available_quantity AS a, status FROM h_inventory_lots WHERE material_id = 635`))[0];
+      return { a: Number(r.a), status: r.status };
+    };
+    const net = async (pid: number) => {
+      const r = await q(`SELECT e.description, SUM(l.debit_amount) d, SUM(l.credit_amount) c FROM expense_journal_entries e JOIN expense_journal_lines l ON l.journal_entry_id = e.id
+        WHERE e.description LIKE ? OR e.description LIKE ? GROUP BY e.id`, [`[매입] PURCHASE-${pid} %`, `[매입취소] PURCHASE-${pid} %`]);
+      return r.map((x: any) => [String(x.description).split(" ")[0], Number(x.d), Number(x.c)]);
+    };
+
+    it("승인 매입 취소: LOT 5.4kg 전부(개수 6 아님) 되돌림, 수불부 0, 입고전표 취소, 원 전표 그대로 역분개, 두 번째 취소는 무변경", async () => {
+      expect((await milk()).posted).toBe(true);
+      const pid = await purchaseId();
+      expect((await q(`SELECT status FROM accounting_purchases WHERE id = ?`, [pid]))[0].status).toBe("approved");
+      await cancelPurchase(pid, 4, T);
+      expect(await lotOf()).toMatchObject({ a: 0, status: "disposed" });
+      const tx = await q(`SELECT quantity + 0 AS qty, unit FROM h_inventory_transactions WHERE source_type = 'PURCHASE_CANCEL' AND source_id = ?`, [pid]);
+      expect(tx.map((t: any) => [Number(t.qty), t.unit])).toEqual([[5.4, "kg"]]);
+      expect(Number((await q(`SELECT receiving_qty + 0 AS r FROM material_ledger_daily WHERE material_id = 635`))[0].r)).toBe(0);
+      expect((await q(`SELECT status FROM h_inbound_headers WHERE inbound_number = ?`, [`INB-PURCHASE-${pid}`]))[0].status).toBe("cancelled");
+      expect(await net(pid)).toEqual([["[매입]", 19800, 19800], ["[매입취소]", 19800, 19800]]);
+      expect(await cancelPurchase(pid, 4, T)).toEqual({ alreadyProcessed: true });
+      expect((await net(pid)).length).toBe(2);
+    });
+
+    it("확정 실패로 대기인 수기 매입: 등록 때 만든 LOT 은 되돌리고, 없던 분개·수불부는 건드리지 않음", async () => {
+      await q(`RENAME TABLE domain_events TO domain_events_off`); // 확정(postPurchase) 실패 재현
+      try {
+        expect((await milk()).posted).toBe(false);
+      } finally {
+        await q(`RENAME TABLE domain_events_off TO domain_events`);
+      }
+      const pid = await purchaseId();
+      expect((await q(`SELECT status FROM accounting_purchases WHERE id = ?`, [pid]))[0].status).toBe("pending");
+      await cancelPurchase(pid, 4, T);
+      expect(Number((await lotOf()).a)).toBe(0);
+      expect(await net(pid)).toEqual([]);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM material_ledger_daily`))[0].n)).toBe(0);
+      expect((await q(`SELECT status FROM accounting_purchases WHERE id = ?`, [pid]))[0].status).toBe("cancelled");
+    });
+
+    it("일부 소비된 LOT 은 취소 거부(무변경), 지급 완료는 거부", async () => {
+      await milk();
+      const pid = await purchaseId();
+      await q(`UPDATE h_inventory_lots SET available_quantity = 2 WHERE material_id = 635`);
+      await expect(cancelPurchase(pid, 4, T)).rejects.toThrow(/일부 소비/);
+      expect((await q(`SELECT status FROM accounting_purchases WHERE id = ?`, [pid]))[0].status).toBe("approved");
+      await q(`UPDATE accounting_purchases SET status = 'paid' WHERE id = ?`, [pid]);
+      await expect(cancelPurchase(pid, 4, T)).rejects.toThrow(/지급을 먼저 취소/);
+    });
+  });
+
   describe("품목제조보고 원료 저장 — 행 id 유지, 오래된 화면 거부 (2026-10-16, Codex PR #534 배포 검토 P2)", () => {
     let saveVersionIngredients: any;
     let db: any;

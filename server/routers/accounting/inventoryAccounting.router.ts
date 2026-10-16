@@ -69,6 +69,18 @@ export const inventoryAccountingRouter = router({
       if (current.status !== "cancelled") {
         throw new Error(`취소 상태만 복구 가능. 현재: ${current.status}`);
       }
+      // ★ 2026-10-16: 입고 재고가 있었던 매입은 복구하지 않는다. 취소가 재고·분개를 되돌렸으므로 대기로 돌려도
+      //   다시 확정할 때 이전 입고 기록 때문에 확정이 건너뛰어진다(재고 없이 대기로 남음). 새로 등록해야 한다.
+      const [rcpt]: any = await pool.execute(
+        `SELECT COUNT(*) AS n FROM h_inventory_transactions
+          WHERE tenant_id = ? AND transaction_type = 'receipt'
+            AND ( (reference_type = 'accounting_purchase' AND reference_id = ?)
+               OR (source_type = 'accounting_purchases' AND source_id = ?) )`,
+        [ctx.tenantId, input.purchaseId, input.purchaseId],
+      );
+      if (Number(rcpt?.[0]?.n ?? 0) > 0) {
+        throw new Error("입고된 적 있는 매입은 복구할 수 없습니다. 취소로 재고·분개가 되돌려졌으니 새로 등록하세요.");
+      }
       await pool.execute(
         `UPDATE accounting_purchases SET status = 'pending', canceled_at = NULL, canceled_by = NULL WHERE id = ? AND tenant_id = ?`,
         [input.purchaseId, ctx.tenantId],
