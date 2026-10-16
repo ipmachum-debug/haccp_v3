@@ -54,6 +54,10 @@ export default function MfReportEdit() {
   const [yieldBasis, setYieldBasis] = useState<"UNIT" | "BATCH">("UNIT");
   const [unitWeightG, setUnitWeightG] = useState("");
   const [batchTargetKg, setBatchTargetKg] = useState("");
+  // ★ 2026-10-16 원물·공정·완제품 기준 (수율 기준 PR B) — 켜진 버전만 배치에 기준 스냅샷 기록 (출고는 아직 기존 계산)
+  const [referenceFinishedKg, setReferenceFinishedKg] = useState("");
+  const [referenceRawTotalKg, setReferenceRawTotalKg] = useState("");
+  const [massBasisEnabled, setMassBasisEnabled] = useState(false);
 
   // 배치당 총생산량 (제품 기준)
   const [batchProductionKg, setBatchProductionKg] = useState<string>("100");
@@ -79,6 +83,8 @@ export default function MfReportEdit() {
     processGroupId?: number | null;
     adjustedWeightKg?: number | null;
     isAdditional: number;
+    basisRawKg?: number | null; // 운영 기준 원물 kg (수율 기준 PR B)
+    pretreatmentFactor?: number | null; // 전처리 배율 (비우면 1.0)
   }>>([]);
 
   // === 추가 원재료 (배합비 100%에 미포함, 정제수 등) ===
@@ -115,6 +121,9 @@ export default function MfReportEdit() {
         setBatchTargetKg(String(ver.batchTargetKg));
         setBatchProductionKg(String(ver.batchTargetKg));
       }
+      setReferenceFinishedKg((ver as any).referenceFinishedKg != null ? String(Number((ver as any).referenceFinishedKg)) : "");
+      setReferenceRawTotalKg((ver as any).referenceRawTotalKg != null ? String(Number((ver as any).referenceRawTotalKg)) : "");
+      setMassBasisEnabled(Number((ver as any).massBasisEnabled ?? 0) === 1);
 
       if (reportDetail.ingredients && reportDetail.ingredients.length > 0) {
         const mainIngs: typeof ingredients = [];
@@ -143,6 +152,8 @@ export default function MfReportEdit() {
               processGroupId: ing.processGroupId != null ? Number(ing.processGroupId) : null,
               adjustedWeightKg: ing.adjustedWeightKg != null ? Number(ing.adjustedWeightKg) : null,
               isAdditional: 0,
+              basisRawKg: (ing as any).basisRawKg != null ? Number((ing as any).basisRawKg) : null,
+              pretreatmentFactor: (ing as any).pretreatmentFactor != null ? Number((ing as any).pretreatmentFactor) : null,
             });
           }
         }
@@ -380,6 +391,8 @@ export default function MfReportEdit() {
         processGroupId: (ing.processGroupId != null && ing.processGroupId > 0) ? ing.processGroupId : null,
         adjustedWeightKg: (ing.adjustedWeightKg != null && ing.adjustedWeightKg > 0) ? ing.adjustedWeightKg : null,
         isAdditional: 0,
+        basisRawKg: ing.basisRawKg != null && ing.basisRawKg >= 0 ? ing.basisRawKg : null,
+        pretreatmentFactor: ing.pretreatmentFactor != null && ing.pretreatmentFactor > 0 ? ing.pretreatmentFactor : null,
       })),
       ...additionalIngredients.map(add => ({
         id: add.id,
@@ -407,6 +420,9 @@ export default function MfReportEdit() {
       yieldBasis,
       unitWeightG: unitWeightG ? parseFloat(unitWeightG) : undefined,
       batchTargetKg: batchProdKg > 0 ? batchProdKg : undefined,
+      referenceFinishedKg: parseFloat(referenceFinishedKg) > 0 ? parseFloat(referenceFinishedKg) : null,
+      referenceRawTotalKg: parseFloat(referenceRawTotalKg) > 0 ? parseFloat(referenceRawTotalKg) : null,
+      massBasisEnabled,
       ingredients: allIngredients,
     });
   };
@@ -511,6 +527,29 @@ export default function MfReportEdit() {
                     : "혼합 SKU · 배치 생성 차단됨 + sku_bundles 자동 동기화 (저장 시)"}
                 </p>
               </div>
+              {/* ★ 2026-10-16 원물·공정·완제품 기준 (수율 기준 PR B) */}
+              <div className="mt-3 rounded-md border bg-amber-50/50 p-2">
+                <div className="flex flex-wrap items-end gap-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1">기준 완제품(kg)</Label>
+                    <Input className="h-8 w-28 text-sm" type="number" step="0.001" value={referenceFinishedKg}
+                      onChange={(e) => setReferenceFinishedKg(e.target.value)} placeholder="예: 12.5" />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground mb-1">기준 원물 합계(kg, % 행용)</Label>
+                    <Input className="h-8 w-28 text-sm" type="number" step="0.001" value={referenceRawTotalKg}
+                      onChange={(e) => setReferenceRawTotalKg(e.target.value)} placeholder="선택" />
+                  </div>
+                  <label className="flex items-center gap-2 text-xs font-medium pb-1">
+                    <Checkbox checked={massBasisEnabled} onCheckedChange={(c) => setMassBasisEnabled(!!c)} className="h-4 w-4" />
+                    원물·공정 기준 사용 (검증된 배합만)
+                  </label>
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  원료별 '기준 원물(kg)' 은 이 배합으로 완제품 기준량을 만들 때의 원물(불리기 전) kg, '전처리 배율' 은 불림 등 공정 투입 배율(비우면 1.0)입니다.
+                  법적 배합비(%)는 바뀌지 않습니다. 켜면 새 배치에 기준 스냅샷이 기록되며, 원료 출고는 아직 기존 계산입니다.
+                </p>
+              </div>
             </CardContent>
           </Card>
 
@@ -553,6 +592,22 @@ export default function MfReportEdit() {
                             <Tooltip>
                               <TooltipTrigger className="underline decoration-dotted cursor-help">수율조정(kg)</TooltipTrigger>
                               <TooltipContent><p className="text-xs">실제 투입량 (수율 반영). 미입력 시 환산중량 적용</p></TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </th>
+                        <th className="px-3 py-2 text-right" style={{width: "100px"}}>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger className="underline decoration-dotted cursor-help">기준 원물(kg)</TooltipTrigger>
+                              <TooltipContent><p className="text-xs">완제품 기준량을 만들 때의 원물(불리기 전) kg — 운영 기준 (법적 비율과 별개)</p></TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
+                        </th>
+                        <th className="px-3 py-2 text-right" style={{width: "80px"}}>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger className="underline decoration-dotted cursor-help">전처리 배율</TooltipTrigger>
+                              <TooltipContent><p className="text-xs">생찹쌀→불린찹쌀 1.4, 생멥쌀→불린멥쌀 1.25 등. 비우면 1.0</p></TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
                         </th>
@@ -601,6 +656,24 @@ export default function MfReportEdit() {
                                 value={ing.adjustedWeightKg ?? ""}
                                 onChange={(e) => updateIngredient(index, "adjustedWeightKg", e.target.value ? parseFloat(e.target.value) : null)}
                                 placeholder={batchProdKg > 0 ? baseWeight.toFixed(2) : "-"}
+                              />
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <Input
+                                type="number" step="0.001"
+                                className={`h-8 text-sm text-right w-full px-1 font-mono ${ing.basisRawKg != null ? "border-amber-400 bg-amber-50" : "border-0 shadow-none bg-transparent"}`}
+                                value={ing.basisRawKg ?? ""}
+                                onChange={(e) => updateIngredient(index, "basisRawKg", e.target.value === "" ? null : parseFloat(e.target.value))}
+                                placeholder="-"
+                              />
+                            </td>
+                            <td className="px-3 py-1.5">
+                              <Input
+                                type="number" step="0.01" min="0"
+                                className={`h-8 text-sm text-right w-full px-1 font-mono ${ing.pretreatmentFactor != null ? "border-amber-400 bg-amber-50" : "border-0 shadow-none bg-transparent"}`}
+                                value={ing.pretreatmentFactor ?? ""}
+                                onChange={(e) => updateIngredient(index, "pretreatmentFactor", e.target.value === "" ? null : parseFloat(e.target.value))}
+                                placeholder="1.0"
                               />
                             </td>
                             <td className="px-3 py-1.5">
@@ -654,7 +727,12 @@ export default function MfReportEdit() {
                             return sum + ((ing.adjustedWeightKg != null && ing.adjustedWeightKg > 0) ? ing.adjustedWeightKg : base);
                           }, 0).toFixed(2) : "-"}
                         </td>
-                        <td colSpan={3}></td>
+                        <td className="px-3 py-2 text-right font-mono text-amber-700">
+                          {ingredients.some((i) => i.basisRawKg != null)
+                            ? ingredients.reduce((sum, i) => sum + (i.basisRawKg ?? 0), 0).toFixed(3)
+                            : "-"}
+                        </td>
+                        <td colSpan={4}></td>
                       </tr>
                     </tfoot>
                   </table>

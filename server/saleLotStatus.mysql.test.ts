@@ -41,6 +41,9 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     expect(String(ver[0].v)).toMatch(/^8\.0\./);
     await admin.query(`SET SESSION sql_mode = 'IGNORE_SPACE,ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'`);
     await admin.query(readFileSync(join(__dirname, "__fixtures__/mysql/saleLotSchema.sql"), "utf-8"));
+    // 운영과 같게: 서버는 요청을 받기 전에 필수 스키마를 만든다 (ensureRequiredSchema — 수율 기준 PR B 컬럼 포함)
+    const { ensureRequiredSchema } = await import("./db/startupMigrations");
+    expect(await ensureRequiredSchema(admin, { allowDdl: true })).toMatchObject({ ok: true, missing: [] });
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "warn").mockImplementation(() => {});
     ({ postProductSale } = await import("./lib/accounting/productSalePost"));
@@ -723,6 +726,49 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(r.map((x: any) => [x.material_id, x.process_group_id, x.line_no])).toEqual([[645, null, 1], [615, null, 2]]);
       expect(Number(r[0].id)).toBe(7142);
       expect(r.some((x: any) => [7143, 7150].includes(Number(x.id)))).toBe(false);
+    });
+  });
+
+  describe("원물·공정·완제품 기준 — 스키마 추가 + 배치 스냅샷 (2026-10-16, 수율 기준 PR B)", () => {
+    let recordBatchMassBasis: any;
+    beforeAll(async () => {
+      // fixture 는 운영 DDL(새 컬럼 없음) — 바깥 beforeAll 의 ensureRequiredSchema 가 추가했다. 다시 불러도 그대로.
+      const { ensureRequiredSchema } = await import("./db/startupMigrations");
+      expect(await ensureRequiredSchema(admin, { allowDdl: true })).toMatchObject({ ok: true, missing: [] });
+      expect((await q(`SHOW COLUMNS FROM h_mf_ingredients LIKE 'pretreatment_factor'`)).length).toBe(1);
+      ({ recordBatchMassBasis } = await import("./db/production/batchMassBasis"));
+    });
+    beforeEach(async () => {
+      for (const t of ["h_mf_reports", "h_mf_report_versions", "h_batch_mass_basis"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status) VALUES (373, ?, 38, 'R373', '2026-03-31', 'ACTIVE')`, [T]);
+      await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg, reference_finished_kg, mass_basis_enabled)
+        VALUES (377, ?, 373, 1, '2026-02-19', 'APPROVED', 100, NULL, 0), (472, ?, 373, 2, '2026-05-08', 'APPROVED', 12.5, 12.5, 1)`, [T, T]);
+      await q(`INSERT INTO h_mf_ingredients (mf_report_version_id, line_no, material_id, quantity, unit, is_deductible, material_type, process_group_id, basis_raw_kg, pretreatment_factor) VALUES
+        (472, 1, 615, '73.3', '%', 1, 'RAW', 2, 8, 1.25), (472, 2, 701, '9.1', '%', 1, 'RAW', 2, 1, NULL),
+        (472, 3, 702, '9.1', '%', 1, 'RAW', 2, 1, NULL), (472, 4, 191, '7.3', '%', 0, 'RAW', NULL, 0.8, NULL),
+        (472, 5, 703, '1.2', '%', 1, 'RAW', 2, 0.13, NULL), (377, 1, 615, '69.5', '%', 1, 'RAW', 2, NULL, NULL)`);
+    });
+
+    it("우유설기 작업 2판(5kg) 배치: 배치 버전(v2) 기준으로 생멥쌀 3.2 / 공정 4.0 스냅샷, 같은 배치 재호출은 유지", async () => {
+      const r = await recordBatchMassBasis(5001, T, 38, 5);
+      expect(r.recorded).toBe(true);
+      const row = (await q(`SELECT mf_report_version_id, calc_version, reference_finished_kg + 0 AS ref, planned_finished_kg + 0 AS planned, total_raw_kg + 0 AS raw, total_process_kg + 0 AS proc, rows_json FROM h_batch_mass_basis WHERE batch_id = 5001`))[0];
+      expect([Number(row.mf_report_version_id), row.calc_version, Number(row.ref), Number(row.planned), Number(row.raw), Number(row.proc)])
+        .toEqual([472, "massBasis/1", 12.5, 5, 4.372, 5.172]);
+      const rows = typeof row.rows_json === "string" ? JSON.parse(row.rows_json) : row.rows_json;
+      const rice = rows.find((x: any) => x.materialId === 615);
+      expect([rice.rawKg, rice.processKg, rice.processGroupId]).toEqual([3.2, 4, 2]);
+      await q(`UPDATE h_mf_ingredients SET basis_raw_kg = 9 WHERE mf_report_version_id = 472 AND material_id = 615`); // 레시피를 고쳐도
+      await recordBatchMassBasis(5001, T, 38, 5);
+      expect(Number((await q(`SELECT total_raw_kg + 0 AS raw FROM h_batch_mass_basis WHERE batch_id = 5001`))[0].raw)).toBe(4.372); // 그 배치 스냅샷은 그대로
+    });
+
+    it("기준 사용이 꺼진 버전·기준 완제품 없는 버전은 기록하지 않음 (기존 계산 그대로)", async () => {
+      await q(`UPDATE h_mf_report_versions SET mass_basis_enabled = 0 WHERE id = 472`);
+      expect(await recordBatchMassBasis(5002, T, 38, 5)).toMatchObject({ recorded: false, reason: "disabled" });
+      await q(`UPDATE h_mf_report_versions SET mass_basis_enabled = 1, reference_finished_kg = NULL WHERE id = 472`);
+      expect((await recordBatchMassBasis(5003, T, 38, 5)).recorded).toBe(false);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_mass_basis`))[0].n)).toBe(0);
     });
   });
 });

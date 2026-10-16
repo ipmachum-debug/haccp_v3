@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -624,3 +624,48 @@ CREATE TABLE `bank_accounts` (
   PRIMARY KEY (`id`),
   KEY `bank_accounts_tenant_id_tenants_id_fk` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `h_mf_reports`;
+
+CREATE TABLE `h_mf_reports` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `product_id` bigint NOT NULL,
+  `report_no` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `report_date` date NOT NULL,
+  `status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'ACTIVE',
+  `report_type` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'BASIC',
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  `tenant_id` int NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`),
+  KEY `idx_mfr_report_type` (`tenant_id`,`report_type`),
+  KEY `fk_mf_reports_item` (`product_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `h_mf_report_versions`;
+
+CREATE TABLE `h_mf_report_versions` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `mf_report_id` bigint NOT NULL,
+  `version_no` int NOT NULL,
+  `effective_from` date NOT NULL,
+  `change_reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `approval_status` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'DRAFT',
+  `composition_total_rule` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT '100%',
+  `yield_basis` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'PER_BATCH_KG',
+  `unit_weight_g` decimal(10,2) DEFAULT NULL,
+  `batch_target_kg` decimal(10,2) DEFAULT NULL,
+  `created_by` bigint DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `approved_by` bigint DEFAULT NULL,
+  `approved_at` timestamp NULL DEFAULT NULL,
+  `rejected_by` bigint DEFAULT NULL,
+  `rejected_at` timestamp NULL DEFAULT NULL,
+  `rejection_reason` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `tenant_id` int NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`),
+  KEY `h_mf_report_versions_tenant_id_tenants_id_fk` (`tenant_id`),
+  KEY `fk_mf_versions_report` (`mf_report_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `h_batch_mass_basis`;

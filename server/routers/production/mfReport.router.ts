@@ -87,6 +87,10 @@ export const mfReportRouter = router({
           yieldBasis: z.string().optional(),
           unitWeightG: z.number().optional(),
           batchTargetKg: z.number().optional(),
+          // ★ 2026-10-16 원물·공정·완제품 기준 (수율 기준 PR B) — 생략하면 유지
+          referenceFinishedKg: z.number().positive().nullable().optional(),
+          referenceRawTotalKg: z.number().positive().nullable().optional(),
+          massBasisEnabled: z.boolean().optional(),
           ingredients: z.array(
             z.object({
               /** ★ 2026-10-16: 원래 행 id — 보내지 않은 값(CCP 공정 지정 등)을 이 행에서 이어받는다 */
@@ -103,6 +107,8 @@ export const mfReportRouter = router({
               flavorName: z.string().optional(),
               processGroupId: z.number().nullable().optional(), // null = 미지정으로 비움, 생략 = 유지
               adjustedWeightKg: z.number().nullable().optional(),
+              basisRawKg: z.number().nonnegative().nullable().optional(),
+              pretreatmentFactor: z.number().positive().nullable().optional(),
               isAdditional: z.number().optional()
             })
           ).optional()

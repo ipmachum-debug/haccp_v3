@@ -304,6 +304,14 @@ export async function createBatch(batch: {
     console.error("[createBatch] 원재료 투입 자동생성 실패 (배치 생성은 유지):", error);
   }
 
+  // ★ 2026-10-16 (수율 기준 PR B): 원물·공정·완제품 기준 스냅샷 — 기준 사용이 켜진 버전만, 기록만 (출고는 아직 기존 계산)
+  try {
+    const { recordBatchMassBasis } = await import("./batchMassBasis");
+    await recordBatchMassBasis(batchId, tenantId, batch.productId, plannedQty);
+  } catch (error) {
+    console.error("[createBatch] 원물·공정 기준 스냅샷 실패 (배치 생성은 유지):", error);
+  }
+
   return batchId;
 }
 

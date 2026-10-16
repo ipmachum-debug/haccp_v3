@@ -67,6 +67,10 @@ export const hMfReportVersions = mysqlTable("h_mf_report_versions", {
   yieldBasis: varchar("yield_basis", { length: 20 }).default("PER_BATCH_KG"), // PER_UNIT_G 또는 PER_BATCH_KG
   unitWeightG: decimal("unit_weight_g", { precision: 10, scale: 2 }), // 1개당 중량(g)
   batchTargetKg: decimal("batch_target_kg", { precision: 10, scale: 2 }), // 배치 목표 생산량(kg)
+  // ★ 2026-10-16 원물·공정·완제품 기준 (수율 기준 PR B, shared/production/massBasis)
+  referenceFinishedKg: decimal("reference_finished_kg", { precision: 12, scale: 3 }), // 이 배합의 완제품 기준량 kg
+  referenceRawTotalKg: decimal("reference_raw_total_kg", { precision: 12, scale: 3 }), // % 행용 기준 원물 합계 kg
+  massBasisEnabled: tinyint("mass_basis_enabled").default(0).notNull(), // 검증된 버전만 1
   createdBy: bigint("created_by", { mode: "number" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   approvedBy: bigint("approved_by", { mode: "number" }),
@@ -125,6 +129,9 @@ export const hMfIngredients = mysqlTable("h_mf_ingredients", {
   processGroupId: int("process_group_id"),
   adjustedWeightKg: decimal("adjusted_weight_kg", { precision: 10, scale: 3 }),
   isAdditional: tinyint("is_additional").default(0).notNull(), // 추가 원재료 여부 (정제수 등 배합비 100%에 미포함)
+  // ★ 2026-10-16 (수율 기준 PR B): 운영 기준 원물 kg (엑셀 kg 등 — 법적 배합비 quantity 와 분리), 전처리 배율 (NULL = 1.0)
+  basisRawKg: decimal("basis_raw_kg", { precision: 12, scale: 4 }),
+  pretreatmentFactor: decimal("pretreatment_factor", { precision: 6, scale: 4 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
