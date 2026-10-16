@@ -76,6 +76,29 @@ export const mfReportRouter = router({
         return result;
       }),
     // 품목제조보고 수정 (기존 보고서 업데이트)
+    /** 회사가 원물·공정 기준(수율 보정) 방식을 쓰는지 (2026-10-16 — 회사 선택, 기본 꺼짐) */
+    massBasisFeature: tenantRequiredProcedure.query(async ({ ctx }) => {
+      const { getRawConnection } = await import("../../db");
+      const { isTenantFeatureEnabled, MASS_BASIS_FEATURE } = await import("../../lib/production/massBasisPolicy");
+      return { enabled: await isTenantFeatureEnabled(await getRawConnection(), ctx.tenantId, MASS_BASIS_FEATURE) };
+    }),
+
+    /** 관리자: 회사의 원물·공정 기준 방식 켜기/끄기. 끄면 새 배치는 기존 계산, 이미 고정된 배치 기준은 유지 */
+    setMassBasisFeature: adminProcedure
+      .input(z.object({ enabled: z.boolean() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getRawConnection } = await import("../../db");
+        const { setTenantFeature, MASS_BASIS_FEATURE } = await import("../../lib/production/massBasisPolicy");
+        await setTenantFeature(await getRawConnection(), ctx.tenantId, MASS_BASIS_FEATURE, input.enabled, ctx.user?.id ?? null);
+        const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
+        await createAuditLog({
+          action: "tenant_feature.update", entityType: "tenant_feature", userId: ctx.user?.id,
+          changes: { feature: MASS_BASIS_FEATURE, enabled: input.enabled },
+          description: `원물·공정 기준(수율 보정) 방식 ${input.enabled ? "사용" : "사용 안 함"}`,
+        }, ctx.tenantId);
+        return { enabled: input.enabled };
+      }),
+
     update: adminProcedure
       .input(
         z.object({
@@ -115,6 +138,14 @@ export const mfReportRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
+        // ★ 2026-10-16: 원물·공정 기준(수율 보정) 은 회사가 선택한 경우에만 켤 수 있다 (massBasisPolicy)
+        if (input.massBasisEnabled === true) {
+          const { getRawConnection } = await import("../../db");
+          const { isTenantFeatureEnabled, MASS_BASIS_FEATURE } = await import("../../lib/production/massBasisPolicy");
+          if (!(await isTenantFeatureEnabled(await getRawConnection(), ctx.tenantId, MASS_BASIS_FEATURE))) {
+            throw new TRPCError({ code: "FORBIDDEN", message: "이 회사는 원물·공정 기준(수율 보정) 방식을 사용하지 않습니다. 관리자 설정에서 먼저 켜세요." });
+          }
+        }
         const { updateMfReport } = await import("../../db/production/mfReportAPI");
         const result = await updateMfReport(input, ctx.tenantId);
 

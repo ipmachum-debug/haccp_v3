@@ -756,7 +756,8 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       ({ recordBatchMassBasis } = await import("./db/production/batchMassBasis"));
     });
     beforeEach(async () => {
-      for (const t of ["h_mf_reports", "h_mf_report_versions", "h_batch_mass_basis"]) await q(`DELETE FROM ${t}`);
+      for (const t of ["h_mf_reports", "h_mf_report_versions", "h_batch_mass_basis", "tenant_feature_settings"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO tenant_feature_settings (tenant_id, feature_code, enabled) VALUES (?, 'PRODUCTION_MASS_BASIS', 1)`, [T]); // 회사 선택
       await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status) VALUES (373, ?, 38, 'R373', '2026-03-31', 'ACTIVE')`, [T]);
       await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg, reference_finished_kg, mass_basis_enabled)
         VALUES (377, ?, 373, 1, '2026-02-19', 'APPROVED', 100, NULL, 0), (472, ?, 373, 2, '2026-05-08', 'APPROVED', 12.5, 12.5, 1)`, [T, T]);
@@ -866,7 +867,8 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       ({ createBatch } = await import("./db/production/batchCRUD"));
     });
     beforeEach(async () => {
-      for (const t of ["h_mf_reports", "h_mf_report_versions", "h_mf_ingredients", "h_batch_mass_basis", "h_batches", "h_batch_inputs", "item_master", "h_materials"]) await q(`DELETE FROM ${t}`);
+      for (const t of ["h_mf_reports", "h_mf_report_versions", "h_mf_ingredients", "h_batch_mass_basis", "h_batches", "h_batch_inputs", "item_master", "h_materials", "tenant_feature_settings"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO tenant_feature_settings (tenant_id, feature_code, enabled) VALUES (?, 'PRODUCTION_MASS_BASIS', 1)`, [T]); // 회사 선택
       await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active) VALUES
         (168, ?, 'M168', '멥쌀(국내산)', 'raw_material', 'kg', 1), (191, ?, 'M191', '정제수', 'raw_material', 'kg', 1),
         (177, ?, 'M177', '설탕', 'raw_material', 'kg', 1), (188, ?, 'M188', '우유(국내산)', 'raw_material', 'kg', 1),
@@ -899,6 +901,95 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       const bid = await newBatch("5", "MILK-OFF");
       expect((await inputs(bid)).find((r: any) => r[0] === 168)).toEqual([168, 3.665]);
       expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_mass_basis WHERE batch_id = ?`, [bid]))[0].n)).toBe(0);
+    });
+
+    // ── 회사 선택 (2026-10-16 — 수율 환산은 공통 표준이 아니라 테넌트가 고르는 방식) ──
+    it("회사가 선택하지 않으면 버전이 켜져 있어도 기존 계산 (배합비 % × 계획량), 스냅샷 없음", async () => {
+      await q(`DELETE FROM tenant_feature_settings`);
+      const bid = await newBatch("5", "MILK-TENANT-OFF");
+      expect((await inputs(bid)).find((r: any) => r[0] === 168)).toEqual([168, 3.665]);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_mass_basis`))[0].n)).toBe(0);
+      const { setTenantFeature, isTenantFeatureEnabled, MASS_BASIS_FEATURE } = await import("./lib/production/massBasisPolicy");
+      await setTenantFeature(admin, T, MASS_BASIS_FEATURE, true, 4);
+      expect(await isTenantFeatureEnabled(admin, T, MASS_BASIS_FEATURE)).toBe(true);
+      expect(await isTenantFeatureEnabled(admin, T + 1, MASS_BASIS_FEATURE)).toBe(false); // 다른 회사는 그대로
+    });
+
+    // ── Codex #546 배포 검토 P1-1: 켜진 버전의 계산 실패를 기존 계산으로 덮지 않는다 ──
+    const batchCount = async () => Number((await q(`SELECT COUNT(*) AS n FROM h_batches`))[0].n);
+    const leftovers = async () => [
+      await batchCount(),
+      Number((await q(`SELECT COUNT(*) AS n FROM h_batch_inputs`))[0].n),
+      Number((await q(`SELECT COUNT(*) AS n FROM h_batch_mass_basis`))[0].n),
+    ];
+    it("기준 원물 kg 누락(% 행인데 기준 원물 합계 없음) → 배치를 만들지 않음 (3.665 로 과다 차감하지 않음)", async () => {
+      await q(`UPDATE h_mf_ingredients SET basis_raw_kg = NULL WHERE id = 6854`);
+      await expect(newBatch("5", "MILK-MISSING")).rejects.toThrow(/수율 환산/);
+      expect(await leftovers()).toEqual([0, 0, 0]);
+    });
+
+    it("원료 기본 단위가 kg/g 이 아니면(EA) → 스냅샷까지 만든 뒤라도 배치·투입·스냅샷 모두 되돌림", async () => {
+      await q(`UPDATE item_master SET base_unit = 'EA' WHERE id = 177`);
+      await expect(newBatch("5", "MILK-UNIT")).rejects.toThrow(/단위/);
+      expect(await leftovers()).toEqual([0, 0, 0]);
+    });
+
+    it("g 단위 원료는 g 로 (설탕 0.4kg → 400g)", async () => {
+      await q(`UPDATE item_master SET base_unit = 'g' WHERE id = 177`);
+      const bid = await newBatch("5", "MILK-G");
+      const r = (await q(`SELECT planned_quantity + 0 AS pq, unit FROM h_batch_inputs WHERE batch_id = ? AND material_id = 177`, [bid]))[0];
+      expect([Number(r.pq), r.unit]).toEqual([400, "g"]);
+    });
+
+    it("스냅샷 저장 자체가 실패하면 배치·투입 남기지 않음", async () => {
+      await q(`RENAME TABLE h_batch_mass_basis TO _h_batch_mass_basis_off`);
+      try {
+        await expect(newBatch("5", "MILK-SNAPFAIL")).rejects.toThrow();
+        expect(await batchCount()).toBe(0);
+        expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_inputs`))[0].n)).toBe(0);
+      } finally {
+        await q(`RENAME TABLE _h_batch_mass_basis_off TO h_batch_mass_basis`);
+      }
+    });
+
+    it("같은 배치 스냅샷 재저장은 처음 저장값·행 기준량을 돌려줌 (Codex #546 P2-4)", async () => {
+      const { saveBatchMassBasis, prepareBatchMassBasis } = await import("./db/production/batchMassBasis");
+      const plan = await prepareBatchMassBasis(T, 38, 5, admin);
+      expect(plan.mode).toBe("basis");
+      // 다른 값을 보내도 처음 값
+      const first = await saveBatchMassBasis(admin, 9001, T, (plan as any).snapshot, 5);
+      const again = await saveBatchMassBasis(admin, 9001, T, { ...(plan as any).snapshot, totalRawKg: 999 }, 7);
+      expect([again.snapshot.totalRawKg, again.subBatchKg]).toEqual([first.snapshot.totalRawKg, 5]);
+      await q(`DELETE FROM h_batch_mass_basis`);
+    });
+
+    // ── Codex #546 P1-2: 재수화는 고정 스냅샷만 기준 ──
+    it("투입 재생성(hydrator): 새 버전·기준을 바꿔도 그 배치는 스냅샷 값 (생멥쌀 3.2), 최신 BOM 을 섞지 않음", async () => {
+      const bid = await newBatch("5", "MILK-HYD");
+      await q(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [bid]);
+      // 이후 레시피 변경: 같은 버전 기준값 수정 + 새 승인 버전(v3, 다른 원료) 추가
+      await q(`UPDATE h_mf_ingredients SET basis_raw_kg = 9 WHERE id = 6852`);
+      await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg, reference_finished_kg, mass_basis_enabled)
+        VALUES (480, ?, 373, 3, '2026-10-20', 'APPROVED', 10, NULL, 0)`, [T]);
+      await q(`INSERT INTO h_mf_ingredients (id, mf_report_version_id, line_no, material_id, quantity, unit, is_deductible, material_type, process_group_id) VALUES
+        (6900, 480, 1, 168, '90', '%', 1, 'RAW', 2), (6901, 480, 2, 177, '10', '%', 1, 'RAW', 2)`);
+      const { hydrateBatchInputs } = await import("./services/batchHydrator");
+      expect(await hydrateBatchInputs(bid, 38, T)).toBe(5);
+      expect(await inputs(bid)).toEqual([[168, 3.2], [177, 0.4], [188, 0.4], [191, 0.32], [199, 0.052]]);
+    });
+
+    // ── Codex #546 P2-3: CCP 기록지 행 기준량도 배치 생성 때 고정 ──
+    it("CCP 공정 투입량: 저장된 행 기준량(5kg) 사용 — 이후 BOM 기준량을 10kg 로 바꿔도 그대로 (공정2 = 4.0+0.4+0.4+0.052)", async () => {
+      const bid = await newBatch("5", "MILK-CCP");
+      expect(Number((await q(`SELECT sub_batch_kg + 0 AS s FROM h_batch_mass_basis WHERE batch_id = ?`, [bid]))[0].s)).toBe(5);
+      await q(`UPDATE h_mf_report_versions SET batch_target_kg = 10 WHERE id = 472`);
+      const { loadCcpInputFromMassBasis } = await import("./db/haccp/ccpFormSettings");
+      const r = await loadCcpInputFromMassBasis(admin, bid, T, 10);
+      expect(r).toEqual({ inputByGroup: { 2: 4.852 }, subBatchKg: 5 });
+      // 저장값이 없는(PR C 이전) 스냅샷만 현재 BOM 기준량으로
+      await q(`UPDATE h_batch_mass_basis SET sub_batch_kg = NULL WHERE batch_id = ?`, [bid]);
+      expect((await loadCcpInputFromMassBasis(admin, bid, T, 10))?.subBatchKg).toBe(10);
+      expect(await loadCcpInputFromMassBasis(admin, bid + 999, T, 10)).toBeNull();
     });
   });
 });

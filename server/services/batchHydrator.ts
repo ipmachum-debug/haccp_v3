@@ -385,7 +385,7 @@ async function getProductName(productId: number, tenantId: number): Promise<stri
  * 특정 배치에 대해 BOM 기반 원재료 투입 자동생성
  * createBatch 내부 로직과 동일하지만, 이미 존재하는 배치에 대해 실행
  */
-async function hydrateBatchInputs(
+export async function hydrateBatchInputs(
   batchId: number,
   productId: number,
   tenantId: number
@@ -404,62 +404,88 @@ async function hydrateBatchInputs(
   if (!batch) return 0;
   const plannedQty = parseFloat(batch.plannedQuantity);
 
-  // 품목제조보고 조회 — product_id 가 v2 id 또는 item_master id 일 수 있음 (bomProductResolver)
-  const bomProductIds = await resolveBomProductIds(productId, tenantId);
-  const mfReport = await db
-    .select({ id: hMfReports.id })
-    .from(hMfReports)
-    .where(and(inArray(hMfReports.productId, bomProductIds), eq(hMfReports.tenantId, tenantId)))
-    .orderBy(sql`(${hMfReports.productId} = ${productId}) DESC`)
-    .limit(1);
-  if (mfReport.length === 0) return 0;
+  // ★ 2026-10-16 (Codex #546 P1-2): 원물·공정 기준 스냅샷이 있는 배치는 스냅샷이 유일한 기준.
+  //   스냅샷의 버전·행·원물 kg 으로만 복구한다 — 최신 BOM 을 섞거나 행 단위로 배합비 계산에 폴백하지 않는다.
+  const { getRawConnection: getRawConnForSnap } = await import("../db/connection");
+  const { loadBatchMassBasis, rawKgToMaterialUnit } = await import("../db/production/batchMassBasis");
+  const stored = await loadBatchMassBasis(await getRawConnForSnap(), batchId, tenantId);
 
-  // 최신 승인 버전
-  let latestVersion = await db
-    .select({ id: hMfReportVersions.id })
-    .from(hMfReportVersions)
-    .where(and(
-      eq(hMfReportVersions.mfReportId, mfReport[0].id),
-      eq(hMfReportVersions.approvalStatus, "APPROVED")
-    ))
-    .orderBy(desc(hMfReportVersions.versionNo))
-    .limit(1);
+  const { itemMaster } = await import("../../drizzle/schema/schema_dual_unit");
+  let ingredients: Array<{ id: number; materialId: number | null; quantity: any; correctedQuantity: any; isDeductible: any; processGroupId: number | null; materialUnit: string | null }>;
+  const snapRaw = new Map<number, number>();
+  if (stored) {
+    const snapRows = stored.snapshot.rows.filter((r) => r.isDeductible && r.materialId != null);
+    const ids = Array.from(new Set(snapRows.map((r) => Number(r.materialId))));
+    const units = new Map<number, string | null>();
+    if (ids.length > 0) {
+      const imRows = await db.select({ id: itemMaster.id, baseUnit: itemMaster.baseUnit })
+        .from(itemMaster).where(inArray(itemMaster.id, ids));
+      for (const r of imRows) units.set(Number(r.id), r.baseUnit ?? null);
+    }
+    ingredients = snapRows.map((r) => {
+      snapRaw.set(Number(r.ingredientId), Number(r.rawKg));
+      return {
+        id: Number(r.ingredientId), materialId: Number(r.materialId), quantity: null, correctedQuantity: null,
+        isDeductible: 1, processGroupId: r.processGroupId ?? null, materialUnit: units.get(Number(r.materialId)) ?? null,
+      };
+    });
+  } else {
+    // 품목제조보고 조회 — product_id 가 v2 id 또는 item_master id 일 수 있음 (bomProductResolver)
+    const bomProductIds = await resolveBomProductIds(productId, tenantId);
+    const mfReport = await db
+      .select({ id: hMfReports.id })
+      .from(hMfReports)
+      .where(and(inArray(hMfReports.productId, bomProductIds), eq(hMfReports.tenantId, tenantId)))
+      .orderBy(sql`(${hMfReports.productId} = ${productId}) DESC`)
+      .limit(1);
+    if (mfReport.length === 0) return 0;
 
-  if (latestVersion.length === 0) {
-    latestVersion = await db
+    // 최신 승인 버전
+    let latestVersion = await db
       .select({ id: hMfReportVersions.id })
       .from(hMfReportVersions)
-      .where(eq(hMfReportVersions.mfReportId, mfReport[0].id))
+      .where(and(
+        eq(hMfReportVersions.mfReportId, mfReport[0].id),
+        eq(hMfReportVersions.approvalStatus, "APPROVED")
+      ))
       .orderBy(desc(hMfReportVersions.versionNo))
       .limit(1);
+
+    if (latestVersion.length === 0) {
+      latestVersion = await db
+        .select({ id: hMfReportVersions.id })
+        .from(hMfReportVersions)
+        .where(eq(hMfReportVersions.mfReportId, mfReport[0].id))
+        .orderBy(desc(hMfReportVersions.versionNo))
+        .limit(1);
+    }
+    if (latestVersion.length === 0) return 0;
+
+    // 배합비 조회
+    ingredients = await db
+      .select({
+        id: hMfIngredients.id,
+        materialId: hMfIngredients.materialId,
+        quantity: hMfIngredients.quantity,
+        correctedQuantity: hMfIngredients.correctedQuantity,
+        isDeductible: hMfIngredients.isDeductible,
+        processGroupId: hMfIngredients.processGroupId,
+        materialUnit: itemMaster.baseUnit,
+      })
+      .from(hMfIngredients)
+      .leftJoin(itemMaster, eq(hMfIngredients.materialId, itemMaster.id))
+      .where(eq(hMfIngredients.mfReportVersionId, latestVersion[0].id))
+      .orderBy(hMfIngredients.lineNo);
+
+    if (ingredients.length === 0) return 0;
   }
-  if (latestVersion.length === 0) return 0;
-
-  // 배합비 조회
-  const { itemMaster } = await import("../../drizzle/schema/schema_dual_unit");
-  const ingredients = await db
-    .select({
-      id: hMfIngredients.id,
-      materialId: hMfIngredients.materialId,
-      quantity: hMfIngredients.quantity,
-      correctedQuantity: hMfIngredients.correctedQuantity,
-      isDeductible: hMfIngredients.isDeductible,
-      processGroupId: hMfIngredients.processGroupId,
-      materialUnit: itemMaster.baseUnit,
-    })
-    .from(hMfIngredients)
-    .leftJoin(itemMaster, eq(hMfIngredients.materialId, itemMaster.id))
-    .where(eq(hMfIngredients.mfReportVersionId, latestVersion[0].id))
-    .orderBy(hMfIngredients.lineNo);
-
-  if (ingredients.length === 0) return 0;
 
   // ★ 2026-05-10 (PR #298 F5-5 site #3): ID 표준화 + 3-tier 단가 폴백
   //   - rawId(item_master.id 또는 h_materials.id) → canonicalId(h_materials.id) 표준화
   //   - 단가: h_materials.unit_price → 최신 입고 lot.unit_price → item_master.default_unit_price
   //   - INSERT 시 canonical h_materials.id 저장 → 차감 로직과 ID namespace 일치
   const filteredIngredients = ingredients
-    .filter((ing: any) => ing.materialId !== null && ing.materialId !== 191 && ing.isDeductible !== 0);
+    .filter((ing: any) => ing.materialId !== null && ing.isDeductible !== 0 && (stored != null || ing.materialId !== 191));
 
   const candidateMaterialIds = filteredIngredients
     .map((ing: any) => Number(ing.materialId))
@@ -562,28 +588,19 @@ async function hydrateBatchInputs(
     }
   }
 
-  // ★ 2026-10-16 (수율 기준 PR C): 배치에 원물·공정 기준 스냅샷이 있으면 그 행의 원물 kg (배치 생성 때 고정한 값)
-  let snapRaw: Map<number, number> | null = null;
-  try {
-    const { getRawConnection } = await import("../db/connection");
-    const [snapRows]: any = await (await getRawConnection()).execute(
-      `SELECT rows_json FROM h_batch_mass_basis WHERE batch_id = ? AND tenant_id = ? LIMIT 1`, [batchId, tenantId],
-    );
-    if (snapRows?.[0]) {
-      const rows: any[] = typeof snapRows[0].rows_json === "string" ? JSON.parse(snapRows[0].rows_json) : snapRows[0].rows_json;
-      snapRaw = new Map(rows.filter((r) => r.isDeductible).map((r) => [Number(r.ingredientId), Number(r.rawKg)]));
-    }
-  } catch (e) {
-    console.warn(`[hydrateBatchInputs] batch=${batchId} 기준 스냅샷 조회 실패 (기존 계산):`, (e as any)?.message || e);
-  }
-
   const batchInputs = filteredIngredients
     .map((ing: any) => {
       const ratio = ing.correctedQuantity
         ? parseFloat(ing.correctedQuantity)
         : parseFloat(ing.quantity);
-      const basisRaw = snapRaw?.get(Number(ing.id));
-      const plannedQ = basisRaw != null ? basisRaw : (ratio / 100) * plannedQty;
+      let plannedQ = (ratio / 100) * plannedQty;
+      let unit = ing.materialUnit || "kg";
+      if (stored) {
+        const conv = rawKgToMaterialUnit(snapRaw.get(Number(ing.id))!, ing.materialUnit);
+        if (!conv) throw new Error(`[hydrateBatchInputs] batch=${batchId} 원료 행 ${ing.id} 의 단위(${ing.materialUnit}) 는 kg 기준으로 바꿀 수 없습니다`);
+        plannedQ = conv.qty;
+        unit = conv.unit;
+      }
       const rawId = Number(ing.materialId);
       const canonicalId = idMap.get(rawId) ?? rawId;
       if (canonicalId !== rawId) {
@@ -597,7 +614,7 @@ async function hydrateBatchInputs(
         batchId,
         materialId: canonicalId,
         plannedQuantity: plannedQ.toFixed(3),
-        unit: ing.materialUnit || "kg",
+        unit,
         processGroupId: ing.processGroupId ?? null,
         unitPrice: unitPrice.toFixed(2),
         totalPrice: totalPrice.toFixed(2),

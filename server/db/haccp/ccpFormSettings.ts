@@ -17,6 +17,7 @@
 import { selectBomVersion } from "../../lib/identity/itemIdentityService";
 import { ccpInputKgByGroup, CCP_BOM_ROWS_SQL, ccpInputKgFromSnapshot, isWaterName } from "../../lib/production/ccpBomInput";
 import { getDb, getRawConnection } from "../connection";
+import { loadBatchMassBasis } from "../production/batchMassBasis";
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import {
   hCcpFormRecords,
@@ -252,13 +253,19 @@ export async function syncCcpRowsToFormRows(params: {
         bomBatchKg = picked.batchKg;
         bomInputQtyMap = picked.inputByGroup;
       }
-      // ★ 2026-10-16 (수율 기준 PR C): 배치에 원물·공정 기준 스냅샷이 있으면 공정 투입량은 그 스냅샷의 공정 kg
-      //   (불린 쌀 등 전처리 후 양) — 배치 생성 때 고정한 값이라 이후 레시피를 고쳐도 이 배치 기록지는 그대로.
-      const fromSnap = await loadCcpInputFromMassBasis(rawConn, batchId, tenantId, bomBatchKg);
-      if (fromSnap) bomInputQtyMap = fromSnap;
     } catch (bomErr) {
       console.error("[syncCcpRowsToFormRows] BOM 투입량 계산 실패 (총생산량 폴백):", bomErr);
     }
+  }
+  // ★ 2026-10-16 (수율 기준 PR C): 배치에 원물·공정 기준 스냅샷이 있으면 공정 투입량은 그 스냅샷의 공정 kg
+  //   (불린 쌀 등 전처리 후 양) — 배치 생성 때 고정한 값이라 이후 레시피를 고쳐도 이 배치 기록지는 그대로.
+  //   한 행 기준량도 생성 때 고정한 sub_batch_kg (Codex #546 P2-3). BOM 조회 실패와 무관하게 따로 조회한다.
+  let massBasisFixed = false;
+  const fromSnap = await loadCcpInputFromMassBasis(rawConn, batchId, tenantId, bomBatchKg);
+  if (fromSnap) {
+    bomInputQtyMap = fromSnap.inputByGroup;
+    bomBatchKg = fromSnap.subBatchKg;
+    massBasisFixed = true;
   }
 
   // ═══ 측정시간 계산 헬퍼 ═══
@@ -519,7 +526,7 @@ export async function syncCcpRowsToFormRows(params: {
     // 이는 배치 생성 시 product_id 매핑 오류 또는 동일 제품의 다른 버전 사용 시 발생
     let localBomBatchKg = bomBatchKg;
     let localBomInputQtyMap = bomInputQtyMap;
-    if (!localBomBatchKg && instanceProductId && instanceProductId !== productId) {
+    if (!massBasisFixed && !localBomBatchKg && instanceProductId && instanceProductId !== productId) {
       try {
         // ★ 2026-10-16: 위 주 조회와 같은 규칙 (버전 하나 기준, 버전끼리 합산 없음)
         const fb = await loadCcpBomInput(rawConn, Number(instanceProductId), tenantId);
@@ -1519,21 +1526,20 @@ async function loadCcpBomInput(
   return { batchKg, inputByGroup };
 }
 
-/** 배치 원물·공정 기준 스냅샷 → CCP 공정별 행 투입량 (없으면 null — 기존 BOM 계산 유지) */
-async function loadCcpInputFromMassBasis(
+/**
+ * 배치 원물·공정 기준 스냅샷 → CCP 공정별 행 투입량 + 행 기준량 (없으면 null — 기존 BOM 계산 유지)
+ * 행 기준량은 배치 생성 때 저장한 sub_batch_kg. 저장값이 없을 때(PR C 이전 스냅샷)만 현재 BOM 기준량을 쓴다.
+ */
+export async function loadCcpInputFromMassBasis(
   rawConn: any,
   batchId: number,
   tenantId: number,
-  subBatchKg: number | null,
-): Promise<Record<number, number> | null> {
+  currentBomBatchKg: number | null,
+): Promise<{ inputByGroup: Record<number, number>; subBatchKg: number | null } | null> {
   try {
-    const [snap] = await rawConn.execute(
-      `SELECT planned_finished_kg, rows_json FROM h_batch_mass_basis WHERE batch_id = ? AND tenant_id = ? LIMIT 1`,
-      [batchId, tenantId],
-    );
-    const row = (snap as any[])[0];
-    if (!row) return null;
-    const rows: any[] = typeof row.rows_json === "string" ? JSON.parse(row.rows_json) : row.rows_json;
+    const stored = await loadBatchMassBasis(rawConn, batchId, tenantId);
+    if (!stored) return null;
+    const rows = stored.snapshot.rows;
     const ids = Array.from(new Set(rows.map((r) => Number(r.materialId)).filter((n) => Number.isFinite(n) && n > 0)));
     const water = new Set<number>();
     if (ids.length > 0) {
@@ -1543,7 +1549,11 @@ async function loadCcpInputFromMassBasis(
       );
       for (const n of names as any[]) if (isWaterName(n.item_name)) water.add(Number(n.id));
     }
-    return ccpInputKgFromSnapshot(rows, water, subBatchKg, Number(row.planned_finished_kg));
+    const subBatchKg = stored.subBatchKg ?? currentBomBatchKg;
+    return {
+      inputByGroup: ccpInputKgFromSnapshot(rows, water, subBatchKg, stored.snapshot.plannedFinishedKg),
+      subBatchKg,
+    };
   } catch (err) {
     console.warn(`[ccpFormSettings] batch=${batchId} 원물·공정 기준 스냅샷 조회 실패 (기존 BOM 계산 유지):`, (err as any)?.message || err);
     return null;

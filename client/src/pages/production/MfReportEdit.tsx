@@ -58,6 +58,9 @@ export default function MfReportEdit() {
   const [referenceFinishedKg, setReferenceFinishedKg] = useState("");
   const [referenceRawTotalKg, setReferenceRawTotalKg] = useState("");
   const [massBasisEnabled, setMassBasisEnabled] = useState(false);
+  // 회사가 수율 환산 방식을 선택했을 때만 기준 입력을 보인다 (관리자 설정 — 기본 꺼짐)
+  const { data: massBasisFeature } = trpc.mfReport.massBasisFeature.useQuery();
+  const showMassBasis = !!massBasisFeature?.enabled;
 
   // 배치당 총생산량 (제품 기준)
   const [batchProductionKg, setBatchProductionKg] = useState<string>("100");
@@ -422,7 +425,7 @@ export default function MfReportEdit() {
       batchTargetKg: batchProdKg > 0 ? batchProdKg : undefined,
       referenceFinishedKg: parseFloat(referenceFinishedKg) > 0 ? parseFloat(referenceFinishedKg) : null,
       referenceRawTotalKg: parseFloat(referenceRawTotalKg) > 0 ? parseFloat(referenceRawTotalKg) : null,
-      massBasisEnabled,
+      ...(showMassBasis ? { massBasisEnabled } : {}),
       ingredients: allIngredients,
     });
   };
@@ -527,8 +530,8 @@ export default function MfReportEdit() {
                     : "혼합 SKU · 배치 생성 차단됨 + sku_bundles 자동 동기화 (저장 시)"}
                 </p>
               </div>
-              {/* ★ 2026-10-16 원물·공정·완제품 기준 (수율 기준 PR B) */}
-              <div className="mt-3 rounded-md border bg-amber-50/50 p-2">
+              {/* ★ 2026-10-16 원물·공정·완제품 기준 (수율 기준 PR B) — 회사가 수율 환산을 선택한 경우만 */}
+              {showMassBasis && <div className="mt-3 rounded-md border bg-amber-50/50 p-2">
                 <div className="flex flex-wrap items-end gap-3">
                   <div>
                     <Label className="text-xs text-muted-foreground mb-1">기준 완제품(kg)</Label>
@@ -547,9 +550,9 @@ export default function MfReportEdit() {
                 </div>
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   원료별 '기준 원물(kg)' 은 이 배합으로 완제품 기준량을 만들 때의 원물(불리기 전) kg, '전처리 배율' 은 불림 등 공정 투입 배율(비우면 1.0)입니다.
-                  법적 배합비(%)는 바뀌지 않습니다. 켜면 새 배치에 기준 스냅샷이 기록되며, 원료 출고는 아직 기존 계산입니다.
+                  법적 배합비(%)는 바뀌지 않습니다. 켜면 새 배치의 원료 투입·출고가 이 기준(원물 kg)으로 계산되고, CCP 공정 투입량은 전처리 후 kg 로 기록됩니다.
                 </p>
-              </div>
+              </div>}
             </CardContent>
           </Card>
 
@@ -595,22 +598,22 @@ export default function MfReportEdit() {
                             </Tooltip>
                           </TooltipProvider>
                         </th>
-                        <th className="px-3 py-2 text-right" style={{width: "100px"}}>
+                        {showMassBasis && <th className="px-3 py-2 text-right" style={{width: "100px"}}>
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger className="underline decoration-dotted cursor-help">기준 원물(kg)</TooltipTrigger>
                               <TooltipContent><p className="text-xs">완제품 기준량을 만들 때의 원물(불리기 전) kg — 운영 기준 (법적 비율과 별개)</p></TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
-                        </th>
-                        <th className="px-3 py-2 text-right" style={{width: "80px"}}>
+                        </th>}
+                        {showMassBasis && <th className="px-3 py-2 text-right" style={{width: "80px"}}>
                           <TooltipProvider>
                             <Tooltip>
                               <TooltipTrigger className="underline decoration-dotted cursor-help">전처리 배율</TooltipTrigger>
                               <TooltipContent><p className="text-xs">생찹쌀→불린찹쌀 1.4, 생멥쌀→불린멥쌀 1.25 등. 비우면 1.0</p></TooltipContent>
                             </Tooltip>
                           </TooltipProvider>
-                        </th>
+                        </th>}
                         <th className="px-3 py-2 text-left" style={{width: "150px"}}>
                           <TooltipProvider>
                             <Tooltip>
@@ -658,7 +661,7 @@ export default function MfReportEdit() {
                                 placeholder={batchProdKg > 0 ? baseWeight.toFixed(2) : "-"}
                               />
                             </td>
-                            <td className="px-3 py-1.5">
+                            {showMassBasis && <><td className="px-3 py-1.5">
                               <Input
                                 type="number" step="0.001"
                                 className={`h-8 text-sm text-right w-full px-1 font-mono ${ing.basisRawKg != null ? "border-amber-400 bg-amber-50" : "border-0 shadow-none bg-transparent"}`}
@@ -675,7 +678,7 @@ export default function MfReportEdit() {
                                 onChange={(e) => updateIngredient(index, "pretreatmentFactor", e.target.value === "" ? null : parseFloat(e.target.value))}
                                 placeholder="1.0"
                               />
-                            </td>
+                            </td></>}
                             <td className="px-3 py-1.5">
                               <Select
                                 value={ing.processGroupId?.toString() || "none"}
@@ -727,12 +730,12 @@ export default function MfReportEdit() {
                             return sum + ((ing.adjustedWeightKg != null && ing.adjustedWeightKg > 0) ? ing.adjustedWeightKg : base);
                           }, 0).toFixed(2) : "-"}
                         </td>
-                        <td className="px-3 py-2 text-right font-mono text-amber-700">
+                        {showMassBasis && <td className="px-3 py-2 text-right font-mono text-amber-700">
                           {ingredients.some((i) => i.basisRawKg != null)
                             ? ingredients.reduce((sum, i) => sum + (i.basisRawKg ?? 0), 0).toFixed(3)
                             : "-"}
-                        </td>
-                        <td colSpan={4}></td>
+                        </td>}
+                        <td colSpan={showMassBasis ? 4 : 3}></td>
                       </tr>
                     </tfoot>
                   </table>
