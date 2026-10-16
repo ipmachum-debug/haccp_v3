@@ -3,7 +3,8 @@ import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { dispatchPostPurchase, dispatchPostSale } from "../../lib/accounting/postDispatcher";
 import { cancelPurchase } from "../../lib/accounting/purchaseCancel";
 import { cancelProductSale } from "../../lib/accounting/productSaleCancel";
-import { getRawConnection } from "../../db";
+import { getRawConnection, withTransaction } from "../../db";
+import { saleHasFootprintSql, assertNoSaleFootprint } from "../../lib/accounting/saleFootprint";
 
 export const inventoryAccountingRouter = router({
   // 매입 승인 (pending → approved): 분개 + 재고 + LOT 생성
@@ -132,21 +133,26 @@ export const inventoryAccountingRouter = router({
   saleRestore: tenantRequiredProcedure
     .input(z.object({ saleId: z.number() }))
     .mutation(async ({ input, ctx }: { input: { saleId: number }, ctx: any }) => {
-      const pool = await getRawConnection();
-      const [rows]: any = await pool.execute(
-        `SELECT status FROM accounting_sales WHERE id = ? AND tenant_id = ? FOR UPDATE`,
-        [input.saleId, ctx.tenantId],
-      );
-      const current = rows?.[0];
-      if (!current) throw new Error(`매출 전표 #${input.saleId} 없음`);
-      if (current.status !== "cancelled") {
-        throw new Error(`취소 상태만 복구 가능. 현재: ${current.status}`);
-      }
-      await pool.execute(
-        `UPDATE accounting_sales SET status = 'pending', canceled_at = NULL, canceled_by = NULL WHERE id = ? AND tenant_id = ?`,
-        [input.saleId, ctx.tenantId],
-      );
-      return { success: true, message: "매출이 대기 상태로 복구되었습니다." };
+      // ★ 2026-10-16: 잠금·검사·변경을 한 트랜잭션으로 (이전: 풀에서 FOR UPDATE — 잠금이 바로 풀림).
+      //   취소됐어도 재고 차감·매출 분개가 순으로 남아 있으면(정식 취소가 아닌 상태만 취소) 대기로 되돌리지 않는다
+      //   — 되돌리면 다시 확정할 때 이중 차감 (saleFootprint).
+      return await withTransaction(async (conn) => {
+        const [rows]: any = await conn.execute(
+          `SELECT status FROM accounting_sales WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+          [input.saleId, ctx.tenantId],
+        );
+        const current = rows?.[0];
+        if (!current) throw new Error(`매출 전표 #${input.saleId} 없음`);
+        if (current.status !== "cancelled") {
+          throw new Error(`취소 상태만 복구 가능. 현재: ${current.status}`);
+        }
+        await assertNoSaleFootprint(conn, ctx.tenantId, input.saleId);
+        await conn.execute(
+          `UPDATE accounting_sales SET status = 'pending', canceled_at = NULL, canceled_by = NULL WHERE id = ? AND tenant_id = ?`,
+          [input.saleId, ctx.tenantId],
+        );
+        return { success: true, message: "매출이 대기 상태로 복구되었습니다." };
+      });
     }),
 
   // ─── 일괄 복구 관리 엔드포인트 (2026-04-21) ────────────────────
@@ -170,17 +176,23 @@ export const inventoryAccountingRouter = router({
       }
 
       const pool = await getRawConnection();
-      let whereClause = `status = 'approved' AND tenant_id = ?`;
+      // ★ 2026-10-16: 원래 목적("반쪽 승인" — 재고·분개 없이 approved 만 된 매출) 만 대상.
+      //   재고 차감·매출 분개 흔적이 있는 매출은 제외 — 상태만 pending 으로 바꾸면 다시 확정할 때 이중 차감
+      //   (10/14 매출 7건 사고). 제외 건수는 skippedWithFootprint 로 보고.
+      const baseWhere = `s.status = 'approved' AND s.tenant_id = ?`;
+      let whereClause = `${baseWhere} AND NOT ${saleHasFootprintSql("s")}`;
       const params: any[] = [ctx.tenantId];
+      let scopeClause = "";
 
       if (input.scope === "today") {
-        whereClause += ` AND DATE(CONVERT_TZ(created_at, '+00:00', '+09:00')) = CURDATE()`;
+        scopeClause = ` AND DATE(CONVERT_TZ(s.created_at, '+00:00', '+09:00')) = CURDATE()`;
       } else if (input.scope === "last_n_days") {
         const days = input.days ?? 7;
-        whereClause += ` AND created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`;
+        scopeClause = ` AND s.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY)`;
         params.push(days);
       }
       // all_approved 는 추가 조건 없음
+      whereClause += scopeClause;
 
       // 영향 건수 조회
       const [countRows]: any = await pool.execute(
@@ -188,10 +200,15 @@ export const inventoryAccountingRouter = router({
                 MIN(transaction_date) AS min_date,
                 MAX(transaction_date) AS max_date,
                 SUM(total_amount) AS total_amount
-           FROM accounting_sales WHERE ${whereClause}`,
+           FROM accounting_sales s WHERE ${whereClause}`,
         params,
       );
       const summary = countRows?.[0] ?? { cnt: 0, min_date: null, max_date: null, total_amount: 0 };
+      const [skipRows]: any = await pool.execute(
+        `SELECT COUNT(*) AS cnt FROM accounting_sales s WHERE ${baseWhere}${scopeClause} AND ${saleHasFootprintSql("s")}`,
+        params,
+      );
+      const skippedWithFootprint = Number(skipRows?.[0]?.cnt ?? 0);
 
       if (input.dryRun || summary.cnt === 0) {
         return {
@@ -200,15 +217,17 @@ export const inventoryAccountingRouter = router({
           minDate: summary.min_date,
           maxDate: summary.max_date,
           totalAmount: Number(summary.total_amount ?? 0),
-          message: summary.cnt === 0
+          skippedWithFootprint,
+          message: (Number(summary.cnt) === 0
             ? "대상 없음"
-            : `${Number(summary.cnt)}건이 복구됩니다 (실제 실행 시).`,
+            : `${Number(summary.cnt)}건이 복구됩니다 (실제 실행 시).`) +
+            (skippedWithFootprint > 0 ? ` 재고 차감·분개 기록이 있는 ${skippedWithFootprint}건은 제외합니다.` : ""),
         };
       }
 
       // 실제 UPDATE
       const [result]: any = await pool.execute(
-        `UPDATE accounting_sales SET status = 'pending' WHERE ${whereClause}`,
+        `UPDATE accounting_sales s SET s.status = 'pending' WHERE ${whereClause}`,
         params,
       );
       const affected = Number(result.affectedRows ?? 0);
@@ -221,7 +240,9 @@ export const inventoryAccountingRouter = router({
         minDate: summary.min_date,
         maxDate: summary.max_date,
         totalAmount: Number(summary.total_amount ?? 0),
-        message: `${affected}건이 pending 으로 복구되었습니다.`,
+        skippedWithFootprint,
+        message: `${affected}건이 pending 으로 복구되었습니다.` +
+          (skippedWithFootprint > 0 ? ` 재고 차감·분개 기록이 있는 ${skippedWithFootprint}건은 제외했습니다.` : ""),
       };
     }),
 });

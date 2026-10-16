@@ -2,6 +2,7 @@ import { getDb, withTransaction, getRawConnection } from "../../db";
 import { accountingSales } from "../../../drizzle/schema/schema_accounting_extended";
 import { eq, and, sql } from "drizzle-orm";
 import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
+import { assertNoSaleFootprint } from "./saleFootprint";
 import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
 import { formatLocalDate } from "../../utils/timezone";
 import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
@@ -199,6 +200,9 @@ export async function postProductSale(
     if (currentStatus !== "pending") {
       throw new Error(`확정할 수 없는 상태입니다: ${currentStatus} (ID: ${saleId})`);
     }
+    // ★ 2026-10-16: 상태가 pending 이어도 재고 차감·매출 분개 흔적이 남아 있으면 확정하지 않는다 (saleFootprint)
+    //   — 상태만 되돌린 매출을 다시 확정해 같은 수량을 두 번 뺀 사고 (7796 등 7건) 재발 방지.
+    await assertNoSaleFootprint(conn, tenantId, saleId);
 
     // (A) FEFO 재고 차감 — product_id 또는 material_id 있을 때
     //     없으면 재고 차감 없이 회계 분개만 수행 (레거시 호환)

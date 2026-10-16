@@ -9,6 +9,7 @@
 import { withTransaction } from "../../db";
 import { resolveSystemAccount, insertJournalLine, SYSTEM_ACCOUNTS } from "../../core-erp/accounting/journal";
 import { documentAmounts } from "./amountContract";
+import { assertNoSaleFootprint } from "./saleFootprint";
 
 export async function erpPostSale(saleId: number, userId: number, expectedTenantId?: number) {
   return withTransaction(async (conn) => {
@@ -29,6 +30,8 @@ export async function erpPostSale(saleId: number, userId: number, expectedTenant
     if (sale.status !== "pending") throw new Error(`확정할 수 없는 상태입니다: ${sale.status} (ID: ${saleId})`);
 
     const tenantId = sale.tenant_id;
+    // 상태만 되돌린 매출의 이중 분개 방지 (2026-10-16, saleFootprint)
+    await assertNoSaleFootprint(conn, tenantId, saleId);
     // 금액 계약 (amountContract): total_amount = 공급가, 외상매출금 = 공급가 + 세액
     const { supply: supplyAmount, tax: taxAmount, gross: grossAmount } = documentAmounts({ totalAmount: sale.total_amount, taxAmount: sale.tax_amount });
 

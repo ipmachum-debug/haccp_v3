@@ -128,6 +128,60 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     expect((await journal("[매출] SALE-10536 ")).count).toBe(1);
   });
 
+  // ── 상태만 되돌린 매출 재확정 차단 (2026-10-16, saleFootprint — 10/14 매출 7건 이중 차감 사고) ──
+  it("확정된 매출을 상태만 pending 으로 되돌리고 다시 확정 → 거부, LOT·이동·분개 한 벌 그대로", async () => {
+    await insertSale(10536, "2026-10-15", 240, 1444800, 144480);
+    await postProductSale(10536, 4);
+    await q(`UPDATE accounting_sales SET status = 'pending' WHERE id = 10536`); // bulkRestoreApprovedToPending 이 하던 일
+    await expect(postProductSale(10536, 4)).rejects.toThrow(/이미 재고 차감 240·매출 분개 1건 기록이 남아 있습니다/);
+    expect(await lot(1834)).toMatchObject({ a: 118 });
+    expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE source_id = 10536`))[0].n)).toBe(1);
+    expect((await journal("[매출] SALE-10536 ")).count).toBe(1);
+  });
+
+  it("분개 없이 재고만 빠진 매출(7796 유형)도 거부 — 분개만 있는 매출도 거부", async () => {
+    await insertSale(7796, "2026-05-27", 10, 10000, 1000);
+    await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date, reference_type, source_type, source_id, created_by)
+      VALUES (?, 1834, 'usage', 10, 'box', '2026-05-27', 'SALE', 'SALE', 7796, 4)`, [T]);
+    await expect(postProductSale(7796, 4)).rejects.toThrow(/재고 차감 10 기록/);
+    await insertSale(7797, "2026-05-27", 10, 10000, 1000);
+    await q(`INSERT INTO expense_journal_entries (tenant_id, entry_date, description, total_debit, total_credit, posted_by) VALUES (?, '2026-05-27', '[매출] SALE-7797 x', 11000, 11000, 4)`, [T]);
+    await expect(postProductSale(7797, 4)).rejects.toThrow(/매출 분개 1건/);
+    // 비슷한 번호(SALE-77970)·매출원가 전표는 흔적이 아님
+    await insertSale(7798, "2026-05-27", 1, 1000, 100);
+    await q(`INSERT INTO expense_journal_entries (tenant_id, entry_date, description, total_debit, total_credit, posted_by) VALUES
+      (?, '2026-05-27', '[매출] SALE-77980 x', 1, 1, 4), (?, '2026-05-27', '[매출원가] SALE-7798 x', 1, 1, 4)`, [T, T]);
+    await postProductSale(7798, 4);
+    expect((await q(`SELECT status FROM accounting_sales WHERE id = 7798`))[0].status).toBe("approved");
+  });
+
+  it("정식 취소(재고 복원·역분개) 후에는 흔적 0 → 다시 대기·확정 가능, 차감은 한 번만 남음", async () => {
+    const { cancelProductSale } = await import("./lib/accounting/productSaleCancel");
+    const { getSaleFootprint } = await import("./lib/accounting/saleFootprint");
+    await insertSale(10536, "2026-10-15", 240, 1444800, 144480);
+    await postProductSale(10536, 4);
+    await q(`UPDATE accounting_sales SET status = 'received' WHERE id = 10536`); // 현행 취소는 received 만 받음
+    await cancelProductSale(10536, 4, T);
+    expect(await lot(1834)).toMatchObject({ a: 358 });
+    expect(await getSaleFootprint(admin, T, 10536)).toMatchObject({ netDeducted: 0, postedJournals: 1, reversedJournals: 1, live: false });
+    await q(`UPDATE accounting_sales SET status = 'pending' WHERE id = 10536`);
+    await postProductSale(10536, 4);
+    expect(await lot(1834)).toMatchObject({ a: 118 });
+  });
+
+  it("일괄 복구 조건(saleHasFootprintSql): 반쪽 승인만 대상, 확정 흔적 있는 매출·다른 회사 흔적은 구분", async () => {
+    const { saleHasFootprintSql } = await import("./lib/accounting/saleFootprint");
+    await insertSale(10536, "2026-10-15", 240, 1444800, 144480);
+    await postProductSale(10536, 4);
+    await insertSale(500, "2026-10-15", 1, 1000, 100);
+    await q(`UPDATE accounting_sales SET status = 'approved' WHERE id = 500`); // 반쪽 승인 (흔적 없음)
+    await q(`INSERT INTO expense_journal_entries (tenant_id, entry_date, description, total_debit, total_credit, posted_by) VALUES (9, '2026-10-15', '[매출] SALE-500 x', 1, 1, 4)`); // 다른 회사 전표
+    const rows = await q(`SELECT s.id, ${saleHasFootprintSql("s")} AS fp FROM accounting_sales s WHERE s.tenant_id = ? AND s.status = 'approved' ORDER BY s.id`, [T]);
+    expect(rows.map((r: any) => [Number(r.id), Number(r.fp)])).toEqual([[500, 0], [10536, 1]]);
+    await q(`UPDATE accounting_sales s SET s.status = 'pending' WHERE s.status = 'approved' AND s.tenant_id = ? AND NOT ${saleHasFootprintSql("s")}`, [T]);
+    expect((await q(`SELECT id, status FROM accounting_sales ORDER BY id`)).map((r: any) => [Number(r.id), r.status])).toEqual([[500, "pending"], [10536, "approved"]]);
+  });
+
   it("전량 판매 358 → 0 'used', 경계 0.0005 남음 → 'used', 0.5 남음 → 'available'", async () => {
     await insertSale(1, "2026-10-15", 358, 358000, 35800);
     await postProductSale(1, 4);
