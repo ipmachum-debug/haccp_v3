@@ -700,12 +700,15 @@ async function ensureMassBasisSchema(conn: any) {
       total_raw_kg decimal(14,4) NOT NULL,
       total_process_kg decimal(14,4) NOT NULL,
       rows_json json NOT NULL,
+      sub_batch_kg decimal(12,3) NULL,
       created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
       KEY idx_bmb_tenant_version (tenant_id, mf_report_version_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
   } catch (err: any) {
     console.warn("[Migration] h_batch_mass_basis failed:", err.message);
   }
+  // CCP 기록지 한 행 기준량(batch_target_kg) 을 배치 생성 때 고정 (2026-10-16, Codex #546 P2-3)
+  await addCol("h_batch_mass_basis", "sub_batch_kg", "`sub_batch_kg` decimal(12,3) NULL");
   // 회사별 기능 선택 (2026-10-16): 수율 보정 방식은 회사가 선택 — 기본 꺼짐.
   //   표를 처음 만들 때만, 이미 레시피에서 기준 사용을 켠 회사는 켜진 상태로 이어받는다 (기존 선택 보존).
   try {
@@ -750,6 +753,7 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_mf_ingredients", column: "basis_raw_kg", why: "운영 기준 원물 kg (PR B)" },
   { table: "h_mf_ingredients", column: "pretreatment_factor", why: "전처리 배율 (PR B)" },
   { table: "h_batch_mass_basis", column: "rows_json", why: "배치 기준 스냅샷 (PR B)" },
+  { table: "h_batch_mass_basis", column: "sub_batch_kg", why: "CCP 행 기준량 고정 (PR C 후속)" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {

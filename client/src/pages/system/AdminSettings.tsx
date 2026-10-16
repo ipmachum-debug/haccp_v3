@@ -22,6 +22,7 @@ import { toast } from "sonner";
 import { Loader2, Database, FileSpreadsheet, AlertTriangle, Trash2, Archive, Settings, Clock, Play, Building2, Save } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 // DashboardLayout removed - managed by SystemManagement
 
@@ -72,6 +73,15 @@ export default function AdminSettings() {
   };
   
   // 알림 보관 정책 설정 조회
+  // ★ 2026-10-16 생산 계산 방식 — 원물·공정 기준(수율 환산) 은 회사가 선택 (기본 꺼짐)
+  const { data: massBasisFeature, refetch: refetchMassBasis } = trpc.mfReport.massBasisFeature.useQuery();
+  const setMassBasisMutation = trpc.mfReport.setMassBasisFeature.useMutation({
+    onSuccess: (r: { enabled: boolean }) => {
+      toast.success(r.enabled ? "수율 환산 방식을 사용합니다" : "수율 환산 방식을 사용하지 않습니다 (기본 BOM 계산)");
+      refetchMassBasis();
+    },
+    onError: (e: { message: string }) => toast.error(`변경 실패: ${e.message}`),
+  });
   const { data: retentionPolicy } = trpc.notification.getNotificationRetentionPolicy.useQuery();
   
   // 스케줄러 실행 이력 조회
@@ -266,6 +276,32 @@ export default function AdminSettings() {
               )}
               회사 정보 저장
             </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 생산 계산 방식 (2026-10-16) — 수율 환산은 회사 선택 */}
+      <Card>
+        <CardHeader>
+          <CardTitle>생산 원료 계산 방식</CardTitle>
+          <CardDescription>
+            기본은 품목제조보고 배합비 × 생산량입니다. 쌀 불림·증숙처럼 공정에서 무게가 늘어나는 제품이 있으면
+            수율 환산을 켜고, 품목제조보고 편집에서 해당 배합의 기준값을 입력한 뒤 '사용'을 켭니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <div className="text-sm font-medium">원물·공정 기준 (수율 환산) 사용</div>
+              <div className="text-xs text-muted-foreground">
+                끄면 새 배치는 기본 BOM 계산. 이미 만든 배치의 고정 기준은 유지됩니다.
+              </div>
+            </div>
+            <Switch
+              checked={!!massBasisFeature?.enabled}
+              disabled={setMassBasisMutation.isPending || massBasisFeature === undefined}
+              onCheckedChange={(v) => setMassBasisMutation.mutate({ enabled: v })}
+            />
           </div>
         </CardContent>
       </Card>

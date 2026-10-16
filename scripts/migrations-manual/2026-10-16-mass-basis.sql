@@ -35,3 +35,6 @@ CREATE TABLE IF NOT EXISTS `tenant_feature_settings` (
 -- 이미 레시피에서 기준 사용을 켠 회사는 켜진 상태로 이어받음
 INSERT IGNORE INTO `tenant_feature_settings` (`tenant_id`, `feature_code`, `enabled`)
   SELECT DISTINCT `tenant_id`, 'PRODUCTION_MASS_BASIS', 1 FROM `h_mf_report_versions` WHERE `mass_basis_enabled` = 1;
+
+-- CCP 기록지 한 행 기준량 고정 (PR C 후속, Codex #546 P2-3)
+ALTER TABLE `h_batch_mass_basis` ADD COLUMN `sub_batch_kg` decimal(12,3) NULL, ALGORITHM=INSTANT;

@@ -86,6 +86,15 @@ export async function createBatch(batch: {
   const conn = await getRawConnection();
   const isAutoCompleted = batch.status === "completed";
 
+  // ★ 2026-10-16 (수율 기준 PR C, Codex #546 P1): 원물·공정 기준은 배치를 만들기 **전에** 계산한다.
+  //   회사가 선택했고 버전이 켜져 있는데 계산이 안 되면(기준값 누락·단위 등) 배치를 만들지 않는다 —
+  //   조용히 기존 계산(배합비 × 생산량)으로 넘어가면 원료가 과다 차감된다.
+  const { prepareBatchMassBasis, saveBatchMassBasis, rawKgToMaterialUnit } = await import("./batchMassBasis");
+  const massBasisPlan = await prepareBatchMassBasis(batch.tenantId, batch.productId, parseFloat(batch.plannedQuantity));
+  if (massBasisPlan.mode === "error") {
+    throw new Error(`[수율 환산] 품목제조보고 버전 ${massBasisPlan.versionId} 의 원물·공정 기준을 계산할 수 없어 배치를 만들지 않았습니다: ${massBasisPlan.reason}`);
+  }
+
   // auto 모드: 종료시간 계산 (시작시간 + BOM 배치수 × 사이클시간)
   // 정확한 계산은 BOM 조회가 필요하므로, 여기서는 시작시간 + 2시간을 기본값으로 설정
   // 실제 종료시간은 completeBatch에서 정확히 갱신
@@ -159,15 +168,19 @@ export async function createBatch(batch: {
           .orderBy(hMfIngredients.lineNo);
         const ingredients = ingredientsRaw;
 
-        // ★ 2026-10-16 (수율 기준 PR C): 원물·공정 기준을 켠 버전이면 먼저 스냅샷을 고정하고, 원료 투입 계획(=자동 출고량)을
-        //   스냅샷의 행별 원물 kg 로 잡는다. 꺼진 버전·스냅샷 실패는 기존 계산(배합비 × 생산량) 그대로.
+        // ★ 2026-10-16 (수율 기준 PR C): 기준 계산이면 스냅샷을 고정하고 원료 투입 계획(=자동 출고량)을 스냅샷의 행별 원물 kg 로.
+        //   스냅샷 버전 = 이 배치 버전이어야 하고, 차감 대상 원료 행은 모두 스냅샷에 있어야 한다 (없으면 실패 → 아래 롤백).
         let massBasisRawByIngredient: Map<number, number> | null = null;
-        try {
-          const { recordBatchMassBasis } = await import("./batchMassBasis");
-          const mb = await recordBatchMassBasis(batchId, tenantId, batch.productId, plannedQty);
-          massBasisRawByIngredient = recordedRawKgByIngredient(mb);
-        } catch (mbErr) {
-          console.error("[createBatch] 원물·공정 기준 스냅샷 실패 (기존 계산으로 진행):", mbErr);
+        if (massBasisPlan.mode === "basis") {
+          if (massBasisPlan.snapshot.versionId !== latestVersion[0].id) {
+            throw new Error(`[수율 환산] 기준 버전(${massBasisPlan.snapshot.versionId}) 과 배치 버전(${latestVersion[0].id}) 이 다릅니다`);
+          }
+          const stored = await saveBatchMassBasis(conn, batchId, tenantId, massBasisPlan.snapshot, massBasisPlan.subBatchKg);
+          massBasisRawByIngredient = recordedRawKgByIngredient({ recorded: true, snapshot: stored.snapshot });
+          const missing = ingredients.filter((ing: any) => ing.materialId !== null && ing.isDeductible !== 0 && !massBasisRawByIngredient!.has(Number(ing.id)));
+          if (missing.length > 0) {
+            throw new Error(`[수율 환산] 원료 행 ${missing.map((m: any) => m.id).join(",")} 이 기준 스냅샷에 없습니다`);
+          }
         }
 
         // 4. 배합비 x 생산량으로 원재료 투입 계획 생성 (보정 배합비 기준)
@@ -283,8 +296,14 @@ export async function createBatch(batch: {
                 ? parseFloat(ing.correctedQuantity)
                 : parseFloat(ing.quantity);
               // 기준 스냅샷이 있으면 그 행의 원물 kg (불리기 전, 재고 출고 기준) — 없으면 기존 배합비 × 생산량
-              const basisRaw = massBasisRawByIngredient?.get(Number(ing.id));
-              const plannedQ = basisRaw != null ? basisRaw : (ratio / 100) * plannedQty;
+              let plannedQ = (ratio / 100) * plannedQty;
+              let unit = ing.materialUnit || "kg";                // 원재료 실제 단위 사용
+              if (massBasisRawByIngredient) {
+                const conv = rawKgToMaterialUnit(massBasisRawByIngredient.get(Number(ing.id))!, ing.materialUnit);
+                if (!conv) throw new Error(`[수율 환산] 원료 행 ${ing.id} 의 단위(${ing.materialUnit}) 는 kg 기준으로 바꿀 수 없습니다`);
+                plannedQ = conv.qty;
+                unit = conv.unit;
+              }
               const rawId = Number(ing.materialId);
               const canonicalId = idMap.get(rawId) ?? rawId;
               const unitPrice = priceMap.get(canonicalId) ?? 0;
@@ -299,7 +318,7 @@ export async function createBatch(batch: {
                 batchId,
                 materialId: canonicalId,                          // ★ canonical h_materials.id 저장
                 plannedQuantity: plannedQ.toFixed(3),
-                unit: ing.materialUnit || "kg",                   // 원재료 실제 단위 사용
+                unit,
                 processGroupId: ing.processGroupId ?? null,
                 unitPrice: unitPrice.toFixed(2),
                 totalPrice: totalPrice.toFixed(2),
@@ -315,10 +334,31 @@ export async function createBatch(batch: {
       }
     }
   } catch (error) {
+    if (massBasisPlan.mode === "basis") {
+      // 기준 계산 배치는 반쪽(빈 투입·구식 계획) 으로 남기지 않는다 — 방금 만든 배치·스냅샷·투입을 되돌리고 실패
+      await rollbackFailedBatchCreate(conn, batchId, tenantId);
+      throw error;
+    }
     console.error("[createBatch] 원재료 투입 자동생성 실패 (배치 생성은 유지):", error);
   }
 
   return batchId;
+}
+
+/** 기준 계산 배치 생성이 중간에 실패했을 때 — 이 호출이 만든 행만 되돌린다 (이후 단계가 없으므로 다른 연결 데이터 없음) */
+async function rollbackFailedBatchCreate(conn: any, batchId: number, tenantId: number): Promise<void> {
+  // 문장마다 따로 — 하나가 실패해도(예: 스냅샷 저장 자체가 실패한 경우) 나머지, 특히 배치 행은 지운다
+  for (const [sql, label] of [
+    [`DELETE FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`, "투입 계획"],
+    [`DELETE FROM h_batch_mass_basis WHERE batch_id = ? AND tenant_id = ?`, "기준 스냅샷"],
+    [`DELETE FROM h_batches WHERE id = ? AND tenant_id = ?`, "배치"],
+  ] as const) {
+    try {
+      await conn.execute(sql, [batchId, tenantId]);
+    } catch (e) {
+      console.error(`[createBatch] 실패한 배치 #${batchId} ${label} 되돌리기 실패 — 수동 확인 필요:`, e);
+    }
+  }
 }
 
 /** 스냅샷이 기록된 경우 원료 행 id → 원물 kg (차감 대상 행만). 기록 안 됐으면 null → 기존 계산 */
