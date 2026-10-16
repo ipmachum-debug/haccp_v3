@@ -16,6 +16,7 @@
  *   recipe_lines          -> h_mf_ingredients
  *   recipe_versions       -> h_mf_report_versions (네이티브 버전 관리)
  */
+import { mergeIngredientRows } from "../../lib/production/mfIngredientMerge";
 import { getDb } from "../connection";
 import { resolveBomProductIds } from "../../lib/identity/itemIdentityService";
 import {
@@ -395,24 +396,43 @@ export async function updateRecipe(
     }
 
     // 원재료 구성 교체 (기존 삭제 후 재생성)
+    // ★ 2026-10-16: 이 화면이 다루지 않는 값(CCP 공정 지정·수율조정·추가 원재료·차감 여부·원료 유형·혼합 SKU) 은
+    //   같은 id 의 원래 행에서 이어받는다 (mfIngredientMerge). 이전에는 공정 지정을 지우고 차감 여부=1·유형=RAW 로 덮어썼다.
     if (lines) {
+      const existing = await db.select().from(hMfIngredients)
+        .where(eq(hMfIngredients.mfReportVersionId, version.id));
+      const byId = new Map<number, any>((existing as any[]).map((e) => [Number(e.id), e]));
+
       await db
         .delete(hMfIngredients)
         .where(eq(hMfIngredients.mfReportVersionId, version.id));
 
       if (lines.length > 0) {
+        const merged = mergeIngredientRows(
+          lines.map((line) => {
+            const orig = line.id != null ? byId.get(Number(line.id)) : undefined;
+            return {
+              id: line.id,
+              materialId: line.materialId,
+              intermediateId: orig?.intermediateId ?? undefined,
+              quantity: Number(line.percentage || line.quantity),
+              correctedQuantity: Number(line.quantity),
+              unit: line.unit,
+              isDeductible: orig?.isDeductible ?? 1,
+              materialType: orig?.materialType ?? "RAW",
+              flavorName: line.notes || undefined,
+            };
+          }),
+          existing as any[],
+          version.id,
+        );
         await db.insert(hMfIngredients).values(
-          lines.map((line, index) => ({
-            mfReportVersionId: version.id,
-            lineNo: line.sortOrder || index + 1,
-            materialId: line.materialId,
-            quantity: line.percentage || line.quantity,
-            correctedQuantity: line.quantity,
-            unit: line.unit,
-            isDeductible: 1,
-            materialType: "RAW" as const,
-            flavorName: line.notes || null,
-          })),
+          merged.map((row, index) => ({
+            ...row,
+            quantity: String(lines[index].percentage || lines[index].quantity),
+            correctedQuantity: lines[index].quantity,
+            lineNo: lines[index].sortOrder || index + 1,
+          })) as any[],
         );
       }
     }

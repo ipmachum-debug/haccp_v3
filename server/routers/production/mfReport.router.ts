@@ -89,6 +89,8 @@ export const mfReportRouter = router({
           batchTargetKg: z.number().optional(),
           ingredients: z.array(
             z.object({
+              /** ★ 2026-10-16: 원래 행 id — 보내지 않은 값(CCP 공정 지정 등)을 이 행에서 이어받는다 */
+              id: z.number().optional(),
               materialId: z.number().optional(),
               intermediateId: z.number().optional(),
               childSkuId: z.number().optional(),
@@ -99,8 +101,8 @@ export const mfReportRouter = router({
               isDeductible: z.number().default(1),
               materialType: z.enum(["RAW", "MIXED", "FLAVOR_SPECIFIC", "CHILD_SKU"]),
               flavorName: z.string().optional(),
-              processGroupId: z.number().optional(),
-              adjustedWeightKg: z.number().optional(),
+              processGroupId: z.number().nullable().optional(), // null = 미지정으로 비움, 생략 = 유지
+              adjustedWeightKg: z.number().nullable().optional(),
               isAdditional: z.number().optional()
             })
           ).optional()
