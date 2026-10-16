@@ -13,6 +13,7 @@
  *   npx tsx scripts/ccp-steam-grouped-time-fix.ts                 # 미리보기 (DB 변경 없음)
  *   npx tsx scripts/ccp-steam-grouped-time-fix.ts --apply         # 적용
  *   npx tsx scripts/ccp-steam-grouped-time-fix.ts --rollback      # 되돌리기
+ *   npx tsx scripts/ccp-steam-grouped-time-fix.ts --only=1717 --apply   # 1건 시험 적용 (되돌리기도 --only 로 범위 지정)
  * 옵션: --tenant=2 --groups=2,3 --created-from=2026-04-13 --batch-size=3 --interval=10
  */
 import mysql from "mysql2/promise";
@@ -28,6 +29,8 @@ const GROUPS = arg("groups", "2,3").split(",").map(Number).filter(Number.isFinit
 const CREATED_FROM = arg("created-from", "2026-04-13");
 const BATCH_SIZE = Number(arg("batch-size", "3"));
 const INTERVAL = Number(arg("interval", "10"));
+// --only=1717,1718 : 이 기록지만 (1건 시험 적용용). 미지정이면 조건에 맞는 전체
+const ONLY = arg("only", "").split(",").map((v) => Number(v.trim())).filter((n) => Number.isFinite(n) && n > 0);
 const BACKUP = "h_ccp_form_rows_time_fix_20261016";
 const REASON = "2026-10-16 공정 그룹 설정 오류(순차 1대 → 실제 묶음 순차 3대)로 측정시각 정정";
 
@@ -55,7 +58,8 @@ async function rollback(conn: mysql.Connection) {
   if (!(await backupExists(conn))) return console.log("백업 표가 없습니다 — 되돌릴 것 없음");
   const [recs]: any = await conn.query(
     `SELECT form_record_id, MAX(old_group_mode) AS mode, MAX(old_interval_min) AS iv, COUNT(*) AS n
-       FROM ${BACKUP} WHERE tenant_id = ? GROUP BY form_record_id`, [TENANT]);
+       FROM ${BACKUP} WHERE tenant_id = ? ${ONLY.length ? "AND form_record_id IN (?)" : ""} GROUP BY form_record_id`,
+    ONLY.length ? [TENANT, ONLY] : [TENANT]);
   console.log(`되돌릴 기록지 ${recs.length}건`);
   for (const r of recs) {
     await conn.beginTransaction();
@@ -85,7 +89,7 @@ async function rollback(conn: mysql.Connection) {
 async function main() {
   const conn = await mysql.createConnection({ ...getDbConfigFromEnv(process.env), charset: "utf8mb4" });
   console.log(`=== 증숙 CCP 측정시각 정정 (순차 → 묶음 순차 ${BATCH_SIZE}대, 간격 ${INTERVAL}분) ===`);
-  console.log(`모드: ${ROLLBACK ? "되돌리기" : APPLY ? "적용 (--apply)" : "미리보기"} / 회사 ${TENANT} / 공정 그룹 ${GROUPS.join(",")} / 기록지 생성일 ≥ ${CREATED_FROM}\n`);
+  console.log(`모드: ${ROLLBACK ? "되돌리기" : APPLY ? "적용 (--apply)" : "미리보기"} / 회사 ${TENANT} / 공정 그룹 ${GROUPS.join(",")} / 기록지 생성일 ≥ ${CREATED_FROM}${ONLY.length ? ` / 대상 기록지 ${ONLY.join(",")} 만` : ""}\n`);
   if (ROLLBACK) { await rollback(conn); await conn.end(); return; }
 
   const already = new Set<number>();
@@ -102,8 +106,9 @@ async function main() {
               ORDER BY cr.sort_order LIMIT 1) AS cycle_min
        FROM h_ccp_form_records r
       WHERE r.tenant_id = ? AND r.process_group_id IN (?) AND r.created_at >= ? AND r.ccp_type = 'CCP-1B'
+        ${ONLY.length ? "AND r.id IN (?)" : ""}
       ORDER BY r.work_date, r.id`,
-    [TENANT, GROUPS, CREATED_FROM]);
+    ONLY.length ? [TENANT, GROUPS, CREATED_FROM, ONLY] : [TENANT, GROUPS, CREATED_FROM]);
 
   const stats: Record<string, { recs: number; rows: number; changed: number }> = {};
   const skipped: string[] = [];
