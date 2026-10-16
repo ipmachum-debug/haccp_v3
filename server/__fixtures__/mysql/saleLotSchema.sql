@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -379,4 +379,25 @@ CREATE TABLE `h_inventory` (
   `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   UNIQUE KEY `uk_inv_material` (`tenant_id`,`material_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `h_stock_alerts`;
+
+CREATE TABLE `h_stock_alerts` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `site_id` bigint NOT NULL,
+  `inventory_id` bigint DEFAULT NULL,
+  `lot_id` bigint DEFAULT NULL,
+  `alert_type` enum('low_stock','expiring_soon','expired','overstock') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `message` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `severity` enum('low','medium','high','critical') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT 'medium',
+  `alert_date` timestamp NOT NULL DEFAULT (now()),
+  `resolved` tinyint DEFAULT '0',
+  `resolved_at` timestamp NULL DEFAULT NULL,
+  `resolved_by` bigint DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `tenant_id` int NOT NULL,
+  PRIMARY KEY (`id`),
+  KEY `h_stock_alerts_tenant_id_tenants_id_fk` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

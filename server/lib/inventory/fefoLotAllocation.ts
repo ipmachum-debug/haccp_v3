@@ -4,6 +4,7 @@ import { getDb } from "../../db";
 
 import { hInventoryLots } from "../../../drizzle/schema/part2";
 import { and, eq, gte, sql, desc, or, isNull, lte } from "drizzle-orm";
+import { todayKST } from "../../utils/timezone";
 
 /**
  * Drizzle 인스턴스 해석 — 같은 트랜잭션에서 사용하려면 conn 전달.
@@ -128,6 +129,21 @@ export function planFefoAllocation(
   return { allocations, remaining };
 }
 
+/**
+ * 기준일(YYYY-MM-DD) 에 출고 가능한 LOT — 폐기·보류·만료 상태가 아니고, 소비기한이 없거나 기준일 이후(당일 포함).
+ * 'used' 는 막지 않는다: 과거 상태 판정 버그(#526)로 재고가 남았는데 'used' 가 된 LOT 이 운영에 있어서
+ * (2026-10-16 실측: 원료 21개 720kg) 막으면 실제 재고가 안 보인다. 소진 여부는 수량으로 판단한다.
+ */
+export function lotUsableOnSql(refDate: string) {
+  return sql`(${hInventoryLots.status} IS NULL OR ${hInventoryLots.status} NOT IN ('expired', 'disposed', 'reserved'))
+    AND (${hInventoryLots.expiryDate} IS NULL OR ${hInventoryLots.expiryDate} >= ${refDate})`;
+}
+
+/** 음수 sink 후보 — 재고가 없거나(0 이하), 남은 재고가 쓸 수 있는 LOT */
+export function lotSinkableOnSql(refDate: string) {
+  return sql`(${hInventoryLots.availableQuantity} <= 0.001 OR (${lotUsableOnSql(refDate)}))`;
+}
+
 export async function allocateLotsFEFO(
   inventoryId: number,
   requestedQuantity: number,
@@ -144,6 +160,11 @@ export async function allocateLotsFEFO(
   const asOfCond = asOf
     ? or(isNull(hInventoryLots.receiptDate), lte(hInventoryLots.receiptDate, asOf as any))
     : undefined;
+  // 사용 가능 조건 (2026-10-16, Codex DB 감사: 기한 지난 LOT 6건 실사용):
+  //   기준일(asOfDate, 없으면 오늘 KST) 에 소비기한이 지났거나, 폐기·보류·만료 상태인 LOT 은 쓰지 않는다.
+  const refDate = asOf ?? todayKST();
+  const eligibleCond = lotUsableOnSql(refDate);
+  const sinkCond = lotSinkableOnSql(refDate);
 
   // 1. 유통기한 순으로 사용 가능한 LOT 조회 (tenant_id 필터 적용)
   let availableLots = await db
@@ -159,6 +180,7 @@ export async function allocateLotsFEFO(
         eq(hInventoryLots.inventoryId, inventoryId),
         eq(hInventoryLots.tenantId, tenantId),
         gte(hInventoryLots.availableQuantity, 0.001 as any),  // 재고 > 0
+        eligibleCond,
         asOfCond
       )
     )
@@ -189,6 +211,7 @@ export async function allocateLotsFEFO(
           eq(hInventoryLots.materialId, materialId),
           eq(hInventoryLots.tenantId, tenantId),
           gte(hInventoryLots.availableQuantity, 0.001 as any),
+          eligibleCond,
           asOfCond
         )
       )
@@ -219,6 +242,8 @@ export async function allocateLotsFEFO(
 
   // 음수 허용 모드: 부족분을 떠안을 sink LOT = 해당 자재의 가장 최근 LOT (수량 무관, 음수 LOT 포함).
   //   같은 LOT 에 계속 쌓이게 해서 음수가 여러 LOT 로 흩어지지 않게 한다.
+  //   단 재고가 남은 쓸 수 없는 LOT (기한 경과·폐기·보류) 은 sink 로 고르지 않는다 — 고르면 남은 기한 경과
+  //   재고부터 빠져나가 FEFO 제외가 무력화된다. 재고 0 이하 LOT 은 상태·기한과 무관하게 sink 가능.
   let sinkLot: FefoLotRow | null = null;
   if (options.allowNegative) {
     const totalNow = (availableLots as any[]).reduce((s: number, l: any) => s + Number(l.availableQuantity || 0), 0);
@@ -233,8 +258,8 @@ export async function allocateLotsFEFO(
         .from(hInventoryLots)
         .where(
           materialId
-            ? and(eq(hInventoryLots.materialId, materialId), eq(hInventoryLots.tenantId, tenantId), asOfCond)
-            : and(eq(hInventoryLots.inventoryId, inventoryId), eq(hInventoryLots.tenantId, tenantId), asOfCond)
+            ? and(eq(hInventoryLots.materialId, materialId), eq(hInventoryLots.tenantId, tenantId), sinkCond, asOfCond)
+            : and(eq(hInventoryLots.inventoryId, inventoryId), eq(hInventoryLots.tenantId, tenantId), sinkCond, asOfCond)
         )
         .orderBy(sql`(${hInventoryLots.availableQuantity} < 0) DESC`, desc(hInventoryLots.id))
         .limit(1);
