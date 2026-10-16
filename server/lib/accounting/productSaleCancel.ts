@@ -1,27 +1,25 @@
-import { documentAmounts, findPostedEntryLines } from "./amountContract";
-import { getDb, withTransaction } from "../../db";
+import { findPostedEntryLines } from "./amountContract";
+import { getDb, withTransaction } from "../../db/connection";
 import { accountingSales } from "../../../drizzle/schema/schema_accounting_extended";
 import { eq, and } from "drizzle-orm";
-import { resolveSystemAccount, insertJournalLine } from "../../db/accounting/journalHelper";
-import { SYSTEM_ACCOUNTS } from "../../../drizzle/schema/accountingAccounts";
+import { insertJournalLine } from "../../db/accounting/journalHelper";
 import { todayKST } from "../../utils/timezone";
 
 /**
- * 제품 매출 CANCEL — productSalePost 완전 대칭 역수행 (Module 2, 2026-04-14)
+ * 제품 매출 CANCEL — productSalePost 대칭 역수행 (Module 2, 2026-04-14 / 2026-10-16 대칭 재정비)
  *
- * productSalePost 가 변경한 모든 테이블을 정확히 되돌립니다:
- *   A. h_inventory_lots: 차감됐던 LOT 들의 available_quantity 복구
- *   B. h_inventory_transactions: usage 역거래 기록 (원본 tx 는 유지, 감사 추적)
- *   C. material_ledger_daily: usage_qty 감소 (GREATEST(0,...))
- *   D. 매출 역분개: 차변 매출 + VAT / 대변 AR
- *   E. COGS 역분개: 차변 제품재고 / 대변 매출원가
- *   F. accounting_sales.status → 'cancelled'
+ * 취소 가능: 대기(pending)·승인(approved). 화면(getAvailableActions) 도 이 두 상태에만 취소를 보인다.
+ *   이전 서버는 수금 완료(received) 만 받아 화면 취소가 항상 실패했고, 받아도 수금 분개·AR 은 되돌리지 않았다.
+ *   - 수금 완료: 수금을 먼저 취소해야 하므로 거부.
+ *   - 제품 출고 화면에서 만든 매출(source_type='product_outbound'): 차감은 출고가 했으므로 출고 취소로 처리.
  *
- * 안전장치:
- *   - withTransaction + FOR UPDATE (sale + 모든 LOT)
- *   - 멱등성: 이미 cancelled 면 조용히 반환
- *   - 감사 추적: LOT 복구 후에도 원본 usage tx 는 유지, 대신 return 타입 역거래 추가
- *   - 계정 누락 시 HALT
+ *   A. 차감됐던 LOT 복구 — 일반 판매(SALE usage) + 혼합(번들) 구성품(bundle_lots 'sales:<id>', 이전엔 미복구)
+ *   B. h_inventory_transactions: SALE_CANCEL return 역거래 (원본 tx 유지, LOT 단위)
+ *   C. 원재료 수불부 usage_qty 감소 (원재료 매출만)
+ *   D. 원 [매출]·[매출원가] 전표가 있을 때만 그대로 뒤집음 (없던 전표를 계산 금액으로 만들지 않음)
+ *   E. accounting_sales.status → 'cancelled'
+ *
+ * 안전장치: withTransaction + FOR UPDATE (sale + 모든 LOT), 이미 cancelled 면 멱등 반환.
  */
 export async function cancelProductSale(
   saleId: number,
@@ -45,46 +43,11 @@ export async function cancelProductSale(
   if (sale.status === "cancelled") {
     return { alreadyProcessed: true };
   }
-  if (sale.status !== "received") {
-    throw new Error(`확정(received)된 매출만 취소할 수 있습니다. (현재: ${sale.status})`);
-  }
+  assertSaleCancellable(sale.status, (sale as any).sourceType);
 
   // ── 2. 공통 값 ──────────────────────────────────────────
-  // 금액 계약 (amountContract): total_amount = 공급가. 역분개는 원 전표를 뒤집고, 이 값은 원 전표가 없을 때만 쓴다.
-  const { supply: supplyAmount, tax: taxAmount, gross: grossAmount } = documentAmounts(sale);
   const docId = `SALE-${saleId}`;
   const cancelDate = todayKST();
-
-  // ── 3. 필수 계정 사전 조회 ──────────────────────────────
-  const receivableAcc = await resolveSystemAccount(
-    tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_RECEIVABLE, "1030", "외상매출금",
-  );
-  const salesRevenueAcc = await resolveSystemAccount(
-    tenantId, SYSTEM_ACCOUNTS.SALES_REVENUE, "4010", "상품매출",
-  );
-  const cogsAcc = await resolveSystemAccount(
-    tenantId, SYSTEM_ACCOUNTS.COST_OF_GOODS, "5010", "매출원가",
-  );
-  // ★ 2026-10-12: post 와 대칭 — 제품(1430). 1430 이전에 확정된 매출(상품 1420 대변)의 취소는
-  //   원 전표를 역분개하는 것이 정확하나, 현행 구조(description 매칭)에서는 현재 계정으로 되돌린다.
-  const inventoryGoodsAcc = await resolveSystemAccount(
-    tenantId, SYSTEM_ACCOUNTS.INVENTORY_FINISHED, "1430", "제품",
-  );
-  const vatAcc = taxAmount > 0
-    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.VAT_OUTPUT, "2350", "부가세예수금")
-    : null;
-
-  const missing: string[] = [];
-  if (receivableAcc.id === 0) missing.push("ACCOUNTS_RECEIVABLE");
-  if (salesRevenueAcc.id === 0) missing.push("SALES_REVENUE");
-  if (cogsAcc.id === 0) missing.push("COST_OF_GOODS");
-  if (inventoryGoodsAcc.id === 0) missing.push("INVENTORY_GOODS");
-  if (vatAcc && vatAcc.id === 0) missing.push("VAT_OUTPUT");
-  if (missing.length > 0) {
-    throw new Error(
-      `[${docId}] 필수 회계 계정 누락: ${missing.join(", ")}. 시드 필요.`,
-    );
-  }
 
   // ── 4. 원자적 역수행 ────────────────────────────────────
   return await withTransaction(async (conn) => {
@@ -97,9 +60,7 @@ export async function cancelProductSale(
     if (currentStatus === "cancelled") {
       return { alreadyProcessed: true };
     }
-    if (currentStatus !== "received") {
-      throw new Error(`확정(received)된 매출만 취소할 수 있습니다. (현재: ${currentStatus})`);
-    }
+    assertSaleCancellable(currentStatus, (sale as any).sourceType);
 
     // (A) 원본 SALE usage 거래 조회 — 각 LOT 별로 얼마나 차감됐는지 알려면 모두 필요
     const [usageTxRows] = await conn.execute(
@@ -112,7 +73,31 @@ export async function cancelProductSale(
        ORDER BY id ASC`,
       [tenantId, saleId],
     );
-    const usageTxs = usageTxRows as any[];
+    // 혼합(번들) 구성품 차감 — bundle_lots.notes='sales:<id>' 가 정본 (2026-10-15 이전 거래에는 매출 참조가 없음)
+    const [bundleRows] = await conn.execute(
+      `SELECT child_lot_id AS lot_id, deducted_qty_kg AS quantity
+         FROM bundle_lots WHERE tenant_id = ? AND notes = ?`,
+      [tenantId, `sales:${saleId}`],
+    );
+    const bundleCostRows = new Map<number, number>();
+    if ((bundleRows as any[]).length > 0) {
+      const [bc] = await conn.execute(
+        `SELECT lot_id, SUM(amount) AS amount, SUM(quantity) AS qty FROM h_inventory_transactions
+          WHERE tenant_id = ? AND source_type = 'BUNDLE_OUTBOUND' AND reference_type = 'sales' AND reference_id = ?
+          GROUP BY lot_id`,
+        [tenantId, saleId],
+      );
+      for (const r of bc as any[]) bundleCostRows.set(Number(r.lot_id), Number(r.qty) > 0 ? Number(r.amount || 0) / Number(r.qty) : 0);
+    }
+    const usageTxs = [
+      ...(usageTxRows as any[]),
+      ...(bundleRows as any[]).map((r) => ({
+        lot_id: r.lot_id, quantity: r.quantity,
+        unit_cost: bundleCostRows.get(Number(r.lot_id)) ?? 0,
+        amount: Number(r.quantity || 0) * (bundleCostRows.get(Number(r.lot_id)) ?? 0),
+        bundle: true,
+      })),
+    ];
 
     let totalRestoredCogs = 0;
     let totalRestoredQty = 0;
@@ -126,7 +111,7 @@ export async function cancelProductSale(
 
       // LOT 잠금
       const [lotLockRows] = await conn.execute(
-        `SELECT available_quantity, current_quantity, quantity FROM h_inventory_lots
+        `SELECT available_quantity, current_quantity, quantity, unit FROM h_inventory_lots
          WHERE id = ? AND tenant_id = ? FOR UPDATE`,
         [lotId, tenantId],
       );
@@ -154,12 +139,12 @@ export async function cancelProductSale(
         [
           tenantId, lotId,
           restoreQty,
-          sale.unit || "EA",
+          lotRow.unit || sale.unit || "EA",
           cancelDate,
           saleId,
           Number(tx.unit_cost || 0),
           lotCost,
-          `[매출취소] ${docId}`,
+          tx.bundle ? `[매출취소] ${docId} 혼합 구성품 복원` : `[매출취소] ${docId}`,
           userId,
         ],
       );
@@ -174,7 +159,7 @@ export async function cancelProductSale(
     //   원재료 매출은 차감된 LOT 의 material_id 로 되돌린다.
     if (!restoredProductId && totalRestoredQty > 0 && usageTxs.length > 0) {
       try {
-        const lotIds = usageTxs.map((t) => Number(t.lot_id)).filter((n) => Number.isFinite(n) && n > 0);
+        const lotIds = usageTxs.filter((t: any) => !t.bundle).map((t) => Number(t.lot_id)).filter((n) => Number.isFinite(n) && n > 0);
         if (lotIds.length > 0) {
           const [lotRows] = await conn.execute(
             `SELECT DISTINCT material_id FROM h_inventory_lots
@@ -200,99 +185,8 @@ export async function cancelProductSale(
       }
     }
 
-    // (D) 매출 역분개 (Entry 1) — 원 매출 전표를 그대로 뒤집는다 (2026-10-15, amountContract)
-    //   이전엔 total_amount 로 다시 계산했다. 금액 계약이 바뀌면(공급가 → 합계) 옛 전표와 금액이 어긋난다.
-    //   원 전표가 없을 때만 계약대로 계산: 차변 매출(공급가) + 부가세 / 대변 외상매출금(합계).
-    const posted = await findPostedEntryLines(conn, tenantId, `[매출] ${docId}`);
-    const reversalLines: Array<{ accountId: number; accountCode: string; accountName: string; debit: number; credit: number; description: string; partnerId: number | null }> =
-      posted && posted.lines.length > 0
-        ? posted.lines.map((l) => ({
-            accountId: l.account_id, accountCode: l.account_code, accountName: l.account_name,
-            debit: l.credit_amount, credit: l.debit_amount,
-            description: `매출 취소: ${sale.itemName || ""} (${docId})`, partnerId: l.partner_id ?? null,
-          }))
-        : [
-            { accountId: salesRevenueAcc.id, accountCode: salesRevenueAcc.code, accountName: salesRevenueAcc.name, debit: supplyAmount, credit: 0, description: `매출 취소: ${sale.itemName || ""} (${docId})`, partnerId: null },
-            ...(vatAcc && taxAmount > 0 ? [{ accountId: vatAcc.id, accountCode: vatAcc.code, accountName: vatAcc.name, debit: taxAmount, credit: 0, description: `매출 취소 부가세: ${sale.itemName || ""} (${docId})`, partnerId: null }] : []),
-            { accountId: receivableAcc.id, accountCode: receivableAcc.code, accountName: receivableAcc.name, debit: 0, credit: grossAmount, description: `매출 취소: ${sale.itemName || ""} (${docId})`, partnerId: (sale as any).partnerId || null },
-          ];
-    const reversalTotal = Math.round(reversalLines.reduce((a, l) => a + l.debit, 0) * 100) / 100;
-    const [salesJeResult] = await conn.execute(
-      `INSERT INTO expense_journal_entries
-         (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by, posted_at)
-       VALUES (?, NULL, ?, ?, ?, ?, ?, NOW())`,
-      [
-        tenantId,
-        cancelDate,
-        `[매출취소] ${docId} ${sale.itemName || ""}`,
-        reversalTotal,
-        reversalTotal,
-        userId,
-      ],
-    );
-    const salesEntryId = Number((salesJeResult as any).insertId);
-
-    let sortOrder = 0;
-    for (const l of reversalLines) {
-      await insertJournalLine(conn, {
-        tenantId, journalEntryId: salesEntryId,
-        accountId: l.accountId, accountCode: l.accountCode, accountName: l.accountName,
-        debitAmount: l.debit, creditAmount: l.credit,
-        description: l.description,
-        sortOrder: sortOrder++,
-        partnerId: l.partnerId,
-      });
-    }
-
-    // (E) COGS 역분개 (Entry 2): 차변 제품재고 / 대변 매출원가
-    //     원본 COGS 엔트리를 찾아서 같은 금액으로 역수행
-    const [cogsJeRows] = await conn.execute(
-      `SELECT id, total_debit FROM expense_journal_entries
-       WHERE tenant_id = ? AND description LIKE ?
-       ORDER BY id DESC LIMIT 1`,
-      [tenantId, `[매출원가] ${docId}%`],
-    );
-    const originalCogs = (cogsJeRows as any[])[0];
-    const cogsAmount = originalCogs ? Number(originalCogs.total_debit || 0) : 0;
-
-    if (cogsAmount > 0) {
-      const [cogsReversalResult] = await conn.execute(
-        `INSERT INTO expense_journal_entries
-           (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by, posted_at)
-         VALUES (?, NULL, ?, ?, ?, ?, ?, NOW())`,
-        [
-          tenantId,
-          cancelDate,
-          `[매출원가취소] ${docId} ${sale.itemName || ""}`,
-          cogsAmount,
-          cogsAmount,
-          userId,
-        ],
-      );
-      const cogsReversalId = Number((cogsReversalResult as any).insertId);
-
-      let cogsSortOrder = 0;
-      // 차변: 제품재고
-      await insertJournalLine(conn, {
-        tenantId, journalEntryId: cogsReversalId,
-        accountId: inventoryGoodsAcc.id,
-        accountCode: inventoryGoodsAcc.code,
-        accountName: inventoryGoodsAcc.name,
-        debitAmount: cogsAmount, creditAmount: 0,
-        description: `제품재고 복구: ${sale.itemName || ""} (${docId})`,
-        sortOrder: cogsSortOrder++,
-      });
-      // 대변: 매출원가
-      await insertJournalLine(conn, {
-        tenantId, journalEntryId: cogsReversalId,
-        accountId: cogsAcc.id,
-        accountCode: cogsAcc.code,
-        accountName: cogsAcc.name,
-        debitAmount: 0, creditAmount: cogsAmount,
-        description: `매출원가 취소: ${sale.itemName || ""} (${docId})`,
-        sortOrder: cogsSortOrder++,
-      });
-    }
+    // (D) 원 [매출]·[매출원가] 전표 역분개 — 있을 때만
+    await reverseSaleJournals(conn, { tenantId, saleId, itemName: sale.itemName, cancelDate, userId });
 
     // (F) accounting_sales 상태 전환
     await conn.execute(
@@ -310,4 +204,58 @@ export async function cancelProductSale(
     );
     return { alreadyProcessed: false };
   }, `cancelProductSale:${saleId}`);
+}
+
+/**
+ * 매출 취소 가능 상태 (2026-10-16): 대기·승인. 수금 완료는 수금부터, 제품 출고로 만든 매출은 출고 취소로.
+ */
+function assertSaleCancellable(status: string | null | undefined, sourceType: string | null | undefined): void {
+  if (status === "received") throw new Error("수금 완료된 매출은 수금을 먼저 취소해야 합니다.");
+  if (sourceType === "product_outbound") {
+    throw new Error("제품 출고 화면에서 만든 매출입니다. 제품 출고 화면에서 출고를 취소하세요 (재고·매출·분개를 함께 되돌립니다).");
+  }
+  if (status === "pending" || status === "approved") return;
+  throw new Error(`취소할 수 없는 상태입니다: ${status}`);
+}
+
+/**
+ * 원 [매출] SALE-<id> · [매출원가] SALE-<id> 전표를 계정·금액 그대로 뒤집는다 (2026-10-16).
+ * 원 전표가 없으면 만들지 않는다 — 분개 없이 승인됐던 매출을 계산 금액으로 역분개하면 없던 매출이 음수로 생긴다.
+ * 제품 출고 취소(cancelProductOutbound) 도 이 함수를 쓴다.
+ */
+export async function reverseSaleJournals(
+  conn: any,
+  p: { tenantId: number; saleId: number; itemName?: string | null; cancelDate: string; userId: number },
+): Promise<{ sales: boolean; cogs: boolean }> {
+  const docId = `SALE-${p.saleId}`;
+  const done = { sales: false, cogs: false };
+  for (const [marker, label, key] of [["[매출]", "[매출취소]", "sales"], ["[매출원가]", "[매출원가취소]", "cogs"]] as const) {
+    const posted = await findPostedEntryLines(conn, p.tenantId, `${marker} ${docId}`);
+    if (!posted || posted.lines.length === 0) continue;
+    const lines = posted.lines.map((l) => ({
+      accountId: l.account_id, accountCode: l.account_code, accountName: l.account_name,
+      debit: Number(l.credit_amount || 0), credit: Number(l.debit_amount || 0), partnerId: l.partner_id ?? null,
+    }));
+    const total = Math.round(lines.reduce((a, l) => a + l.debit, 0) * 100) / 100;
+    const [je] = await conn.execute(
+      `INSERT INTO expense_journal_entries
+         (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by, posted_at)
+       VALUES (?, NULL, ?, ?, ?, ?, ?, NOW())`,
+      [p.tenantId, p.cancelDate, `${label} ${docId} ${p.itemName || ""}`, total, total, p.userId],
+    );
+    const journalEntryId = Number((je as any).insertId);
+    let sortOrder = 0;
+    for (const l of lines) {
+      await insertJournalLine(conn, {
+        tenantId: p.tenantId, journalEntryId,
+        accountId: l.accountId, accountCode: l.accountCode, accountName: l.accountName,
+        debitAmount: l.debit, creditAmount: l.credit,
+        description: `${label.slice(1, -1)}: ${p.itemName || ""} (${docId})`,
+        sortOrder: sortOrder++,
+        partnerId: l.partnerId,
+      });
+    }
+    done[key] = true;
+  }
+  return done;
 }

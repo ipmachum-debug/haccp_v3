@@ -74,6 +74,15 @@ vi.mock("./db", () => ({
   getRawConnection: vi.fn(async () => conn),
   withTransaction: vi.fn(async (fn: any) => fn(conn)),
 }));
+// productSaleCancel 은 순환 의존을 피하려 connection 에서 직접 가져온다
+vi.mock("./db/connection", () => ({
+  getDb: vi.fn(async () => ({
+    select: () => ({ from: () => ({ where: () => ({ limit: () => Promise.resolve([st.sale]) }) }) }),
+    execute: vi.fn(async () => [[]]),
+  })),
+  getRawConnection: vi.fn(async () => conn),
+  withTransaction: vi.fn(async (fn: any) => fn(conn)),
+}));
 vi.mock("./db/accounting/journalHelper", () => ({
   resolveSystemAccount: vi.fn(async (_t: number, sc: string) => ACC[sc] ?? { id: 0, code: sc, name: sc }),
   insertJournalLine: vi.fn(async (_c: any, l: any) => {
@@ -215,18 +224,21 @@ describe("수금·취소 — 원 전표 금액", () => {
     expect(linesOf(/^\[수금\] SALE-1053/).amt("ACCOUNTS_RECEIVABLE", "credit")).toBe(993300);
   });
   it("취소: 계약 이전 전표를 그대로 뒤집음 (매출 812,700 + 부가세 90,300 / 외상매출금 903,000)", async () => {
-    st.sale = { ...SALE_10535, status: "received" }; st.lockedStatus = "received";
+    st.sale = { ...SALE_10535, status: "approved" }; st.lockedStatus = "approved"; // 2026-10-16: 취소는 대기·승인 (수금 완료는 거부)
     st.postedEntries = [legacyPosted()];
     await cancelProductSale(10535, 4, 2);
     const { h, amt } = linesOf(/^\[매출취소\] SALE-10535/);
     expect([amt("SALES_REVENUE", "debit"), amt("VAT_OUTPUT", "debit"), amt("ACCOUNTS_RECEIVABLE", "credit")]).toEqual([812700, 90300, 903000]);
     expect([h.debit, h.credit]).toEqual([903000, 903000]);
   });
-  it("취소: 원 전표가 없으면 계약대로 (매출 903,000 + 부가세 90,300 / 외상매출금 993,300)", async () => {
-    st.sale = { ...SALE_10535, status: "received" }; st.lockedStatus = "received";
+  it("취소: 원 전표가 없으면 역분개를 만들지 않음 (2026-10-16 — 없던 매출을 음수로 만들지 않는다)", async () => {
+    st.sale = { ...SALE_10535, status: "approved" }; st.lockedStatus = "approved";
     await cancelProductSale(10535, 4, 2);
-    const { amt } = linesOf(/^\[매출취소\] SALE-10535/);
-    expect([amt("SALES_REVENUE", "debit"), amt("VAT_OUTPUT", "debit"), amt("ACCOUNTS_RECEIVABLE", "credit")]).toEqual([903000, 90300, 993300]);
+    expect(st.headers.filter((h: any) => /^\[매출취소\] SALE-10535/.test(h.description))).toEqual([]);
+  });
+  it("취소: 수금 완료는 거부 (수금 먼저 취소)", async () => {
+    st.sale = { ...SALE_10535, status: "received" }; st.lockedStatus = "received";
+    await expect(cancelProductSale(10535, 4, 2)).rejects.toThrow(/수금을 먼저 취소/);
   });
 });
 

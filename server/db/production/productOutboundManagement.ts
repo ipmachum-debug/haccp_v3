@@ -835,66 +835,79 @@ export async function getProductOutboundHistory(params: {
 /* ───────── 제품 출고 취소 (LOT 복원 + 매출전표 취소) ───────── */
 export async function cancelProductOutbound(outboundId: number, userId: number, tenantId: number) {
   await ensureProductOutboundTable();
-  const conn = await getRawConnection();
-
-  const [records] = await conn.execute(
-    `SELECT id, status, batch_id, lot_id, quantity FROM h_product_outbound WHERE id = ? AND tenant_id = ?`,
-    [outboundId, tenantId]
-  );
-  const record = (records as any[])[0];
-  if (!record) throw new Error("출고 기록을 찾을 수 없습니다.");
-  if (record.status === "cancelled") throw new Error("이미 취소된 출고입니다.");
-
-  // 출고 취소
-  await conn.execute(
-    `UPDATE h_product_outbound SET status = 'cancelled', updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
-    [outboundId, tenantId]
-  );
-
-  // 연결된 매출 전표도 취소
-  await conn.execute(
-    `UPDATE accounting_sales SET status = 'cancelled' WHERE source_type = 'product_outbound' AND source_id = ? AND tenant_id = ?`,
-    [outboundId, tenantId]
-  );
-
-  // LOT 재고 복원
-  if (record.lot_id) {
-    const qty = parseFloat(record.quantity || "0");
-    await conn.execute(
-      `UPDATE h_inventory_lots 
-       SET available_quantity = CAST(available_quantity AS DECIMAL(10,3)) + ?,
-           status = 'available',
-           updated_at = NOW()
-       WHERE id = ? AND tenant_id = ?`,
-      [qty, record.lot_id, tenantId]
+  // ★ 2026-10-16: 한 트랜잭션 + 잠금. 이전에는 상태만 바꾸고 LOT 가용량만 더했으며, 연결 매출이 승인돼
+  //   [매출]·[매출원가] 전표가 있어도 역분개하지 않았다 (Codex DB 감사 — 출고 취소 시 분개 미역분개).
+  //   current_quantity 도 되돌리고, 복원 거래에 출처(PRODUCT_OUTBOUND_CANCEL, 출고 id) 와 LOT 단위를 남긴다.
+  return await withTransaction(async (conn: any) => {
+    const [records] = await conn.execute(
+      `SELECT id, status, batch_id, lot_id, quantity FROM h_product_outbound WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+      [outboundId, tenantId]
     );
+    const record = (records as any[])[0];
+    if (!record) throw new Error("출고 기록을 찾을 수 없습니다.");
+    if (record.status === "cancelled") throw new Error("이미 취소된 출고입니다.");
 
-    // 복원 트랜잭션 기록
-    const db = await getDb();
-    // PR-§5.2-2 (part 2): material_id NULL — 제품 LOT 출고 취소 복원 (return)
-    if (db) {
-      await db.insert(hInventoryTransactions).values({
-        tenantId,
-        lotId: record.lot_id,
-        transactionType: "return",
-        quantity: qty.toString(),
-        unit: "EA",
-        notes: `출고 취소 복원 (outboundId: ${outboundId})`,
-        createdBy: userId,
-        performedBy: userId,
-        transactionDate: todayKST(),
-      } as any);
+    // 연결 매출 — 수금 완료면 수금부터 취소해야 한다
+    const [saleRows] = await conn.execute(
+      `SELECT id, status, item_name FROM accounting_sales
+        WHERE source_type = 'product_outbound' AND source_id = ? AND tenant_id = ? FOR UPDATE`,
+      [outboundId, tenantId]
+    );
+    const linkedSales = saleRows as any[];
+    if (linkedSales.some((s) => s.status === "received")) {
+      throw new Error("연결된 매출이 수금 완료 상태입니다. 수금을 먼저 취소하세요.");
     }
-  }
-  // 레거시: 배치 상태 복원
-  else if (record.batch_id) {
-    await conn.execute(
-      `UPDATE h_batches SET status = 'completed' WHERE id = ? AND tenant_id = ? AND status = 'shipped'`,
-      [record.batch_id, tenantId]
-    );
-  }
 
-  return { success: true, message: "출고가 취소되었습니다. (재고 복원됨)" };
+    const cancelDate = todayKST();
+    if (record.lot_id) {
+      const qty = parseFloat(record.quantity || "0");
+      const [lotRows] = await conn.execute(
+        `SELECT unit FROM h_inventory_lots WHERE id = ? AND tenant_id = ? FOR UPDATE`,
+        [record.lot_id, tenantId]
+      );
+      await conn.execute(
+        `UPDATE h_inventory_lots
+           SET available_quantity = available_quantity + ?,
+               current_quantity = COALESCE(current_quantity, quantity) + ?,
+               status = 'available',
+               updated_at = NOW()
+         WHERE id = ? AND tenant_id = ?`,
+        [qty, qty, record.lot_id, tenantId]
+      );
+      await conn.execute(
+        `INSERT INTO h_inventory_transactions
+           (tenant_id, lot_id, transaction_type, quantity, unit, transaction_date,
+            reference_type, reference_id, source_type, source_id, notes, created_by, performed_by)
+         VALUES (?, ?, 'return', ?, ?, ?, 'product_outbound', ?, 'PRODUCT_OUTBOUND_CANCEL', ?, ?, ?, ?)`,
+        [tenantId, record.lot_id, qty, (lotRows as any[])[0]?.unit || "EA", cancelDate, outboundId, outboundId,
+         `출고 취소 복원 (outboundId: ${outboundId})`, userId, userId]
+      );
+    } else if (record.batch_id) {
+      // 레거시: 배치 상태 복원
+      await conn.execute(
+        `UPDATE h_batches SET status = 'completed' WHERE id = ? AND tenant_id = ? AND status = 'shipped'`,
+        [record.batch_id, tenantId]
+      );
+    }
+
+    // 연결 매출: 원 전표가 있으면 역분개 후 취소
+    const { reverseSaleJournals } = await import("../../lib/accounting/productSaleCancel");
+    for (const sale of linkedSales) {
+      if (sale.status === "cancelled") continue;
+      await reverseSaleJournals(conn, { tenantId, saleId: Number(sale.id), itemName: sale.item_name, cancelDate, userId });
+      await conn.execute(
+        `UPDATE accounting_sales SET status = 'cancelled', canceled_at = NOW(), canceled_by = ? WHERE id = ? AND tenant_id = ?`,
+        [userId, sale.id, tenantId]
+      );
+    }
+
+    await conn.execute(
+      `UPDATE h_product_outbound SET status = 'cancelled', updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+      [outboundId, tenantId]
+    );
+
+    return { success: true, message: "출고가 취소되었습니다. (재고 복원·매출 역분개)" };
+  });
 }
 
 /* ───────── 제품 출고 추이 (일별) ───────── */
