@@ -87,3 +87,43 @@ export function bomProductV2IdExpr(reportAlias: string): string {
         AND im0.item_type IN ('own_product', 'external_product') LIMIT 1)
   )`;
 }
+
+/**
+ * 배치·CCP 가 쓸 품목제조보고 버전 하나 (2026-10-16).
+ *
+ * 배치 생성(batchCRUD.createBatch) 과 CCP 기록지 투입량(ccpFormSettings) 이 같은 버전을 읽어야 한다.
+ * 이전 CCP 는 `approval_status = 'APPROVED'` 인 버전을 전부 JOIN 해 합산했다
+ *   → 승인 버전이 2개인 제품(운영 20개) 은 공정 투입 kg 이 두 배 (우유설기 9/14: 4.55 + 4.635 = 9.19kg).
+ * 규칙 (createBatch 와 동일):
+ *   1) 보고서: product_id 후보(resolveBomProductIds) 중 직접 일치(v2 id) 우선, 같으면 id 작은 순
+ *   2) 버전: APPROVED 중 version_no 최신, 없으면 상태 무관 최신 version_no
+ * @returns 버전 id 와 보고서 id, 없으면 null
+ */
+export async function selectBomVersion(
+  productId: number,
+  tenantId: number,
+  conn?: AnyConn,
+): Promise<{ reportId: number; versionId: number; approved: boolean } | null> {
+  if (!Number.isFinite(productId) || productId <= 0) return null;
+  const c = conn ?? (await getRawConnection());
+  const ids = await resolveBomProductIds(productId, tenantId, c);
+  const [reports] = await c.execute<any[]>(
+    `SELECT id FROM h_mf_reports
+      WHERE tenant_id = ? AND product_id IN (${inPlaceholders(ids)})
+      ORDER BY (product_id = ?) DESC, id ASC
+      LIMIT 1`,
+    [tenantId, ...ids, productId],
+  );
+  const reportId = Number((reports as any[])[0]?.id ?? 0);
+  if (!reportId) return null;
+  const [versions] = await c.execute<any[]>(
+    `SELECT id, approval_status FROM h_mf_report_versions
+      WHERE mf_report_id = ?
+      ORDER BY (approval_status = 'APPROVED') DESC, version_no DESC, id DESC
+      LIMIT 1`,
+    [reportId],
+  );
+  const v = (versions as any[])[0];
+  if (!v) return null;
+  return { reportId, versionId: Number(v.id), approved: v.approval_status === "APPROVED" };
+}

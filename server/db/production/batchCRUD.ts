@@ -4,7 +4,7 @@
  */
 import { eq, and, desc, sql, like, inArray } from "drizzle-orm";
 import { getDb, getRawConnection } from "../connection";
-import { resolveBomProductIds } from "../../lib/identity/itemIdentityService";
+import { resolveBomProductIds, selectBomVersion } from "../../lib/identity/itemIdentityService";
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import { hBatches, hBatchInputs, hCcpInstances, hCcpRecords, hProductsV2, hMaterials, hInventory, hInventoryTransactions, hApprovalRequests } from "../../../drizzle/schema";
 
@@ -128,41 +128,14 @@ export async function createBatch(batch: {
 
   // === 원재료 투입 자동생성 (품목제조보고 배합비 기반) ===
   try {
-    // 1. 제품의 품목제조보고 조회 (v2 id 직접 일치 → item_master 경유 id 순)
-    const mfReport = await db
-      .select({ id: hMfReports.id })
-      .from(hMfReports)
-      .where(and(
-        inArray(hMfReports.productId, bomProductIds),
-        eq(hMfReports.tenantId, tenantId)
-      ))
-      .orderBy(directFirst)
-      .limit(1);
+    // 1·2. 제품의 품목제조보고 + 사용할 버전 하나 (v2 id 직접 일치 우선, APPROVED 최신 → 없으면 최신)
+    //   ★ 2026-10-16: CCP 기록지 투입량(ccpFormSettings) 과 같은 함수로 고른다 (selectBomVersion).
+    const picked = await selectBomVersion(batch.productId, tenantId);
+    const mfReport = picked ? [{ id: picked.reportId }] : [];
+    if (picked && !picked.approved) console.log("[createBatch] APPROVED 버전 없음, 최신 버전 fallback 사용");
 
     if (mfReport.length > 0) {
-      // 2. 최신 승인된 버전 조회 (APPROVED 우선, 없으면 최신 DRAFT fallback)
-      let latestVersion = await db
-        .select({ id: hMfReportVersions.id })
-        .from(hMfReportVersions)
-        .where(and(
-          eq(hMfReportVersions.mfReportId, mfReport[0].id),
-          eq(hMfReportVersions.approvalStatus, "APPROVED")
-        ))
-        .orderBy(desc(hMfReportVersions.versionNo))
-        .limit(1);
-
-      // APPROVED 없으면 최신 버전 fallback
-      if (latestVersion.length === 0) {
-        latestVersion = await db
-          .select({ id: hMfReportVersions.id })
-          .from(hMfReportVersions)
-          .where(eq(hMfReportVersions.mfReportId, mfReport[0].id))
-          .orderBy(desc(hMfReportVersions.versionNo))
-          .limit(1);
-        if (latestVersion.length > 0) {
-          console.log("[createBatch] APPROVED 버전 없음, 최신 버전 fallback 사용");
-        }
-      }
+      const latestVersion = picked ? [{ id: picked.versionId }] : [];
 
       if (latestVersion.length > 0) {
         // 3. 배합비(원재료 함량) 조회
