@@ -524,6 +524,21 @@ export const purchaseOrderRouter = router({
       tenantId: ctx.tenantId, userId: ctx.user.id, idempotencyKey: key, sourceType: "purchase_order",
       poId: input.poId, supplierId: po.partnerId ?? null, inboundDate: receiptDate, lines: draftLines,
     });
+    // 같은 요청 키의 문서가 이미 전부 반품·취소됐으면 확정을 다시 부르지 않고 그 상태로 답한다 (Codex #568 검증 R1).
+    //   새 키로 같은 발주에 새로 입고하는 경로는 그대로.
+    const { getRawConnection } = await import("../../db/connection");
+    const raw = await getRawConnection();
+    const [hs]: any = await raw.execute(`SELECT status FROM h_inbound_headers WHERE id = ? AND tenant_id = ?`, [headerId, ctx.tenantId]);
+    if ((hs as any[])[0]?.status === "cancelled") {
+      const [cl]: any = await raw.execute(`SELECT id FROM h_inbound_lines WHERE header_id = ? AND tenant_id = ? ORDER BY line_number`, [headerId, ctx.tenantId]);
+      const [cur] = await db.select({ status: purchaseOrders.status }).from(purchaseOrders)
+        .where(and(eq(purchaseOrders.id, input.poId), eq(purchaseOrders.tenantId, ctx.tenantId))).limit(1);
+      return {
+        message: "이 입고는 이미 전부 반품·취소됐습니다 — 다시 받으려면 새로 입고하세요.",
+        newStatus: cur?.status, inboundHeaderId: headerId, createdPurchaseIds: [], quarantinedLineIds: [],
+        cancelledLineIds: (cl as any[]).map((x) => Number(x.id)), lineFailures: [],
+      };
+    }
     const r = await confirmInbound(headerId, ctx.tenantId, ctx.user.id, { createVoucherDrafts: true });
     const [after] = await db.select({ status: purchaseOrders.status }).from(purchaseOrders)
       .where(and(eq(purchaseOrders.id, input.poId), eq(purchaseOrders.tenantId, ctx.tenantId))).limit(1);
