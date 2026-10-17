@@ -247,26 +247,40 @@ export async function runBatchCompletionHooks(
   // ── (3-1) 제품 LOT 단가 = 생산원가 (2026-10-15) ────────────────────────
   // LOT 생성 시 들어간 SKU 판매가를 생산원가로 바꾼다 — 판매 승인 매출원가(LOT 단가 × 수량)가
   // 생산완료 분개(제품 1430)에 올린 금액과 같은 기준이 되게. 전기 시작일 이후 배치만, 멱등.
+  // #521 안전점검 P1-2: 단가 적용은 한 트랜잭션(전체 또는 전무)이고, 실패(DB 오류)·출고 LOT 충돌(lot_issued)이면
+  // 원가가 확정되지 않은 것이므로 (4) 생산완료 분개로 넘어가지 않는다. 분개는 다음 훅 실행(재승인·self-healer)에서
+  // 원가가 확정된 뒤 멱등으로 전기된다. 경계: (1)~(3) 는 그대로 진행, (3-1) 실패 → (4) 중단.
+  let lotCostSettled = true;
   try {
     const { applyProductLotUnitCost } = await import("./productLotUnitCost");
     const cr = await applyProductLotUnitCost(batchId, tenantId);
-    if (!cr.applied && cr.reason !== "before_start") {
+    if (!cr.applied && cr.reason === "lot_issued") {
+      lotCostSettled = false;
+      const detail = cr.issuedLots.map((l) => `LOT#${l.id} 현재 ${l.currentUnitPrice} → 계산 ${l.unitCost}`).join(", ");
+      result.errors.push(`제품 LOT 원가 단가 미적용: 출고 이력 LOT 단가 불일치 — 수동 재평가 필요 (${detail})`);
+    } else if (!cr.applied && cr.reason !== "before_start") {
       result.warnings.push(`제품 LOT 원가 단가 미적용: ${cr.reason}`);
     }
   } catch (e: any) {
-    result.errors.push(`제품 LOT 원가 단가 실패: ${e?.message || e}`);
+    lotCostSettled = false;
+    result.errors.push(`제품 LOT 원가 단가 실패 (롤백됨, 생산완료 분개 보류): ${e?.message || e}`);
   }
 
   // ── (4) 생산완료 회계 전기 (차변 제품 / 대변 원재료) ─────────────────────
   // 2026-10-12: 운영에서 한 번도 전기된 적 없던 공백. 전기 시작일 이후 완료 배치만, 멱등.
-  try {
-    const { postProductionCompletionJournal } = await import("./productionCompletionJournal");
-    const jr = await postProductionCompletionJournal({ batchId, tenantId, userId: 1 });
-    if (!jr.posted && jr.reason !== "already" && jr.reason !== "before_start" && jr.reason !== "disabled") {
-      result.warnings.push(`생산완료 분개 건너뜀: ${jr.reason}${jr.detail ? ` (${jr.detail})` : ""}`);
+  if (!lotCostSettled) {
+    result.warnings.push(`생산완료 분개 보류: 제품 LOT 원가 단가가 확정되지 않음 (배치#${batchId})`);
+    console.error(`[batchCompletionHooks:${opts.source}] 제품 LOT 원가 미확정 → 생산완료 분개 보류 (배치#${batchId})`);
+  } else {
+    try {
+      const { postProductionCompletionJournal } = await import("./productionCompletionJournal");
+      const jr = await postProductionCompletionJournal({ batchId, tenantId, userId: 1 });
+      if (!jr.posted && jr.reason !== "already" && jr.reason !== "before_start" && jr.reason !== "disabled") {
+        result.warnings.push(`생산완료 분개 건너뜀: ${jr.reason}${jr.detail ? ` (${jr.detail})` : ""}`);
+      }
+    } catch (e: any) {
+      result.errors.push(`생산완료 분개 실패: ${e?.message || e}`);
     }
-  } catch (e: any) {
-    result.errors.push(`생산완료 분개 실패: ${e?.message || e}`);
   }
 
   return result;
