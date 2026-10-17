@@ -957,6 +957,32 @@ export async function updatePurchase(
 
   // category 필드는 accounting_purchases 에 없음 → 제거
   const { category: _category, ...rest } = data;
+  // ★ 2026-10-17 (입고 정본화 PR-0): 상태는 확정·취소 경로로만 바꾼다 (여기서 approved 로 바꾸면 분개·재고 없는 '유령 확정').
+  //   재고나 분개가 이미 생긴 매입은 메모·계정 분류만 고칠 수 있다 — 수량·단가·품목을 바꿔도 LOT·원장·분개는 그대로라 어긋난다.
+  //   화면은 모든 칸을 보내므로 **실제로 바뀌는 값** 만 본다.
+  const [cur] = await db.select().from(accountingPurchases)
+    .where(and(eq(accountingPurchases.id, id), eq(accountingPurchases.tenantId, tenantId as number))).limit(1);
+  if (!cur) throw new Error("매입 거래를 찾을 수 없습니다");
+  const norm = (v: unknown) => {
+    if (v == null || String(v).trim() === "") return null;
+    const t = String(v).trim();
+    return Number.isFinite(Number(t)) ? Number(t) : t;
+  };
+  const curValue = (k: string) => {
+    const v = (cur as any)[k];
+    if (k !== "transactionDate") return v;
+    if (v instanceof Date) return `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, "0")}-${String(v.getDate()).padStart(2, "0")}`;
+    return v == null ? v : String(v).slice(0, 10);
+  };
+  const differs = (k: string) => (rest as any)[k] !== undefined && norm((rest as any)[k]) !== norm(curValue(k));
+  if (differs("status")) {
+    throw new Error("매입 상태는 확정·취소 기능으로만 바꿀 수 있습니다.");
+  }
+  delete (rest as any).status;
+  const stockKeys = ["transactionDate", "partnerId", "materialId", "itemName", "quantity", "unit", "unitPrice", "totalAmount", "taxAmount"];
+  if (stockKeys.some(differs) && tenantId != null && (await purchaseHasFootprint(Number(tenantId), id))) {
+    throw new Error("재고 또는 분개가 이미 생긴 매입은 수량·단가·품목·거래처·일자를 고칠 수 없습니다. 취소 후 다시 등록하세요.");
+  }
   const updateData: any = { ...rest, updatedAt: new Date() };
   if (updateData.quantity !== undefined) updateData.quantity = updateData.quantity.toString();
   if (updateData.unitPrice !== undefined) updateData.unitPrice = updateData.unitPrice.toString();
@@ -972,11 +998,34 @@ export async function updatePurchase(
 }
 
 /**
+ * 매입이 재고·분개를 남겼는가 — 등록 시 LOT(reference accounting_purchase), 확정 시 LOT(source accounting_purchases),
+ * 분개([매입] PURCHASE-id), 또는 대기 외 상태.
+ */
+async function purchaseHasFootprint(tenantId: number, purchaseId: number): Promise<boolean> {
+  const conn = await getRawConnection();
+  const [rows]: any = await conn.execute(
+    `SELECT
+       (SELECT status FROM accounting_purchases WHERE id = ? AND tenant_id = ?) AS st,
+       EXISTS(SELECT 1 FROM h_inventory_transactions WHERE tenant_id = ?
+               AND ((reference_type = 'accounting_purchase' AND reference_id = ?) OR (source_type = 'accounting_purchases' AND source_id = ?))) AS has_stock,
+       EXISTS(SELECT 1 FROM expense_journal_entries WHERE tenant_id = ? AND voucher_id = ?
+               AND (description = ? OR description LIKE ?)) AS has_journal`,
+    [purchaseId, tenantId, tenantId, purchaseId, purchaseId, tenantId, purchaseId, `[매입] PURCHASE-${purchaseId}`, `[매입] PURCHASE-${purchaseId} %`],
+  );
+  const r = (rows as any[])[0] ?? {};
+  return (r.st != null && r.st !== "pending" && r.st !== "cancelled") || Number(r.has_stock) === 1 || Number(r.has_journal) === 1;
+}
+
+/**
  * 매입 거래 삭제
  */
 export async function deletePurchase(id: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
+  // ★ 2026-10-17 (입고 정본화 PR-0): 재고·분개가 생긴 매입은 지우지 않는다 (지우면 LOT·원장·분개만 남는다) — 취소로.
+  if (await purchaseHasFootprint(tenantId, id)) {
+    throw new Error("재고 또는 분개가 이미 생긴 매입은 삭제할 수 없습니다. 매입 취소를 사용하세요.");
+  }
 
   await db
     .delete(accountingPurchases)

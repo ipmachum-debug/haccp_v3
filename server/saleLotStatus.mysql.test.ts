@@ -1387,4 +1387,84 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await expect(inv.updateMaterialInput(801, { quantity: "20" }, T)).rejects.toThrow(/이미 차감된 투입/);
     });
   });
+  describe("입고 정본화 PR-0 — 재확정 차단·분개만 보충·입고탭 LOT 재사용·수정/삭제 가드 (2026-10-17)", () => {
+    let createPurchase: any;
+    let postPurchase: any;
+    let backfillPurchaseJournal: any;
+    let hi: any;
+    beforeAll(async () => {
+      hi = await import("./db/haccp/haccpIntegration");
+      ({ createPurchase } = hi);
+      ({ postPurchase, backfillPurchaseJournal } = await import("./lib/accounting/purchasePost"));
+    });
+    beforeEach(async () => {
+      for (const t of ["accounting_purchases", "h_inbound_headers", "h_inbound_lines", "partners", "h_materials", "material_ledger_daily", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "expense_journal_entries", "expense_journal_lines"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO accounting_accounts (id, tenant_id, category, code, system_code, name, is_active) VALUES
+        (70, ?, 'liabilities', '2010', 'ACCOUNTS_PAYABLE', '외상매입금', 'Y'), (71, ?, 'assets', '1350', 'VAT_INPUT', '부가세대급금', 'Y')`, [T, T]);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (635, ?, 'M635', '우유(국내산)', 'kg', 1)`, [T]);
+    });
+    const counts = async () => [
+      Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_lots`))[0].n),
+      Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions`))[0].n),
+      Number((await q(`SELECT COUNT(*) AS n FROM expense_journal_entries`))[0].n),
+    ];
+    const newPurchase = () => createPurchase({
+      transactionDate: "2026-10-12", partnerId: 0, itemName: "우유(국내산)", materialId: 635,
+      quantity: 10, unit: "kg", unitPrice: 3000, amount: 30000, taxAmount: 3000, taxRate: 10, createdBy: 4,
+    }, T);
+
+    it("승인된 매입을 다시 확정해도 LOT·원장·분개가 늘지 않음", async () => {
+      await newPurchase();
+      const id = Number((await q(`SELECT id FROM accounting_purchases`))[0].id);
+      const before = await counts();
+      expect(await postPurchase(id, 4, T)).toEqual({ alreadyProcessed: true });
+      expect(await counts()).toEqual(before);
+    });
+
+    it("확정·분개 없음 → 분개만 보충 (미리보기 → 적용 → 재실행 건너뜀), 재고·상태 그대로", async () => {
+      await q(`INSERT INTO accounting_purchases (id, tenant_id, transaction_date, item_name, material_id, quantity, unit, unit_price, total_amount, tax_amount, tax_rate, status, created_by)
+        VALUES (501, ?, '2026-09-01', '우유(국내산)', 635, 10, 'kg', 3000, 30000, 3000, 10, 'approved', 4)`, [T]);
+      const pre = await backfillPurchaseJournal(501, T, 4, { apply: false });
+      expect(pre).toMatchObject({ status: "would_post", amount: 33000, entryDate: "2026-09-01", hasStock: false });
+      expect(await counts()).toEqual([0, 0, 0]);
+      const r = await backfillPurchaseJournal(501, T, 4, { apply: true });
+      expect(r.status).toBe("posted");
+      const lines = await q(`SELECT account_code, debit_amount + 0 AS d, credit_amount + 0 AS c FROM expense_journal_lines ORDER BY sort_order`);
+      expect(lines.map((l: any) => [l.account_code, Number(l.d), Number(l.c)])).toEqual([["1410", 30000, 0], ["1350", 3000, 0], ["2010", 0, 33000]]);
+      expect(await backfillPurchaseJournal(501, T, 4, { apply: true })).toMatchObject({ status: "skip", reason: "already_posted" });
+      expect(await counts()).toEqual([0, 0, 1]);
+      expect((await q(`SELECT status FROM accounting_purchases WHERE id = 501`))[0].status).toBe("approved");
+      // 대기 매입은 보충 대상 아님 / 다른 회사 매입은 찾을 수 없음
+      await q(`UPDATE accounting_purchases SET status = 'pending' WHERE id = 501`);
+      expect(await backfillPurchaseJournal(501, T, 4, { apply: true })).toMatchObject({ status: "skip", reason: "not_confirmed" });
+      expect(await backfillPurchaseJournal(501, 3, 4, { apply: true })).toMatchObject({ status: "skip", reason: "not_found" });
+    });
+
+    it("입고 탭 대기 전표(source material_receipt) 승인 → 그 LOT 재사용, 두 번째 LOT 없음", async () => {
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, receipt_date, status) VALUES (9401, ?, 635, 'RCV-1', 10, 10, 10, 'kg', '2026-10-12', 'available')`, [T]);
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, created_by) VALUES (?, 9401, 635, 'receipt', 10, 'kg', 4)`, [T]);
+      await q(`INSERT INTO accounting_purchases (id, tenant_id, transaction_date, item_name, quantity, unit, unit_price, total_amount, tax_amount, tax_rate, status, source_type, source_id, created_by)
+        VALUES (502, ?, '2026-10-12', 'M635', 10, 'kg', 3000, 30000, 0, 0, 'pending', 'material_receipt', 9401, 4)`, [T]);
+      await postPurchase(502, 4, T);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_lots`))[0].n)).toBe(1);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE transaction_type = 'receipt'`))[0].n)).toBe(1);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM expense_journal_entries`))[0].n)).toBe(1);
+      expect(Number((await q(`SELECT material_id FROM h_inbound_lines`))[0].material_id)).toBe(635);
+    });
+
+    it("수정: 상태 변경 거부, 재고 생긴 매입의 수량 변경 거부, 같은 값 + 메모는 허용 / 삭제: 재고 생긴 매입 거부", async () => {
+      await newPurchase();
+      const p = (await q(`SELECT id, transaction_date, quantity + 0 AS qty, unit_price + 0 AS up FROM accounting_purchases`))[0];
+      const id = Number(p.id);
+      await expect(hi.updatePurchase(id, { status: "paid" }, T)).rejects.toThrow(/상태는 확정·취소/);
+      await expect(hi.updatePurchase(id, { quantity: 20 }, T)).rejects.toThrow(/고칠 수 없습니다/);
+      await hi.updatePurchase(id, { quantity: 10, unitPrice: 3000, status: "approved", notes: "메모" }, T);
+      expect((await q(`SELECT notes FROM accounting_purchases WHERE id = ?`, [id]))[0].notes).toBe("메모");
+      await expect(hi.deletePurchase(id, T)).rejects.toThrow(/삭제할 수 없습니다/);
+      // 재고·분개 없는 대기 매입은 삭제 가능
+      await q(`INSERT INTO accounting_purchases (id, tenant_id, transaction_date, item_name, quantity, unit, unit_price, total_amount, status, created_by) VALUES (95003, ?, '2026-10-12', 'x', 1, 'kg', 1, 1, 'pending', 4)`, [T]);
+      await hi.deletePurchase(95003, T);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM accounting_purchases WHERE id = 95003`))[0].n)).toBe(0);
+    });
+  });
 });

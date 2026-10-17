@@ -674,7 +674,10 @@ export const purchaseOrderRouter = router({
           createdBy: ctx.user.id,
         };
         if (line.materialId !== undefined && line.materialId !== null) {
-          baseValues.materialId = line.materialId;
+          // ★ 2026-10-17 (입고 정본화 PR-0): 발주 줄 품목은 item_master id 일 수 있다 (발주서 화면) — 재고 LOT 은 h_materials id.
+          //   이전: 그대로 넣어 LOT 의 원료 FK 가 어긋났다 (운영 PO-2026-0003 4번 줄 material_id=278 = item_master).
+          const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
+          baseValues.materialId = (await toInventoryMaterialId(Number(line.materialId), ctx.tenantId)).id;
         }
 
         let insertResult: any;

@@ -45,8 +45,8 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
     throw new Error(`매입 전표 ID ${purchaseId}를 찾을 수 없습니다.`);
   }
 
-  // 이미 처리됨 → 멱등 반환
-  if (purchase.status === "paid") {
+  // 이미 처리됨(승인·지급) → 멱등 반환 — 트랜잭션 안에서 다시 확인
+  if (purchase.status === "paid" || purchase.status === "approved") {
     return { alreadyProcessed: true };
   }
 
@@ -61,86 +61,7 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
     ? purchase.transactionDate
     : formatLocalDate(purchase.transactionDate as Date);
 
-  // PR-K3 (2026-04-26): canonical PK = h_materials.id 통일 후 폴백 체인 재정렬
-  //   1순위: accounting_purchases.material_id FK (이제 h_materials.id 우선)
-  //   2순위: item_name 으로 h_materials 매칭 (canonical)
-  //   3순위: item_name 으로 item_master 매칭 (external_product 등 예외 폴백)
-  //
-  // h_materials.kind: 'RAW' / 'MIXED' (모두 raw_material 유형)
-  // item_master.item_type: 'raw_material' / 'subsidiary' / 'external_product' (다양)
-  let resolvedMaterialId: number | null = (purchase as any).materialId
-    ? Number((purchase as any).materialId)
-    : null;
-
-  // 품목 유형 조회 (회계 계정 분기용)
-  let resolvedItemType: string = "raw_material";
-  if (resolvedMaterialId) {
-    // 1순위: h_materials 에서 존재 확인 (있으면 raw_material 확정)
-    let foundInHMaterials = false;
-    try {
-      const hmResult: any = await db.execute(sql`
-        SELECT id FROM h_materials
-        WHERE id = ${resolvedMaterialId} AND tenant_id = ${tenantId}
-        LIMIT 1
-      `);
-      const hmRows: any[] = (hmResult as any)?.[0] || [];
-      if (hmRows[0]?.id) {
-        foundInHMaterials = true;
-        resolvedItemType = "raw_material";
-      }
-    } catch (_) { /* graceful */ }
-
-    // 폴백: item_master 의 item_type 조회 (external_product 등 h_materials 외 케이스)
-    if (!foundInHMaterials) {
-      try {
-        const itemTypeResult: any = await db.execute(sql`
-          SELECT item_type FROM item_master
-          WHERE id = ${resolvedMaterialId} AND tenant_id = ${tenantId}
-          LIMIT 1
-        `);
-        const itemTypeRows: any[] = (itemTypeResult as any)?.[0] || [];
-        if (itemTypeRows[0]?.item_type) {
-          resolvedItemType = String(itemTypeRows[0].item_type);
-        }
-      } catch (_) { /* graceful */ }
-    }
-  }
-
-  if (!resolvedMaterialId && purchase.itemName) {
-    try {
-      const itemName = purchase.itemName;
-      const likePattern = `%${itemName}%`;
-      // 2순위: h_materials canonical 매칭 (PR-K3 후 우선)
-      const matResult: any = await db.execute(sql`
-        SELECT id FROM h_materials
-        WHERE tenant_id = ${tenantId} AND is_active = 1
-          AND (material_name = ${itemName} OR material_name LIKE ${likePattern})
-        ORDER BY (material_name = ${itemName}) DESC, id ASC
-        LIMIT 1
-      `);
-      const matRowsArr: any[] = (matResult as any)?.[0] || [];
-      if (matRowsArr[0]?.id) {
-        resolvedMaterialId = Number(matRowsArr[0].id);
-        resolvedItemType = "raw_material";
-      } else {
-        // 3순위: item_master 폴백 (external_product 등 예외)
-        const imResult: any = await db.execute(sql`
-          SELECT id, item_type FROM item_master
-          WHERE tenant_id = ${tenantId} AND is_active = 1
-            AND (item_name = ${itemName} OR item_name LIKE ${likePattern})
-          ORDER BY (item_name = ${itemName}) DESC, id ASC
-          LIMIT 1
-        `);
-        const imRows: any[] = (imResult as any)?.[0] || [];
-        if (imRows[0]?.id) {
-          resolvedMaterialId = Number(imRows[0].id);
-          resolvedItemType = String(imRows[0].item_type || "raw_material");
-        }
-      }
-    } catch (matErr) {
-      console.error(`[purchasePost] material_id 조회 실패 (계속):`, matErr);
-    }
-  }
+  let { resolvedMaterialId, resolvedItemType } = await resolvePurchaseItem(db, purchase, tenantId);
 
   // 공급업체 이름 조회 (partner → supplier_name)
   // ★ 2026-04-13 버그 수정: partners.name → partners.company_name (실제 컬럼명)
@@ -158,17 +79,7 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
     } catch (_) { /* graceful */ }
   }
 
-  // 시스템 계정 조회 (트랜잭션 밖 - 읽기 전용)
-  // ★ 품목 유형에 따라 적절한 재고 계정 사용
-  //   - raw_material, subsidiary → 원재료(INVENTORY_RAW, 1410)
-  //   - external_product → 상품(INVENTORY_GOODS, 1420)
-  const inventoryAcc = resolvedItemType === "external_product"
-    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1420", "상품")
-    : await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
-  const payableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, "2010", "외상매입금");
-  const vatAcc = taxAmount > 0
-    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.VAT_INPUT, "1350", "부가세대급금")
-    : null;
+  const accounts = await resolvePurchaseAccounts(tenantId, resolvedItemType, taxAmount);
 
   // 2. 트랜잭션 + FOR UPDATE 잠금
   return await withTransaction(async (conn) => {
@@ -178,12 +89,21 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
       [purchaseId, tenantId]
     );
     const currentStatus = (lockRows as any[])[0]?.status;
-    if (currentStatus === "paid") {
-      // 다른 요청이 먼저 처리 → 멱등 반환
+    // ★ 2026-10-17 (입고 정본화 PR-0): 확정은 대기(pending) 에서만. 승인·지급 상태는 이미 확정된 매입 —
+    //   다시 확정하면 재고·분개가 한 벌 더 생긴다 (운영 10건 이중 입고: 4/13 재확정).
+    //   분개가 빠진 확정 매입은 backfillPurchaseJournal(분개만, 재고 무관) 로 보충한다.
+    if (currentStatus === "paid" || currentStatus === "approved") {
       return { alreadyProcessed: true };
     }
     if (currentStatus === "cancelled") {
       throw new Error(`취소된 전표는 확정할 수 없습니다. (ID: ${purchaseId})`);
+    }
+    if (currentStatus !== "pending") {
+      throw new Error(`대기 상태 매입만 확정할 수 있습니다 (ID: ${purchaseId}, 상태: ${currentStatus})`);
+    }
+    // 이 매입의 분개가 이미 있으면 확정된 것으로 본다 (상태만 어긋난 경우의 이중 분개·이중 재고 방지)
+    if (await purchaseJournalExists(conn, tenantId, purchaseId)) {
+      return { alreadyProcessed: true };
     }
 
     // (0-2) 이 매입에 대한 입고 재고가 이미 기록됐는지 확인 — 이중 생성 방지
@@ -215,7 +135,21 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
       // 이미 확정 처리된 매입 — 재고/분개가 모두 있다
       return { alreadyProcessed: true };
     }
-    const reuseLotId: number | null = prior?.lot_id != null ? Number(prior.lot_id) : null;
+    let reuseLotId: number | null = prior?.lot_id != null ? Number(prior.lot_id) : null;
+    // ★ 2026-10-17 (입고 정본화 PR-0): 입고 탭(lotManagement.createReceivingWithLot) 이 LOT 을 먼저 만들고
+    //   이 대기 전표(source_type='material_receipt', source_id=LOT) 를 만든다 — 승인하면 LOT 이 한 벌 더 생겼다.
+    //   그 LOT 을 재사용한다 (재고는 입고 때 이미 들어옴).
+    if (reuseLotId === null && (purchase as any).sourceType === "material_receipt" && Number((purchase as any).sourceId) > 0) {
+      const [mrRows]: any = await conn.execute(
+        `SELECT id, material_id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? LIMIT 1`,
+        [Number((purchase as any).sourceId), tenantId],
+      );
+      const mr = (mrRows as any[])[0];
+      if (mr) {
+        reuseLotId = Number(mr.id);
+        if (mr.material_id != null) { resolvedMaterialId = Number(mr.material_id); resolvedItemType = "raw_material"; }
+      }
+    }
     const skipInventory = reuseLotId !== null;
     if (skipInventory) {
       console.log(
@@ -395,38 +329,9 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
       }
     }
 
-    // (C) 회계 분개 헤더
-    const [jeResult] = await conn.execute(
-      `INSERT INTO expense_journal_entries
-         (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [tenantId, purchaseId, entryDate, `[매입] ${docId} ${purchase.itemName || ""}`, grossAmount, grossAmount, userId]
-    );
-    const journalEntryId = Number((jeResult as any).insertId);
-
-    let sortOrder = 0;
-    await insertJournalLine(conn, {
-      tenantId, journalEntryId,
-      accountId: inventoryAcc.id, accountCode: inventoryAcc.code, accountName: inventoryAcc.name,
-      debitAmount: supplyAmount, creditAmount: 0,
-      description: `매입: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
-    });
-
-    if (vatAcc && taxAmount > 0) {
-      await insertJournalLine(conn, {
-        tenantId, journalEntryId,
-        accountId: vatAcc.id, accountCode: vatAcc.code, accountName: vatAcc.name,
-        debitAmount: taxAmount, creditAmount: 0,
-        description: `매입 부가세: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
-      });
-    }
-
-    await insertJournalLine(conn, {
-      tenantId, journalEntryId,
-      accountId: payableAcc.id, accountCode: payableAcc.code, accountName: payableAcc.name,
-      debitAmount: 0, creditAmount: grossAmount,
-      description: `매입: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
-      partnerId: (purchase as any).partnerId || null,
+    // (C) 회계 분개
+    const journalEntryId = await insertPurchaseJournal(conn, {
+      tenantId, purchaseId, purchase, entryDate, supplyAmount, taxAmount, grossAmount, accounts, userId,
     });
 
     // (D) 상태 전환: pending → approved (승인됨)
@@ -470,4 +375,213 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
     console.log(`[POST] 매입 전표 ID ${purchaseId} 승인 완료 (LOT: ${lotNumber})`);
     return { alreadyProcessed: false };
   });
+}
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 공용 — 품목 해석 · 계정 · 분개 (postPurchase 와 분개 보충이 같은 규칙을 쓴다)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type PurchaseAccounts = {
+  inventoryAcc: { id: number; code: string; name: string };
+  payableAcc: { id: number; code: string; name: string };
+  vatAcc: { id: number; code: string; name: string } | null;
+};
+
+async function resolvePurchaseItem(db: any, purchase: any, tenantId: number): Promise<{ resolvedMaterialId: number | null; resolvedItemType: string }> {
+  // PR-K3 (2026-04-26): canonical PK = h_materials.id 통일 후 폴백 체인 재정렬
+  //   1순위: accounting_purchases.material_id FK (이제 h_materials.id 우선)
+  //   2순위: item_name 으로 h_materials 매칭 (canonical)
+  //   3순위: item_name 으로 item_master 매칭 (external_product 등 예외 폴백)
+  //
+  // h_materials.kind: 'RAW' / 'MIXED' (모두 raw_material 유형)
+  // item_master.item_type: 'raw_material' / 'subsidiary' / 'external_product' (다양)
+  let resolvedMaterialId: number | null = (purchase as any).materialId
+    ? Number((purchase as any).materialId)
+    : null;
+
+  // 품목 유형 조회 (회계 계정 분기용)
+  let resolvedItemType: string = "raw_material";
+  if (resolvedMaterialId) {
+    // 1순위: h_materials 에서 존재 확인 (있으면 raw_material 확정)
+    let foundInHMaterials = false;
+    try {
+      const hmResult: any = await db.execute(sql`
+        SELECT id FROM h_materials
+        WHERE id = ${resolvedMaterialId} AND tenant_id = ${tenantId}
+        LIMIT 1
+      `);
+      const hmRows: any[] = (hmResult as any)?.[0] || [];
+      if (hmRows[0]?.id) {
+        foundInHMaterials = true;
+        resolvedItemType = "raw_material";
+      }
+    } catch (_) { /* graceful */ }
+
+    // 폴백: item_master 의 item_type 조회 (external_product 등 h_materials 외 케이스)
+    if (!foundInHMaterials) {
+      try {
+        const itemTypeResult: any = await db.execute(sql`
+          SELECT item_type FROM item_master
+          WHERE id = ${resolvedMaterialId} AND tenant_id = ${tenantId}
+          LIMIT 1
+        `);
+        const itemTypeRows: any[] = (itemTypeResult as any)?.[0] || [];
+        if (itemTypeRows[0]?.item_type) {
+          resolvedItemType = String(itemTypeRows[0].item_type);
+        }
+      } catch (_) { /* graceful */ }
+    }
+  }
+
+  if (!resolvedMaterialId && purchase.itemName) {
+    try {
+      const itemName = purchase.itemName;
+      const likePattern = `%${itemName}%`;
+      // 2순위: h_materials canonical 매칭 (PR-K3 후 우선)
+      const matResult: any = await db.execute(sql`
+        SELECT id FROM h_materials
+        WHERE tenant_id = ${tenantId} AND is_active = 1
+          AND (material_name = ${itemName} OR material_name LIKE ${likePattern})
+        ORDER BY (material_name = ${itemName}) DESC, id ASC
+        LIMIT 1
+      `);
+      const matRowsArr: any[] = (matResult as any)?.[0] || [];
+      if (matRowsArr[0]?.id) {
+        resolvedMaterialId = Number(matRowsArr[0].id);
+        resolvedItemType = "raw_material";
+      } else {
+        // 3순위: item_master 폴백 (external_product 등 예외)
+        const imResult: any = await db.execute(sql`
+          SELECT id, item_type FROM item_master
+          WHERE tenant_id = ${tenantId} AND is_active = 1
+            AND (item_name = ${itemName} OR item_name LIKE ${likePattern})
+          ORDER BY (item_name = ${itemName}) DESC, id ASC
+          LIMIT 1
+        `);
+        const imRows: any[] = (imResult as any)?.[0] || [];
+        if (imRows[0]?.id) {
+          resolvedMaterialId = Number(imRows[0].id);
+          resolvedItemType = String(imRows[0].item_type || "raw_material");
+        }
+      }
+    } catch (matErr) {
+      console.error(`[purchasePost] material_id 조회 실패 (계속):`, matErr);
+    }
+  }
+
+  return { resolvedMaterialId, resolvedItemType };
+}
+
+async function resolvePurchaseAccounts(tenantId: number, resolvedItemType: string, taxAmount: number): Promise<PurchaseAccounts> {
+  // ★ 품목 유형에 따라 적절한 재고 계정 사용
+  //   - raw_material, subsidiary → 원재료(INVENTORY_RAW, 1410)
+  //   - external_product → 상품(INVENTORY_GOODS, 1420)
+  const inventoryAcc = resolvedItemType === "external_product"
+    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_GOODS, "1420", "상품")
+    : await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.INVENTORY_RAW, "1410", "원재료");
+  const payableAcc = await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.ACCOUNTS_PAYABLE, "2010", "외상매입금");
+  const vatAcc = taxAmount > 0
+    ? await resolveSystemAccount(tenantId, SYSTEM_ACCOUNTS.VAT_INPUT, "1350", "부가세대급금")
+    : null;
+  return { inventoryAcc, payableAcc, vatAcc } as PurchaseAccounts;
+}
+
+/** 이 매입의 분개 ([매입] PURCHASE-id) 가 있는가 */
+export async function purchaseJournalExists(conn: any, tenantId: number, purchaseId: number): Promise<boolean> {
+  const [rows]: any = await conn.execute(
+    `SELECT id FROM expense_journal_entries
+      WHERE tenant_id = ? AND voucher_id = ? AND (description = ? OR description LIKE ?) LIMIT 1`,
+    [tenantId, purchaseId, `[매입] PURCHASE-${purchaseId}`, `[매입] PURCHASE-${purchaseId} %`],
+  );
+  return (rows as any[]).length > 0;
+}
+
+async function insertPurchaseJournal(conn: any, p: {
+  tenantId: number; purchaseId: number; purchase: any; entryDate: string;
+  supplyAmount: number; taxAmount: number; grossAmount: number; accounts: PurchaseAccounts; userId: number;
+}): Promise<number> {
+  const { tenantId, purchaseId, purchase, entryDate, supplyAmount, taxAmount, grossAmount, userId } = p;
+  const { inventoryAcc, payableAcc, vatAcc } = p.accounts;
+  const [jeResult] = await conn.execute(
+    `INSERT INTO expense_journal_entries
+       (tenant_id, voucher_id, entry_date, description, total_debit, total_credit, posted_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [tenantId, purchaseId, entryDate, `[매입] PURCHASE-${purchaseId} ${purchase.itemName || ""}`, grossAmount, grossAmount, userId]
+  );
+  const journalEntryId = Number((jeResult as any).insertId);
+
+  let sortOrder = 0;
+  await insertJournalLine(conn, {
+    tenantId, journalEntryId,
+    accountId: inventoryAcc.id, accountCode: inventoryAcc.code, accountName: inventoryAcc.name,
+    debitAmount: supplyAmount, creditAmount: 0,
+    description: `매입: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
+  });
+  if (vatAcc && taxAmount > 0) {
+    await insertJournalLine(conn, {
+      tenantId, journalEntryId,
+      accountId: vatAcc.id, accountCode: vatAcc.code, accountName: vatAcc.name,
+      debitAmount: taxAmount, creditAmount: 0,
+      description: `매입 부가세: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
+    });
+  }
+  await insertJournalLine(conn, {
+    tenantId, journalEntryId,
+    accountId: payableAcc.id, accountCode: payableAcc.code, accountName: payableAcc.name,
+    debitAmount: 0, creditAmount: grossAmount,
+    description: `매입: ${purchase.itemName || ""}`, sortOrder: sortOrder++,
+    partnerId: purchase.partnerId || null,
+  });
+  return journalEntryId;
+}
+
+export type PurchaseJournalBackfill =
+  | { purchaseId: number; status: "would_post" | "posted"; amount: number; entryDate: string; itemName: string | null; hasStock: boolean; journalEntryId?: number }
+  | { purchaseId: number; status: "skip"; reason: "not_found" | "not_confirmed" | "already_posted" | "zero_amount"; detail?: string };
+
+/**
+ * 확정(승인·지급)됐는데 분개가 없는 매입의 **분개만** 만든다 (2026-10-17, 입고 정본화 PR-0 / CEO 결정).
+ * 재고·LOT·원장·입고전표·수불부·상태는 건드리지 않는다. 기본 미리보기(apply=false).
+ * 같은 매입에 두 번 불러도 분개는 한 벌 (매입 행 FOR UPDATE + 분개 존재 확인).
+ */
+export async function backfillPurchaseJournal(
+  purchaseId: number, tenantId: number, userId: number, opts: { apply: boolean },
+): Promise<PurchaseJournalBackfill> {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+  const purchase = await db.select().from(accountingPurchases)
+    .where(sql`${accountingPurchases.id} = ${purchaseId} AND ${accountingPurchases.tenantId} = ${tenantId}`)
+    .limit(1).then((r: any[]) => r[0]);
+  if (!purchase) return { purchaseId, status: "skip", reason: "not_found" };
+  if (purchase.status !== "approved" && purchase.status !== "paid") {
+    return { purchaseId, status: "skip", reason: "not_confirmed", detail: String(purchase.status) };
+  }
+  const { supply, tax, gross } = documentAmounts(purchase);
+  if (!(gross > 0)) return { purchaseId, status: "skip", reason: "zero_amount" };
+  const entryDate = typeof purchase.transactionDate === "string" ? purchase.transactionDate : formatLocalDate(purchase.transactionDate as Date);
+  const { resolvedItemType } = await resolvePurchaseItem(db, purchase, tenantId);
+  const accounts = await resolvePurchaseAccounts(tenantId, resolvedItemType, tax);
+
+  return withTransaction(async (conn) => {
+    const [lock]: any = await conn.execute(
+      `SELECT status FROM accounting_purchases WHERE id = ? AND tenant_id = ? FOR UPDATE`, [purchaseId, tenantId],
+    );
+    const st = (lock as any[])[0]?.status;
+    if (st !== "approved" && st !== "paid") return { purchaseId, status: "skip", reason: "not_confirmed", detail: String(st) } as PurchaseJournalBackfill;
+    if (await purchaseJournalExists(conn, tenantId, purchaseId)) return { purchaseId, status: "skip", reason: "already_posted" } as PurchaseJournalBackfill;
+    const [stock]: any = await conn.execute(
+      `SELECT COUNT(*) AS n FROM h_inventory_transactions
+        WHERE tenant_id = ? AND transaction_type = 'receipt'
+          AND ((reference_type = 'accounting_purchase' AND reference_id = ?) OR (source_type = 'accounting_purchases' AND source_id = ?))`,
+      [tenantId, purchaseId, purchaseId],
+    );
+    const hasStock = Number((stock as any[])[0]?.n ?? 0) > 0;
+    const base = { purchaseId, amount: gross, entryDate, itemName: purchase.itemName ?? null, hasStock };
+    if (!opts.apply) return { ...base, status: "would_post" } as PurchaseJournalBackfill;
+    const journalEntryId = await insertPurchaseJournal(conn, {
+      tenantId, purchaseId, purchase, entryDate, supplyAmount: supply, taxAmount: tax, grossAmount: gross, accounts, userId,
+    });
+    return { ...base, status: "posted", journalEntryId } as PurchaseJournalBackfill;
+  }, `backfillPurchaseJournal:${purchaseId}`);
 }
