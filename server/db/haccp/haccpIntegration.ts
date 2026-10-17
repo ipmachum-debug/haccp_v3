@@ -490,32 +490,12 @@ export async function createSaleFromUsage(params: {
   notes?: string;
   createdBy: number;
 }, tenantId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  const transactionDate = todayKST(); // YYYY-MM-DD
-  const totalAmount = parseFloat(params.quantity) * parseFloat(params.unitPrice);
-  const taxAmount = totalAmount * (parseFloat(params.taxRate || "10") / 100);
-
-  const [sale] = await db.insert(accountingSales).values({
-    tenantId: tenantId,
-    transactionDate,
-    partnerId: params.partnerId,
-    itemName: params.itemName,
-    quantity: params.quantity,
-    unit: params.unit,
-    unitPrice: params.unitPrice,
-    totalAmount: totalAmount.toFixed(2),
-    taxAmount: taxAmount.toFixed(2),
-    taxRate: params.taxRate || "10.00",
-    sourceType: "inventory_usage",
-    sourceId: params.inventoryTransactionId,
-    notes: params.notes,
-    status: "pending",
-    createdBy: params.createdBy
-  });
-
-  return sale;
+  // ★ 2026-10-17 (Codex #564 검증 S1·S2): 재고 출고 → 매출전표 자동 생성은 중단한다.
+  //   이 전표(source_type='inventory_usage') 는 출고 번호 검증·연결·'출고당 전표 하나' 가 없어 같은 출고로 여러 장이 생겼고,
+  //   승인하면 매출 확정이 일반 판매로 LOT 을 다시 차감했다 (출고 5kg → 승인 후 또 5kg). 타사·없는 번호도 받았다.
+  //   매출은 제품 출고(출고와 매출을 한 문서로, 승인 = 회계만) 로 등록한다. 이미 출고한 재고의 매출 연결은 별도 절차.
+  void params; void tenantId;
+  throw new Error("재고 출고 화면에서 매출전표를 자동으로 만들 수 없습니다 (출고한 재고가 매출 승인 때 다시 빠지는 것을 막기 위해 중단). 판매는 '제품 출고' 에서 등록하세요.");
 }
 
 /**
