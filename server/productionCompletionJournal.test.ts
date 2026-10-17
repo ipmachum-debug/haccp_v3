@@ -33,6 +33,9 @@ describe("productionCompletionJournal — 정책/순수 함수", () => {
     expect(resolveBatchCost({ material_cost: null, actual_cost: "3556" }, 999)).toBe(3556);
     expect(resolveBatchCost({ material_cost: 0, actual_cost: 0 }, 26917.199999)).toBe(26917.2);
     expect(resolveBatchCost({}, 0)).toBe(0);
+    // 2026-10-17: 확정 원가(cost_finalized_at 있는 actual_cost) 가 옛 material_cost 보다 우선
+    expect(resolveBatchCost({ material_cost: "100000", actual_cost: "125000", cost_finalized_at: "2026-10-17 10:00:00" }, 999)).toBe(125000);
+    expect(resolveBatchCost({ material_cost: "100000", actual_cost: "125000", cost_finalized_at: null }, 999)).toBe(100000);
   });
 
   it("멱등 마커는 배치 id 를 포함하고 접두 매칭에 안전", () => {

@@ -250,6 +250,11 @@ export async function runBatchCompletionHooks(
   try {
     const fin = await finalizeBatchCost(pool, batchId, tenantId);
     if (fin === "materials_not_issued") result.warnings.push("배치 원가 확정 보류: 원료 미출고");
+    if (typeof fin === "object" && fin.status === "journal_mismatch") {
+      const msg = `[COST_MISMATCH] 배치 #${batchId} 원가 확정 보류 — 기존 생산완료 분개 ${fin.journalAmount} ≠ 현재 출고 원가 ${fin.issuedCost} (차이 ${fin.diff}). 승인된 정정 절차 필요`;
+      result.warnings.push(msg);
+      console.warn(`[batchCompletionHooks:${opts.source}] ${msg}`);
+    }
   } catch (e: any) {
     result.errors.push(`배치 원가 확정 실패: ${e?.message || e}`);
   }
@@ -277,7 +282,16 @@ export async function runBatchCompletionHooks(
  * 배치 원가 확정 — 출고된 투입 행 금액 합(정제수 제외) 을 actual_cost 로, cost_finalized_at 기록.
  * 미출고 줄이 있으면 하지 않는다. 이미 확정(cost_finalized_at) 된 배치는 바꾸지 않는다.
  */
-export async function finalizeBatchCost(conn: any, batchId: number, tenantId: number): Promise<"finalized" | "already" | "materials_not_issued" | "zero" | "not_completed"> {
+export type FinalizeBatchCostResult =
+  | "finalized" | "already" | "materials_not_issued" | "zero" | "not_completed"
+  | { status: "journal_mismatch"; journalAmount: number; issuedCost: number; diff: number };
+
+/**
+ * ★ 2026-10-17 (Codex #555 검증 P2): 이미 생산완료 분개가 전기된 배치(복구 경로)는 그 분개가 장부 정본이다.
+ *   현재 출고 원가와 같으면 그 값으로 확정, 다르면 확정을 보류하고 차이를 돌려준다 — 기존 전표·판매된 LOT 을 몰래
+ *   재평가하지 않고, 배치 원가만 다른 값으로 확정해 세 값이 갈리지도 않게 한다 (정정은 승인된 절차로).
+ */
+export async function finalizeBatchCost(conn: any, batchId: number, tenantId: number): Promise<FinalizeBatchCostResult> {
   const { countUnissuedBatchLines } = await import("./issuedBatchLines");
   if ((await countUnissuedBatchLines(batchId, tenantId, conn)) > 0) return "materials_not_issued";
   const [bRows]: any = await conn.execute(
@@ -296,6 +310,18 @@ export async function finalizeBatchCost(conn: any, batchId: number, tenantId: nu
   );
   const total = Math.round((Number((sRows as any[])[0]?.total ?? 0) || 0) * 100) / 100;
   if (!(total > 0)) return "zero";
+  const marker = `[생산완료] BATCH-${batchId}`;
+  const [jRows]: any = await conn.execute(
+    `SELECT total_debit FROM expense_journal_entries WHERE tenant_id = ? AND (description = ? OR description LIKE ?) LIMIT 1`,
+    [tenantId, marker, `${marker} %`],
+  );
+  const j = (jRows as any[])[0];
+  if (j) {
+    const journalAmount = Math.round(Number(j.total_debit) * 100) / 100;
+    if (Math.abs(journalAmount - total) > 0.01) {
+      return { status: "journal_mismatch", journalAmount, issuedCost: total, diff: Math.round((total - journalAmount) * 100) / 100 };
+    }
+  }
   const [res]: any = await conn.execute(
     `UPDATE h_batches SET actual_cost = ?, cost_finalized_at = NOW()
       WHERE id = ? AND tenant_id = ? AND status = 'completed' AND cost_finalized_at IS NULL`,

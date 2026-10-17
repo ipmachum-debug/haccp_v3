@@ -1514,6 +1514,35 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number((await q(`SELECT actual_cost + 0 AS c FROM h_batches WHERE id = 7401`))[0].c)).toBe(125000);
     });
 
+    it("원가 정본: 옛 material_cost(100,000) 가 있어도 확정 원가(출고 125,000) 로 분개·LOT 평가 — 세 값 일치 (Codex #555 P1)", async () => {
+      await q(`UPDATE h_batches SET material_cost = 100000 WHERE id = 7401`);
+      await issue();
+      const { runBatchCompletionHooks } = await import("./lib/production/batchCompletionHooks");
+      await runBatchCompletionHooks(7401, T, { source: "manual" } as any);
+      const b = (await q(`SELECT actual_cost + 0 AS c FROM h_batches WHERE id = 7401`))[0];
+      const j = (await q(`SELECT total_debit + 0 AS d FROM expense_journal_entries WHERE description LIKE '[생산완료] BATCH-7401%'`));
+      expect([Number(b.c), j.map((r: any) => Number(r.d))]).toEqual([125000, [125000]]);
+      const { ensureBatchLots } = await import("./db/production/productOutboundManagement");
+      await ensureBatchLots(7401, T);
+      const lot = (await q(`SELECT quantity + 0 AS q, unit_price + 0 AS p FROM h_inventory_lots WHERE batch_id = 7401`))[0];
+      expect(Math.abs(Number(lot.q) * Number(lot.p) - 125000)).toBeLessThan(1); // 96kg × 1,302.08
+    });
+
+    it("기존 생산완료 분개(100,000) 와 현재 출고 원가(125,000) 가 다르면 배치 원가 확정 보류 + 차이 경고, 분개 그대로 (Codex #555 P2)", async () => {
+      await q(`INSERT INTO expense_journal_entries (tenant_id, entry_date, description, total_debit, total_credit, posted_by) VALUES (?, '2026-10-14', '[생산완료] BATCH-7401', 100000, 100000, 4)`, [T]);
+      await issue();
+      const { runBatchCompletionHooks } = await import("./lib/production/batchCompletionHooks");
+      const r = await runBatchCompletionHooks(7401, T, { source: "manual" } as any);
+      expect(r.warnings.join()).toMatch(/COST_MISMATCH.*100000.*125000/);
+      const b = (await q(`SELECT actual_cost, cost_finalized_at FROM h_batches WHERE id = 7401`))[0];
+      expect([b.actual_cost, b.cost_finalized_at]).toEqual([null, null]); // 명시적 미확정
+      expect((await q(`SELECT total_debit + 0 AS d FROM expense_journal_entries`)).map((x: any) => Number(x.d))).toEqual([100000]);
+      // 같으면 그 값으로 확정
+      await q(`UPDATE expense_journal_entries SET total_debit = 125000, total_credit = 125000`);
+      const { finalizeBatchCost } = await import("./lib/production/batchCompletionHooks");
+      expect(await finalizeBatchCost(admin, 7401, T)).toBe("finalized");
+    });
+
     it("누락 분개 보충: 다른 이름으로 이 매입을 가리키는 분개(역분개 등) 가 있으면 건너뜀", async () => {
       await q(`INSERT INTO accounting_purchases (id, tenant_id, transaction_date, item_name, material_id, quantity, unit, unit_price, total_amount, tax_amount, tax_rate, status, created_by)
         VALUES (601, ?, '2026-09-01', '멥쌀', 700, 10, 'kg', 3000, 30000, 0, 0, 'approved', 4)`, [T]);
