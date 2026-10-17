@@ -7,6 +7,8 @@ import { router, requireCapability } from "../../_core/trpc";
 import {
   createInboundDraft, confirmInbound, approveInbound, cancelInboundLine, getReceivableLines,
 } from "../../lib/inventory/inbound/inboundService";
+import { listPackUnits, upsertPackUnit, deactivatePackUnit } from "../../lib/inventory/inbound/packUnits";
+import { getRawConnection } from "../../db/connection";
 
 const readInventory = requireCapability("ERP_INVENTORY", "READ");
 const writeInventory = requireCapability("ERP_INVENTORY", "WRITE");
@@ -19,8 +21,8 @@ const lineInput = z.object({
   poLineId: z.number().int().positive().nullish(),
   purchaseQuantity: z.number().positive(),
   purchaseUnit: z.string().min(1).max(20),
-  stockQuantity: z.number().positive(),
-  stockUnit: z.string().min(1).max(20),
+  stockQuantity: z.number().positive().nullish(), // 생략하면 서버가 포장 단위 환산으로 계산
+  stockUnit: z.string().min(1).max(20).nullish(),
   unitPrice: z.number().min(0),
   lotNumber: z.string().max(100).nullish(),
   expiryDate: ymd.nullish(),
@@ -59,4 +61,20 @@ export const inboundRouter = router({
   receivableLines: readInventory
     .input(z.object({ poId: z.number().int().positive() }))
     .query(({ ctx, input }) => getReceivableLines(input.poId, ctx.tenantId)),
+
+  // 포장 단위 환산 (예: 쌀 1포대 = 20kg) — 없으면 그 단위로 입고할 수 없다
+  packUnits: readInventory
+    .input(z.object({ materialId: z.number().int().positive().optional() }).optional())
+    .query(async ({ ctx, input }) => listPackUnits(await getRawConnection(), ctx.tenantId, input?.materialId ?? null)),
+  savePackUnit: writeInventory
+    .input(z.object({ materialId: z.number().int().positive(), packUnit: z.string().min(1).max(20), baseQty: z.number().positive() }))
+    .mutation(async ({ ctx, input }) => {
+      const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
+      const conn = await getRawConnection();
+      const materialId = (await toInventoryMaterialId(input.materialId, ctx.tenantId, conn)).id;
+      return upsertPackUnit(conn, { tenantId: ctx.tenantId, userId: ctx.user.id, materialId, packUnit: input.packUnit, baseQty: input.baseQty });
+    }),
+  deactivatePackUnit: writeInventory
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ ctx, input }) => deactivatePackUnit(await getRawConnection(), ctx.tenantId, ctx.user.id, input.id)),
 });

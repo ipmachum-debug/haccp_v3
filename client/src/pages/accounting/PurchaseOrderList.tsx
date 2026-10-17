@@ -125,6 +125,19 @@ function PurchaseOrderListContent() {
   const [receiveExtra, setReceiveExtra] = useState<Record<number, { lotNumber?: string; expiryDate?: string }>>({});
   // 입고 요청 키 — 대화창 하나에 하나. 더블 클릭·재시도는 같은 입고 문서로 (서버 idempotency)
   const [receiveKey, setReceiveKey] = useState<string>("");
+  // 포장 단위 환산 미리보기 (예: 3포대 → 60kg) — 서버가 같은 설정으로 다시 확인한다
+  const { data: receivable, refetch: refetchReceivable } = trpc.purchaseOrder.receivableLines.useQuery(
+    { poId: receivePoId! },
+    { enabled: !!receivePoId && receiveDialogOpen },
+  );
+  const convByLine = new Map<number, { factor: number; baseUnit: string } | null>(
+    ((receivable ?? []) as any[]).map((r) => [Number(r.poLineId), r.conversion ?? null]),
+  );
+  const [packInput, setPackInput] = useState<Record<number, string>>({});
+  const savePackMutation = trpc.inbound.savePackUnit.useMutation({
+    onSuccess: () => { toast({ title: "환산 설정 저장" }); refetchReceivable(); },
+    onError: (e: { message: string }) => toast({ title: "환산 설정 실패", description: e.message, variant: "destructive" }),
+  });
 
   const utils = trpc.useUtils();
 
@@ -805,6 +818,7 @@ function PurchaseOrderListContent() {
                   <TableHead className="text-right">기존 입고</TableHead>
                   <TableHead className="text-right">잔량</TableHead>
                   <TableHead className="text-right w-[130px]">이번 입고</TableHead>
+                  <TableHead className="w-[170px]">재고 환산</TableHead>
                   <TableHead className="w-[130px]">LOT 번호 (선택)</TableHead>
                   <TableHead className="w-[140px]">소비기한 (선택)</TableHead>
                 </TableRow>
@@ -847,6 +861,38 @@ function PurchaseOrderListContent() {
                           className="h-8 text-right"
                           disabled={remaining <= 0}
                         />
+                      </TableCell>
+                      <TableCell className="text-xs">
+                        {(() => {
+                          const conv = convByLine.get(Number(line.id));
+                          const qty = receiveLines[line.id] ?? 0;
+                          if (conv) {
+                            return conv.factor === 1
+                              ? <span className="text-muted-foreground">{qty} {conv.baseUnit}</span>
+                              : <span className="font-mono">{qty}{line.unit} → <b>{Math.round(qty * conv.factor * 1000) / 1000}{conv.baseUnit}</b></span>;
+                          }
+                          if (!line.materialId) return <span className="text-red-600">원재료 미연결</span>;
+                          return (
+                            <div className="space-y-1">
+                              <div className="text-red-600">환산 설정 없음 — 입고 불가</div>
+                              <div className="flex items-center gap-1">
+                                <span>1{line.unit} =</span>
+                                <Input
+                                  type="number" step="0.001" min={0}
+                                  value={packInput[line.id] ?? ""}
+                                  onChange={(e) => setPackInput({ ...packInput, [line.id]: e.target.value })}
+                                  className="h-7 w-16 text-right text-xs"
+                                />
+                                <span>기준단위</span>
+                                <Button
+                                  size="sm" variant="outline" className="h-7 px-2 text-xs"
+                                  disabled={!(parseFloat(packInput[line.id] ?? "") > 0) || savePackMutation.isPending}
+                                  onClick={() => savePackMutation.mutate({ materialId: Number(line.materialId), packUnit: line.unit, baseQty: parseFloat(packInput[line.id]) })}
+                                >저장</Button>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell>
                         <Input

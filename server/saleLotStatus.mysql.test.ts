@@ -1617,7 +1617,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     let svc: any;
     beforeAll(async () => { svc = await import("./lib/inventory/inbound/inboundService"); });
     beforeEach(async () => {
-      for (const t of ["h_inbound_headers", "h_inbound_lines", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "h_materials", "item_master", "material_ledger_daily", "purchase_orders", "purchase_order_lines", "accounting_purchases", "tenant_feature_settings", "domain_events", "partners", "expense_journal_entries", "expense_journal_lines"]) await q(`DELETE FROM ${t}`);
+      for (const t of ["h_inbound_headers", "h_inbound_lines", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "h_materials", "item_master", "material_ledger_daily", "purchase_orders", "purchase_order_lines", "accounting_purchases", "tenant_feature_settings", "domain_events", "partners", "expense_journal_entries", "expense_journal_lines", "material_pack_units"]) await q(`DELETE FROM ${t}`);
       await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (700, ?, 'M700', '멥쌀', 'kg', 1), (800, 3, 'M800', '타사', 'kg', 1)`, [T]);
       await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES (1700, ?, 'M700', '멥쌀', 'raw_material', 'kg', 1, 700)`, [T]);
       await q(`INSERT INTO purchase_orders (id, tenant_id, po_number, partner_id, order_date, status, created_by) VALUES (31, ?, 'PO-31', 0, '2026-10-17', 'approved', 4)`, [T]);
@@ -1770,10 +1770,45 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number((await q(`SELECT COUNT(*) AS n FROM accounting_purchases`))[0].n)).toBe(0);
     });
 
+    it("포장 단위 환산: 설정 없으면 차단 → 1포대=20kg 설정 → 3포대 입고 = 재고 60kg·발주 입고량 3포대, 환산값 보존(설정 변경 무관)", async () => {
+      await q(`DELETE FROM material_pack_units`);
+      await q(`INSERT INTO purchase_orders (id, tenant_id, po_number, partner_id, order_date, status, created_by) VALUES (33, ?, 'PO-33', 0, '2026-10-17', 'approved', 4)`, [T]);
+      await q(`INSERT INTO purchase_order_lines (id, tenant_id, po_id, line_number, material_id, item_name, ordered_qty, received_qty, unit, unit_price, amount) VALUES (331, ?, 33, 1, 1700, '멥쌀', 10, 0, '포대', 40000, 400000)`, [T]);
+      const bag = (key: string, qty: number, extra: any = {}) => draft(key, [{ materialId: 700, poLineId: 331, purchaseQuantity: qty, purchaseUnit: "포대", unitPrice: 40000, ...extra }], { sourceType: "purchase_order", poId: 33 });
+      await expect(bag("key-pack-none", 3)).rejects.toThrow(/환산 설정이 없습니다/);
+      expect((await svc.getReceivableLines(33, T))[0]).toMatchObject({ conversion: null });
+      const pu = await import("./lib/inventory/inbound/packUnits");
+      await expect(pu.upsertPackUnit(admin, { tenantId: T, userId: 4, materialId: 700, packUnit: "kg", baseQty: 1 })).rejects.toThrow(/기준 단위와 같은/);
+      await pu.upsertPackUnit(admin, { tenantId: T, userId: 4, materialId: 700, packUnit: "포대", baseQty: 20 });
+      expect((await svc.getReceivableLines(33, T))[0].conversion).toEqual({ factor: 20, baseUnit: "kg" });
+      await expect(bag("key-pack-bad", 3, { stockQuantity: 50 })).rejects.toThrow(/환산 결과 60kg/);
+      const d = await bag("key-pack-3", 3);
+      const ln = (await q(`SELECT stock_quantity + 0 AS s, stock_unit, pack_factor + 0 AS f, pack_conversion_id FROM h_inbound_lines WHERE header_id = ?`, [d.headerId]))[0];
+      expect([Number(ln.s), ln.stock_unit, Number(ln.f), ln.pack_conversion_id != null]).toEqual([60, "kg", 20, true]);
+      await pu.upsertPackUnit(admin, { tenantId: T, userId: 4, materialId: 700, packUnit: "포대", baseQty: 25 }); // 초안 뒤 규격 변경
+      await svc.confirmInbound(d.headerId, T, 4);
+      const lot = (await q(`SELECT quantity + 0 AS q, unit, unit_price + 0 AS p FROM h_inventory_lots`))[0];
+      expect([Number(lot.q), lot.unit, Number(lot.p)]).toEqual([60, "kg", 2000]); // 120,000원 / 60kg
+      expect(Number((await q(`SELECT received_qty + 0 AS r FROM purchase_order_lines WHERE id = 331`))[0].r)).toBe(3);
+      expect(Number((await q(`SELECT receiving_qty + 0 AS r FROM material_ledger_daily`))[0].r)).toBe(60);
+      // 새 입고는 새 설정(25)
+      const d2 = await bag("key-pack-2", 2);
+      expect(Number((await q(`SELECT stock_quantity + 0 AS s FROM h_inbound_lines WHERE header_id = ?`, [d2.headerId]))[0].s)).toBe(50);
+      // 설정을 끄면 다시 차단
+      const id = Number((await q(`SELECT id FROM material_pack_units`))[0].id);
+      await pu.deactivatePackUnit(admin, T, 4, id);
+      await expect(bag("key-pack-off", 1)).rejects.toThrow(/환산 설정이 없습니다/);
+      // 직접 입고도 같은 환산 (포대 → kg)
+      await pu.upsertPackUnit(admin, { tenantId: T, userId: 4, materialId: 700, packUnit: "포대", baseQty: 20 });
+      const r = await svc.receiveDirect({ tenantId: T, userId: 4, materialId: 700, quantity: 2, unit: "포대", unitPrice: 0, receiptDate: "2026-10-17", createVoucherDraft: false });
+      expect(Number((await q(`SELECT quantity + 0 AS q FROM h_inventory_lots WHERE id = ?`, [r.lotId]))[0].q)).toBe(40);
+    });
+
     // ── Codex #558 검증 F1~F6 회귀 ──
     it("F1 재고 단위 ≠ 원료 기준 단위(kg) 면 거부 — kg 재고에 g 를 더하지 않음, 다른 단위 LOT 이 있으면 거부, 공통 관문도 거부", async () => {
       await svc.confirmInbound((await draft("key-f1-kg", [line(10)])).headerId, T, 4);
-      await expect(draft("key-f1-g", [line(1000, { purchaseUnit: "g", stockUnit: "g" })])).rejects.toThrow(/기준 단위\(kg\) 와 다릅니다/);
+      await expect(draft("key-f1-g", [line(1000, { purchaseUnit: "g", stockUnit: "g" })])).rejects.toThrow(/환산 설정이 없습니다|기준 단위\(kg\) 와 다릅니다/);
+      await expect(draft("key-f1-g2", [line(1000, { stockUnit: "g" })])).rejects.toThrow(/기준 단위\(kg\) 와 다릅니다/);
       await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status) VALUES (9701, ?, 700, 'OLD-BOX', 1, 1, 1, 'box', 'available')`, [T]);
       await expect(draft("key-f1-mixed", [line(5)])).rejects.toThrow(/다른 단위\(box\)/);
       const { withInventoryTx, receiveNewLot } = await import("./lib/inventory/applyInventoryDelta");
@@ -1792,7 +1827,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     });
 
     it("F3 발주 단위(kg) 와 다른 매입 단위(g) 거부 — 발주 입고량에 1 을 더하지 않음", async () => {
-      await expect(draft("key-f3", [line(1, { purchaseUnit: "g", stockQuantity: 0.001, poLineId: 311 })], { sourceType: "purchase_order", poId: 31 })).rejects.toThrow(/발주 단위\(kg\) 와 다릅니다/);
+      await expect(draft("key-f3", [line(1, { purchaseUnit: "g", stockQuantity: 0.001, poLineId: 311 })], { sourceType: "purchase_order", poId: 31 })).rejects.toThrow(/환산 설정이 없습니다|발주 단위\(kg\) 와 다릅니다/);
       expect(await received()).toBe(0);
     });
 

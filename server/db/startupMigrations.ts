@@ -819,6 +819,28 @@ async function ensureInboundDocumentSchema(conn: any) {
   // 매입전표 ↔ 입고 줄 (연결만)
   await addCol("accounting_purchases", "inbound_line_id", "`inbound_line_id` bigint NULL");
   await addIndex("accounting_purchases", "idx_ap_tenant_inbound_line", "KEY `idx_ap_tenant_inbound_line` (`tenant_id`, `inbound_line_id`)");
+  // 포장 단위 환산 (2026-10-17, CEO 결정) — 회사·원료·포장 단위별 '1 포장 = N 기준 단위'. 없으면 입고 차단 (1:1 추정 금지).
+  //   입고 줄은 그때 쓴 환산(설정 id·배율) 을 보존한다 — 나중에 설정을 바꿔도 과거 입고는 그대로.
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS material_pack_units (
+      id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      tenant_id int NOT NULL,
+      material_id bigint NOT NULL,
+      pack_unit varchar(20) NOT NULL,
+      base_qty decimal(12,4) NOT NULL,
+      base_unit varchar(20) NOT NULL,
+      is_active tinyint NOT NULL DEFAULT 1,
+      created_by bigint NULL,
+      updated_by bigint NULL,
+      created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_mpu_tenant_material_unit (tenant_id, material_id, pack_unit)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  } catch (err: any) {
+    console.warn("[Migration] material_pack_units failed:", err.message);
+  }
+  await addCol("h_inbound_lines", "pack_conversion_id", "`pack_conversion_id` bigint NULL");
+  await addCol("h_inbound_lines", "pack_factor", "`pack_factor` decimal(12,4) NULL");
 }
 
 /**
@@ -863,6 +885,10 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_inbound_lines", column: "cancelled_qty", why: "취소·반품 누계 (PR-1)" },
   { table: "h_inventory_lots", column: "inbound_line_id", why: "LOT ↔ 입고 줄 (PR-1)" },
   { table: "accounting_purchases", column: "inbound_line_id", why: "매입전표 ↔ 입고 줄 (PR-1)" },
+  // 포장 단위 환산 (2026-10-17)
+  { table: "material_pack_units", column: "base_qty", why: "포장 단위 환산" },
+  { table: "h_inbound_lines", column: "pack_conversion_id", why: "입고 줄이 쓴 환산 설정" },
+  { table: "h_inbound_lines", column: "pack_factor", why: "입고 줄이 쓴 환산 배율 (보존)" },
 ];
 
 /** 입고 줄 하나에 LOT 하나 — DB 가 보장해야 하는 키 (없으면 서버를 시작하지 않는다) */
