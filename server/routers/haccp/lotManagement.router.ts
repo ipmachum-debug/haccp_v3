@@ -1,5 +1,6 @@
 // lotManagement 라우터 - routers.ts에서 분리됨
 import { tenantRequiredProcedure, router } from "../../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { lt, or } from "drizzle-orm";
 import { getDb, getRawConnection } from "../../db";
@@ -20,59 +21,29 @@ export const lotManagementRouter = router({
         expiryDate: z.string().optional(),
         receiptDate: z.string().optional(),
         notes: z.string().optional(),
+        idempotencyKey: z.string().min(8).max(64).optional(), // 화면이 만든 요청 키 — 더블 클릭에 입고 한 번
       }))
       .mutation(async ({ input, ctx }) => {
-        const { getDb, getRawConnection } = await import("../../db");
+        // ★ 2026-10-17 (입고 정본화 PR-4): 직접 입고 = 입고 문서 + 입고 확정 (재고 반영 한 곳).
+        //   이전: LOT·재고를 따로 만들고 연결 없는 대기 매입전표(material_receipt) 를 만들었다 — 승인하면 LOT 이 한 벌 더.
+        //   지금: 단가가 있으면 입고 줄에 연결된 대기 전표 초안 (전표 확정 = 분개만).
+        const { getDb } = await import("../../db");
         const db = await getDb();
         if (!db) throw new Error("DB 연결 실패");
-        const pool = await getRawConnection();
-        const { createMaterialReceivingWithLot } = await import("../../db/haccp/visualInspection");
-        
-        // 거래처 ID → 이름 조회 (마스터 거래처 연동)
-        let supplierName = input.supplierName;
-        if (input.partnerId && !supplierName) {
-          const [partnerRows] = await pool.execute(
-            `SELECT company_name FROM partners WHERE id = ? AND tenant_id = ?`,
-            [input.partnerId, ctx.tenantId]
-          );
-          supplierName = (partnerRows as any[])?.[0]?.company_name || supplierName;
-        }
-        
-        const result = await createMaterialReceivingWithLot(db, pool, ctx.tenantId, {
-          ...input,
-          supplierName,
-          userId: ctx.user.id,
+        const { generateMaterialLotNumber } = await import("../../db/haccp/visualInspection");
+        const { receiveDirect } = await import("../../lib/inventory/inbound/inboundService");
+        const receiptDate = input.receiptDate || todayKST();
+        const lotNumber = await generateMaterialLotNumber(db, ctx.tenantId, input.materialCode, receiptDate);
+        const r = await receiveDirect({
+          tenantId: ctx.tenantId, userId: ctx.user.id, idempotencyKey: input.idempotencyKey ?? null,
+          materialId: input.materialId, quantity: input.quantity, unit: input.unit, unitPrice: input.unitPrice ?? null,
+          supplierId: input.partnerId ?? null, receiptDate, expiryDate: input.expiryDate ?? null,
+          lotNumber, notes: input.notes ?? null, createVoucherDraft: true,
         });
-        
-        // 매입전표 자동 생성 (단가가 있는 경우)
-        if (input.unitPrice && input.unitPrice > 0) {
-          try {
-            const totalAmount = input.quantity * input.unitPrice;
-            const receiptDate = input.receiptDate || todayKST();
-            await pool.execute(
-              `INSERT INTO accounting_purchases (
-                tenant_id, transaction_date, partner_id, item_name, quantity, unit, unit_price,
-                total_amount, status, notes, source_type, source_id, created_by, created_at
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, 'material_receipt', ?, ?, NOW())`,
-              [
-                ctx.tenantId, receiptDate,
-                input.partnerId || null,
-                input.materialCode + (supplierName ? ` (${supplierName})` : ''),
-                input.quantity, input.unit, input.unitPrice,
-                totalAmount,
-                `원재료 입고 자동생성 (LOT: ${result.lotNumber})${input.notes ? ' - ' + input.notes : ''}`,
-                result.lotId || 0,
-                ctx.user.id
-              ]
-            );
-            return { ...result, accountingPurchaseCreated: true };
-          } catch (err) {
-            console.error('[createReceivingWithLot] 매입전표 자동생성 실패:', err);
-            return { ...result, accountingPurchaseCreated: false };
-          }
-        }
-        
-        return { ...result, accountingPurchaseCreated: false };
+        return {
+          success: true, lotId: r.lotId, lotNumber: r.lotNumber || lotNumber, inboundHeaderId: r.headerId,
+          accountingPurchaseCreated: r.voucherIds.length > 0, pendingApproval: r.lotId === 0,
+        };
       }),
 
     // LOT 이력 조회 (입고→사용→출고 추적)
@@ -95,14 +66,11 @@ export const lotManagementRouter = router({
         }
       }),
 
-    // 기존 입고 건 LOT 일괄 생성 (backfill)
+    // 기존 입고 건 LOT 일괄 생성 (backfill) — 중단 (2026-10-17, 입고 정본화 PR-4)
+    //   이전: LOT 번호 없는 입고마다 LOT 을 새로 만들었다 — 다른 경로로 이미 재고가 잡힌 입고면 이중 계상.
+    //   기존 행을 이름·날짜로 자동 연결·생성하지 않는다 (Codex 권고). 누락 재고는 실사·재고 조정으로.
     backfillLots: tenantRequiredProcedure
-      .mutation(async ({ ctx }) => {
-        const { getDb, getRawConnection } = await import("../../db");
-        const db = await getDb();
-        if (!db) throw new Error("DB 연결 실패");
-        const pool = await getRawConnection();
-        const { backfillMaterialReceivingLots } = await import("../../db/haccp/visualInspection");
-        return await backfillMaterialReceivingLots(db, pool, ctx.tenantId, ctx.user.id);
+      .mutation(async () => {
+        throw new TRPCError({ code: "FORBIDDEN", message: "LOT 일괄 생성은 중단되었습니다 (이중 계상 위험). 누락 재고는 실사·재고 조정으로 처리하세요." });
       }),
 });

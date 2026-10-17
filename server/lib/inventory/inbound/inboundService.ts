@@ -463,3 +463,44 @@ async function recomputePoStatus(conn: any, poId: number, tenantId: number): Pro
 }
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/**
+ * 발주 없이 직접 입고 — 원료 한 줄 (2026-10-17, 입고 정본화 PR-4).
+ * 입고 탭(lotManagement.createReceivingWithLot)·재고 화면(inventory.createLot / receiveMaterial) 이 이 함수로 —
+ * 입고 문서 + 확정(같은 처리) 이라 LOT·원장·집계·수불부가 한 번. 단가가 있으면 대기 매입전표 초안을 입고 줄에 연결해 만든다
+ * (이전: LOT 따로 + 연결 없는 대기 전표 → 그 전표를 승인하면 LOT 이 한 벌 더 생겼다).
+ */
+export async function receiveDirect(p: {
+  tenantId: number;
+  userId: number;
+  idempotencyKey?: string | null;
+  materialId: number;
+  quantity: number;
+  unit: string;
+  unitPrice?: number | null;
+  supplierId?: number | null;
+  receiptDate: string;
+  expiryDate?: string | null;
+  productionDate?: string | null;
+  lotNumber?: string | null;
+  location?: string | null;
+  notes?: string | null;
+  createVoucherDraft: boolean;
+}): Promise<{ headerId: number; lineId: number; lotId: number; lotNumber: string; voucherIds: number[] }> {
+  const key = p.idempotencyKey || `direct-${p.tenantId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const { headerId } = await createInboundDraft({
+    tenantId: p.tenantId, userId: p.userId, idempotencyKey: key, sourceType: "direct",
+    supplierId: p.supplierId ?? null, inboundDate: p.receiptDate, notes: p.notes ?? null,
+    lines: [{
+      materialId: p.materialId, purchaseQuantity: p.quantity, purchaseUnit: p.unit, stockQuantity: p.quantity, stockUnit: p.unit,
+      unitPrice: p.unitPrice ?? 0, lotNumber: p.lotNumber ?? null, expiryDate: p.expiryDate ?? null,
+      productionDate: p.productionDate ?? null, location: p.location ?? null, notes: p.notes ?? null,
+    }],
+  });
+  const r = await confirmInbound(headerId, p.tenantId, p.userId, { createVoucherDrafts: p.createVoucherDraft && (p.unitPrice ?? 0) > 0 });
+  if (r.status !== "confirmed") {
+    return { headerId, lineId: 0, lotId: 0, lotNumber: "", voucherIds: [] }; // 승인 대기 — 재고는 승인 때
+  }
+  const lot = r.lots[0];
+  return { headerId, lineId: lot.lineId, lotId: lot.lotId, lotNumber: lot.lotNumber, voucherIds: r.voucherIds };
+}

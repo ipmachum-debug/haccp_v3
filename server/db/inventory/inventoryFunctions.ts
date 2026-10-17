@@ -141,23 +141,14 @@ export async function createInventoryLot(data: {
 }) {
   const tenantId = requireTenantId(data.tenantId);
   const qty = parsePositiveQty(data.quantity);
-  const { withInventoryTx, receiveNewLot } = await import("../../lib/inventory/applyInventoryDelta");
-  const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
-  const { lotId } = await withInventoryTx(async (conn) => {
-    const materialId = await canonicalMaterialInTenant(conn, data.materialId, tenantId, toInventoryMaterialId);
-    return receiveNewLot(conn, {
-      tenantId,
-      subject: { materialId },
-      lotNumber: data.lotNumber,
-      quantity: qty,
-      unit: data.unit,
-      receiptDate: data.receiptDate ?? new Date(),
-      expiryDate: data.expiryDate ?? null,
-      reference: { referenceType: "supplier", referenceId: data.supplierId ?? null, sourceType: "MANUAL_RECEIPT", actionType: "MANUAL_RECEIPT" },
-      notes: `재고 입고 - LOT ${data.lotNumber}`,
-      createdBy: data.userId,
-    });
-  }, "inventory.createLot");
+  // ★ 2026-10-17 (입고 정본화 PR-4): 직접 입고 = 입고 문서 + 입고 확정 (재고 반영 한 곳, 전표는 만들지 않음)
+  const { receiveDirect } = await import("../../lib/inventory/inbound/inboundService");
+  const { lotId } = await receiveDirect({
+    tenantId, userId: data.userId, materialId: data.materialId, quantity: qty, unit: data.unit,
+    supplierId: data.supplierId ?? null, receiptDate: kstYmd(data.receiptDate ?? new Date()),
+    expiryDate: data.expiryDate ? kstYmd(data.expiryDate) : null, lotNumber: data.lotNumber,
+    notes: `재고 입고 - LOT ${data.lotNumber}`, createVoucherDraft: false,
+  });
 
   return {
     success: true,
@@ -715,24 +706,20 @@ export async function receiveMaterial(params: {
   const qty = parsePositiveQty(params.quantity);
   // LOT 번호 자동 생성 (제공되지 않은 경우)
   const lotNumber = params.lotNumber || `LOT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-  const { withInventoryTx, receiveNewLot } = await import("../../lib/inventory/applyInventoryDelta");
-  const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
-  return withInventoryTx(async (conn) => {
-    const materialId = await canonicalMaterialInTenant(conn, params.materialId, tenantId, toInventoryMaterialId);
-    return receiveNewLot(conn, {
-      tenantId,
-      subject: { materialId },
-      lotNumber,
-      quantity: qty,
-      unit: params.unit,
-      receiptDate: params.receiptDate,
-      expiryDate: params.expiryDate || null,
-      location: params.location || null,
-      reference: { referenceType: "material_receipt", sourceType: "MANUAL_RECEIPT", actionType: "MANUAL_RECEIPT" },
-      notes: null,
-      createdBy: params.userId ?? 0,
-    });
-  }, "inventory.receiveMaterial");
+  // ★ 2026-10-17 (입고 정본화 PR-4): 직접 입고 = 입고 문서 + 입고 확정 (전표는 만들지 않음)
+  const { receiveDirect } = await import("../../lib/inventory/inbound/inboundService");
+  const r = await receiveDirect({
+    tenantId, userId: params.userId ?? 0, materialId: params.materialId, quantity: qty, unit: params.unit,
+    receiptDate: String(params.receiptDate).slice(0, 10), expiryDate: params.expiryDate ? String(params.expiryDate).slice(0, 10) : null,
+    lotNumber, location: params.location ?? null, createVoucherDraft: false,
+  });
+  return { lotId: r.lotId, lotNumber: r.lotNumber || lotNumber };
+}
+
+/** Date → KST 달력 날짜 'YYYY-MM-DD' */
+function kstYmd(d: Date | string): string {
+  if (typeof d === "string") return d.slice(0, 10);
+  return new Date(d.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 /**
  * FEFO 방식 LOT 조회 (유통기한 가까운 순)
