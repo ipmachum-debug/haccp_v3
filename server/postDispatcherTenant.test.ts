@@ -41,7 +41,10 @@ describe("확정 디스패처 — 호출자 회사 대조", () => {
     const r = (p: string) => readFileSync(join(REPO_ROOT, p), "utf-8");
     expect(r("server/routers/accounting/inventoryAccounting.router.ts")).toContain("dispatchPostPurchase(input.purchaseId, ctx.user.id, ctx.tenantId)");
     expect(r("server/routers/accounting/inventoryAccounting.router.ts")).toContain("dispatchPostSale(input.saleId, ctx.user.id, ctx.tenantId)");
-    expect(r("server/routers/accounting/purchaseOrder.router.ts")).toContain("dispatchPostPurchase(newPurchaseId, ctx.user.id, ctx.tenantId)");
+    // 발주 입고는 2026-10-17 부터 입고 확정 서비스로 (전표는 대기 초안 — 확정 호출 없음), 회사는 ctx
+    const po = r("server/routers/accounting/purchaseOrder.router.ts");
+    expect(po).toContain("confirmInbound(headerId, ctx.tenantId, ctx.user.id, { createVoucherDrafts: true })");
+    expect(po).not.toContain("dispatchPostPurchase(");
     expect(r("server/db/haccp/haccpIntegration.ts")).toContain("postPurchase(purchaseId, params.createdBy, tenantId)");
     // ERP 경로도 회사 검사 + UPDATE 에 tenant 조건
     for (const p of ["server/lib/accounting/erpSalePost.ts", "server/lib/accounting/erpPurchasePost.ts"]) {

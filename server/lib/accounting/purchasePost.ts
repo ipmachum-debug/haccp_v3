@@ -136,6 +136,26 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
       return { alreadyProcessed: true };
     }
     let reuseLotId: number | null = prior?.lot_id != null ? Number(prior.lot_id) : null;
+    // ★ 2026-10-17 (입고 정본화 PR-3): 입고 문서 줄에 연결된 전표(inbound_line_id) — 재고는 입고 확정이 이미 반영했다.
+    //   재고·원장·입고전표·수불부는 건너뛰고 분개·상태만 (재고를 다시 만들지 않는다).
+    let inboundLinked = false;
+    const inboundLineId = (purchase as any).inboundLineId != null ? Number((purchase as any).inboundLineId) : null;
+    if (inboundLineId) {
+      const [il]: any = await conn.execute(
+        `SELECT l.lot_id, l.material_id, h.status FROM h_inbound_lines l
+           JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
+          WHERE l.id = ? AND l.tenant_id = ? LIMIT 1`,
+        [inboundLineId, tenantId],
+      );
+      const line = (il as any[])[0];
+      if (!line || line.status !== "confirmed" || !line.lot_id) {
+        throw new Error(`연결된 입고 줄 #${inboundLineId} 이 확정되지 않았습니다 — 입고를 먼저 확정하세요.`);
+      }
+      inboundLinked = true;
+      reuseLotId = Number(line.lot_id);
+      resolvedMaterialId = Number(line.material_id);
+      resolvedItemType = "raw_material";
+    }
     // ★ 2026-10-17 (입고 정본화 PR-0): 입고 탭(lotManagement.createReceivingWithLot) 이 LOT 을 먼저 만들고
     //   이 대기 전표(source_type='material_receipt', source_id=LOT) 를 만든다 — 승인하면 LOT 이 한 벌 더 생겼다.
     //   그 LOT 을 재사용한다 (재고는 입고 때 이미 들어옴).
@@ -263,7 +283,7 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
     // (B-2) 입고전표 생성 (visual inspection / h_inbound_headers 쿼리 호환)
     // ★ 2026-04-13 추가: 육안검사일지 sync 가 h_inbound_headers 를 조회하므로
     //   매입 확정 시 입고전표도 동시 생성. resolvedMaterialId 가 있을 때만.
-    if (resolvedMaterialId) {
+    if (resolvedMaterialId && !inboundLinked) {
       try {
         const [ibhResult] = await conn.execute(
           `INSERT INTO h_inbound_headers
@@ -309,7 +329,7 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
     // ★ 2026-04-13 추가: 당월 총 입고량 집계에 즉시 반영
     // ★ 2026-10-16: 매입 입고의 수불부 기록은 여기 한 곳만 (createPurchase 의 onPurchaseCreated 제거 — 이중 가산).
     //   수량은 LOT 기준 재고 수량·단위 (수불부는 원료 기준 단위, 매입 단위 '개' 를 섞지 않음).
-    if (resolvedMaterialId) {
+    if (resolvedMaterialId && !inboundLinked) {
       try {
         await conn.execute(
           `INSERT INTO material_ledger_daily

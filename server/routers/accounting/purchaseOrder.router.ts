@@ -66,11 +66,18 @@ const receiveInput = z.object({
     .array(
       z.object({
         lineId: z.number(),
-        receivedQty: z.number().positive(),
+        receivedQty: z.number().positive(),            // 발주 단위 입고량
+        stockQuantity: z.number().positive().optional(), // 재고 단위 수량 (포장 환산 — 없으면 발주 단위 그대로)
+        stockUnit: z.string().min(1).max(20).optional(),
+        lotNumber: z.string().max(100).optional(),
+        expiryDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        productionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+        inspectionResult: z.enum(["pending", "pass", "fail", "conditional"]).optional(),
       }),
     )
     .min(1),
   receiptDate: z.string().optional(), // 입고일 (기본: 오늘)
+  idempotencyKey: z.string().min(8).max(64).optional(), // 화면이 만든 키 — 더블 클릭·재시도에 같은 입고 문서
 });
 
 // ─── Router ──────────────────────────────────────────────────
@@ -436,13 +443,10 @@ export const purchaseOrderRouter = router({
     }),
 
   /**
-   * 발주 삭제 — 모든 상태 지원 (양방향 역수행)
+   * 발주 삭제 — 입고가 시작되지 않은 발주서만 (2026-10-17, 입고 정본화 PR-3)
    *
-   * - draft: 단순 삭제
-   * - approved/cancelled: 단순 삭제
-   * - partial_received/received: 연결된 매입전표 전체 취소 (cancelPurchase)
-   *   → LOT 역차감, 재고원장, 입고전표, 원료수불, 회계분개 모두 역수행
-   *   → 이후 PO 삭제
+   * 이전: 입고된 발주도 삭제하며 연결 매입전표·분개를 **DELETE** 로 역수행(감사 추적 소실, 이미 쓴 LOT 은 0 에서 멈춰
+   *   원장과 어긋남). 지금: 입고 수량·입고 문서가 있으면 거부 — 입고 취소(입고 줄 취소) 를 먼저 한다.
    */
   delete: adminProcedure
     .input(z.object({ id: z.number() }))
@@ -454,324 +458,93 @@ export const purchaseOrderRouter = router({
         );
         const current = (rows as any[])[0];
         if (!current) throw new Error(`발주서 #${input.id} 없음`);
-
-        // 입고된 PO → 연결된 매입전표 역수행
-        if (["partial_received", "received"].includes(current.status)) {
-          // source_type='purchase_order' AND source_id=poId 인 매입전표 조회
-          const [purchaseRows]: any = await conn.execute(
-            `SELECT id, status FROM accounting_purchases
-             WHERE tenant_id = ? AND source_type = 'purchase_order' AND source_id = ?
-             AND status != 'cancelled'`,
-            [ctx.tenantId, input.id],
-          );
-          const linkedPurchases = purchaseRows as any[];
-
-          if (linkedPurchases.length > 0) {
-            // cancelPurchase 는 트랜잭션 내부에서 호출 불가 (자체 트랜잭션)
-            // → 직접 역수행 로직 인라인
-            for (const p of linkedPurchases) {
-              const purchaseId = p.id;
-
-              // (1) 원본 receipt 거래 → LOT 역차감
-              const [txRows]: any = await conn.execute(
-                `SELECT id, lot_id, material_id, quantity FROM h_inventory_transactions
-                 WHERE tenant_id = ? AND UPPER(reference_type) = 'PURCHASE'
-                   AND source_id = ? AND transaction_type = 'receipt'
-                 LIMIT 1`,
-                [ctx.tenantId, purchaseId],
-              );
-              const origTx = (txRows as any[])[0];
-              if (origTx) {
-                const lotId = Number(origTx.lot_id);
-                const cancelQty = Number(origTx.quantity);
-                const origMaterialId = origTx.material_id ? Number(origTx.material_id) : null;
-
-                // LOT 수량 감소
-                await conn.execute(
-                  `UPDATE h_inventory_lots
-                   SET available_quantity = GREATEST(0, available_quantity - ?),
-                       current_quantity = GREATEST(0, COALESCE(current_quantity, quantity) - ?),
-                       status = CASE WHEN available_quantity <= 0.001 THEN 'disposed' ELSE status END,
-                       updated_at = NOW()
-                   WHERE id = ? AND tenant_id = ?`,
-                  // ★ 2026-10-15: status 는 이미 줄어든 available_quantity 로 판단 (MySQL 단일 테이블 UPDATE 좌→우 평가)
-                  [cancelQty, cancelQty, lotId, ctx.tenantId],
-                );
-
-                // 역거래 기록
-                // PR-§5.2-2: material_id 직접 작성 (원본 receipt 의 material_id 승계)
-                await conn.execute(
-                  `INSERT INTO h_inventory_transactions
-                     (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date,
-                      reference_type, source_type, source_id, notes, created_by)
-                   VALUES (?, ?, ?, 'usage', ?, 'EA', CURDATE(), 'PO_DELETE', 'PO_DELETE', ?, ?, ?)`,
-                  [ctx.tenantId, lotId, origMaterialId, cancelQty, purchaseId,
-                   `[발주삭제] PO-${input.id}`, ctx.user.id],
-                );
-              }
-
-              // (2) 입고전표 취소
-              await conn.execute(
-                `UPDATE h_inbound_headers SET status = 'cancelled', updated_at = NOW()
-                 WHERE tenant_id = ? AND inbound_number = ?`,
-                [ctx.tenantId, `INB-PURCHASE-${purchaseId}`],
-              );
-
-              // (3) 원료수불 역차감
-              const [apRows]: any = await conn.execute(
-                `SELECT material_id, quantity, transaction_date FROM accounting_purchases WHERE id = ? AND tenant_id = ?`,
-                [purchaseId, ctx.tenantId],
-              );
-              const ap = (apRows as any[])[0];
-              if (ap?.material_id) {
-                await conn.execute(
-                  `UPDATE material_ledger_daily
-                   SET receiving_qty = GREATEST(0, receiving_qty - ?), updated_at = NOW()
-                   WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
-                  [Number(ap.quantity || 0), ctx.tenantId, ap.material_id, ap.transaction_date],
-                );
-              }
-
-              // (4) 회계 분개 삭제 (역분개 대신 직접 삭제 — PO 전체 삭제이므로)
-              const [jeRows]: any = await conn.execute(
-                `SELECT id FROM expense_journal_entries
-                 WHERE tenant_id = ? AND voucher_id = ? AND description LIKE ?`,
-                [ctx.tenantId, purchaseId, `%PURCHASE-${purchaseId}%`],
-              );
-              for (const je of (jeRows as any[])) {
-                await conn.execute(
-                  `DELETE FROM expense_journal_lines WHERE journal_entry_id = ?`,
-                  [je.id],
-                );
-                await conn.execute(
-                  `DELETE FROM expense_journal_entries WHERE id = ? AND tenant_id = ?`,
-                  [je.id, ctx.tenantId],
-                );
-              }
-
-              // (5) 매입전표 삭제
-              await conn.execute(
-                `DELETE FROM accounting_purchases WHERE id = ? AND tenant_id = ?`,
-                [purchaseId, ctx.tenantId],
-              );
-            }
-
-            console.log(`[PO.delete] PO#${input.id}: ${linkedPurchases.length}건 매입전표 역수행 완료`);
-          }
+        const [recv]: any = await conn.execute(
+          `SELECT COALESCE(SUM(received_qty), 0) AS r FROM purchase_order_lines WHERE po_id = ? AND tenant_id = ?`,
+          [input.id, ctx.tenantId],
+        );
+        const [docs]: any = await conn.execute(
+          `SELECT COUNT(*) AS n FROM h_inbound_headers WHERE po_id = ? AND tenant_id = ? AND status <> 'cancelled'`,
+          [input.id, ctx.tenantId],
+        );
+        const [vouchers]: any = await conn.execute(
+          `SELECT COUNT(*) AS n FROM accounting_purchases WHERE tenant_id = ? AND source_type = 'purchase_order' AND source_id = ? AND status <> 'cancelled'`,
+          [ctx.tenantId, input.id],
+        );
+        if (["partial_received", "received"].includes(current.status) || Number((recv as any[])[0]?.r ?? 0) > 0
+          || Number((docs as any[])[0]?.n ?? 0) > 0 || Number((vouchers as any[])[0]?.n ?? 0) > 0) {
+          throw new Error("입고가 시작된 발주서는 삭제할 수 없습니다. 입고를 먼저 취소하세요.");
         }
-
-        // PO 라인 + 헤더 삭제
-        await conn.execute(
-          `DELETE FROM purchase_order_lines WHERE po_id = ? AND tenant_id = ?`,
-          [input.id, ctx.tenantId],
-        );
-        await conn.execute(
-          `DELETE FROM purchase_orders WHERE id = ? AND tenant_id = ?`,
-          [input.id, ctx.tenantId],
-        );
-
-        return { message: "발주서가 삭제되었습니다. (연관 재고/회계 역수행 완료)" };
+        await conn.execute(`DELETE FROM purchase_order_lines WHERE po_id = ? AND tenant_id = ?`, [input.id, ctx.tenantId]);
+        await conn.execute(`DELETE FROM purchase_orders WHERE id = ? AND tenant_id = ?`, [input.id, ctx.tenantId]);
+        return { message: "발주서가 삭제되었습니다." };
       }, `purchaseOrder.delete:${input.id}`);
     }),
 
   /**
-   * ★ 입고 처리 — PO → accounting_purchases 자동 생성
+   * 입고 처리 — 입고 확정 단일 서비스(inboundService) 로 (2026-10-17, 입고 정본화 PR-3)
    *
-   * 워크플로우:
-   *   1. PO 잠금 + 상태 검증 (approved 또는 partial_received 만 가능)
-   *   2. 각 라인별 입고량 검증 (ordered_qty - received_qty 초과 금지)
-   *   3. haccpIntegration.createPurchase 호출 → 매입전표 생성
-   *      → 이 경로가 h_inventory_lots + h_inventory_transactions
-   *      + h_inbound_headers + material_ledger_daily 자동 처리
-   *   4. 라인 received_qty 누적
-   *   5. 전량 입고면 status='received', 일부면 'partial_received'
+   * 이전: 줄마다 대기 매입전표 INSERT → postPurchase(재고·분개) → received_qty 갱신, 줄 단위 부분 성공 허용
+   *   (운영 PO-2026-0003: 두 번 실패하며 대기 전표 8건만 남고 입고량 0).
+   * 지금: 입고 문서(draft) 1건 → confirmInbound 한 트랜잭션 — LOT·원장·수불부·발주 입고량·상태 + 줄마다 대기 매입전표 초안
+   *   (입고 줄 연결, CEO 결정). 하나라도 실패하면 전부 되돌림. 같은 idempotencyKey 재요청은 같은 문서·결과.
+   *   전표 확정은 분개만 (재고는 입고가 이미 반영 — postPurchase 의 inbound_line_id 경로).
    */
   receive: adminProcedure.input(receiveInput).mutation(async ({ ctx, input }) => {
+    const { createInboundDraft, confirmInbound } = await import("../../lib/inventory/inbound/inboundService");
     const db = await getDb();
     if (!db) throw new Error("DB 연결 실패");
-
-    console.log(`[purchaseOrder.receive] 시작: poId=${input.poId}, lines=${input.lines.length}건, tenant=${ctx.tenantId}`);
-
-    // PO 헤더 + 라인 조회
-    const [po] = await db
-      .select()
-      .from(purchaseOrders)
-      .where(
-        and(eq(purchaseOrders.id, input.poId), eq(purchaseOrders.tenantId, ctx.tenantId)),
-      )
-      .limit(1);
+    const [po] = await db.select().from(purchaseOrders)
+      .where(and(eq(purchaseOrders.id, input.poId), eq(purchaseOrders.tenantId, ctx.tenantId))).limit(1);
     if (!po) throw new Error(`발주서 #${input.poId} 없음`);
-    if (!["approved", "partial_received"].includes(po.status!)) {
-      throw new Error(`승인(approved) 상태 발주서만 입고 처리 가능. 현재: ${po.status}`);
-    }
-
     const lineIds = input.lines.map((l) => l.lineId);
-    const existingLines = await db
-      .select()
-      .from(purchaseOrderLines)
-      .where(
-        and(
-          eq(purchaseOrderLines.poId, input.poId),
-          eq(purchaseOrderLines.tenantId, ctx.tenantId),
-          inArray(purchaseOrderLines.id, lineIds),
-        ),
-      );
-
-    // 라인별 검증 + 매입전표 생성 + received_qty 업데이트 + 재고/회계 POST
-    // ★ 2026-04-15 수정: createPurchase() → 직접 INSERT + postPurchase()
-    //   이전: createPurchase 가 h_inventory_lots + material_ledger_daily 만 생성
-    //         → h_inventory_transactions, h_inbound_headers, 회계 분개가 모두 누락
-    //         → 재고 원장 / 입고전표 / 재무제표 반영 안 됨
-    //   현재: pending 상태 INSERT 후 postPurchase 호출로 전체 파이프라인 처리
-    //         (LOT + 재고 이력 + 입고전표 + 수불부 + 회계 분개)
-    //         HACCP 비활성 테넌트는 자동으로 ERP 전용 경로 사용
-    const { accountingPurchases } = await import("../../../drizzle/schema");
-    const { dispatchPostPurchase } = await import("../../lib/accounting/postDispatcher");
+    const poLines = await db.select().from(purchaseOrderLines)
+      .where(and(eq(purchaseOrderLines.poId, input.poId), eq(purchaseOrderLines.tenantId, ctx.tenantId), inArray(purchaseOrderLines.id, lineIds)));
+    const draftLines = input.lines.map((r) => {
+      const line = poLines.find((l) => l.id === r.lineId);
+      if (!line) throw new Error(`발주 줄 #${r.lineId} 를 찾을 수 없습니다.`);
+      if (line.materialId == null) throw new Error(`${line.lineNumber}번 줄(${line.itemName}) 은 원재료와 연결되지 않아 입고할 수 없습니다.`);
+      return {
+        materialId: Number(line.materialId),
+        poLineId: Number(line.id),
+        purchaseQuantity: r.receivedQty,
+        purchaseUnit: line.unit || "EA",
+        stockQuantity: r.stockQuantity ?? r.receivedQty,
+        stockUnit: r.stockUnit ?? line.unit ?? "EA",
+        unitPrice: Number(line.unitPrice),
+        lotNumber: r.lotNumber ?? null,
+        expiryDate: r.expiryDate ?? null,
+        productionDate: r.productionDate ?? null,
+        inspectionResult: r.inspectionResult ?? null,
+      };
+    });
     const receiptDate = input.receiptDate || new Date().toISOString().slice(0, 10);
-    const createdPurchases: number[] = [];
-    // ★ 2026-04-15: 라인별 실패 수집 → 부분 성공 허용 + 상세 에러 메시지
-    const lineFailures: Array<{ lineNumber: number; itemName: string; error: string }> = [];
-
-    for (const received of input.lines) {
-      const line = existingLines.find((l) => l.id === received.lineId);
-      if (!line) {
-        lineFailures.push({ lineNumber: 0, itemName: `라인ID=${received.lineId}`, error: "라인 없음" });
-        continue;
-      }
-
-      const ordered = Number(line.orderedQty);
-      const alreadyReceived = Number(line.receivedQty);
-      const remaining = ordered - alreadyReceived;
-
-      if (received.receivedQty > remaining + 0.001) {
-        lineFailures.push({
-          lineNumber: line.lineNumber,
-          itemName: line.itemName,
-          error: `입고량 초과 (발주 ${ordered}, 기존입고 ${alreadyReceived}, 요청 ${received.receivedQty}, 잔량 ${remaining})`,
-        });
-        continue;
-      }
-
-      try {
-        // (1) accounting_purchases INSERT (pending 상태) — 컬럼 부재 fallback 포함
-        const totalAmount = received.receivedQty * Number(line.unitPrice);
-        const taxAmount = Math.round(totalAmount * 0.1);
-        const baseValues: any = {
-          tenantId: ctx.tenantId,
-          transactionDate: receiptDate,
-          partnerId: po.partnerId,
-          itemName: line.itemName,
-          quantity: received.receivedQty.toString(),
-          unit: line.unit || "EA",
-          unitPrice: Number(line.unitPrice).toString(),
-          totalAmount: totalAmount.toString(),
-          taxAmount: taxAmount.toString(),
-          taxRate: "10.00",
-          sourceType: "purchase_order",
-          sourceId: input.poId,
-          notes: `발주서 ${po.poNumber} 입고 (라인 ${line.lineNumber})`,
-          status: "pending", // postPurchase 가 approved 로 전환
-          createdBy: ctx.user.id,
-        };
-        if (line.materialId !== undefined && line.materialId !== null) {
-          // ★ 2026-10-17 (입고 정본화 PR-0): 발주 줄 품목은 item_master id 일 수 있다 (발주서 화면) — 재고 LOT 은 h_materials id.
-          //   이전: 그대로 넣어 LOT 의 원료 FK 가 어긋났다 (운영 PO-2026-0003 4번 줄 material_id=278 = item_master).
-          const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
-          baseValues.materialId = (await toInventoryMaterialId(Number(line.materialId), ctx.tenantId)).id;
-        }
-
-        let insertResult: any;
-        try {
-          [insertResult] = await db.insert(accountingPurchases).values(baseValues);
-        } catch (insErr: any) {
-          const msg = insErr?.message || String(insErr);
-          // Unknown column → 선택 컬럼 제거 후 재시도
-          if (msg.includes("Unknown column") || insErr?.code === "ER_BAD_FIELD_ERROR") {
-            if (msg.includes("material_id")) delete baseValues.materialId;
-            if (msg.includes("source_type")) delete baseValues.sourceType;
-            if (msg.includes("source_id")) delete baseValues.sourceId;
-            [insertResult] = await db.insert(accountingPurchases).values(baseValues);
-            console.warn(`[purchaseOrder.receive] 컬럼 fallback INSERT 성공 (line ${line.lineNumber})`);
-          } else {
-            throw insErr;
-          }
-        }
-        const newPurchaseId = Number(insertResult?.insertId || 0);
-        if (!newPurchaseId) throw new Error("매입전표 INSERT 실패 (insertId 없음)");
-
-        // (2) postPurchase 호출 — LOT + 재고 이력 + 입고전표 + 수불부 + 회계 분개 전체 처리
-        await dispatchPostPurchase(newPurchaseId, ctx.user.id, ctx.tenantId);
-        createdPurchases.push(newPurchaseId);
-
-        // (3) 라인 received_qty 업데이트
-        await db
-          .update(purchaseOrderLines)
-          .set({
-            receivedQty: (alreadyReceived + received.receivedQty).toFixed(3),
-          })
-          .where(
-            and(
-              eq(purchaseOrderLines.id, received.lineId),
-              eq(purchaseOrderLines.tenantId, ctx.tenantId),
-            ),
-          );
-
-        console.log(`[purchaseOrder.receive] 라인 #${line.lineNumber} (${line.itemName}) 입고 완료: qty=${received.receivedQty}, purchaseId=${newPurchaseId}`);
-      } catch (lineErr: any) {
-        const errMsg = lineErr?.message || String(lineErr);
-        console.error(`[purchaseOrder.receive] 라인 #${line.lineNumber} (${line.itemName}) 처리 실패:`, lineErr);
-        lineFailures.push({
-          lineNumber: line.lineNumber,
-          itemName: line.itemName,
-          error: errMsg,
-        });
-      }
+    const key = input.idempotencyKey ?? `po-${input.poId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    const { headerId } = await createInboundDraft({
+      tenantId: ctx.tenantId, userId: ctx.user.id, idempotencyKey: key, sourceType: "purchase_order",
+      poId: input.poId, supplierId: po.partnerId ?? null, inboundDate: receiptDate, lines: draftLines,
+    });
+    const r = await confirmInbound(headerId, ctx.tenantId, ctx.user.id, { createVoucherDrafts: true });
+    const [after] = await db.select({ status: purchaseOrders.status }).from(purchaseOrders)
+      .where(and(eq(purchaseOrders.id, input.poId), eq(purchaseOrders.tenantId, ctx.tenantId))).limit(1);
+    if (r.status === "pending_approval") {
+      return { message: "입고 승인 대기 — 승인되면 재고에 반영됩니다.", newStatus: after?.status, inboundHeaderId: headerId, createdPurchaseIds: [], lineFailures: [] };
     }
-
-    // 전체 실패 시 명시적 에러 (사용자가 이유를 알 수 있도록)
-    if (createdPurchases.length === 0 && lineFailures.length > 0) {
-      const detail = lineFailures.map(f => `라인 ${f.lineNumber} (${f.itemName}): ${f.error}`).join(" | ");
-      throw new Error(`입고 확정 실패 — 모든 라인 처리 실패: ${detail}`);
-    }
-
-    // PO 상태 업데이트 (전부 received 인지 확인)
-    const allLines = await db
-      .select()
-      .from(purchaseOrderLines)
-      .where(
-        and(
-          eq(purchaseOrderLines.poId, input.poId),
-          eq(purchaseOrderLines.tenantId, ctx.tenantId),
-        ),
-      );
-
-    const allReceived = allLines.every(
-      (l) => Number(l.receivedQty) >= Number(l.orderedQty) - 0.001,
-    );
-    const newStatus = allReceived ? "received" : "partial_received";
-
-    await db
-      .update(purchaseOrders)
-      .set({ status: newStatus })
-      .where(
-        and(eq(purchaseOrders.id, input.poId), eq(purchaseOrders.tenantId, ctx.tenantId)),
-      );
-
-    // 부분 성공 메시지
-    let message = `${createdPurchases.length}건 입고 처리 완료`;
-    if (lineFailures.length > 0) {
-      message += ` (${lineFailures.length}건 실패: ${lineFailures.map(f => f.itemName).join(", ")})`;
-    }
-
-    console.log(`[purchaseOrder.receive] 완료: 성공=${createdPurchases.length}, 실패=${lineFailures.length}, newStatus=${newStatus}`);
-
     return {
-      message,
-      newStatus,
-      createdPurchaseIds: createdPurchases,
-      lineFailures, // ★ 프론트엔드에서 세부 실패 표시 가능
+      message: `${r.lots.length}건 입고 확정 (매입전표 초안 ${r.voucherIds.length}건)`,
+      newStatus: after?.status,
+      inboundHeaderId: headerId,
+      createdPurchaseIds: r.voucherIds,
+      lineFailures: [] as Array<{ lineNumber: number; itemName: string; error: string }>,
     };
   }),
+
+  /** 발주 줄 입고 가능 잔량 — '미입고 잔량 전체 채우기' */
+  receivableLines: tenantRequiredProcedure
+    .input(z.object({ poId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const { getReceivableLines } = await import("../../lib/inventory/inbound/inboundService");
+      return getReceivableLines(input.poId, ctx.tenantId);
+    }),
 
   /**
    * ★ 발주서 PDF 생성 — Phase A-6 (2026-04-14)

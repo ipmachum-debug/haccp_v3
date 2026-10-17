@@ -17,7 +17,7 @@
  *   - 승인 대기: 회사 설정 INBOUND_APPROVAL 이 켜진 회사만 (확정 요청 → pending_approval → 승인 시 확정). 정책 데이터, 코드 분기 아님.
  *   - 검수 불합격(fail) 줄은 확정하지 않는다 (불합격 처리 정책 미결정 — 기본 거부).
  *   - 원료 id 는 이 회사의 h_materials id 로 (item_master id 가 와도 ItemIdentityService 로 변환).
- * 매입전표는 여기서 만들지 않는다 — 기존 입고에 '연결' 만 (PR-5, accounting_purchases.inbound_line_id).
+ * 매입전표: 발주서 입고는 확정 때 대기 전표 초안을 입고 줄에 연결해 만든다 (CEO 결정). 전표 확정은 분개만 (재고 재생성 없음).
  */
 import { withInventoryTx, receiveNewLot, applyLotDelta, InventoryShortageError } from "../applyInventoryDelta";
 import { toInventoryMaterialId } from "../../identity/itemIdentityService";
@@ -146,21 +146,24 @@ async function findByKey(tenantId: number, key: string): Promise<number | null> 
 }
 
 export type ConfirmInboundResult =
-  | { status: "confirmed"; alreadyProcessed: boolean; lots: Array<{ lineId: number; lotId: number; lotNumber: string }> }
+  | { status: "confirmed"; alreadyProcessed: boolean; lots: Array<{ lineId: number; lotId: number; lotNumber: string }>; voucherIds: number[] }
   | { status: "pending_approval" };
 
 /**
  * 입고 확정 — 재고 반영은 이 함수 한 곳.
  * 승인 필요 회사에서 approve=false 로 부르면 pending_approval 로 두고 재고는 반영하지 않는다.
  */
-export async function confirmInbound(headerId: number, tenantIdIn: number, userId: number, opts: { approve?: boolean } = {}): Promise<ConfirmInboundResult> {
+export async function confirmInbound(
+  headerId: number, tenantIdIn: number, userId: number,
+  opts: { approve?: boolean; createVoucherDrafts?: boolean } = {},
+): Promise<ConfirmInboundResult> {
   const tenantId = requireTenant(tenantIdIn);
   const { getRawConnection } = await import("../../../db/connection");
   const needsApproval = await isTenantFeatureEnabled(await getRawConnection(), tenantId, INBOUND_APPROVAL_FEATURE);
 
   return withInventoryTx(async (conn) => {
     const [hRows]: any = await conn.execute(
-      `SELECT id, status, inbound_date, supplier_id, po_id FROM h_inbound_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
+      `SELECT id, status, inbound_date, supplier_id, po_id, source_type FROM h_inbound_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
       [headerId, tenantId],
     );
     const header = (hRows as any[])[0];
@@ -169,7 +172,15 @@ export async function confirmInbound(headerId: number, tenantIdIn: number, userI
       const [done]: any = await conn.execute(
         `SELECT id, lot_id, lot_number FROM h_inbound_lines WHERE header_id = ? AND tenant_id = ? ORDER BY line_number`, [headerId, tenantId],
       );
-      return { status: "confirmed", alreadyProcessed: true, lots: (done as any[]).map((r) => ({ lineId: Number(r.id), lotId: Number(r.lot_id), lotNumber: String(r.lot_number) })) };
+      const [vs]: any = await conn.execute(
+        `SELECT p.id FROM accounting_purchases p JOIN h_inbound_lines l ON l.id = p.inbound_line_id AND l.tenant_id = p.tenant_id
+          WHERE l.header_id = ? AND p.tenant_id = ? AND p.status <> 'cancelled' ORDER BY p.id`, [headerId, tenantId],
+      );
+      return {
+        status: "confirmed", alreadyProcessed: true,
+        lots: (done as any[]).map((r) => ({ lineId: Number(r.id), lotId: Number(r.lot_id), lotNumber: String(r.lot_number) })),
+        voucherIds: (vs as any[]).map((v) => Number(v.id)),
+      };
     }
     if (header.status === "cancelled") throw new Error("취소된 입고 문서는 확정할 수 없습니다.");
     if (needsApproval && !opts.approve) {
@@ -182,6 +193,15 @@ export async function confirmInbound(headerId: number, tenantIdIn: number, userI
       throw new Error("승인 대기 상태의 입고만 승인할 수 있습니다.");
     }
 
+    // 발주서 입고는 매입전표 초안(대기, 입고 줄 연결)을 같은 트랜잭션에서 만든다 (CEO 결정 2026-10-17).
+    //   전표 확정(postPurchase) 은 연결된 입고의 LOT 을 쓰고 분개만 만든다 — 재고를 다시 만들지 않는다.
+    const createVouchers = opts.createVoucherDrafts ?? header.source_type === "purchase_order";
+    let poPartnerId: number | null = null;
+    if (header.po_id) {
+      const [pp]: any = await conn.execute(`SELECT partner_id FROM purchase_orders WHERE id = ? AND tenant_id = ? LIMIT 1`, [header.po_id, tenantId]);
+      poPartnerId = (pp as any[])[0]?.partner_id != null ? Number((pp as any[])[0].partner_id) : null;
+    }
+    const voucherIds: number[] = [];
     let supplierName: string | null = null;
     if (header.supplier_id) {
       const [ps]: any = await conn.execute(`SELECT company_name FROM partners WHERE id = ? AND tenant_id = ? LIMIT 1`, [header.supplier_id, tenantId]);
@@ -245,10 +265,36 @@ export async function confirmInbound(headerId: number, tenantIdIn: number, userI
          ON DUPLICATE KEY UPDATE receiving_qty = receiving_qty + VALUES(receiving_qty), updated_at = NOW()`,
         [tenantId, line.material_id, inboundDate, stockQty, `입고 ${headerId}-${line.line_number}`],
       );
+      let taxRate = 10;
       if (line.po_line_id) {
         await conn.execute(
           `UPDATE purchase_order_lines SET received_qty = received_qty + ? WHERE id = ? AND tenant_id = ?`, [purchaseQty, line.po_line_id, tenantId],
         );
+        const [tr]: any = await conn.execute(`SELECT amount, tax_amount FROM purchase_order_lines WHERE id = ? AND tenant_id = ?`, [line.po_line_id, tenantId]);
+        const amt = Number((tr as any[])[0]?.amount ?? 0);
+        if (amt > 0) taxRate = Math.round((Number((tr as any[])[0]?.tax_amount ?? 0) / amt) * 10000) / 100;
+      }
+      if (createVouchers) {
+        const [ex]: any = await conn.execute(
+          `SELECT id FROM accounting_purchases WHERE tenant_id = ? AND inbound_line_id = ? AND status <> 'cancelled' LIMIT 1`, [tenantId, line.id],
+        );
+        if ((ex as any[])[0]) {
+          voucherIds.push(Number((ex as any[])[0].id));
+        } else {
+          const [mn]: any = await conn.execute(`SELECT material_name FROM h_materials WHERE id = ? AND tenant_id = ?`, [line.material_id, tenantId]);
+          const supply = Math.round(Number(line.total_price) * 100) / 100;
+          const tax = Math.round(supply * taxRate / 100);
+          const [vi]: any = await conn.execute(
+            `INSERT INTO accounting_purchases
+               (tenant_id, transaction_date, partner_id, item_name, material_id, quantity, unit, unit_price, total_amount, tax_amount, tax_rate,
+                status, source_type, source_id, inbound_line_id, notes, created_by)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'inbound', ?, ?, ?, ?)`,
+            [tenantId, inboundDate, poPartnerId ?? header.supplier_id ?? null, (mn as any[])[0]?.material_name ?? `원재료#${line.material_id}`,
+             line.material_id, purchaseQty, line.purchase_unit, Number(line.unit_price), supply, tax, taxRate,
+             line.id, line.id, `입고 ${headerId}-${line.line_number} 매입전표 초안`, userId],
+          );
+          voucherIds.push(Number(vi.insertId));
+        }
       }
       lots.push({ lineId: Number(line.id), lotId: r.lotId, lotNumber });
     }
@@ -262,9 +308,9 @@ export async function confirmInbound(headerId: number, tenantIdIn: number, userI
     );
     await publishEvent({
       tenantId, eventType: "inbound.confirmed", aggregateType: "Inbound", aggregateId: headerId,
-      payload: { headerId, poId: header.po_id ?? null, lots }, createdBy: userId,
+      payload: { headerId, poId: header.po_id ?? null, lots, voucherIds }, createdBy: userId,
     }, conn);
-    return { status: "confirmed", alreadyProcessed: false, lots };
+    return { status: "confirmed", alreadyProcessed: false, lots, voucherIds };
   }, `inbound.confirm:${headerId}`);
 }
 

@@ -121,6 +121,10 @@ function PurchaseOrderListContent() {
   const [receiveLines, setReceiveLines] = useState<Record<number, number>>({});
   const [receiptDate, setReceiptDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [receiveAutoFilled, setReceiveAutoFilled] = useState<boolean>(false);
+  // 줄별 LOT 번호·소비기한 (선택) — 입고 문서 줄에 기록, LOT 에 그대로
+  const [receiveExtra, setReceiveExtra] = useState<Record<number, { lotNumber?: string; expiryDate?: string }>>({});
+  // 입고 요청 키 — 대화창 하나에 하나. 더블 클릭·재시도는 같은 입고 문서로 (서버 idempotency)
+  const [receiveKey, setReceiveKey] = useState<string>("");
 
   const utils = trpc.useUtils();
 
@@ -378,9 +382,11 @@ function PurchaseOrderListContent() {
 
   const handleDelete = (id: number, poNumber: string, status: string) => {
     const isReceived = ["partial_received", "received"].includes(status);
-    const msg = isReceived
-      ? `${poNumber} 를 삭제하시겠습니까?\n\n⚠️ 입고된 발주서입니다. 연관된 재고·회계·입고전표·원료수불이 모두 역수행됩니다.`
-      : `${poNumber} 를 삭제하시겠습니까?`;
+    if (isReceived) {
+      toast({ title: "삭제할 수 없습니다", description: "입고가 시작된 발주서는 삭제할 수 없습니다. 입고를 먼저 취소하세요.", variant: "destructive" });
+      return;
+    }
+    const msg = `${poNumber} 를 삭제하시겠습니까?`;
     if (confirm(msg)) {
       deleteMutation.mutate({ id });
     }
@@ -389,14 +395,33 @@ function PurchaseOrderListContent() {
   const handleOpenReceive = (poId: number) => {
     setReceivePoId(poId);
     setReceiveLines({});
+    setReceiveExtra({});
+    setReceiveKey(`po-${poId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`);
     setReceiveDialogOpen(true);
+  };
+
+  /** 미입고 잔량 전체 채우기 */
+  const fillRemaining = () => {
+    const filled: Record<number, number> = {};
+    for (const line of ((receivingPo as OrderDetail)?.lines ?? []) as any[]) {
+      const remaining = Number(line.orderedQty) - Number(line.receivedQty);
+      if (remaining > 0) filled[line.id] = Math.round(remaining * 1000) / 1000;
+    }
+    setReceiveLines(filled);
   };
 
   const handleReceive = () => {
     if (!receivePoId) return;
     const linesPayload = Object.entries(receiveLines)
       .filter(([, qty]) => qty > 0)
-      .map(([lineId, qty]) => ({ lineId: parseInt(lineId), receivedQty: qty }));
+      .map(([lineId, qty]) => {
+        const extra = receiveExtra[parseInt(lineId)] ?? {};
+        return {
+          lineId: parseInt(lineId), receivedQty: qty,
+          ...(extra.lotNumber?.trim() ? { lotNumber: extra.lotNumber.trim() } : {}),
+          ...(extra.expiryDate ? { expiryDate: extra.expiryDate } : {}),
+        };
+      });
 
     if (linesPayload.length === 0) {
       toast({ title: "입고할 라인을 선택하세요", variant: "destructive" });
@@ -407,6 +432,7 @@ function PurchaseOrderListContent() {
       poId: receivePoId,
       lines: linesPayload,
       receiptDate,
+      idempotencyKey: receiveKey || undefined,
     });
   };
 
@@ -485,7 +511,7 @@ function PurchaseOrderListContent() {
                     size="sm"
                     variant="outline"
                     onClick={() => handleDelete(po.id, po.poNumber, po.status)}
-                    title={["partial_received", "received"].includes(po.status) ? "삭제 (재고/회계 역수행)" : "삭제"}
+                    title={["partial_received", "received"].includes(po.status) ? "입고가 시작된 발주서는 삭제할 수 없습니다" : "삭제"}
                     className="h-7 w-7 p-0 text-red-500 hover:bg-red-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
@@ -746,7 +772,8 @@ function PurchaseOrderListContent() {
               입고 처리 — {(receivingPo as OrderDetail)?.poNumber}
             </DialogTitle>
             <DialogDescription>
-              실제 입고된 수량을 입력하세요. 매입전표가 자동 생성되고 재고/수불이 업데이트됩니다.
+              실제 입고된 수량을 입력하세요. 확정하면 재고·LOT·수불에 한 번 반영되고 매입전표 초안(대기)이 함께 만들어집니다.
+              전표 확정 때는 분개만 생깁니다. 남은 수량은 다음에 나눠 받을 수 있습니다.
             </DialogDescription>
           </DialogHeader>
 
@@ -778,6 +805,8 @@ function PurchaseOrderListContent() {
                   <TableHead className="text-right">기존 입고</TableHead>
                   <TableHead className="text-right">잔량</TableHead>
                   <TableHead className="text-right w-[130px]">이번 입고</TableHead>
+                  <TableHead className="w-[130px]">LOT 번호 (선택)</TableHead>
+                  <TableHead className="w-[140px]">소비기한 (선택)</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -819,6 +848,24 @@ function PurchaseOrderListContent() {
                           disabled={remaining <= 0}
                         />
                       </TableCell>
+                      <TableCell>
+                        <Input
+                          value={receiveExtra[line.id]?.lotNumber ?? ""}
+                          onChange={(e) => setReceiveExtra({ ...receiveExtra, [line.id]: { ...receiveExtra[line.id], lotNumber: e.target.value } })}
+                          placeholder="자동"
+                          className="h-8 text-xs"
+                          disabled={remaining <= 0}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="date"
+                          value={receiveExtra[line.id]?.expiryDate ?? ""}
+                          onChange={(e) => setReceiveExtra({ ...receiveExtra, [line.id]: { ...receiveExtra[line.id], expiryDate: e.target.value } })}
+                          className="h-8 text-xs"
+                          disabled={remaining <= 0}
+                        />
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -827,6 +874,9 @@ function PurchaseOrderListContent() {
           </div>
 
           <DialogFooter>
+            <Button variant="outline" onClick={fillRemaining} className="mr-auto">
+              미입고 잔량 전체 채우기
+            </Button>
             <Button variant="outline" onClick={() => setReceiveDialogOpen(false)}>
               취소
             </Button>
