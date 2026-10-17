@@ -1467,4 +1467,64 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number((await q(`SELECT COUNT(*) AS n FROM accounting_purchases WHERE id = 95003`))[0].n)).toBe(0);
     });
   });
+  describe("#553 검토 후속 — 미정산 배치 출고 차단·배치 원가 확정 공통화·누락 분개 보충 분류 (2026-10-17)", () => {
+    beforeEach(async () => {
+      for (const t of ["h_materials", "h_batches", "h_batch_inputs", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "h_product_outbound", "accounting_sales", "expense_journal_entries", "expense_journal_lines", "accounting_purchases"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (700, ?, 'M700', '멥쌀', 'kg', 1), (191, ?, 'M191', '정제수', 'kg', 1)`, [T, T]);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, actual_quantity, planned_date, status, created_by)
+        VALUES (7401, ?, 1, 'B7401', 90, 100, 96, '2026-10-14', 'completed', 4)`, [T]);
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, planned_quantity, unit, inventory_deducted, total_price) VALUES
+        (1401, ?, 7401, 700, 60, 'kg', 0, 0), (1402, ?, 7401, 191, 10, 'kg', 1, 500)`, [T, T]);
+    });
+    const outbound = (batchId: number) => import("./db/production/productOutboundManagement").then((m) => m.createProductOutbound({
+      batchId, productName: "제품", quantity: 1, unit: "kg", unitPrice: 1000, releaseDate: "2026-10-17", releaseType: "sample", createdBy: 4,
+    } as any, T));
+    const issue = async () => {
+      await q(`UPDATE h_batch_inputs SET inventory_deducted = 1, total_price = 125000 WHERE id = 1401`);
+    };
+
+    it("원료 미출고 배치는 배치 기준(레거시) 출고 거부 — 출고 행 0, 출고 가능 목록에도 없음", async () => {
+      await expect(outbound(7401)).rejects.toThrow(/아직 출고되지 않은 배치/);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_product_outbound`))[0].n)).toBe(0);
+      const { getProductAvailableForRelease } = await import("./db/production/productOutboundManagement");
+      expect((await getProductAvailableForRelease(T)).filter((r: any) => r.batchId === 7401)).toEqual([]);
+    });
+
+    it("제품 LOT 이 있는 배치는 LOT 으로만 / LOT 없는 정산 완료 레거시 배치는 배치 기준 출고 허용 (단위 kg)", async () => {
+      await issue();
+      const { getProductAvailableForRelease } = await import("./db/production/productOutboundManagement");
+      const listed = (await getProductAvailableForRelease(T)).filter((r: any) => r.batchId === 7401);
+      expect(listed.map((r: any) => [r.source, r.unit])).toEqual([["batch", "kg"]]);
+      await outbound(7401);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_product_outbound WHERE batch_id = 7401`))[0].n)).toBe(1);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, batch_id, product_id, lot_number, quantity, current_quantity, available_quantity, unit, status) VALUES (9501, ?, 7401, 90, 'P-1', 96, 96, 96, 'kg', 'available')`, [T]);
+      await expect(outbound(7401)).rejects.toThrow(/LOT 을 골라 출고/);
+    });
+
+    it("배치 원가 확정: 미출고면 보류 → 출고 뒤 출고된 줄 합(정제수 제외) 으로 확정 → 재호출 무변경", async () => {
+      const { finalizeBatchCost } = await import("./lib/production/batchCompletionHooks");
+      expect(await finalizeBatchCost(admin, 7401, T)).toBe("materials_not_issued");
+      await issue();
+      expect(await finalizeBatchCost(admin, 7401, T)).toBe("finalized");
+      const b = (await q(`SELECT actual_cost + 0 AS c, cost_finalized_at FROM h_batches WHERE id = 7401`))[0];
+      expect(Number(b.c)).toBe(125000);
+      expect(b.cost_finalized_at).not.toBeNull();
+      await q(`UPDATE h_batch_inputs SET total_price = 1 WHERE id = 1401`);
+      expect(await finalizeBatchCost(admin, 7401, T)).toBe("already");
+      expect(Number((await q(`SELECT actual_cost + 0 AS c FROM h_batches WHERE id = 7401`))[0].c)).toBe(125000);
+    });
+
+    it("누락 분개 보충: 다른 이름으로 이 매입을 가리키는 분개(역분개 등) 가 있으면 건너뜀", async () => {
+      await q(`INSERT INTO accounting_purchases (id, tenant_id, transaction_date, item_name, material_id, quantity, unit, unit_price, total_amount, tax_amount, tax_rate, status, created_by)
+        VALUES (601, ?, '2026-09-01', '멥쌀', 700, 10, 'kg', 3000, 30000, 0, 0, 'approved', 4)`, [T]);
+      await q(`INSERT INTO expense_journal_entries (tenant_id, entry_date, description, total_debit, total_credit, posted_by) VALUES (?, '2026-09-02', '[매입취소] PURCHASE-601 역분개', 30000, 30000, 4)`, [T]);
+      const { backfillPurchaseJournal } = await import("./lib/accounting/purchasePost");
+      const r = await backfillPurchaseJournal(601, T, 4, { apply: true });
+      expect(r).toMatchObject({ status: "skip", reason: "other_journal" });
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM expense_journal_entries`))[0].n)).toBe(1);
+      // PURCHASE-6010 같은 다른 번호는 같은 매입으로 보지 않음
+      await q(`UPDATE expense_journal_entries SET description = '[매입취소] PURCHASE-6010'`);
+      expect((await backfillPurchaseJournal(601, T, 4, { apply: false })).status).toBe("would_post");
+    });
+  });
 });

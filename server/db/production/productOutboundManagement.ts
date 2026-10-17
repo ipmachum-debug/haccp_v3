@@ -391,7 +391,7 @@ export async function getProductAvailableForRelease(tenantId: number) {
       COALESCE(b.actual_quantity, b.planned_quantity) as produced_quantity,
       COALESCE(shipped.total_shipped, 0) as total_shipped,
       CAST(COALESCE(b.actual_quantity, b.planned_quantity) - COALESCE(shipped.total_shipped, 0) AS DECIMAL(10,2)) as available_quantity,
-      b.expiry_date, b.end_time as completed_at, b.unit,
+      b.expiry_date, b.end_time as completed_at, 'kg' AS unit,
       COALESCE(p.product_name, CONCAT('제품#', b.product_id)) as product_name
      FROM h_batches b
      LEFT JOIN (
@@ -402,6 +402,17 @@ export async function getProductAvailableForRelease(tenantId: number) {
      ) shipped ON b.id = shipped.batch_id
      LEFT JOIN h_products_v2 p ON b.product_id = p.id AND p.tenant_id = ?
      WHERE b.tenant_id = ? AND b.status IN ('completed', 'shipped')
+       -- 제품 LOT 이 하나라도 있는 배치는 LOT 으로만 출고 (다 팔린 LOT 배치가 '배치 기준' 으로 다시 나오지 않게)
+       AND NOT EXISTS (SELECT 1 FROM h_inventory_lots l WHERE l.tenant_id = b.tenant_id AND l.batch_id = b.id AND l.product_id IS NOT NULL)
+       -- 원료가 다 출고되지 않은(재고·원가 미정산) 배치는 출고 대상 아님 (Codex #553 검토 P1)
+       AND NOT EXISTS (
+         SELECT 1 FROM h_batch_inputs bi
+          WHERE bi.tenant_id = b.tenant_id AND bi.batch_id = b.id
+            AND COALESCE(bi.inventory_deducted, 0) = 0
+            AND COALESCE(bi.actual_quantity, bi.planned_quantity, 0) > 0
+            AND NOT EXISTS (SELECT 1 FROM h_inventory_transactions t
+                             WHERE t.tenant_id = bi.tenant_id AND t.source_id = bi.batch_id AND t.source_line_id = bi.id
+                               AND t.transaction_type = 'usage' AND t.source_type IN ('BATCH', 'batch_completion')))
      HAVING available_quantity > 0
      ORDER BY b.end_time ASC`,
     [tenantId, tenantId, tenantId]
@@ -417,7 +428,7 @@ export async function getProductAvailableForRelease(tenantId: number) {
       lotNumber: r.lot_number || r.batch_code,
       producedQuantity: parseFloat(r.produced_quantity || "0"),
       availableQuantity: parseFloat(r.available_quantity || "0"),
-      unit: r.unit || "EA",
+      unit: r.unit || "kg",   // 배치 수량 = kg (h_batches 에 unit 컬럼 없음 — Codex #553 검토)
       unitPrice: 0,
       expiryDate: r.expiry_date,
       completedAt: r.completed_at,
@@ -495,6 +506,18 @@ export async function createProductOutbound(params: {
       const batch = (batchRows as any[])[0];
       if (!batch) throw new Error("배치를 찾을 수 없습니다.");
       if (batch.status !== "completed" && batch.status !== "shipped") throw new Error("완료된 배치만 출고할 수 있습니다.");
+      // ★ 2026-10-17 (Codex #553 검토 P1): 배치 기준(LOT 없는 레거시) 출고 입구도 정산 확인.
+      //   - 원료가 다 출고되지 않은 배치(제품 재고·원가 미정산) → 거부. 판정 실패도 거부 (throw 그대로).
+      //   - 제품 LOT 이 있는 배치 → LOT 으로 출고 (LOT 정본 경로 — 재고 차감·원가가 따라간다).
+      //   - 남는 것은 LOT 체계 이전에 완료된 레거시 배치뿐 (재고 차감 없음, reconcileOutbound 대상).
+      const { countUnissuedBatchLines } = await import("../../lib/production/issuedBatchLines");
+      const unissued = await countUnissuedBatchLines(Number(params.batchId), tenantId, conn);
+      if (unissued > 0) throw new Error(`원료 ${unissued}줄이 아직 출고되지 않은 배치는 출고할 수 없습니다 — '누락 출고 다시 실행' 후 제품 LOT 으로 출고하세요.`);
+      const [lotCnt]: any = await conn.execute(
+        `SELECT COUNT(*) AS n FROM h_inventory_lots WHERE tenant_id = ? AND batch_id = ? AND product_id IS NOT NULL`,
+        [tenantId, params.batchId],
+      );
+      if (Number((lotCnt as any[])[0]?.n ?? 0) > 0) throw new Error("이 배치는 제품 LOT 이 있습니다 — LOT 을 골라 출고하세요.");
       const [shipped]: any = await conn.execute(
         `SELECT COALESCE(SUM(quantity), 0) AS total_shipped FROM h_product_outbound
           WHERE batch_id = ? AND tenant_id = ? AND status != 'cancelled'`,
@@ -503,7 +526,7 @@ export async function createProductOutbound(params: {
       const totalShipped = parseFloat((shipped as any[])[0]?.total_shipped || "0");
       const totalProduced = parseFloat(batch.actual_quantity || batch.planned_quantity || "0");
       const availableQty = totalProduced - totalShipped;
-      if (params.quantity > availableQty && availableQty > 0) {
+      if (params.quantity > availableQty + 0.0005) {
         throw new Error(`출고 가능 수량 초과. 가용: ${availableQty.toFixed(2)}, 요청: ${params.quantity}`);
       }
       batchCode = batch.batch_code;
