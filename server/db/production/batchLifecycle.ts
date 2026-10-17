@@ -301,17 +301,13 @@ export async function completeBatch(params: {
   // 3. 원재료 소비 및 재고 정산
   let totalMaterialCost = 0;
   try {
-    const { hBatchInputs, hInventory, hInventoryTransactions, hMaterials } = await import("../../../drizzle/schema");
+    const { hBatchInputs, hMaterials } = await import("../../../drizzle/schema");
 
-    // 배치 투입 내역 조회 (원재료명 포함)
+    // 배치 투입 내역 (같은 회사)
     const batchInputs = await db
-      .select({
-        input: hBatchInputs,
-        materialName: hMaterials.materialName
-      })
+      .select({ input: hBatchInputs })
       .from(hBatchInputs)
-      .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
-      .where(eq(hBatchInputs.batchId, batchId));
+      .where(and(eq(hBatchInputs.batchId, batchId), eq(hBatchInputs.tenantId, tenantId || existingBatch.tenantId)));
 
     // 정제수 판별 헬퍼
     const isWater = (name: string | null) => {
@@ -320,196 +316,47 @@ export async function completeBatch(params: {
       return n.includes("정제수") || n.includes("purified water");
     };
 
-    // 원재료 소비 처리 (tenantId 격리 + FEFO LOT 차감)
-    // ⚠️ autoMaterialIssue(배치 시작 시)에서 이미 차감된 건은 건너뜀
-    //    단, actual_quantity와 TX 기록이 다를 경우 h_inventory/LOT 보정 수행
-    const pool = await getRawConnection();
-
-    // 2중 차감 방지: 이미 이 배치에 대한 출고 기록이 있는지 사전 확인
-    let existingTxBatchIds = new Set<number>();
-    if (pool) {
+    // 원재료 소비 처리 — 아직 출고되지 않은 줄은 자동출고 공통 진입점으로 (2026-10-17, 재고 쓰기 경로 PR-5)
+    //   이전: 여기서 따로 h_inventory 를 GREATEST(0) 로 빼고, inventory_id JOIN 으로 찾은 LOT **하나** 에서 필요량 전체를
+    //   0 클램프로 차감(모자라면 사라짐), 원장 lot_id=0·tenant 조건 없는 UPDATE, 트랜잭션 없음.
+    //   또 이미 출고된 줄의 '실적 ≠ 출고 원장' 차이를 집계(h_inventory) 에만 GREATEST(0) 로 더해 LOT 정본에서 벗어났다.
+    //   지금: 미출고 줄 → FEFO·관문·줄 단위 트랜잭션·배치 잠금. 실적 차이는 재고를 바꾸지 않고 경고만 (정정은 재고 조정으로).
+    const effectiveTenantId = tenantId || existingBatch.tenantId;
+    if (batchInputs.some(({ input }) => Number(input.inventoryDeducted) !== 1)) {
       try {
-        const [txRows]: any = await pool.execute(
-          `SELECT DISTINCT source_line_id FROM h_inventory_transactions
-           WHERE (source_type = 'BATCH' OR source_type = 'batch_completion')
-             AND source_id = ? AND transaction_type = 'usage' AND tenant_id = ?`,
-          [batchId, tenantId || existingBatch.tenantId]
-        );
-        for (const row of (txRows as any[])) {
-          if (row.source_line_id) existingTxBatchIds.add(Number(row.source_line_id));
+        const { autoIssueMaterialsDispatch } = await import("../../lib/production/autoMaterialIssueDispatcher");
+        const issue = await autoIssueMaterialsDispatch(batchId, Number(existingBatch.createdBy) || 0, effectiveTenantId);
+        if (issue.busy || issue.errors.length > 0) {
+          console.warn(`[completeBatch] 배치#${batchId} 미출고 원료 출고 미완료 — 재출고 필요:`, issue.errors);
         }
-      } catch (_e) { /* 조회 실패 시 무시 - 기존 로직으로 폴백 */ }
+      } catch (issueErr: any) {
+        console.error(`[completeBatch] 배치#${batchId} 미출고 원료 출고 실패:`, issueErr?.message || issueErr);
+      }
     }
 
-    for (const { input, materialName } of batchInputs) {
-      // 이미 autoMaterialIssue에서 차감 완료된 원재료 (DB 플래그 기반)
-      if (Number(input.inventoryDeducted) === 1) {
-        if (!isWater(materialName)) {
-          totalMaterialCost += parseFloat(input.totalPrice?.toString() || "0");
-        }
-        // actual vs TX 차이 보정: autoMaterialIssue가 planned 기반으로 TX를 기록했을 수 있음
-        // completeBatch 시점의 actual_quantity와 TX 기록량이 다르면 h_inventory/LOT를 보정
-        if (pool) {
-          try {
-            const actualQty = parseFloat((input.actualQuantity || input.plannedQuantity || "0").toString());
-            const effectiveTenantId = tenantId || existingBatch.tenantId;
-            // 이 배치+원재료에 대한 TX 출고량 합산 (양수 = 차감된 양)
-            const [txRows]: any = await pool.execute(
-              `SELECT COALESCE(SUM(ABS(quantity)), 0) as tx_total
-               FROM h_inventory_transactions
-               WHERE source_type IN ('BATCH','batch_completion') 
-                 AND (source_id = ? OR reference_id = ?)
-                 AND lot_id IN (SELECT id FROM h_inventory_lots WHERE material_id = ? AND tenant_id = ?)
-                 AND transaction_type = 'usage'
-                 AND tenant_id = ?`,
-              [batchId, batchId, input.materialId, effectiveTenantId, effectiveTenantId]
-            );
-            const txTotal = parseFloat((txRows as any[])?.[0]?.tx_total || "0");
-            const diff = txTotal - actualQty; // 양수면 TX가 더 많이 차감 → 재고 복원 필요
-            if (Math.abs(diff) > 0.01) {
-              console.log(`[completeBatch] 배치#${batchId} ${materialName}: TX차감(${txTotal}) vs actual(${actualQty}), diff=${diff.toFixed(3)} → h_inventory 보정`);
-              // h_inventory 보정: diff만큼 재고 복원(양수) 또는 추가차감(음수)
-              await pool.execute(
-                `UPDATE h_inventory 
-                 SET total_quantity = GREATEST(total_quantity + ?, 0),
-                     available_quantity = GREATEST(available_quantity + ?, 0),
-                     last_updated = NOW()
-                 WHERE material_id = ? AND tenant_id = ?`,
-                [diff, diff, input.materialId, effectiveTenantId]
-              );
-            }
-          } catch (adjustErr: any) {
-            console.error(`[completeBatch] TX-actual 보정 실패: ${adjustErr.message}`);
-          }
-        }
-        continue;
-      }
-
-      const qty = parseFloat((input.actualQuantity || input.plannedQuantity || "0").toString());
-      if (qty <= 0) continue;
-
-      // 2중 차감 방지: h_inventory_transactions에 이미 이 input에 대한 출고 기록이 있으면 건너뜀
-      if (existingTxBatchIds.has(Number(input.id))) {
-        console.log(`[completeBatch] 배치#${batchId} ${materialName}: input#${input.id} 이미 출고 기록 존재, 중복 차감 방지 → 건너뜀`);
-        // inventory_deducted 플래그가 0이었던 것을 1로 보정
-        try {
-          await db
-            .update(hBatchInputs)
-            .set({ inventoryDeducted: 1 })
-            .where(eq(hBatchInputs.id, input.id));
-        } catch (_e) { /* 무시 */ }
-        if (!isWater(materialName)) {
-          totalMaterialCost += parseFloat(input.totalPrice?.toString() || "0");
-        }
-        continue;
-      }
-
-      // 재고 차감 (tenantId 격리)
-      await db
-        .update(hInventory)
-        .set({
-          totalQuantity: sql`GREATEST(total_quantity - ${qty}, 0)`,
-          availableQuantity: sql`GREATEST(available_quantity - ${qty}, 0)`,
-          lastUpdated: new Date()
-        })
-        .where(and(
-          eq(hInventory.materialId, input.materialId),
-          eq(hInventory.tenantId, tenantId || existingBatch.tenantId)
-        ));
-
-      // FEFO LOT 차감 시도
-      let lotId: number | null = null;
-      let unitCost = 0;
-      if (pool) {
-        try {
-          const [lots]: any = await pool.execute(
-            `SELECT l.id, l.available_quantity, l.unit_price
-             FROM h_inventory_lots l
-             JOIN h_inventory i ON l.inventory_id = i.id
-             WHERE i.material_id = ? AND i.tenant_id = ? AND l.status = 'available' AND l.available_quantity > 0
-             ORDER BY l.receipt_date ASC LIMIT 1`,
-            [input.materialId, tenantId || existingBatch.tenantId]
-          );
-          if ((lots as any[]).length > 0) {
-            const lot = (lots as any[])[0];
-            lotId = lot.id;
-            unitCost = parseFloat(lot.unit_price || "0");
-            await pool.execute(
-              `UPDATE h_inventory_lots SET available_quantity = GREATEST(available_quantity - ?, 0) WHERE id = ?`,
-              [qty, lotId]
-            );
-          }
-        } catch (_e) { /* LOT 차감 실패 시 inventory 차감만 유지 */ }
-      }
-
-      // 재고 거래 기록 생성 (transactionType: "usage"로 소모이력에 표시)
-      // ★ 2026-04-14 Module 3: silent fail → 로깅 강화 (디버그 가능)
-      // ★ PR-W3 (2026-04-26): transaction_date 부정합 수정
-      //   기존 NOW() 방식 → batch.completed_at → planned_date → 오늘 우선순위
-      //   source_type → 'BATCH' 로 표준화 (신규 표기. autoMaterialIssue.ts 와 일치)
+    // 원가 누적 (정제수 제외) — 출고 후 투입 행 기준
+    const refreshed = await db
+      .select({ input: hBatchInputs, materialName: hMaterials.materialName })
+      .from(hBatchInputs)
+      .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
+      .where(and(eq(hBatchInputs.batchId, batchId), eq(hBatchInputs.tenantId, effectiveTenantId)));
+    const pool = await getRawConnection();
+    for (const { input, materialName } of refreshed) {
+      if (Number(input.inventoryDeducted) !== 1) continue; // 출고 안 된 줄은 원가에 넣지 않음 (재출고 후 반영)
+      if (!isWater(materialName)) totalMaterialCost += parseFloat(input.totalPrice?.toString() || "0");
+      // 실적 vs 출고 원장 차이 — 재고는 바꾸지 않고 기록만
       try {
-        if (pool) {
-          const txnDate = resolveBatchTransactionDate(existingBatch);
-          // PR-§5.2-2: material_id 직접 작성 (input.materialId 는 h_batch_inputs.material_id)
-          await pool.execute(
-            `INSERT INTO h_inventory_transactions
-             (lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
-              transaction_date, source_type, source_id, action_type, purpose, tenant_id)
-             VALUES (?, ?, 'usage', ?, ?, ?, ?, ?, 'BATCH', ?, 'AUTO_ISSUE', 'production', ?)`,
-            [
-              lotId || 0, input.materialId, qty, input.unit || 'kg', unitCost, qty * unitCost,
-              txnDate, batchId, tenantId || existingBatch.tenantId
-            ]
-          );
-        }
-      } catch (txErr: any) {
-        console.error(
-          `[completeBatch] 거래 기록 생성 실패 (배치#${batchId}, material#${input.materialId}, qty=${qty}):`,
-          txErr.message || txErr,
+        const actualQty = parseFloat((input.actualQuantity || input.plannedQuantity || "0").toString());
+        const [txRows]: any = await pool.execute(
+          `SELECT COALESCE(SUM(quantity), 0) AS tx_total FROM h_inventory_transactions
+            WHERE tenant_id = ? AND source_type = 'BATCH' AND source_id = ? AND source_line_id = ? AND transaction_type = 'usage'`,
+          [effectiveTenantId, batchId, input.id],
         );
-      }
-
-      // 수불부 반영
-      // ★ PR-W3: ledger_date 도 배치 일자 기준 (transaction_date 와 일치)
-      try {
-        if (pool) {
-          const txnDate = resolveBatchTransactionDate(existingBatch);
-          await pool.execute(
-            `INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, usage_qty, notes, source)
-             VALUES (?, ?, ?, ?, ?, 'batch_complete')
-             ON DUPLICATE KEY UPDATE usage_qty = usage_qty + ?, notes = CONCAT(COALESCE(notes,''), ', ', ?)`,
-            [
-              tenantId || existingBatch.tenantId, input.materialId, txnDate, qty,
-              `배치#${batchId} 완료`, qty, `배치#${batchId} 완료`
-            ]
-          );
+        const txTotal = parseFloat((txRows as any[])?.[0]?.tx_total || "0");
+        if (txTotal > 0 && Math.abs(txTotal - actualQty) > 0.01) {
+          console.warn(`[completeBatch] 배치#${batchId} ${materialName}: 출고 원장 ${txTotal} vs 실적 ${actualQty} — 재고 조정으로 정정 필요 (자동 보정 안 함)`);
         }
-      } catch (ledgerErr: any) {
-        console.error(
-          `[completeBatch] 수불부 반영 실패 (배치#${batchId}, material#${input.materialId}):`,
-          ledgerErr.message || ledgerErr,
-        );
-      }
-
-      // inventory_deducted = 1 설정 (autoMaterialIssue와 동일한 플래그)
-      try {
-        await db
-          .update(hBatchInputs)
-          .set({
-            inventoryDeducted: 1,
-            actualQuantity: qty.toString(),
-            unitPrice: unitCost > 0 ? unitCost.toFixed(2) : (input.unitPrice || "0"),
-            totalPrice: unitCost > 0 ? (qty * unitCost).toFixed(2) : (input.totalPrice || "0"),
-            inputTime: new Date(),
-          })
-          .where(eq(hBatchInputs.id, input.id));
-      } catch (_e) { /* inventory_deducted 업데이트 실패 시 무시 */ }
-
-      // 원가 누적 (정제수 제외)
-      if (!isWater(materialName)) {
-        const cost = unitCost > 0 ? qty * unitCost : parseFloat(input.totalPrice || "0");
-        totalMaterialCost += cost;
-      }
+      } catch { /* 경고용 조회 */ }
     }
 
     // 완제품 재고는 제품 LOT 이 정본 — 제품 집계(h_inventory.product_id) 에 kg 를 더하지 않는다 (재고 결정 D2,

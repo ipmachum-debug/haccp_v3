@@ -102,8 +102,8 @@ export async function retroactiveInventoryDeduction(
       return result;
     }
 
-    // 2. 각 배치에 대해 autoIssueMaterialsForBatch 실행
-    const { autoIssueMaterialsForBatch } = await import("../../lib/production/autoMaterialIssue");
+    // 2. 각 배치에 대해 자동출고 공통 진입점 실행 (배치 잠금·회사 확인, 2026-10-17)
+    const { autoIssueMaterialsDispatch } = await import("../../lib/production/autoMaterialIssueDispatcher");
 
     for (const batch of batches) {
       const batchId = Number(batch.id);
@@ -114,7 +114,7 @@ export async function retroactiveInventoryDeduction(
       try {
         console.log(`[retroactiveDeduction] 배치 #${batchId} (${batchNumber}) 소급 차감 시작...`);
 
-        const issueResult = await autoIssueMaterialsForBatch(batchId, userId);
+        const issueResult = await autoIssueMaterialsDispatch(batchId, userId, params.tenantId);
 
         result.processedBatches++;
         result.totalDeducted += issueResult.issuedMaterials.length;

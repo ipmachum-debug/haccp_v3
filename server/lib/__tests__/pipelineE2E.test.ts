@@ -132,7 +132,7 @@ describe("파이프라인 시나리오 (구매→입고→생산→완료→회�
 
     // Step 2: 배치 시작 → 원료 자동 출고
     const { autoIssueMaterialsForBatch } = await import("../production/autoMaterialIssue");
-    expect(autoIssueMaterialsForBatch.length).toBe(2); // (batchId, userId)
+    expect(autoIssueMaterialsForBatch.length).toBe(3); // (batchId, userId, expectedTenantId) — 2026-10-17 회사 대조
 
     // Step 3: 생산 완료 → completeBatch (db/production/batchLifecycle) 가 SKU LOT 생성.
     //   productionCompletePost 는 2026-10-12 제거 (유령 receipt 원장, 운영 실행 0건).

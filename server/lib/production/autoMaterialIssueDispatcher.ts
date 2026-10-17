@@ -1,84 +1,44 @@
 /**
- * 배치 자동출고 dispatcher — feature flag 기반 v1 / v2 분기 (F2-2-d)
+ * 배치 자동출고 — 공통 진입점 (2026-10-17, 재고 쓰기 경로 PR-5·6)
  *
- * ============================================================================
- * 진입점: 운영 코드 (batchOrchestrator, batch.crud.router) 가 호출.
- * 책임: 환경변수 / tenant 매칭 보고 v1 (legacy) 또는 v2 (단일 트랜잭션) 분기.
+ * 모든 원료 자동출고는 이 함수로 들어온다:
+ *   생산 시작(todayProduction.start / retryIssue), 배치 상태 변경(batch.updateStatus → in_progress),
+ *   일괄 배치 생성(batchOrchestrator), 생산완료의 미출고 줄(completeBatch), 소급 차감(retroactiveDeduction).
  *
- * 환경변수 (운영 .env):
- *   USE_AUTO_ISSUE_V2=false (기본)            — 모든 호출 v1 (운영 안전 기본값)
- *   USE_AUTO_ISSUE_V2=true                    — 모든 호출 v2 (전체 전환)
- *   USE_AUTO_ISSUE_V2_TENANTS="2,5,7"         — 명시 tenant 만 v2 (점진 전환)
- *                                                (USE_AUTO_ISSUE_V2 보다 우선)
- *
- * 점진 전환 (권장):
- *   1. 머지 직후: 모든 환경변수 미설정 → 운영 v1 그대로 (영향 0)
- *   2. dev/staging 에서 USE_AUTO_ISSUE_V2=true 로 dual-run 검증
- *   3. 운영 단일 tenant (예: tenant_id=2) 에서 USE_AUTO_ISSUE_V2_TENANTS="2"
- *   4. 1주 검증 후 전체 전환 (USE_AUTO_ISSUE_V2=true)
- *   5. 1달 검증 후 v1 코드 제거 (F2-2-e)
- *
- * 트리거: PR #117 F-2 단일 트랜잭션 엔진 / PR #125 v2 외각 / PR #127 정식 통합
- * ============================================================================
+ * 보장:
+ *   - 배치 잠금(withBatchIssueLock) — 같은 배치에 두 실행이 겹치지 않는다 (이전: todayProduction 경로에만 있어
+ *     batch.updateStatus 와 동시에 들어오면 같은 줄을 두 번 출고할 수 있었다). 잠금을 못 잡으면 busy 로 돌려준다.
+ *   - 회사 확인 — tenantId 필수, 배치는 그 회사의 것만.
+ *   - 엔진 하나 — autoIssueMaterialsForBatch (줄 단위 트랜잭션 + 재고 관문). 예전 v2 플래그
+ *     (USE_AUTO_ISSUE_V2[_TENANTS]) 는 더 이상 분기하지 않는다 — v2 는 tenant 조건 누락·canonical id 미변환이 있었고
+ *     v1 이 같은 단일 트랜잭션 계약을 갖게 됐다. 플래그가 남아 있으면 경고만 남긴다.
  */
 
-import { autoIssueMaterialsForBatch as runV1 } from "./autoMaterialIssue";
-import { autoIssueMaterialsForBatchV2 as runV2 } from "./autoMaterialIssueV2";
+import { autoIssueMaterialsForBatch } from "./autoMaterialIssue";
+import { withBatchIssueLock } from "./batchIssueLock";
 
-/** v1 / v2 동일한 result 타입 (호환) */
-export type AutoIssueResult = Awaited<ReturnType<typeof runV1>>;
+export type AutoIssueResult = Awaited<ReturnType<typeof autoIssueMaterialsForBatch>> & { busy?: boolean };
 
-/**
- * tenant 가 v2 활성화 대상인지 판정.
- *
- * 우선순위:
- *   1. USE_AUTO_ISSUE_V2_TENANTS — 명시 tenant 목록 우선
- *   2. USE_AUTO_ISSUE_V2 — 전체 전환 플래그
- *
- * @param tenantId 평가할 tenant (생략 시 USE_AUTO_ISSUE_V2 만 봄)
- */
-export function shouldUseV2(tenantId?: number): boolean {
-  const tenantsRaw = process.env.USE_AUTO_ISSUE_V2_TENANTS?.trim();
-  if (tenantsRaw && tenantId !== undefined) {
-    const enabledTenants = tenantsRaw
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0)
-      .map((s) => Number(s))
-      .filter((n) => Number.isFinite(n));
-
-    if (enabledTenants.length > 0) {
-      return enabledTenants.includes(Number(tenantId));
-    }
-  }
-
-  const flag = process.env.USE_AUTO_ISSUE_V2?.toLowerCase().trim();
-  return flag === "true" || flag === "1" || flag === "yes";
-}
-
-/**
- * 배치 자동출고 — dispatcher.
- *
- * @param batchId  배치 ID
- * @param userId   작업자 ID
- * @param tenantId (선택) tenant ID — 점진 전환 매칭용. 미제공 시 전역 플래그만 봄.
- * @returns AutoIssueResult (v1/v2 동일 형태)
- */
 export async function autoIssueMaterialsDispatch(
   batchId: number,
   userId: number,
-  tenantId?: number,
+  tenantId: number,
 ): Promise<AutoIssueResult> {
-  const useV2 = shouldUseV2(tenantId);
-
-  if (useV2) {
-    console.log(
-      `[autoIssueDispatcher] v2 사용 batch=${batchId} tenant=${tenantId ?? "n/a"}`,
-    );
-    // v2 결과 타입은 v1 과 동일 형태 — 호출자 호환
-    return (await runV2(batchId, userId)) as AutoIssueResult;
+  const t = Number(tenantId);
+  if (!Number.isFinite(t) || t <= 0) throw new Error("테넌트 정보가 필요합니다 (자동출고).");
+  if (process.env.USE_AUTO_ISSUE_V2 || process.env.USE_AUTO_ISSUE_V2_TENANTS) {
+    console.warn("[autoIssueDispatcher] USE_AUTO_ISSUE_V2* 설정은 더 이상 쓰지 않습니다 — 단일 엔진으로 출고합니다.");
   }
-
-  // 기본값 (운영 안전): v1
-  return await runV1(batchId, userId);
+  const locked = await withBatchIssueLock(t, batchId, () => autoIssueMaterialsForBatch(batchId, userId, t));
+  if (!locked.locked) {
+    return {
+      success: false,
+      busy: true,
+      issuedMaterials: [],
+      totalCost: 0,
+      warnings: [],
+      errors: ["같은 배치의 원료 출고가 진행 중입니다. 잠시 후 다시 시도하세요."],
+    };
+  }
+  return locked.value;
 }

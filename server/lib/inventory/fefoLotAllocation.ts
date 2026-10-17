@@ -1,6 +1,6 @@
 import type { PoolConnection } from "mysql2/promise";
 import { drizzle } from "drizzle-orm/mysql2";
-import { getDb } from "../../db";
+import { getDb } from "../../db/connection";
 
 import { hInventoryLots } from "../../../drizzle/schema/part2";
 import { and, eq, gte, sql, desc, or, isNull, lte } from "drizzle-orm";
