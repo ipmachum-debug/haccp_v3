@@ -628,23 +628,18 @@ export async function getConsumptionSummary(params: {
 }
 
 /**
- * 재고 동기화: 소모 데이터 기반으로 현황(h_inventory + h_inventory_lots) 일괄 차감
+ * 소모 기준 재고 차이 — 미리보기 전용 (2026-10-17, 재고 쓰기 경로 PR-2 / CEO 확인)
  *
- * 핵심 원리 (v2 - Gap 기반 접근):
- *   소모 총량(h_batch_inputs) vs 실제 재고 차감 총량(h_inventory 현재값 vs 입고 합계)의 차이를 계산하여
- *   갭만큼 h_inventory + h_inventory_lots에서 차감합니다.
- *
- * 기존 문제:
- *   autoMaterialIssue에서 h_inventory_transactions 출고 기록은 생성했지만
- *   h_inventory/h_inventory_lots 실제 재고를 차감하지 못한 경우 동기화 대상에서 누락됨
- *
- * 새 로직:
- * 1. 원재료별 소모 총량 집계 (h_batch_inputs, deducted=1, completed/in_progress 배치)
- * 2. 원재료별 현재 h_inventory 재고와 입고 총량 비교 → 실제 차감된 양 산출
- * 3. 소모 총량 > 차감된 양 → 갭(gap)만큼 추가 차감
- * 4. FEFO 순서 LOT 차감 + h_inventory 감소 + 동기화 트랜잭션 기록
+ * "입고 총량 − 배치 소모 = 정상 재고" 로 원재료별 집계·LOT 합계와의 차이를 보여 준다.
+ * 이 식에는 매출·반품·매입취소·실사·폐기·초기재고가 없으므로 **참고용 차이** 일 뿐 정답이 아니다.
+ * 이전에는 dryRun=false 로 이 값으로 h_inventory 와 LOT 수량을 통째로 덮어썼다 (원장 없음, 트랜잭션 없음,
+ *   CLAUDE.md "재고 집계 전수 자동 재계산 금지" 위반) → 쓰기는 서버에서 거부한다. 차이 해소는 실사·재고 조정으로.
  */
-export async function syncStockFromConsumption(tenantId: number, userId: number, dryRun: boolean = false) {
+export async function syncStockFromConsumption(tenantId: number, userId: number, dryRun: boolean = true) {
+  if (!dryRun) {
+    throw new Error("소모 기준 재고 일괄 덮어쓰기는 중단되었습니다. 차이는 미리보기로 확인하고 실사·재고 조정으로 처리하세요.");
+  }
+  if (!Number.isFinite(Number(tenantId)) || Number(tenantId) <= 0) throw new Error("테넌트 정보가 필요합니다.");
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -729,113 +724,32 @@ export async function syncStockFromConsumption(tenantId: number, userId: number,
       const correctStock = parseFloat(mat.correctStock || "0");
       const currentInvAvail = parseFloat(mat.invAvail || "0");
       const currentLotAvail = parseFloat(mat.lotAvail || "0");
-      const invId = Number(mat.invId || 0);
       const invDiff = correctStock - currentInvAvail;
       const lotDiff = correctStock - currentLotAvail;
-      const warnings: string[] = [];
-
-      if (dryRun) {
-        // 시뮬레이션: 보정 예정 내역 표시
-        const msgs: string[] = [];
-        msgs.push(`입고 ${totalReceipt.toFixed(1)} - 소모 ${totalConsumed.toFixed(1)} = 정상재고 ${correctStock.toFixed(1)}`);
-        if (Math.abs(invDiff) > 0.01) {
-          msgs.push(`INV: ${currentInvAvail.toFixed(1)} → ${correctStock.toFixed(1)} (${invDiff > 0 ? '+' : ''}${invDiff.toFixed(1)})`);
-        }
-        if (Math.abs(lotDiff) > 0.01) {
-          msgs.push(`LOT합계: ${currentLotAvail.toFixed(1)} → ${correctStock.toFixed(1)} (${lotDiff > 0 ? '+' : ''}${lotDiff.toFixed(1)})`);
-        }
-        if (totalConsumed > totalReceipt) {
-          msgs.push(`⚠️ 소모(${totalConsumed.toFixed(1)}) > 입고(${totalReceipt.toFixed(1)}) - 입고 누락 가능`);
-        }
-        result.details.push({
-          materialId, materialName,
-          consumedQty: totalConsumed,
-          deductedQty: Math.abs(invDiff),
-          unit,
-          lotAllocations: 0,
-          warnings: msgs,
-        });
-        result.materialsProcessed++;
-        result.totalDeducted += Math.abs(invDiff);
-        continue;
+      const msgs: string[] = [];
+      msgs.push(`입고 ${totalReceipt.toFixed(1)} - 소모 ${totalConsumed.toFixed(1)} = 참고재고 ${correctStock.toFixed(1)}`);
+      if (Math.abs(invDiff) > 0.01) {
+        msgs.push(`집계 ${currentInvAvail.toFixed(1)} (차이 ${invDiff > 0 ? '+' : ''}${invDiff.toFixed(1)})`);
       }
-
-      // 실제 보정 실행
-      try {
-        // STEP 1: h_inventory 보정
-        if (invId > 0 && Math.abs(invDiff) > 0.01) {
-          await db.execute(sql.raw(`
-            UPDATE h_inventory
-            SET total_quantity = ${correctStock.toFixed(4)},
-                available_quantity = ${correctStock.toFixed(4)},
-                last_updated = NOW()
-            WHERE id = ${invId}
-          `));
-          warnings.push(`INV: ${currentInvAvail.toFixed(1)} → ${correctStock.toFixed(1)}`);
-        } else if (invId === 0) {
-          // h_inventory 레코드 없으면 생성
-          await db.execute(sql.raw(`
-            INSERT INTO h_inventory (tenant_id, material_id, total_quantity, available_quantity, reserved_quantity, unit)
-            VALUES (${tenantId}, ${materialId}, ${correctStock.toFixed(4)}, ${correctStock.toFixed(4)}, 0, '${unit}')
-          `));
-          warnings.push(`INV 신규생성: ${correctStock.toFixed(1)}`);
-        }
-
-        // STEP 2: LOT FEFO 보정 (소모총량을 오래된 LOT부터 차감)
-        if (Math.abs(lotDiff) > 0.01) {
-          // LOT 전체를 원래 입고량으로 리셋 후 소모만큼 FEFO 차감
-          const [lotRows]: any = await db.execute(sql.raw(`
-            SELECT id, quantity, receipt_date
-            FROM h_inventory_lots
-            WHERE material_id = ${materialId} AND tenant_id = ${tenantId}
-            ORDER BY receipt_date ASC, id ASC
-          `));
-
-          let remainingConsume = totalConsumed;
-          for (const lot of (lotRows as any[])) {
-            const lotQty = parseFloat(lot.quantity || "0");
-            if (remainingConsume >= lotQty) {
-              // 이 LOT 전체 소모
-              await db.execute(sql.raw(`
-                UPDATE h_inventory_lots SET available_quantity = 0, current_quantity = 0 WHERE id = ${lot.id}
-              `));
-              remainingConsume -= lotQty;
-            } else {
-              // 부분 소모
-              const newAvail = lotQty - remainingConsume;
-              await db.execute(sql.raw(`
-                UPDATE h_inventory_lots SET available_quantity = ${newAvail.toFixed(4)}, current_quantity = ${newAvail.toFixed(4)} WHERE id = ${lot.id}
-              `));
-              remainingConsume = 0;
-            }
-          }
-          warnings.push(`LOT FEFO 재배분 완료`);
-        }
-
-        result.details.push({
-          materialId, materialName,
-          consumedQty: totalConsumed,
-          deductedQty: Math.abs(invDiff),
-          unit,
-          lotAllocations: 0,
-          warnings,
-        });
-        result.totalDeducted += Math.abs(invDiff);
-        result.materialsProcessed++;
-
-        console.log(`[syncStock] ${materialName}: 입고${totalReceipt.toFixed(1)} - 소모${totalConsumed.toFixed(1)} = 정상${correctStock.toFixed(1)} (INV: ${currentInvAvail.toFixed(1)}→${correctStock.toFixed(1)})`);
-
-      } catch (matErr: any) {
-        result.errors.push(`${materialName}: ${matErr.message}`);
-        result.details.push({
-          materialId, materialName,
-          consumedQty: totalConsumed, deductedQty: 0, unit, lotAllocations: 0,
-          warnings: [`오류: ${matErr.message}`],
-        });
+      if (Math.abs(lotDiff) > 0.01) {
+        msgs.push(`LOT합계 ${currentLotAvail.toFixed(1)} (차이 ${lotDiff > 0 ? '+' : ''}${lotDiff.toFixed(1)})`);
       }
+      if (totalConsumed > totalReceipt) {
+        msgs.push(`⚠️ 소모(${totalConsumed.toFixed(1)}) > 입고(${totalReceipt.toFixed(1)}) - 입고 누락 가능`);
+      }
+      result.details.push({
+        materialId, materialName,
+        consumedQty: totalConsumed,
+        deductedQty: Math.abs(invDiff),
+        unit,
+        lotAllocations: 0,
+        warnings: msgs,
+      });
+      result.materialsProcessed++;
+      result.totalDeducted += Math.abs(invDiff);
     }
 
-    console.log(`[syncStock] 완료: ${result.materialsProcessed}개 원재료, 총 ${result.totalDeducted.toFixed(2)} 보정`);
+    console.log(`[syncStock] 미리보기: ${result.materialsProcessed}개 원재료 차이`);
 
   } catch (error: any) {
     console.error("[syncStock] 오류:", error);

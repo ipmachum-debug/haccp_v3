@@ -88,48 +88,27 @@ export function RetroactiveDeductionButton({ onComplete }: { onComplete: () => v
 }
 
 /* ═══════════════════════════════════════════════════
-   소모 데이터 → 현황(재고) 일괄 동기화 버튼
+   소모 기준 재고 차이 보기 (참고용, 2026-10-17)
+   이전 '소모→현황 재고 동기화' 는 재고를 통째로 덮어써 매출·취소·실사 반영분을 지웠다 →
+   서버에서 쓰기를 막고, 화면은 차이만 보여 준다. 차이 해소는 실사·재고 조정으로.
    ═══════════════════════════════════════════════════ */
-export function StockSyncButton({ onComplete }: { onComplete: () => void }) {
-  const [status, setStatus] = useState<"idle" | "checking" | "running" | "done">("idle");
+export function StockSyncButton({ onComplete: _onComplete }: { onComplete: () => void }) {
+  const [status, setStatus] = useState<"idle" | "checking" | "done">("idle");
   const [resultMsg, setResultMsg] = useState("");
   const [details, setDetails] = useState<any[]>([]);
   const [showDetails, setShowDetails] = useState(false);
 
-  const syncMut = trpc.inventory.syncStockFromConsumption.useMutation({
+  const previewMut = trpc.inventory.syncStockFromConsumption.useMutation({
     onSuccess: (data: any) => {
       if (data.materialsProcessed === 0 && data.errors?.length) {
-        setResultMsg(data.errors[0] || "동기화 대상이 없습니다.");
+        setResultMsg(data.errors[0] || "차이가 없습니다.");
         setDetails([]);
       } else {
-        setResultMsg(`${data.materialsProcessed}개 원재료 동기화 완료 (총 ${data.totalDeducted.toFixed(1)} 차감)`);
+        setResultMsg(`${data.materialsProcessed}개 원재료에 차이 (참고용 — 매출·취소·실사·반품은 이 식에 없음, 재고는 바꾸지 않음)`);
         setDetails(data.details || []);
+        setShowDetails(true);
       }
       setStatus("done");
-      onComplete();
-    },
-    onError: (e: { message: string }) => {
-      setResultMsg(`오류: ${e.message}`);
-      setStatus("done");
-    }
-  });
-
-  const dryRunMut = trpc.inventory.syncStockFromConsumption.useMutation({
-    onSuccess: (data: any) => {
-      if (data.materialsProcessed === 0 && data.errors?.length) {
-        setResultMsg(data.errors[0] || "동기화 대상이 없습니다.");
-        setStatus("done");
-        return;
-      }
-      const summary = data.details?.map((d: any) =>
-        `  - ${d.materialName}: ${d.warnings?.[0] || `${d.consumedQty.toFixed(1)}${d.unit}`}`
-      ).join("\n") || "";
-      if (confirm(`재고 동기화 대상: ${data.details?.length || 0}개 원재료\n\n${summary}\n\n소모 데이터 기준으로 현황 재고를 차감하시겠습니까?\n(소모총량 - 기차감량 = 미반영분만 차감)\n\n※ LOT의 available_quantity와 h_inventory가 감소합니다.`)) {
-        setStatus("running");
-        syncMut.mutate({ dryRun: false });
-      } else {
-        setStatus("idle");
-      }
     },
     onError: (e: { message: string }) => {
       setResultMsg(`확인 오류: ${e.message}`);
@@ -141,14 +120,14 @@ export function StockSyncButton({ onComplete }: { onComplete: () => void }) {
     setStatus("checking");
     setResultMsg("");
     setDetails([]);
-    dryRunMut.mutate({ dryRun: true });
+    previewMut.mutate({ dryRun: true });
   }, []);
 
   if (status === "done" && resultMsg) {
     return (
       <div className="mt-2 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-emerald-700 dark:text-emerald-400">{resultMsg}</span>
+          <span className="text-xs text-muted-foreground">{resultMsg}</span>
           <button onClick={() => { setStatus("idle"); setResultMsg(""); setDetails([]); }} className="text-[10px] text-blue-600 underline">닫기</button>
           {details.length > 0 && (
             <button onClick={() => setShowDetails(!showDetails)} className="text-[10px] text-blue-600 underline">
@@ -157,12 +136,11 @@ export function StockSyncButton({ onComplete }: { onComplete: () => void }) {
           )}
         </div>
         {showDetails && details.length > 0 && (
-          <div className="text-[10px] text-muted-foreground space-y-0.5 pl-2 border-l-2 border-emerald-200 dark:border-emerald-800">
+          <div className="text-[10px] text-muted-foreground space-y-0.5 pl-2 border-l-2 border-slate-200 dark:border-slate-700">
             {details.map((d: any, i: number) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="flex items-center gap-2 flex-wrap">
                 <span className="font-medium">{d.materialName}</span>
-                <span>소모 {d.consumedQty.toFixed(1)} → LOT차감 {d.deductedQty.toFixed(1)}{d.unit}</span>
-                {d.warnings?.length > 0 && <span className="text-amber-500">{d.warnings[0]}</span>}
+                {(d.warnings || []).map((w: string, j: number) => <span key={j} className={w.startsWith("⚠️") ? "text-amber-500" : ""}>{w}</span>)}
               </div>
             ))}
           </div>
@@ -176,14 +154,14 @@ export function StockSyncButton({ onComplete }: { onComplete: () => void }) {
       <Button
         size="sm"
         variant="outline"
-        disabled={status === "checking" || status === "running"}
+        disabled={status === "checking"}
         onClick={handleClick}
-        className="h-7 text-xs border-emerald-300 text-emerald-700 hover:bg-emerald-50 dark:border-emerald-600 dark:text-emerald-400 dark:hover:bg-emerald-950/30"
+        className="h-7 text-xs"
       >
-        <RefreshCw className={`h-3 w-3 mr-1 ${status === "running" ? "animate-spin" : ""}`} />
-        {status === "checking" ? "확인 중..." : status === "running" ? "동기화 중..." : "소모→현황 재고 동기화"}
+        <RefreshCw className={`h-3 w-3 mr-1 ${status === "checking" ? "animate-spin" : ""}`} />
+        {status === "checking" ? "확인 중..." : "소모 기준 재고 차이 보기"}
       </Button>
-      <span className="text-[10px] text-muted-foreground ml-2">소모 탭 집계 데이터를 현황 재고에 일괄 반영</span>
+      <span className="text-[10px] text-muted-foreground ml-2">입고 − 배치 소모 기준 참고 차이 (재고는 바꾸지 않음)</span>
     </div>
   );
 }

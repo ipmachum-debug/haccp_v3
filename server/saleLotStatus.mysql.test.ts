@@ -1114,4 +1114,57 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number((await q(`SELECT actual_quantity + 0 AS a FROM h_batch_inputs WHERE id = 601`))[0].a)).toBe(5);
     });
   });
+  describe("재고 쓰기 경로 PR-2 — '소모→현황 재고 동기화' 쓰기 차단, 미리보기만 (2026-10-17)", () => {
+    beforeEach(async () => {
+      for (const t of ["h_materials", "h_batches", "h_batch_inputs", "h_inventory_lots", "h_inventory_transactions", "h_inventory"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (700, ?, 'M700', '멥쌀', 'kg', 1)`, [T]);
+      // 입고 100, 배치 소모 30, 매출·실사 등으로 LOT 은 이미 50 (식으로는 70 이 '정상')
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, receipt_date, status)
+        VALUES (9101, ?, 700, 'S-1', 100, 50, 50, 'kg', '2026-10-01', 'available')`, [T]);
+      await q(`INSERT INTO h_inventory (tenant_id, material_id, total_quantity, available_quantity, reserved_quantity, unit) VALUES (?, 700, 50, 50, 0, 'kg')`, [T]);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, created_by)
+        VALUES (7101, ?, 1, 'B7101', 38, 10, '2026-10-17', 'completed', 4)`, [T]);
+      await q(`INSERT INTO h_batch_inputs (tenant_id, batch_id, material_id, lot_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES (?, 7101, 700, 9101, 30, 30, 'kg', 1)`, [T]);
+    });
+    const state = async () => [
+      Number((await q(`SELECT available_quantity + 0 AS a FROM h_inventory_lots WHERE id = 9101`))[0].a),
+      Number((await q(`SELECT available_quantity + 0 AS a FROM h_inventory WHERE material_id = 700`))[0].a),
+      Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions`))[0].n),
+    ];
+
+    it("덮어쓰기(dryRun=false) 는 거부, 재고·집계·원장 그대로", async () => {
+      const { syncStockFromConsumption } = await import("./db/production/outboundManagement");
+      await expect(syncStockFromConsumption(T, 4, false)).rejects.toThrow(/중단되었습니다/);
+      expect(await state()).toEqual([50, 50, 0]);
+    });
+
+    it("미리보기는 차이만 보여 주고 아무것도 바꾸지 않음", async () => {
+      const { syncStockFromConsumption } = await import("./db/production/outboundManagement");
+      const r = await syncStockFromConsumption(T, 4, true);
+      expect(r.materialsProcessed).toBe(1);
+      expect(r.details[0].warnings[0]).toContain("참고재고 70.0");
+      expect(await state()).toEqual([50, 50, 0]);
+    });
+  });
+  describe("재고 쓰기 경로 PR-3 — 발주 제안 승인은 발주서 작성 (재고·LOT 생성 안 함, 2026-10-17)", () => {
+    beforeEach(async () => {
+      for (const t of ["h_materials", "item_master", "h_inventory_lots", "h_inventory_transactions", "h_inventory"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (700, ?, 'M700', '멥쌀', 'kg', 1), (800, 3, 'M800', '타사', 'kg', 1)`, [T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES (1700, ?, 'M700', '멥쌀', 'raw_material', 'kg', 1, 700)`, [T]);
+    });
+    const counts = async () => [
+      Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_lots`))[0].n),
+      Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions`))[0].n),
+      Number((await q(`SELECT COUNT(*) AS n FROM h_inventory`))[0].n),
+    ];
+    it("승인 → 발주서 초안(품목 item_master id·수량·단위)만, LOT·원장·집계 0 / 다른 회사·회사 없음 거부", async () => {
+      const { approvePurchaseOrderSuggestion } = await import("./db/production/productionAnalytics");
+      const r = await approvePurchaseOrderSuggestion({ materialId: 700, quantity: 120, approvedBy: 4, tenantId: T });
+      expect(r.draft).toEqual({ materialId: 1700, itemName: "멥쌀", itemCode: "M700", unit: "kg", quantity: 120 });
+      expect(await counts()).toEqual([0, 0, 0]);
+      await expect(approvePurchaseOrderSuggestion({ materialId: 800, quantity: 1, approvedBy: 4, tenantId: T })).rejects.toThrow(/찾을 수 없습니다/);
+      await expect(approvePurchaseOrderSuggestion({ materialId: 700, quantity: 1, approvedBy: 4 })).rejects.toThrow(/테넌트/);
+      expect(await counts()).toEqual([0, 0, 0]);
+    });
+  });
 });

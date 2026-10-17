@@ -1,6 +1,7 @@
 // inventory 라우터 - routers.ts에서 분리됨
 import { adminProcedure, tenantRequiredProcedure, router, workerProcedure } from "../../_core/trpc";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { eq, lt, or, and, inArray } from "drizzle-orm";
 import { hInventoryLots, hInventoryTransactions } from "../../../drizzle/schema";
 import { getDb } from "../../db";
@@ -439,7 +440,8 @@ export const inventoryRouter = router({
         const { approvePurchaseOrderSuggestion } = await import("../../db");
         return await approvePurchaseOrderSuggestion({
           ...input,
-          approvedBy: ctx.user.id
+          approvedBy: ctx.user.id,
+          tenantId: ctx.tenantId
         });
       }),
     
@@ -1037,20 +1039,20 @@ export const inventoryRouter = router({
         }, ctx.tenantId);
       }),
 
-    // 소모 데이터 기반 재고 일괄 동기화 (현황 차감)
-    syncStockFromConsumption: workerProcedure
+    // 소모 기준 재고 차이 — 미리보기 전용 (2026-10-17 PR-2). dryRun=false(덮어쓰기)는 서버에서 거부 —
+    //   이전 화면·직접 RPC 호출도 재고를 바꾸지 못한다. 차이 해소는 실사·재고 조정으로.
+    syncStockFromConsumption: tenantRequiredProcedure
       .input(
         z.object({
-          dryRun: z.boolean().optional().default(false),
+          dryRun: z.boolean().optional().default(true),
         }).optional()
       )
       .mutation(async ({ input, ctx }) => {
+        if (input?.dryRun === false) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "소모 기준 재고 일괄 덮어쓰기는 중단되었습니다. 차이는 미리보기로 확인하고 실사·재고 조정으로 처리하세요." });
+        }
         const { syncStockFromConsumption } = await import("../../db/production/outboundManagement");
-        return await syncStockFromConsumption(
-          ctx.tenantId,
-          ctx.user?.id || 1,
-          input?.dryRun ?? false
-        );
+        return await syncStockFromConsumption(ctx.tenantId, ctx.user?.id || 0, true);
       }),
 
     // adjustInventory (LOT 단위, 구형) 는 2026-10-12 제거 — 클라이언트 호출 0, adjustStock 이 관문 경유로 대체.

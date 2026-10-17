@@ -47,6 +47,23 @@ function emptyLine(): POLine {
   };
 }
 
+function lineFromQuery(): POLine | null {
+  if (typeof window === "undefined") return null;
+  const p = new URLSearchParams(window.location.search);
+  const name = p.get("name");
+  const qty = Number(p.get("qty"));
+  if (!name || !Number.isFinite(qty) || qty <= 0) return null;
+  const materialId = Number(p.get("materialId"));
+  return {
+    ...emptyLine(),
+    materialId: Number.isFinite(materialId) && materialId > 0 ? materialId : null,
+    itemName: name,
+    itemCode: p.get("code") ?? "",
+    orderedQty: qty,
+    unit: p.get("unit") || "EA",
+  };
+}
+
 export default function PurchaseOrderCreate() {
   return (
     <DashboardLayout>
@@ -63,7 +80,8 @@ function PurchaseOrderCreateContent() {
   const [expectedDeliveryDate, setExpectedDeliveryDate] = useState<string>("");
   const [deliveryAddress, setDeliveryAddress] = useState<string>("");
   const [notes, setNotes] = useState<string>("");
-  const [lines, setLines] = useState<POLine[]>([emptyLine()]);
+  // 발주 제안 승인에서 넘어온 경우 품목·수량·단위를 미리 채운다 (2026-10-17 — 승인은 재고가 아니라 발주서)
+  const [lines, setLines] = useState<POLine[]>(() => [lineFromQuery() ?? emptyLine()]);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(true);
 
   // Phase B (2026-04-14): 거래처 선택 시 반복구매 이력 추천
