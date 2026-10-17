@@ -399,28 +399,47 @@ export const haccpIntegrationRouter = router({
           taxRate: z.number().optional(), // 세율(%) — 면세 거래면 0, 미지정이면 DB default(10)
           memo: z.string().optional(),
           unit: z.string().optional(),
+          // 업로드 작업·행별 요청 키 — 같은 작업을 다시 보내면(응답 유실·재시도) 같은 입고·전표 (Codex #567 검증 N1)
+          idempotencyKey: z.string().min(8).max(64).optional(),
+          // 명시한 검수 결과는 그대로 (불합격 → 격리). 생략 = 미기록 (Codex #567 검증 N2)
+          inspectionResult: z.enum(["pass", "fail"]).optional(),
         }))
       }))
       .mutation(async ({ input, ctx }) => {
         const { createPurchase } = await import("../../db/haccp/haccpIntegration");
-        let successCount = 0;
+        // 행별 결과를 상태로 나눠 센다 (Codex #567 검증 N4) — 분개 실패·승인 대기·격리를 '성공' 으로 세지 않는다
+        let successCount = 0;       // 등록 + 전표 확정(분개) 까지
+        let pendingApprovalCount = 0; // 입고 승인 대기 — 재고·전표는 승인 때
+        let quarantinedCount = 0;   // 검수 불합격 격리 — 재고·전표 없음
+        let postFailedCount = 0;    // 입고(재고)는 확정, 전표는 대기 — 같은 작업 다시 보내기 또는 목록 승인으로 분개
+        let cancelledCount = 0;     // 이미 반품·취소된 입고 (다시 보낸 작업)
         let failCount = 0;
         const errors: { index: number; message: string }[] = [];
+        const rows: { index: number; status: string; purchaseId: number | null; inboundHeaderId: number | null; message?: string }[] = [];
 
         for (let i = 0; i < input.items.length; i++) {
           try {
-            await createPurchase({
+            const r: any = await createPurchase({
               ...input.items[i],
               createdBy: ctx.user.id,
             }, ctx.tenantId);
-            successCount++;
+            const pid = Number(r?.id ?? r?.insertId ?? 0) || null;
+            const hid = r?.inboundHeaderId != null ? Number(r.inboundHeaderId) : null;
+            let status: string;
+            if (r?.status === "pending_approval") { pendingApprovalCount++; status = "pending_approval"; }
+            else if (r?.status === "quarantined") { quarantinedCount++; status = "quarantined"; }
+            else if (r?.status === "cancelled") { cancelledCount++; status = "cancelled"; }
+            else if (r?.posted === false) { postFailedCount++; status = "post_failed"; }
+            else { successCount++; status = "posted"; }
+            rows.push({ index: i, status, purchaseId: pid, inboundHeaderId: hid, ...(r?.postError ? { message: String(r.postError) } : {}) });
           } catch (e: any) {
             failCount++;
             errors.push({ index: i, message: e.message || "Unknown error" });
+            rows.push({ index: i, status: "failed", purchaseId: null, inboundHeaderId: null, message: e.message || "Unknown error" });
           }
         }
 
-        return { successCount, failCount, errors, total: input.items.length };
+        return { successCount, pendingApprovalCount, quarantinedCount, postFailedCount, cancelledCount, failCount, errors, rows, total: input.items.length };
       }),
 
     // 매입 엑셀 업로드 중복 사전 검사 (Phase 8+)

@@ -52,9 +52,6 @@ const ChecklistScheduleManagement = lazy(() => import("./pages/checklist/Checkli
 const ChecklistInstanceForm = lazy(() => import("./pages/checklist/ChecklistInstanceForm"));
 const ChecklistApprovalManagement = lazy(() => import("./pages/checklist/ChecklistApprovalManagement"));
 const EmployeeHealthChecklist = lazy(() => import("./pages/checklist/EmployeeHealthChecklist"));
-const MaterialInspections = lazy(() => import("./pages/quality/MaterialInspections"));
-const MaterialInspectionForm = lazy(() => import("./pages/quality/MaterialInspectionForm"));
-const MaterialInspectionDetail = lazy(() => import("./pages/quality/MaterialInspectionDetail"));
 const StockAlerts = lazy(() => import("./pages/inventory/StockAlerts"));
 const InventoryLots = lazy(() => import("./pages/inventory/InventoryLots"));
 const ShippingInspectionDetail = lazy(() => import("./pages/quality/ShippingInspectionDetail"));

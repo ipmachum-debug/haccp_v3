@@ -1,6 +1,10 @@
+import { TRPCError } from "@trpc/server";
 // inspection 라우터 - routers.ts에서 분리됨
 import { tenantRequiredProcedure, router, workerProcedure } from "../../_core/trpc";
 import { z } from "zod";
+
+/** 원재료 검사 기록 쓰기 중단 (2026-10-17) — 아래 material.create / updateStatus / update 참고 */
+const MATERIAL_INSPECTION_READ_ONLY = true as boolean;
 
 export const inspectionRouter = router({
     // 검사 통계 대시보드
@@ -42,6 +46,11 @@ export const inspectionRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          // ★ 2026-10-17: 원재료 검사 기록(material_inspection_records) 은 읽기 전용 보관 — 상태를 바꿔도 재고·LOT 과 연결되지 않아
+          //   불합격으로 표시해도 가용 재고로 쓰였다 (CEO 결정 4 와 어긋남). 원재료 검수는 입고(매입 입력·발주 입고) 의 검수 칸,
+          //   불합격 처리는 발주서 > 검수 불합격 격리, 일지는 검사 관리 > 육안검사.
+          if (MATERIAL_INSPECTION_READ_ONLY) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "원재료 검사 기록은 읽기 전용입니다 — 검수는 입고 화면의 검수 칸, 불합격 처리는 발주서 > 검수 불합격 격리, 일지는 검사 관리 > 육안검사에서 하세요." });
+
           const tenantId = ctx.tenantId;
           const { createMaterialInspectionRecord, addMaterialInspectionItem } = await import("../../db");
 
@@ -93,6 +102,11 @@ export const inspectionRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          // ★ 2026-10-17: 원재료 검사 기록(material_inspection_records) 은 읽기 전용 보관 — 상태를 바꿔도 재고·LOT 과 연결되지 않아
+          //   불합격으로 표시해도 가용 재고로 쓰였다 (CEO 결정 4 와 어긋남). 원재료 검수는 입고(매입 입력·발주 입고) 의 검수 칸,
+          //   불합격 처리는 발주서 > 검수 불합격 격리, 일지는 검사 관리 > 육안검사.
+          if (MATERIAL_INSPECTION_READ_ONLY) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "원재료 검사 기록은 읽기 전용입니다 — 검수는 입고 화면의 검수 칸, 불합격 처리는 발주서 > 검수 불합격 격리, 일지는 검사 관리 > 육안검사에서 하세요." });
+
           const tenantId = ctx.tenantId;
           const { updateMaterialInspectionStatus } = await import("../../db");
           return await updateMaterialInspectionStatus(
@@ -132,6 +146,11 @@ export const inspectionRouter = router({
           })
         )
         .mutation(async ({ input, ctx }) => {
+          // ★ 2026-10-17: 원재료 검사 기록(material_inspection_records) 은 읽기 전용 보관 — 상태를 바꿔도 재고·LOT 과 연결되지 않아
+          //   불합격으로 표시해도 가용 재고로 쓰였다 (CEO 결정 4 와 어긋남). 원재료 검수는 입고(매입 입력·발주 입고) 의 검수 칸,
+          //   불합격 처리는 발주서 > 검수 불합격 격리, 일지는 검사 관리 > 육안검사.
+          if (MATERIAL_INSPECTION_READ_ONLY) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "원재료 검사 기록은 읽기 전용입니다 — 검수는 입고 화면의 검수 칸, 불합격 처리는 발주서 > 검수 불합격 격리, 일지는 검사 관리 > 육안검사에서 하세요." });
+
           const tenantId = ctx.tenantId;
           const { updateMaterialInspectionRecord } = await import("../../db");
           const { id, ...data } = input;

@@ -75,6 +75,16 @@ const EXPECTED_FIELDS = [
   { key: 'memo', label: '비고', aliases: ['메모', '참고', 'note', 'memo', '비고사항', '적요'] },
 ];
 
+/** 매입 일괄 등록 결과 — 성공(분개까지)·승인 대기·격리·분개 실패·취소를 나눠 보여준다 (Codex #567 검증 N4) */
+function purchaseBreakdown(r: any): string {
+  return [
+    r?.pendingApprovalCount ? `입고 승인 대기 ${r.pendingApprovalCount}건 (재고·전표는 승인 때)` : "",
+    r?.quarantinedCount ? `검수 불합격 격리 ${r.quarantinedCount}건 (재고·전표 없음)` : "",
+    r?.postFailedCount ? `분개 실패 ${r.postFailedCount}건 (재고는 반영, 전표 대기 — 같은 작업 다시 등록 또는 목록에서 승인)` : "",
+    r?.cancelledCount ? `이미 반품·취소된 입고 ${r.cancelledCount}건` : "",
+  ].filter(Boolean).join(" · ");
+}
+
 export default function PurchasesBulkUpload() {
   return (
     <DashboardLayout>
@@ -131,6 +141,8 @@ function PurchasesBulkUploadContent() {
 
   const utils = trpc.useUtils();
   const bulkMutation = trpc.haccpIntegration.bulkCreatePurchases.useMutation();
+  // 업로드 작업 키 — 파일을 새로 읽을 때마다 새로. 같은 작업을 다시 등록하면 같은 입고·전표 (Codex #567 N1)
+  const [uploadJobKey, setUploadJobKey] = useState<string>(() => `ub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // Step 1: 엑셀 파일 업로드 및 파싱
@@ -296,6 +308,7 @@ function PurchasesBulkUploadContent() {
     });
 
     setParsedRows(rows);
+    setUploadJobKey(`ub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
     setStep('review');
   }, [excelRawRows, excelHeaders, headerMapping, partners, allItems]);
 
@@ -360,6 +373,7 @@ function PurchasesBulkUploadContent() {
         taxAmount: r.taxAmount,
         memo: r.memo || undefined,
         unit: r.unit || undefined,
+        idempotencyKey: `${uploadJobKey}-r${r.rowIndex}`,
       }));
 
     if (uploadItems.length === 0) {
@@ -373,7 +387,7 @@ function PurchasesBulkUploadContent() {
       setUploadResult(result);
       utils.haccpIntegration.getAllPurchases.invalidate();
       setStep('result');
-      toast({ title: `매입 일괄 등록 완료`, description: `성공: ${result.successCount}건, 실패: ${result.failCount}건` });
+      toast({ title: `매입 일괄 등록 완료`, description: [`성공: ${result.successCount}건`, purchaseBreakdown(result), `실패: ${result.failCount}건`].filter(Boolean).join(", ") });
     } catch (e) {
         const error = e as Error;
       toast({ title: "등록 오류", description: error.message, variant: "destructive" });
@@ -712,6 +726,8 @@ function PurchasesBulkUploadContent() {
           <div>
             <h2 className="text-xl font-bold">매입 일괄 등록 완료</h2>
             <p className="text-sm text-muted-foreground mt-1">총 {uploadResult.total}건 처리</p>
+            {purchaseBreakdown(uploadResult) && <p className="text-xs text-amber-700 mt-1">{purchaseBreakdown(uploadResult)}</p>}
+            <p className="text-[11px] text-muted-foreground mt-1">엑셀 일괄 등록은 검수 결과를 기록하지 않습니다(미기록) — 불합격 입고는 매입 등록·발주 입고 화면의 검수 칸에서.</p>
           </div>
           <div className="flex justify-center gap-8">
             <div className="text-center">

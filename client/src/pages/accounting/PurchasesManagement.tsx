@@ -157,8 +157,9 @@ function PurchasesManagementContent() {
     //   예전에는 등록만 되면 "승인됨" 으로 보였고 분개·입고전표·수불부가 없어도
     //   아무도 몰랐다. 이제 전표는 pending 으로 남고 사용자에게 알린다.
     onSuccess: (result: unknown) => {
-      const r = result as { posted?: boolean; postError?: string | null } | undefined;
-      if (r && r.posted === false) {
+      const r = result as { posted?: boolean; postError?: string | null; status?: string } | undefined;
+      // 전표가 만들어졌는데 분개만 실패한 경우만 (승인 대기·격리·취소는 전표가 없다 — Codex #567 N4)
+      if (r && r.posted === false && (r.status === undefined || r.status === "confirmed")) {
         toast({
           title: "회계 확정 실패 — 전표는 저장됐습니다",
           description:
@@ -401,6 +402,8 @@ function PurchasesManagementContent() {
       let failCount = 0;
       let pendingCount = 0;
       let quarantinedCount = 0;
+      let postFailedCount = 0;
+      let cancelledCount = 0;
       const newPurchaseIds: number[] = [];
       for (const item of items) {
         const payload = {
@@ -432,6 +435,8 @@ function PurchasesManagementContent() {
           }
           if (data?.pendingApproval) pendingCount++;
           else if (data?.quarantined) quarantinedCount++;
+          else if (data?.status === "cancelled") cancelledCount++;
+          else if (data?.posted === false) postFailedCount++;
           else successCount++;
           const insertedId = Number(data?.insertId ?? data?.id ?? 0);
           if (insertedId > 0) newPurchaseIds.push(insertedId);
@@ -448,9 +453,11 @@ function PurchasesManagementContent() {
           `성공: ${successCount}건`,
           pendingCount ? `입고 승인 대기: ${pendingCount}건` : "",
           quarantinedCount ? `검수 불합격 격리: ${quarantinedCount}건 (재고·전표 없음 — 발주서 > 검수 불합격 격리에서 처리)` : "",
+          postFailedCount ? `분개 실패: ${postFailedCount}건 (재고는 반영, 전표 대기 — 다시 저장하거나 목록에서 승인)` : "",
+          cancelledCount ? `이미 반품·취소된 입고: ${cancelledCount}건` : "",
           failCount ? `실패: ${failCount}건` : "",
         ].filter(Boolean).join(", "),
-        variant: failCount > 0 ? "destructive" : "default",
+        variant: failCount > 0 || postFailedCount > 0 ? "destructive" : "default",
       });
     })();
   };

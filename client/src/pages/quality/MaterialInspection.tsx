@@ -36,6 +36,9 @@ import { toast } from "sonner";
 import { todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
+/** 2026-10-17: 읽기 전용 보관 — 새 기록·상태 변경은 서버가 거부 (원재료 검수는 입고 화면, 불합격은 격리 처리) */
+const READ_ONLY = true as boolean;
+
 export default function MaterialInspection() {
   const L = useIndustryLabel();
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
@@ -141,10 +144,11 @@ export default function MaterialInspection() {
         <div>
           <h1 className="text-3xl font-bold">{`${L("material")} 검사`}</h1>
           <p className="text-muted-foreground mt-1">
-            원재료 입고 시 검사 기록을 관리합니다.
+            이전 검사 기록 보관 (읽기 전용)
           </p>
         </div>
-        <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
+        {/* 2026-10-17: 읽기 전용 — 새 기록·상태 변경은 서버가 거부한다. 버튼은 숨김 (CEO 결정 4) */}
+        {!READ_ONLY && <Dialog open={isCreateDialogOpen} onOpenChange={setIsCreateDialogOpen}>
           <DialogTrigger asChild>
             <Button>
               <Plus className="h-4 w-4 mr-2" />
@@ -336,7 +340,13 @@ export default function MaterialInspection() {
               </Button>
             </DialogFooter>
           </DialogContent>
-        </Dialog>
+        </Dialog>}
+      </div>
+
+      <div className="rounded-md border border-amber-300 bg-amber-50 dark:bg-amber-950/20 p-3 text-sm">
+        이 화면의 기록은 재고·LOT 과 연결되지 않아 <b>읽기 전용</b>으로 보관합니다.
+        원재료 검수는 <b>매입 등록·발주 입고 화면의 검수 칸</b>에서, 불합격 입고는 <b>발주서 &gt; 검수 불합격 격리</b>에서 재검수·반품으로 처리하고,
+        일지는 <a className="underline font-medium" href="/dashboard/inspections?tab=visual">검사 관리 &gt; 육안검사(원재료)</a> 에서 확인하세요.
       </div>
 
       {/* 필터 및 검색 */}
@@ -461,7 +471,7 @@ export default function MaterialInspection() {
                         >
                           <Eye className="h-4 w-4" />
                         </Button>
-                        {record.status === "pending" && (
+                        {!READ_ONLY && record.status === "pending" && (
                           <>
                             <Button
                               size="sm"

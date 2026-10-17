@@ -43,6 +43,8 @@ export interface InboundLineInput {
   totalPrice?: number | null;
   /** 전표 세율(%) — 생략하면 발주 줄 기준, 없으면 10 */
   taxRate?: number | null;
+  /** 명시한 세액 — 있으면 그대로 전표에 (공급가 × 세율로 다시 계산하지 않는다, Codex #567 검증 N3) */
+  taxAmount?: number | null;
   lotNumber?: string | null;
   expiryDate?: string | null;
   productionDate?: string | null;
@@ -187,14 +189,14 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
           `INSERT INTO h_inbound_lines
              (tenant_id, header_id, line_number, material_id, po_line_id, purchase_quantity, purchase_unit, stock_quantity, stock_unit,
               unit_price, total_price, lot_number, expiry_date, production_date, location, inspection_result, inspection_json, notes,
-              pack_conversion_id, pack_factor, tax_rate)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              pack_conversion_id, pack_factor, tax_rate, tax_amount)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [tenantId, headerId, i + 1, l.canonicalMaterialId, l.poLineId ?? null, l.purchaseQuantity, l.purchaseUnit, l.stockQuantity, l.stockUnit,
            l.unitPrice, l.totalPrice != null ? Math.round(Number(l.totalPrice) * 100) / 100 : Math.round(l.purchaseQuantity * l.unitPrice * 100) / 100,
            l.lotNumber ?? null, l.expiryDate ?? null,
            l.productionDate ?? null, l.location ?? null, l.inspectionResult ?? null,
            l.inspectionJson ? JSON.stringify(l.inspectionJson) : null, l.notes ?? null,
-           l.packConversionId, l.packFactor, l.taxRate ?? null],
+           l.packConversionId, l.packFactor, l.taxRate ?? null, l.taxAmount != null ? Math.round(Number(l.taxAmount) * 100) / 100 : null],
         );
       }
       return { headerId, created: true };
@@ -218,7 +220,7 @@ async function findByKey(tenantId: number, key: string): Promise<number | null> 
 }
 
 export type ConfirmInboundResult =
-  | { status: "confirmed"; alreadyProcessed: boolean; lots: Array<{ lineId: number; lotId: number; lotNumber: string }>; voucherIds: number[]; quarantinedLineIds?: number[] }
+  | { status: "confirmed"; alreadyProcessed: boolean; lots: Array<{ lineId: number; lotId: number; lotNumber: string }>; voucherIds: number[]; quarantinedLineIds?: number[]; cancelledLineIds?: number[] }
   | { status: "pending_approval" };
 
 /**
@@ -249,7 +251,7 @@ export async function confirmInbound(
     const tracking = header.inventory_tracking == null ? trackingNow : Number(header.inventory_tracking) === 1;
     if (header.status === "confirmed") {
       const [done]: any = await conn.execute(
-        `SELECT id, lot_id, lot_number FROM h_inbound_lines WHERE header_id = ? AND tenant_id = ? ORDER BY line_number`, [headerId, tenantId],
+        `SELECT id, lot_id, lot_number, disposition, cancelled_qty FROM h_inbound_lines WHERE header_id = ? AND tenant_id = ? ORDER BY line_number`, [headerId, tenantId],
       );
       const [vs]: any = await conn.execute(
         `SELECT p.id FROM accounting_purchases p JOIN h_inbound_lines l ON l.id = p.inbound_line_id AND l.tenant_id = p.tenant_id
@@ -259,6 +261,9 @@ export async function confirmInbound(
         status: "confirmed", alreadyProcessed: true,
         lots: (done as any[]).map((r) => ({ lineId: Number(r.id), lotId: Number(r.lot_id), lotNumber: String(r.lot_number) })),
         voucherIds: (vs as any[]).map((v) => Number(v.id)),
+        // 다시 불러도 줄의 지금 상태를 그대로 (Codex #567 검증 Q2 — 격리 줄이 '확정' 으로 보이던 문제)
+        quarantinedLineIds: (done as any[]).filter((r) => r.disposition === "quarantine").map((r) => Number(r.id)),
+        cancelledLineIds: (done as any[]).filter((r) => Number(r.cancelled_qty) > EPS).map((r) => Number(r.id)),
       };
     }
     if (header.status === "cancelled") throw new Error("취소된 입고 문서는 확정할 수 없습니다.");
@@ -392,7 +397,8 @@ export async function cancelInboundLine(lineId: number, tenantIdIn: number, user
   const tenantId = requireTenant(tenantIdIn);
   return withInventoryTx(async (conn) => {
     const [lRows]: any = await conn.execute(
-      `SELECT l.*, h.status AS header_status, h.po_id, DATE_FORMAT(h.inbound_date, '%Y-%m-%d') AS inbound_date
+      `SELECT l.*, h.status AS header_status, h.po_id, DATE_FORMAT(h.inbound_date, '%Y-%m-%d') AS inbound_date,
+              DATE_FORMAT(l.ledger_date, '%Y-%m-%d') AS ledger_ymd
          FROM h_inbound_lines l JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
         WHERE l.id = ? AND l.tenant_id = ? LIMIT 1 FOR UPDATE`,
       [lineId, tenantId],
@@ -421,12 +427,18 @@ export async function cancelInboundLine(lineId: number, tenantIdIn: number, user
       if (e instanceof InventoryShortageError) throw new Error("이 입고 LOT 은 이미 일부 사용돼 취소할 수 없습니다. 반품·재고 조정으로 처리하세요.");
       throw e;
     }
-    const inboundDate = String(line.inbound_date);
+    // 수불부는 실제로 넣은 날짜에서 뺀다 (줄에 남긴 날짜, 없으면 이전 문서 — 입고일). 대상 행이 없으면 되돌린다 (Q1)
+    const ledgerDate = String(line.ledger_ymd ?? line.inbound_date);
     await conn.execute(`UPDATE h_inbound_lines SET cancelled_qty = cancelled_qty + ? WHERE id = ? AND tenant_id = ?`, [remaining, lineId, tenantId]);
-    if (line.lot_id) await conn.execute(
-      `UPDATE material_ledger_daily SET receiving_qty = receiving_qty - ?, updated_at = NOW() WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
-      [remaining, tenantId, line.material_id, inboundDate],
-    );
+    if (line.lot_id) {
+      const [lu]: any = await conn.execute(
+        `UPDATE material_ledger_daily SET receiving_qty = receiving_qty - ?, updated_at = NOW() WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
+        [remaining, tenantId, line.material_id, ledgerDate],
+      );
+      if (Number(lu?.affectedRows ?? 0) !== 1) {
+        throw new Error(`입고 줄 ${line.header_id}-${line.line_number}: ${ledgerDate} 원료수불부 입고 기록을 찾지 못해 취소하지 않았습니다 — 수불부를 먼저 확인하세요.`);
+      }
+    }
     if (line.po_line_id) {
       // 발주 입고량은 매입 단위 — 줄 비율만큼 (전량 취소면 줄 매입 수량 전부)
       const purchaseBack = round3(Number(line.purchase_quantity) * (remaining / Number(line.stock_quantity)));
@@ -518,9 +530,11 @@ async function stockInLine(conn: any, p: {
   const [tx]: any = await conn.execute(
     `SELECT id FROM h_inventory_transactions WHERE tenant_id = ? AND lot_id = ? AND transaction_type = 'receipt' ORDER BY id LIMIT 1`, [tenantId, r.lotId],
   );
+  // 수불부에 넣은 날짜를 줄에 남긴다 — 취소는 이 날짜로 되돌린다 (Codex #567 검증 Q1: 재검수 합격분은 처리일에 들어가는데
+  //   취소가 원래 입고일에서 빼려다 대상 없이 '성공' 했다)
   await conn.execute(
-    `UPDATE h_inbound_lines SET lot_id = ?, lot_number = ?, receipt_tx_id = ? WHERE id = ? AND tenant_id = ?`,
-    [r.lotId, lotNumber, (tx as any[])[0]?.id ?? null, line.id, tenantId],
+    `UPDATE h_inbound_lines SET lot_id = ?, lot_number = ?, receipt_tx_id = ?, ledger_date = ? WHERE id = ? AND tenant_id = ?`,
+    [r.lotId, lotNumber, (tx as any[])[0]?.id ?? null, p.ledgerDate, line.id, tenantId],
   );
   await conn.execute(
     `INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, receiving_qty, source, notes)
@@ -775,7 +789,7 @@ export async function ensureInboundLineVoucher(conn: any, p: {
 }): Promise<number> {
   const [lr]: any = await conn.execute(
     `SELECT l.id, l.line_number, l.header_id, l.material_id, l.purchase_quantity, l.purchase_unit, l.unit_price, l.total_price, l.lot_id,
-            l.stock_quantity, l.cancelled_qty, l.valuation_unit_price, l.valuation_amount, l.disposition,
+            l.stock_quantity, l.cancelled_qty, l.valuation_unit_price, l.valuation_amount, l.disposition, l.tax_amount,
             h.status AS header_status, h.supplier_id, DATE_FORMAT(h.inbound_date, '%Y-%m-%d') AS inbound_date
        FROM h_inbound_lines l JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
       WHERE l.id = ? AND l.tenant_id = ? LIMIT 1 FOR UPDATE`,
@@ -810,7 +824,9 @@ export async function ensureInboundLineVoucher(conn: any, p: {
     : unpriced && (p.unitPriceIfUnpriced ?? 0) > 0
       ? Math.round(Number(line.purchase_quantity) * unitPrice * 100) / 100
       : Math.round(Number(line.total_price) * 100) / 100;
-  const tax = Math.round(supply * taxRate / 100);
+  // 명시한 세액은 그대로 — 입고 줄 공급가 그대로 쓰는 경우만 (무단가 평가·재평가 금액에는 다시 계산)
+  const explicitTax = line.tax_amount != null && !unpriced ? Number(line.tax_amount) : null;
+  const tax = explicitTax ?? Math.round(supply * taxRate / 100);
   try {
     const [vi]: any = await conn.execute(
       `INSERT INTO accounting_purchases

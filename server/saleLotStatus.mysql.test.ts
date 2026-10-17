@@ -738,6 +738,73 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       const ok = await milk({ idempotencyKey: "pm-milk-retry" });
       expect([ok.posted, (await lotOf()).length, await ledger()]).toEqual([true, 1, 5.4]);
     });
+
+    // ── Codex #567 검증 N1~N4·Q2 ──
+    const bulk = async (items: any[]) => {
+      const { haccpIntegrationRouter } = await import("./routers/haccp/haccpIntegration.router");
+      return haccpIntegrationRouter.createCaller({ user: { id: 4, role: "admin", tenantId: T, email: "t@t" } } as any).bulkCreatePurchases({ items });
+    };
+    const row = (extra: any = {}) => ({ transactionDate: "2026-10-12", partnerId: 21, itemName: "우유(국내산)", itemMasterId: 1635, quantity: 6, unit: "개", unitPrice: 3000, amount: 18000, taxAmount: 1800, ...extra });
+
+    it("N1·N2·N4 엑셀 일괄: 같은 작업 키 재전송·동시 3회는 한 번만, 새 작업 키는 새 거래, 명시한 불합격은 격리, 상태별로 집계", async () => {
+      await q(`INSERT INTO material_pack_units (tenant_id, material_id, pack_unit, base_qty, base_unit, is_active) VALUES (?, 635, '개', 0.9, 'kg', 1)`, [T]);
+      await q(`DELETE FROM item_master WHERE id = 1635`);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES (1635, ?, 'M635', '우유(국내산)', 'raw_material', 'kg', 1, 635)`, [T]);
+      const items = [row({ idempotencyKey: "ub-job1-r1" }), row({ idempotencyKey: "ub-job1-r2", inspectionResult: "fail" })];
+      const first = await bulk(items);
+      expect([first.successCount, first.quarantinedCount, first.failCount, first.rows.map((r: any) => r.status)]).toEqual([1, 1, 0, ["posted", "quarantined"]]);
+      const again = await Promise.all([bulk(items), bulk(items), bulk(items)]);
+      expect(again.map((r: any) => [r.successCount, r.quarantinedCount])).toEqual([[1, 1], [1, 1], [1, 1]]);
+      expect([(await lotOf()).length, await ledger(), Number((await q(`SELECT COUNT(*) AS n FROM accounting_purchases`))[0].n)]).toEqual([1, 5.4, 1]);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM expense_journal_entries WHERE description LIKE '[매입] PURCHASE-%'`))[0].n)).toBe(1);
+      expect((await q(`SELECT inspection_result, disposition FROM h_inbound_lines WHERE inspection_result = 'fail'`)).length).toBe(1);
+      await bulk([row({ idempotencyKey: "ub-job2-r1" })]); // 새 업로드 작업 = 새 거래
+      expect([(await lotOf()).length, await ledger()]).toEqual([2, 10.8]);
+      // 승인 필요 회사 → 승인 대기로 집계 (성공 아님)
+      await q(`INSERT INTO tenant_feature_settings (tenant_id, feature_code, enabled) VALUES (?, 'INBOUND_APPROVAL', 1)`, [T]);
+      const pend = await bulk([row({ idempotencyKey: "ub-job3-r1" })]);
+      expect([pend.successCount, pend.pendingApprovalCount]).toEqual([0, 1]);
+    });
+
+    it("N3 명시한 세액은 그대로 (공급가 12,345 · 세액 1,234), 음수·공급가 초과 세액 거부", async () => {
+      await q(`INSERT INTO material_pack_units (tenant_id, material_id, pack_unit, base_qty, base_unit, is_active) VALUES (?, 635, '개', 0.9, 'kg', 1)`, [T]);
+      const r = await milk({ amount: 12345, taxAmount: 1234, taxRate: 10, idempotencyKey: "pm-tax-1" });
+      const v = (await q(`SELECT total_amount + 0 AS a, tax_amount + 0 AS t FROM accounting_purchases WHERE id = ?`, [r.id]))[0];
+      expect([Number(v.a), Number(v.t)]).toEqual([12345, 1234]);
+      expect(await net(r.id)).toEqual([["[매입]", 13579, 13579]]);
+      await expect(milk({ taxAmount: -1, idempotencyKey: "pm-tax-2" })).rejects.toThrow(/세액/);
+      await expect(milk({ taxAmount: 20000, idempotencyKey: "pm-tax-3" })).rejects.toThrow(/세액/);
+    });
+
+    it("Q2 같은 요청 키로 다시: 격리 줄은 계속 '격리', 반품 뒤에는 '취소' — '확정' 으로 보고하지 않음", async () => {
+      await q(`INSERT INTO material_pack_units (tenant_id, material_id, pack_unit, base_qty, base_unit, is_active) VALUES (?, 635, '개', 0.9, 'kg', 1)`, [T]);
+      const a = await milk({ inspectionResult: "fail", idempotencyKey: "pm-q2-1" });
+      expect(a.status).toBe("quarantined");
+      expect((await milk({ inspectionResult: "fail", idempotencyKey: "pm-q2-1" })).status).toBe("quarantined");
+      const lineId = Number((await q(`SELECT id FROM h_inbound_lines`))[0].id);
+      await svc.returnInboundLine(lineId, T, 4, "반품");
+      expect((await milk({ inspectionResult: "fail", idempotencyKey: "pm-q2-1" })).status).toBe("cancelled");
+      expect([(await lotOf()).length, Number((await q(`SELECT COUNT(*) AS n FROM accounting_purchases`))[0].n)]).toEqual([0, 0]);
+    });
+
+    it("Q1 재검수 합격분 취소: 수불부는 실제로 넣은 날(처리일)에서 빠짐, 수불부 기록이 없으면 취소 전체를 되돌림", async () => {
+      await q(`INSERT INTO material_pack_units (tenant_id, material_id, pack_unit, base_qty, base_unit, is_active) VALUES (?, 635, '개', 0.9, 'kg', 1)`, [T]);
+      await milk({ inspectionResult: "fail", idempotencyKey: "pm-q1-1" });
+      const lineId = Number((await q(`SELECT id FROM h_inbound_lines`))[0].id);
+      const rel = await svc.reinspectInboundLine(lineId, T, 4, { result: "pass" });
+      const today = new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+      const ld = (await q(`SELECT DATE_FORMAT(ledger_date, '%Y-%m-%d') AS d FROM h_inbound_lines WHERE id = ?`, [lineId]))[0].d;
+      expect(ld).toBe(today);
+      expect(Number((await q(`SELECT receiving_qty + 0 AS r FROM material_ledger_daily WHERE ledger_date = ?`, [today]))[0].r)).toBe(5.4);
+      await cancelPurchase(rel.voucherId, 4, T);
+      // 수불부 행이 없으면 거부·무변경
+      await q(`UPDATE material_ledger_daily SET ledger_date = '2026-01-01' WHERE ledger_date = ?`, [today]);
+      await expect(svc.cancelInboundLine(lineId, T, 4)).rejects.toThrow(/원료수불부 입고 기록을 찾지 못해/);
+      expect([(await lotOf())[0].a, Number((await q(`SELECT cancelled_qty + 0 AS c FROM h_inbound_lines WHERE id = ?`, [lineId]))[0].c)]).toEqual([5.4, 0]);
+      await q(`UPDATE material_ledger_daily SET ledger_date = ? WHERE ledger_date = '2026-01-01'`, [today]);
+      await svc.cancelInboundLine(lineId, T, 4);
+      expect([(await lotOf())[0].a, Number((await q(`SELECT receiving_qty + 0 AS r FROM material_ledger_daily WHERE ledger_date = ?`, [today]))[0].r)]).toEqual([0, 0]);
+    });
   });
 
   describe("품목제조보고 원료 저장 — 행 id 유지, 오래된 화면 거부 (2026-10-16, Codex PR #534 배포 검토 P2)", () => {
@@ -2336,6 +2403,31 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(m.lots.map((x: any) => x.lotId > 0)).toEqual([true, false]);
       expect(m.quarantinedLineIds).toEqual([m.lots[1].lineId]);
       expect(await counts()).toEqual([1, 1, 5]);
+    });
+
+    it("결정4 육안검사일지: 불합격 입고는 '부적합'·조치(격리)로 — 같은 날 같은 원료의 합격분과 합치지 않음, 다시 동기화·재검수 합격 뒤에도 중복 없음, 최초 불합격 보존", async () => {
+      const vi = await import("./db/haccp/visualInspectionMaterial");
+      const db = await (await import("./db/connection")).getDb();
+      await vi.createVisualInspectionTables(db);
+      await q(`DELETE FROM h_visual_inspection_items`); await q(`DELETE FROM h_visual_inspection_logs`);
+      const ok = await svc.confirmInbound((await draft("key-vi-ok", [line(20)])).headerId, T, 4);
+      const bad = await svc.confirmInbound((await draft("key-vi-bad", [line(5, { inspectionResult: "fail" })])).headerId, T, 4);
+      const badLine = bad.lots[0].lineId;
+      const { id: logId } = await vi.getOrCreateMonthlyLog(db, T, 1, 2026, 10, 4);
+      expect(await vi.syncReceivingsToInspectionLog(db, T, logId, 2026, 10)).toEqual({ synced: 2 });
+      const items = async () => (await q(`SELECT product_name, compliance, corrective_action, note FROM h_visual_inspection_items WHERE log_id = ? ORDER BY sort_order`, [logId]))
+        .map((r: any) => [r.product_name, r.compliance, r.corrective_action, r.note]);
+      expect(await items()).toEqual([
+        ["멥쌀", "적합", "", `LOT: ${ok.lots[0].lotNumber} 입고줄: ${ok.lots[0].lineId}`],
+        ["멥쌀", "부적합", "격리 (재검수·반품 대기)", `입고줄: ${badLine}`],
+      ]);
+      expect(await vi.syncReceivingsToInspectionLog(db, T, logId, 2026, 10)).toEqual({ synced: 0 });
+      await svc.reinspectInboundLine(badLine, T, 4, { result: "pass" });
+      expect(await vi.syncReceivingsToInspectionLog(db, T, logId, 2026, 10)).toEqual({ synced: 0 }); // 같은 입고 줄 — 새 행 없음
+      expect((await items())[1].slice(0, 2)).toEqual(["멥쌀", "부적합"]); // 최초 불합격 그대로
+      // 다른 달 일지로 보면 재검수 뒤 상태가 조치에 반영
+      const fetched = await vi.fetchMaterialReceivingsForMonth(db, T, 2026, 10);
+      expect(fetched.find((x: any) => x.inboundLineId === badLine)).toMatchObject({ compliance: "부적합", correctiveAction: "격리 후 재검수 합격" });
     });
   });
 
