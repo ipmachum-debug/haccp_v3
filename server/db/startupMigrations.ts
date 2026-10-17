@@ -819,6 +819,36 @@ async function ensureInboundDocumentSchema(conn: any) {
   // 매입전표 ↔ 입고 줄 (연결만)
   await addCol("accounting_purchases", "inbound_line_id", "`inbound_line_id` bigint NULL");
   await addIndex("accounting_purchases", "idx_ap_tenant_inbound_line", "KEY `idx_ap_tenant_inbound_line` (`tenant_id`, `inbound_line_id`)");
+  // 포장 단위 환산 (2026-10-17, CEO 결정) — 회사·원료·포장 단위별 '1 포장 = N 기준 단위'. 없으면 입고 차단 (1:1 추정 금지).
+  //   입고 줄은 그때 쓴 환산(설정 id·배율) 을 보존한다 — 나중에 설정을 바꿔도 과거 입고는 그대로.
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS material_pack_units (
+      id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      tenant_id int NOT NULL,
+      material_id bigint NOT NULL,
+      pack_unit varchar(20) NOT NULL,
+      base_qty decimal(12,4) NOT NULL,
+      base_unit varchar(20) NOT NULL,
+      is_active tinyint NOT NULL DEFAULT 1,
+      created_by bigint NULL,
+      updated_by bigint NULL,
+      created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_mpu_tenant_material_unit (tenant_id, material_id, pack_unit)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  } catch (err: any) {
+    console.warn("[Migration] material_pack_units failed:", err.message);
+  }
+  await addCol("h_inbound_lines", "pack_conversion_id", "`pack_conversion_id` bigint NULL");
+  await addCol("h_inbound_lines", "pack_factor", "`pack_factor` decimal(12,4) NULL");
+  // 입고 문서에 보존 — 승인 대기 뒤 승인 때도 같은 정책 (Codex #560 검증 N5), 자유 입력 공급자명 원문 (N4)
+  await addCol("h_inbound_headers", "create_voucher_drafts", "`create_voucher_drafts` tinyint NULL");
+  await addCol("h_inbound_headers", "supplier_name", "`supplier_name` varchar(200) NULL");
+  // 입고 줄 하나에 살아 있는 매입전표 하나 — DB 가 보장 (Codex #560 검증 N1: 동시 생성 2장 → 이중 분개).
+  //   취소된 전표는 NULL 이라 이력은 여러 장 남는다.
+  await addCol("accounting_purchases", "active_inbound_line_id",
+    "`active_inbound_line_id` bigint GENERATED ALWAYS AS (IF(`status` <> 'cancelled', `inbound_line_id`, NULL)) STORED");
+  await addIndex("accounting_purchases", "uq_ap_tenant_active_inbound_line", "UNIQUE KEY `uq_ap_tenant_active_inbound_line` (`tenant_id`, `active_inbound_line_id`)");
 }
 
 /**
@@ -863,6 +893,13 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_inbound_lines", column: "cancelled_qty", why: "취소·반품 누계 (PR-1)" },
   { table: "h_inventory_lots", column: "inbound_line_id", why: "LOT ↔ 입고 줄 (PR-1)" },
   { table: "accounting_purchases", column: "inbound_line_id", why: "매입전표 ↔ 입고 줄 (PR-1)" },
+  // 포장 단위 환산 (2026-10-17)
+  { table: "material_pack_units", column: "base_qty", why: "포장 단위 환산" },
+  { table: "h_inbound_lines", column: "pack_conversion_id", why: "입고 줄이 쓴 환산 설정" },
+  { table: "h_inbound_lines", column: "pack_factor", why: "입고 줄이 쓴 환산 배율 (보존)" },
+  { table: "h_inbound_headers", column: "create_voucher_drafts", why: "입고 문서의 전표 초안 정책 (승인 대기 보존)" },
+  { table: "h_inbound_headers", column: "supplier_name", why: "자유 입력 공급자명" },
+  { table: "accounting_purchases", column: "active_inbound_line_id", why: "입고 줄당 살아 있는 전표 하나" },
 ];
 
 /** 입고 줄 하나에 LOT 하나 — DB 가 보장해야 하는 키 (없으면 서버를 시작하지 않는다) */
@@ -872,6 +909,7 @@ export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; colu
   { table: "h_inventory_lots", index: "uq_lot_tenant_inbound_line", columns: ["tenant_id", "inbound_line_id"], why: "입고 줄당 LOT 하나 (PR-1)" },
   { table: "h_inbound_lines", index: "uq_ibl_tenant_lot", columns: ["tenant_id", "lot_id"], why: "LOT 당 입고 줄 하나 (PR-1)" },
   { table: "h_inbound_headers", index: "uq_ibh_tenant_idem", columns: ["tenant_id", "idempotency_key"], why: "입고 문서 중복 방지 (PR-1)" },
+  { table: "accounting_purchases", index: "uq_ap_tenant_active_inbound_line", columns: ["tenant_id", "active_inbound_line_id"], why: "입고 줄당 살아 있는 전표 하나" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {

@@ -56,9 +56,13 @@ export default function MaterialReceiptManagement() {
   // 재고 LOT 목록 조회
   const { data: lots = [], refetch: refetchLots } = trpc.inventory.list.useQuery();
 
+  // 입고 요청 키 — 성공할 때까지 같은 키 (더블 클릭·응답 유실 재시도에 입고 한 번, Codex #560 검증 N6)
+  const newReqKey = () => `rcv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const [reqKey, setReqKey] = useState<string>(newReqKey);
   // 원재료 입고 mutation
   const receiveMaterialMutation = trpc.inventory.receiveMaterial.useMutation({
     onSuccess: () => {
+      setReqKey(newReqKey());
       toast.success("원재료가 입고되었습니다.");
       setIsReceiveDialogOpen(false);
       refetchLots();
@@ -89,6 +93,7 @@ export default function MaterialReceiptManagement() {
       expiryDate: expiryDate || undefined,
       lotNumber: lotNumber || undefined,
       location: location || undefined,
+      idempotencyKey: reqKey,
     });
   };
 

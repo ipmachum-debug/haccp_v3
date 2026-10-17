@@ -37,12 +37,14 @@ export const lotManagementRouter = router({
         const r = await receiveDirect({
           tenantId: ctx.tenantId, userId: ctx.user.id, idempotencyKey: input.idempotencyKey ?? null,
           materialId: input.materialId, quantity: input.quantity, unit: input.unit, unitPrice: input.unitPrice ?? null,
-          supplierId: input.partnerId ?? null, receiptDate, expiryDate: input.expiryDate ?? null,
+          // 거래처는 선택한 id 만 (회사 소속 검증) — 자유 입력 이름은 원문으로 따로 보존, 이름으로 id 추정 안 함 (Codex #560 검증 N4)
+          supplierId: input.partnerId ?? null, supplierName: input.partnerId ? null : (input.supplierName ?? null),
+          receiptDate, expiryDate: input.expiryDate ?? null,
           lotNumber, notes: input.notes ?? null, createVoucherDraft: true,
         });
         return {
-          success: true, lotId: r.lotId, lotNumber: r.lotNumber || lotNumber, inboundHeaderId: r.headerId,
-          accountingPurchaseCreated: r.voucherIds.length > 0, pendingApproval: r.lotId === 0,
+          success: true, status: r.status, lotId: r.lotId, lotNumber: r.lotNumber || lotNumber, inboundHeaderId: r.headerId,
+          accountingPurchaseCreated: r.voucherIds.length > 0, pendingApproval: r.status === "pending_approval",
         };
       }),
 

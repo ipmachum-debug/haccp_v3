@@ -508,8 +508,9 @@ export const purchaseOrderRouter = router({
         poLineId: Number(line.id),
         purchaseQuantity: r.receivedQty,
         purchaseUnit: line.unit || "EA",
-        stockQuantity: r.stockQuantity ?? r.receivedQty,
-        stockUnit: r.stockUnit ?? line.unit ?? "EA",
+        // 재고 수량·단위는 서버가 포장 단위 환산으로 계산 (화면 값이 있으면 같아야 함, 설정 없으면 거부)
+        stockQuantity: r.stockQuantity ?? null,
+        stockUnit: r.stockUnit ?? null,
         unitPrice: Number(line.unitPrice),
         lotNumber: r.lotNumber ?? null,
         expiryDate: r.expiryDate ?? null,

@@ -48,8 +48,8 @@ export function ReceiptTab() {
       utils.inventory.predictAllShortage.invalidate();
       utils.inventory.getTrend.invalidate();
       utils.inventory.getTurnoverAnalysis.invalidate();
-      const purchaseMsg = r.accountingPurchaseCreated ? "\n(매입전표 자동 생성됨)" : "";
-      alert(`입고 완료! LOT: ${r.lotNumber}${purchaseMsg}`); setMatId(null); setMatName(""); setMatCode(""); setQty(""); setPrice(""); setSelectedSupplierId(null); setSelectedSupplierName(""); setExpiry(""); setNotes(""); setShowForm(false); },
+      const purchaseMsg = r.accountingPurchaseCreated ? "\n(매입전표 초안 자동 생성됨)" : "";
+      alert(r.pendingApproval ? "입고 승인 대기 — 승인되면 재고와 매입전표 초안이 반영됩니다." : `입고 완료! LOT: ${r.lotNumber}${purchaseMsg}`); setMatId(null); setMatName(""); setMatCode(""); setQty(""); setPrice(""); setSelectedSupplierId(null); setSelectedSupplierName(""); setExpiry(""); setNotes(""); setShowForm(false); },
     onError: (e: { message: string }) => alert(`실패: ${e.message}`),
   });
   const backfillMut = trpc.lotManagement.backfillLots.useMutation({

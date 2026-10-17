@@ -23,6 +23,7 @@ import { withInventoryTx, receiveNewLot, applyLotDelta, InventoryShortageError }
 import { toInventoryMaterialId } from "../../identity/itemIdentityService";
 import { isTenantFeatureEnabled } from "../../production/massBasisPolicy";
 import { publishEvent } from "../../../platform/event-bus";
+import { resolvePackConversion } from "./packUnits";
 
 export const INBOUND_APPROVAL_FEATURE = "INBOUND_APPROVAL";
 const EPS = 0.0005;
@@ -32,8 +33,9 @@ export interface InboundLineInput {
   poLineId?: number | null;
   purchaseQuantity: number;
   purchaseUnit: string;
-  stockQuantity: number;
-  stockUnit: string;
+  /** 재고 수량·단위 — 생략하면 서버가 포장 단위 환산으로 계산 (기준 단위). 주면 서버 계산과 같아야 한다. */
+  stockQuantity?: number | null;
+  stockUnit?: string | null;
   unitPrice: number;
   lotNumber?: string | null;
   expiryDate?: string | null;
@@ -51,6 +53,10 @@ export interface CreateInboundDraftInput {
   sourceType: "purchase_order" | "direct";
   poId?: number | null;
   supplierId?: number | null;
+  /** 거래처를 고르지 않은 자유 입력 공급자명 — 원문 그대로 (이름으로 거래처 id 를 추정하지 않는다) */
+  supplierName?: string | null;
+  /** 확정·승인 때 매입전표 초안을 만들지 — 문서에 보존 (승인 대기 뒤에도 같은 정책). 생략: 발주서 입고만 만든다 */
+  createVoucherDrafts?: boolean | null;
   inboundDate: string; // YYYY-MM-DD (업무일자)
   siteId?: number;
   notes?: string | null;
@@ -120,14 +126,22 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
         if (!row) throw new Error(`발주서 #${p.poId} 를 찾을 수 없습니다.`);
         if (!["approved", "partial_received"].includes(row.status)) throw new Error(`승인된 발주서만 입고할 수 있습니다 (현재: ${row.status}).`);
       }
-      const resolved: Array<InboundLineInput & { canonicalMaterialId: number }> = [];
+      const resolved: Array<InboundLineInput & { canonicalMaterialId: number; stockQuantity: number; stockUnit: string; packConversionId: number | null; packFactor: number | null }> = [];
       for (const [i, l] of p.lines.entries()) {
-        if (!(l.purchaseQuantity > 0) || !(l.stockQuantity > 0)) throw new Error(`${i + 1}번 줄: 수량은 0 보다 커야 합니다.`);
-        if (!String(l.purchaseUnit ?? "").trim() || !String(l.stockUnit ?? "").trim()) throw new Error(`${i + 1}번 줄: 단위가 필요합니다.`);
+        if (!(l.purchaseQuantity > 0)) throw new Error(`${i + 1}번 줄: 수량은 0 보다 커야 합니다.`);
+        if (!String(l.purchaseUnit ?? "").trim()) throw new Error(`${i + 1}번 줄: 단위가 필요합니다.`);
         const { id } = await toInventoryMaterialId(Number(l.materialId), tenantId, conn);
         const [m]: any = await conn.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [id, tenantId]);
         if (!(m as any[])[0]) throw new Error(`${i + 1}번 줄: 원재료를 찾을 수 없습니다 (id=${l.materialId}).`);
-        await assertStockUnit(conn, tenantId, id, l.stockUnit, `${i + 1}번 줄`);
+        // 포장 단위 환산 — 재고 수량은 서버가 설정으로 계산한다 (화면 값은 확인용)
+        const pack = await resolvePackConversion(conn, tenantId, id, l.purchaseUnit, l.purchaseQuantity, `${i + 1}번 줄`);
+        if (l.stockUnit != null && normUnit(l.stockUnit) !== normUnit(pack.baseUnit)) {
+          throw new Error(`${i + 1}번 줄: 재고 단위(${l.stockUnit}) 가 원재료 기준 단위(${pack.baseUnit}) 와 다릅니다 — 기준 단위로 환산해 입력하세요.`);
+        }
+        if (l.stockQuantity != null && Math.abs(Number(l.stockQuantity) - pack.stockQuantity) > EPS) {
+          throw new Error(`${i + 1}번 줄: 재고 수량 ${l.stockQuantity} 이 환산 결과 ${pack.stockQuantity}${pack.baseUnit} 와 다릅니다 (${l.purchaseQuantity}${l.purchaseUnit} × ${pack.factor}).`);
+        }
+        await assertStockUnit(conn, tenantId, id, pack.baseUnit, `${i + 1}번 줄`);
         // 발주서 입고는 모든 줄이 그 발주의 줄이어야 한다 (Codex #558 검증 F5 — 발주 잔량 검사 우회 방지).
         //   발주에 없는 품목은 직접 입고로 따로.
         if (p.sourceType === "purchase_order" && !l.poLineId) throw new Error(`${i + 1}번 줄: 발주서 입고는 발주 줄을 지정해야 합니다 (발주에 없는 품목은 직접 입고로).`);
@@ -135,15 +149,26 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
           if (!p.poId) throw new Error(`${i + 1}번 줄: 발주 줄은 발주서 입고에서만 지정할 수 있습니다.`);
           await assertPoLine(conn, tenantId, Number(p.poId), Number(l.poLineId), id, l.purchaseUnit, `${i + 1}번 줄`);
         }
-        resolved.push({ ...l, canonicalMaterialId: id });
+        resolved.push({
+          ...l, canonicalMaterialId: id, stockQuantity: pack.stockQuantity, stockUnit: pack.baseUnit,
+          packConversionId: pack.conversionId, packFactor: pack.conversionId ? pack.factor : null,
+        });
+      }
+      // 거래처는 이 회사 소속만 (Codex #560 검증 N4)
+      if (p.supplierId) {
+        const [ps]: any = await conn.execute(`SELECT id FROM partners WHERE id = ? AND tenant_id = ? LIMIT 1`, [p.supplierId, tenantId]);
+        if (!(ps as any[])[0]) throw new Error("거래처를 찾을 수 없습니다.");
       }
       const ymd = p.inboundDate.replace(/-/g, "");
+      const voucherPolicy = p.createVoucherDrafts == null ? null : p.createVoucherDrafts ? 1 : 0;
       const [h]: any = await conn.execute(
         `INSERT INTO h_inbound_headers
-           (tenant_id, inbound_number, site_id, supplier_id, inbound_date, status, notes, created_by, source_type, po_id, idempotency_key)
-         VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)`,
+           (tenant_id, inbound_number, site_id, supplier_id, inbound_date, status, notes, created_by, source_type, po_id, idempotency_key,
+            create_voucher_drafts, supplier_name)
+         VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
         [tenantId, `IB-${tenantId}-${ymd}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, p.siteId ?? 1,
-         p.supplierId ?? null, p.inboundDate, p.notes ?? null, p.userId, p.sourceType, p.poId ?? null, key],
+         p.supplierId ?? null, p.inboundDate, p.notes ?? null, p.userId, p.sourceType, p.poId ?? null, key,
+         voucherPolicy, p.supplierId ? null : (String(p.supplierName ?? "").trim().slice(0, 200) || null)],
       );
       const headerId = Number(h.insertId);
       await conn.execute(`UPDATE h_inbound_headers SET inbound_number = ? WHERE id = ? AND tenant_id = ?`, [`IB-${tenantId}-${ymd}-${headerId}`, headerId, tenantId]);
@@ -151,12 +176,14 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
         await conn.execute(
           `INSERT INTO h_inbound_lines
              (tenant_id, header_id, line_number, material_id, po_line_id, purchase_quantity, purchase_unit, stock_quantity, stock_unit,
-              unit_price, total_price, lot_number, expiry_date, production_date, location, inspection_result, inspection_json, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              unit_price, total_price, lot_number, expiry_date, production_date, location, inspection_result, inspection_json, notes,
+              pack_conversion_id, pack_factor)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [tenantId, headerId, i + 1, l.canonicalMaterialId, l.poLineId ?? null, l.purchaseQuantity, l.purchaseUnit, l.stockQuantity, l.stockUnit,
            l.unitPrice, Math.round(l.purchaseQuantity * l.unitPrice * 100) / 100, l.lotNumber ?? null, l.expiryDate ?? null,
            l.productionDate ?? null, l.location ?? null, l.inspectionResult ?? null,
-           l.inspectionJson ? JSON.stringify(l.inspectionJson) : null, l.notes ?? null],
+           l.inspectionJson ? JSON.stringify(l.inspectionJson) : null, l.notes ?? null,
+           l.packConversionId, l.packFactor],
         );
       }
       return { headerId, created: true };
@@ -197,7 +224,8 @@ export async function confirmInbound(
 
   return withInventoryTx(async (conn) => {
     const [hRows]: any = await conn.execute(
-      `SELECT id, status, DATE_FORMAT(inbound_date, '%Y-%m-%d') AS inbound_date, supplier_id, po_id, source_type
+      `SELECT id, status, DATE_FORMAT(inbound_date, '%Y-%m-%d') AS inbound_date, supplier_id, po_id, source_type,
+              create_voucher_drafts, supplier_name
          FROM h_inbound_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
       [headerId, tenantId],
     );
@@ -230,7 +258,9 @@ export async function confirmInbound(
 
     // 발주서 입고는 매입전표 초안(대기, 입고 줄 연결)을 같은 트랜잭션에서 만든다 (CEO 결정 2026-10-17).
     //   전표 확정(postPurchase) 은 연결된 입고의 LOT 을 쓰고 분개만 만든다 — 재고를 다시 만들지 않는다.
-    const createVouchers = opts.createVoucherDrafts ?? header.source_type === "purchase_order";
+    //   정책은 문서에 보존된 값 우선 (승인 대기 → 승인에서도 같은 정책, Codex #560 검증 N5)
+    const createVouchers = opts.createVoucherDrafts
+      ?? (header.create_voucher_drafts != null ? Number(header.create_voucher_drafts) === 1 : header.source_type === "purchase_order");
     let poPartnerId: number | null = null;
     if (header.po_id) {
       // 발주 헤더를 잠그고 지금 입고 가능한 상태인지 다시 본다 (Codex #558 검증 F4 — 초안 뒤 취소된 발주)
@@ -242,7 +272,7 @@ export async function confirmInbound(
       poPartnerId = po.partner_id != null ? Number(po.partner_id) : null;
     }
     const voucherIds: number[] = [];
-    let supplierName: string | null = null;
+    let supplierName: string | null = header.supplier_name ?? null;
     if (header.supplier_id) {
       const [ps]: any = await conn.execute(`SELECT company_name FROM partners WHERE id = ? AND tenant_id = ? LIMIT 1`, [header.supplier_id, tenantId]);
       supplierName = (ps as any[])[0]?.company_name ?? null;
@@ -264,6 +294,18 @@ export async function confirmInbound(
       const stockQty = Number(line.stock_quantity);
       const label = `${line.line_number}번 줄`;
       await assertStockUnit(conn, tenantId, Number(line.material_id), line.stock_unit, label);
+      // 포장 환산 — 줄에 보존된 배율로 다시 확인 (같은 단위면 수량 동일, 아니면 매입 수량 × 배율)
+      {
+        const pq = Number(line.purchase_quantity);
+        const sq = Number(line.stock_quantity);
+        if (line.pack_factor == null) {
+          if (normUnit(line.purchase_unit) !== normUnit(line.stock_unit) || Math.abs(pq - sq) > EPS) {
+            throw new Error(`${label}: 매입 ${pq}${line.purchase_unit} 과 재고 ${sq}${line.stock_unit} 의 환산 근거가 없습니다.`);
+          }
+        } else if (Math.abs(round3(pq * Number(line.pack_factor)) - sq) > EPS) {
+          throw new Error(`${label}: 재고 수량이 보존된 환산(${pq}${line.purchase_unit} × ${Number(line.pack_factor)}) 과 다릅니다.`);
+        }
+      }
       if (header.source_type === "purchase_order" && !line.po_line_id) throw new Error(`${label}: 발주서 입고는 발주 줄을 지정해야 합니다.`);
       // 발주 줄 잔량 — 줄 소속·원료·단위도 확정 시점에 다시 (발주 단위 수량으로 비교·증가)
       if (line.po_line_id) {
@@ -317,26 +359,9 @@ export async function confirmInbound(
         if (amt > 0) taxRate = Math.round((Number((tr as any[])[0]?.tax_amount ?? 0) / amt) * 10000) / 100;
       }
       if (createVouchers) {
-        const [ex]: any = await conn.execute(
-          `SELECT id FROM accounting_purchases WHERE tenant_id = ? AND inbound_line_id = ? AND status <> 'cancelled' LIMIT 1`, [tenantId, line.id],
-        );
-        if ((ex as any[])[0]) {
-          voucherIds.push(Number((ex as any[])[0].id));
-        } else {
-          const [mn]: any = await conn.execute(`SELECT material_name FROM h_materials WHERE id = ? AND tenant_id = ?`, [line.material_id, tenantId]);
-          const supply = Math.round(Number(line.total_price) * 100) / 100;
-          const tax = Math.round(supply * taxRate / 100);
-          const [vi]: any = await conn.execute(
-            `INSERT INTO accounting_purchases
-               (tenant_id, transaction_date, partner_id, item_name, material_id, quantity, unit, unit_price, total_amount, tax_amount, tax_rate,
-                status, source_type, source_id, inbound_line_id, notes, created_by)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'inbound', ?, ?, ?, ?)`,
-            [tenantId, inboundDate, poPartnerId ?? header.supplier_id ?? null, (mn as any[])[0]?.material_name ?? `원재료#${line.material_id}`,
-             line.material_id, purchaseQty, line.purchase_unit, Number(line.unit_price), supply, tax, taxRate,
-             line.id, line.id, `입고 ${headerId}-${line.line_number} 매입전표 초안`, userId],
-          );
-          voucherIds.push(Number(vi.insertId));
-        }
+        voucherIds.push(await ensureInboundLineVoucher(conn, {
+          tenantId, lineId: Number(line.id), userId, partnerId: poPartnerId ?? (header.supplier_id != null ? Number(header.supplier_id) : null), taxRate,
+        }));
       }
       lots.push({ lineId: Number(line.id), lotId: r.lotId, lotNumber });
     }
@@ -439,11 +464,27 @@ export async function getReceivableLines(poId: number, tenantIdIn: number) {
       ORDER BY l.line_number`,
     [poId, tenantId],
   );
-  return (rows as any[]).map((r) => ({
-    poLineId: Number(r.id), lineNumber: Number(r.line_number), materialId: r.material_id != null ? Number(r.material_id) : null,
-    itemName: r.item_name, unit: r.unit, unitPrice: Number(r.unit_price),
-    orderedQty: Number(r.ordered_qty), receivedQty: Number(r.received_qty), remainingQty: Number(r.remaining_qty),
-  }));
+  const conn = await getRawConnection();
+  const out = [];
+  for (const r of rows as any[]) {
+    // 재고 환산 미리보기 — 1 발주 단위 = ? 기준 단위 (설정 없으면 null → 화면에서 입고 차단·설정 안내)
+    let conversion: { factor: number; baseUnit: string } | null = null;
+    let conversionError: string | null = null;
+    if (r.material_id != null) {
+      try {
+        const mid = (await toInventoryMaterialId(Number(r.material_id), tenantId, conn)).id;
+        const pk = await resolvePackConversion(conn, tenantId, mid, r.unit, 1, `${r.line_number}번 줄`);
+        conversion = { factor: pk.factor, baseUnit: pk.baseUnit };
+      } catch (e: any) { conversionError = String(e?.message ?? e); }
+    }
+    out.push({
+      poLineId: Number(r.id), lineNumber: Number(r.line_number), materialId: r.material_id != null ? Number(r.material_id) : null,
+      itemName: r.item_name, unit: r.unit, unitPrice: Number(r.unit_price),
+      orderedQty: Number(r.ordered_qty), receivedQty: Number(r.received_qty), remainingQty: Number(r.remaining_qty),
+      conversion, conversionError,
+    });
+  }
+  return out;
 }
 
 async function recomputePoStatus(conn: any, poId: number, tenantId: number): Promise<void> {
@@ -485,22 +526,79 @@ export async function receiveDirect(p: {
   lotNumber?: string | null;
   location?: string | null;
   notes?: string | null;
+  supplierName?: string | null;
   createVoucherDraft: boolean;
-}): Promise<{ headerId: number; lineId: number; lotId: number; lotNumber: string; voucherIds: number[] }> {
+}): Promise<{ status: "confirmed" | "pending_approval"; headerId: number; lineId: number; lotId: number; lotNumber: string; voucherIds: number[] }> {
   const key = p.idempotencyKey || `direct-${p.tenantId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   const { headerId } = await createInboundDraft({
     tenantId: p.tenantId, userId: p.userId, idempotencyKey: key, sourceType: "direct",
-    supplierId: p.supplierId ?? null, inboundDate: p.receiptDate, notes: p.notes ?? null,
+    supplierId: p.supplierId ?? null, supplierName: p.supplierName ?? null, inboundDate: p.receiptDate, notes: p.notes ?? null,
+    createVoucherDrafts: p.createVoucherDraft && (p.unitPrice ?? 0) > 0,
     lines: [{
-      materialId: p.materialId, purchaseQuantity: p.quantity, purchaseUnit: p.unit, stockQuantity: p.quantity, stockUnit: p.unit,
+      materialId: p.materialId, purchaseQuantity: p.quantity, purchaseUnit: p.unit,
       unitPrice: p.unitPrice ?? 0, lotNumber: p.lotNumber ?? null, expiryDate: p.expiryDate ?? null,
       productionDate: p.productionDate ?? null, location: p.location ?? null, notes: p.notes ?? null,
     }],
   });
-  const r = await confirmInbound(headerId, p.tenantId, p.userId, { createVoucherDrafts: p.createVoucherDraft && (p.unitPrice ?? 0) > 0 });
+  // 전표 정책은 문서에 보존했다 — 승인 때도 같은 정책 (여기서 옵션으로 덮지 않음)
+  const r = await confirmInbound(headerId, p.tenantId, p.userId);
   if (r.status !== "confirmed") {
-    return { headerId, lineId: 0, lotId: 0, lotNumber: "", voucherIds: [] }; // 승인 대기 — 재고는 승인 때
+    return { status: "pending_approval", headerId, lineId: 0, lotId: 0, lotNumber: "", voucherIds: [] }; // 재고·전표는 승인 때
   }
   const lot = r.lots[0];
-  return { headerId, lineId: lot.lineId, lotId: lot.lotId, lotNumber: lot.lotNumber, voucherIds: r.voucherIds };
+  return { status: "confirmed", headerId, lineId: lot.lineId, lotId: lot.lotId, lotNumber: lot.lotNumber, voucherIds: r.voucherIds };
+}
+
+/**
+ * 입고 줄의 살아 있는 매입전표 — 있으면 그 전표, 없으면 대기 초안을 만든다 (Codex #560 검증 N1).
+ * 입고 줄을 잠그고 조회·생성을 한 트랜잭션에서 (호출자 conn). DB 도 (회사, 살아 있는 입고 줄) UNIQUE 로 보장 —
+ * 동시에 두 요청이 와도 전표는 한 장, 분개도 한 벌. 취소된 전표는 이력으로 남고 새 초안을 만들 수 있다.
+ * 금액·원료·수량·일자는 확정된 입고 줄 기준 (이름·번호 추정 없음). 전표일 = 입고일.
+ */
+export async function ensureInboundLineVoucher(conn: any, p: {
+  tenantId: number; lineId: number; userId: number; partnerId?: number | null; taxRate?: number | null;
+  /** 입고 때 단가가 없던 줄(0) 에만 쓰는 전표 단가 — 단가가 있던 줄은 입고 단가가 정본 (Codex #560 검증 N3) */
+  unitPriceIfUnpriced?: number | null;
+}): Promise<number> {
+  const [lr]: any = await conn.execute(
+    `SELECT l.id, l.line_number, l.header_id, l.material_id, l.purchase_quantity, l.purchase_unit, l.unit_price, l.total_price, l.lot_id,
+            h.status AS header_status, h.supplier_id, DATE_FORMAT(h.inbound_date, '%Y-%m-%d') AS inbound_date
+       FROM h_inbound_lines l JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
+      WHERE l.id = ? AND l.tenant_id = ? LIMIT 1 FOR UPDATE`,
+    [p.lineId, p.tenantId],
+  );
+  const line = (lr as any[])[0];
+  if (!line) throw new Error("입고 줄을 찾을 수 없습니다.");
+  const find = async () => {
+    const [ex]: any = await conn.execute(
+      `SELECT id FROM accounting_purchases WHERE tenant_id = ? AND inbound_line_id = ? AND status <> 'cancelled' LIMIT 1`, [p.tenantId, p.lineId],
+    );
+    return (ex as any[])[0] ? Number((ex as any[])[0].id) : null;
+  };
+  const existing = await find();
+  if (existing) return existing;
+  const [mn]: any = await conn.execute(`SELECT material_name FROM h_materials WHERE id = ? AND tenant_id = ?`, [line.material_id, p.tenantId]);
+  const taxRate = p.taxRate ?? 10;
+  const unpriced = !(Number(line.total_price) > 0);
+  const unitPrice = unpriced && (p.unitPriceIfUnpriced ?? 0) > 0 ? Number(p.unitPriceIfUnpriced) : Number(line.unit_price);
+  const supply = unpriced && (p.unitPriceIfUnpriced ?? 0) > 0
+    ? Math.round(Number(line.purchase_quantity) * unitPrice * 100) / 100
+    : Math.round(Number(line.total_price) * 100) / 100;
+  const tax = Math.round(supply * taxRate / 100);
+  try {
+    const [vi]: any = await conn.execute(
+      `INSERT INTO accounting_purchases
+         (tenant_id, transaction_date, partner_id, item_name, material_id, quantity, unit, unit_price, total_amount, tax_amount, tax_rate,
+          status, source_type, source_id, inbound_line_id, notes, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', 'inbound', ?, ?, ?, ?)`,
+      [p.tenantId, line.inbound_date, p.partnerId ?? (line.supplier_id != null ? Number(line.supplier_id) : null),
+       (mn as any[])[0]?.material_name ?? `원재료#${line.material_id}`,
+       line.material_id, Number(line.purchase_quantity), line.purchase_unit, unitPrice, supply, tax, taxRate,
+       line.id, line.id, `입고 ${line.header_id}-${line.line_number} 매입전표 초안`, p.userId],
+    );
+    return Number(vi.insertId);
+  } catch (e) {
+    if (isDup(e)) { const again = await find(); if (again) return again; }
+    throw e;
+  }
 }

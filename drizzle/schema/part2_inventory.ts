@@ -227,6 +227,8 @@ export const hInboundHeaders = mysqlTable("h_inbound_headers", {
   approvedAt: timestamp("approved_at"),
   cancelledBy: bigint("cancelled_by", { mode: "number" }),
   cancelledAt: timestamp("cancelled_at"),
+  createVoucherDrafts: tinyint("create_voucher_drafts"), // 확정·승인 때 매입전표 초안을 만들지 (문서에 보존)
+  supplierName: varchar("supplier_name", { length: 200 }), // 거래처 미선택 자유 입력 공급자명 (원문)
   createdBy: bigint("created_by", { mode: "number" }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
@@ -262,8 +264,29 @@ export const hInboundLines = mysqlTable("h_inbound_lines", {
   inspectedBy: bigint("inspected_by", { mode: "number" }),
   inspectedAt: timestamp("inspected_at"),
   cancelledQty: decimal("cancelled_qty", { precision: 10, scale: 3 }).notNull().default("0"),
+  // 포장 단위 환산 (2026-10-17) — 이 줄이 쓴 설정과 배율을 보존 (1 매입 단위 = pack_factor 재고 단위). 같은 단위면 NULL
+  packConversionId: bigint("pack_conversion_id", { mode: "number" }),
+  packFactor: decimal("pack_factor", { precision: 12, scale: 4 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
 
 // ============================================================================
+
+/**
+ * material_pack_units — 포장 단위 환산 (2026-10-17, CEO 결정)
+ * 회사·원료·포장 단위별 '1 pack_unit = base_qty base_unit' (예: 쌀 1포대 = 20kg). 없으면 입고 차단.
+ */
+export const materialPackUnits = mysqlTable("material_pack_units", {
+  id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
+  tenantId: int("tenant_id").notNull(),
+  materialId: bigint("material_id", { mode: "number" }).notNull(),
+  packUnit: varchar("pack_unit", { length: 20 }).notNull(),
+  baseQty: decimal("base_qty", { precision: 12, scale: 4 }).notNull(),
+  baseUnit: varchar("base_unit", { length: 20 }).notNull(),
+  isActive: tinyint("is_active").notNull().default(1),
+  createdBy: bigint("created_by", { mode: "number" }),
+  updatedBy: bigint("updated_by", { mode: "number" }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
+});
