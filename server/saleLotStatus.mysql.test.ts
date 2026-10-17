@@ -1007,4 +1007,111 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await loadCcpInputFromMassBasis(admin, bid + 999, T, 10)).toBeNull();
     });
   });
+  describe("재고 쓰기 경로 PR-1 — 회사 격리 + 재고 관문 경유 (2026-10-17, 쓰기 경로 분류 #35~#39)", () => {
+    const O = 3; // 다른 회사
+    let inv: any;
+    beforeAll(async () => {
+      inv = await import("./db/inventory/inventoryFunctions");
+    });
+    beforeEach(async () => {
+      for (const t of ["h_materials", "h_batches", "h_batch_inputs", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "item_master"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES
+        (700, ?, 'M700', '멥쌀', 'kg', 1), (800, ?, 'M800', '타사 원료', 'kg', 1)`, [T, O]);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, receipt_date, status) VALUES
+        (9001, ?, 700, 'A-1', 100, 100, 100, 'kg', '2026-10-01', 'available'),
+        (9003, ?, 700, 'A-3', 50, 50, 50, 'kg', '2026-10-02', 'available'),
+        (9002, ?, 800, 'B-1', 100, 100, 100, 'kg', '2026-10-01', 'available')`, [T, T, O]);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, created_by)
+        VALUES (7001, ?, 1, 'B7001', 38, 10, '2026-10-17', 'in_progress', 4), (7002, ?, 1, 'B7002', 38, 10, '2026-10-17', 'in_progress', 4)`, [T, O]);
+    });
+    const avail = async (id: number) => Number((await q(`SELECT available_quantity + 0 AS a FROM h_inventory_lots WHERE id = ?`, [id]))[0]?.a);
+    const otherUntouched = async () => {
+      expect(await avail(9002)).toBe(100);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE tenant_id = ? OR lot_id = 9002`, [O]))[0].n)).toBe(0);
+    };
+
+    it("LOT 입고: 회사·현재수량·입고 원장·집계 한 번에 / 회사 없으면 거부 / 다른 회사 원료 거부", async () => {
+      const r = await inv.createInventoryLot({ materialId: 700, lotNumber: "N-1", quantity: "20", unit: "kg", userId: 4, tenantId: T });
+      const lotRow = (await q(`SELECT tenant_id, current_quantity + 0 AS c, available_quantity + 0 AS a FROM h_inventory_lots WHERE id = ?`, [r.lotId]))[0];
+      expect([Number(lotRow.tenant_id), Number(lotRow.c), Number(lotRow.a)]).toEqual([T, 20, 20]);
+      const led = await q(`SELECT tenant_id, transaction_type, quantity + 0 AS qty FROM h_inventory_transactions WHERE lot_id = ?`, [r.lotId]);
+      expect(led.map((x: any) => [Number(x.tenant_id), x.transaction_type, Number(x.qty)])).toEqual([[T, "receipt", 20]]);
+      expect(Number((await q(`SELECT available_quantity + 0 AS a FROM h_inventory WHERE tenant_id = ? AND material_id = 700`, [T]))[0].a)).toBe(170);
+      await expect(inv.createInventoryLot({ materialId: 700, lotNumber: "N-2", quantity: "1", unit: "kg", userId: 4 })).rejects.toThrow(/테넌트/);
+      await expect(inv.receiveMaterial({ materialId: 800, quantity: 5, unit: "kg", receiptDate: "2026-10-17", tenantId: T, userId: 4 })).rejects.toThrow(/원재료를 찾을 수 없습니다/);
+      await otherUntouched();
+    });
+
+    it("원료 투입: 다른 회사 LOT·배치는 찾을 수 없음 (아무것도 안 바뀜), 정상 투입은 원장에 투입 줄 id", async () => {
+      await expect(inv.addMaterialInputToBatch({ batchId: 7001, materialId: 700, lotId: 9002, quantity: "30", unit: "kg", userId: 4, tenantId: T })).rejects.toThrow(/LOT를 찾을 수 없습니다/);
+      await expect(inv.addMaterialInputToBatch({ batchId: 7002, materialId: 700, lotId: 9001, quantity: "30", unit: "kg", userId: 4, tenantId: T })).rejects.toThrow(/배치를 찾을 수 없습니다/);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_inputs`))[0].n)).toBe(0);
+      await otherUntouched();
+
+      await inv.addMaterialInputToBatch({ batchId: 7001, materialId: 700, lotId: 9001, quantity: "30", unit: "kg", userId: 4, tenantId: T });
+      expect(await avail(9001)).toBe(70);
+      const input = (await q(`SELECT id, tenant_id, inventory_deducted FROM h_batch_inputs`))[0];
+      expect([Number(input.tenant_id), Number(input.inventory_deducted)]).toEqual([T, 1]);
+      const led = (await q(`SELECT tenant_id, source_type, source_id, source_line_id FROM h_inventory_transactions WHERE lot_id = 9001`))[0];
+      expect([Number(led.tenant_id), led.source_type, Number(led.source_id), Number(led.source_line_id)]).toEqual([T, "BATCH", 7001, Number(input.id)]);
+      expect(Number((await q(`SELECT available_quantity + 0 AS a FROM h_inventory WHERE tenant_id = ? AND material_id = 700`, [T]))[0].a)).toBe(120);
+    });
+
+    it("원료 투입: 단위가 LOT 과 다르면 거부 (400g 를 400kg 로 빼지 않음)", async () => {
+      await expect(inv.addMaterialInputToBatch({ batchId: 7001, materialId: 700, lotId: 9001, quantity: "400", unit: "g", userId: 4, tenantId: T })).rejects.toThrow(/단위가 다릅니다/);
+      expect(await avail(9001)).toBe(100);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_inputs`))[0].n)).toBe(0);
+    });
+
+    it("투입 삭제: 원장으로 뺀 LOT 들에 되돌림 (여러 LOT), 다른 회사 투입 id 는 찾을 수 없음", async () => {
+      // 자동출고처럼 두 LOT 에서 뺀 투입
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, lot_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES (501, ?, 7001, 700, 9001, 15, 15, 'kg', 1)`, [T]);
+      await q(`UPDATE h_inventory_lots SET available_quantity = available_quantity - 10, current_quantity = current_quantity - 10 WHERE id = 9001`);
+      await q(`UPDATE h_inventory_lots SET available_quantity = 0, current_quantity = 0, status = 'used' WHERE id = 9003`);
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, source_type, source_id, source_line_id, created_by) VALUES
+        (?, 9001, 700, 'usage', 10, 'kg', 'BATCH', 7001, 501, 4), (?, 9003, 700, 'usage', 50, 'kg', 'BATCH', 7001, 501, 4)`, [T, T]);
+      await expect(inv.deleteMaterialInput(501, O, 4)).rejects.toThrow(/투입 내역을 찾을 수 없습니다/);
+      await expect(inv.deleteMaterialInput(501)).rejects.toThrow(/테넌트/);
+      expect(await avail(9001)).toBe(90);
+
+      expect(await inv.deleteMaterialInput(501, T, 4)).toEqual({ restoredLots: 2 });
+      expect([await avail(9001), await avail(9003)]).toEqual([100, 50]);
+      expect((await q(`SELECT status FROM h_inventory_lots WHERE id = 9003`))[0].status).toBe("available"); // 소진 → 복원
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_inputs`))[0].n)).toBe(0);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE transaction_type = 'return' AND source_type = 'BATCH_INPUT_CANCEL' AND source_line_id = 501`))[0].n)).toBe(2);
+      await otherUntouched();
+    });
+
+    it("투입 삭제: 재고를 뺐다는데 출고 원장이 없으면 거부 (추정 복원 안 함) / 만료 LOT 은 수량만 돌리고 상태 유지 (D4)", async () => {
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, lot_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES
+        (502, ?, 7001, 700, 9001, 5, 5, 'kg', 1), (503, ?, 7001, 700, 9001, 5, 5, 'kg', 1)`, [T, T]);
+      await expect(inv.deleteMaterialInput(502, T, 4)).rejects.toThrow(/출고 기록을 찾을 수 없어/);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_inputs WHERE id = 502`))[0].n)).toBe(1);
+      await q(`UPDATE h_inventory_lots SET status = 'expired', available_quantity = 95, current_quantity = 95 WHERE id = 9001`);
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, source_type, source_id, source_line_id, created_by) VALUES (?, 9001, 700, 'usage', 5, 'kg', 'BATCH', 7001, 503, 4)`, [T]);
+      await inv.deleteMaterialInput(503, T, 4);
+      const r = (await q(`SELECT available_quantity + 0 AS a, status FROM h_inventory_lots WHERE id = 9001`))[0];
+      expect([Number(r.a), r.status]).toEqual([100, "expired"]);
+    });
+
+    it("LOT 삭제: 다른 회사 LOT 은 찾을 수 없음, 거래 이력 있으면 거부, 이력 없는 LOT 만 삭제 + 집계 재계산", async () => {
+      await expect(inv.deleteInventoryLot(9002, T)).rejects.toThrow(/찾을 수 없습니다/);
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, created_by) VALUES (?, 9003, 700, 'receipt', 50, 'kg', 4)`, [T]);
+      await expect(inv.deleteInventoryLot(9003, T)).rejects.toThrow(/거래 이력/);
+      await inv.deleteInventoryLot(9001, T);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_lots WHERE id = 9001`))[0].n)).toBe(0);
+      expect(Number((await q(`SELECT available_quantity + 0 AS a FROM h_inventory WHERE tenant_id = ? AND material_id = 700`, [T]))[0].a)).toBe(50);
+      await otherUntouched();
+    });
+
+    it("투입 수정: 다른 회사 투입·LOT 은 찾을 수 없음", async () => {
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, lot_id, planned_quantity, actual_quantity, unit) VALUES (601, ?, 7002, 800, 9002, 5, 5, 'kg')`, [O]);
+      await expect(inv.updateMaterialInput(601, { quantity: "9" }, T)).rejects.toThrow(/찾을 수 없습니다/);
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, lot_id, planned_quantity, actual_quantity, unit) VALUES (602, ?, 7001, 700, 9001, 5, 5, 'kg')`, [T]);
+      await expect(inv.updateMaterialInput(602, { lotId: 9002 }, T)).rejects.toThrow(/LOT를 찾을 수 없습니다/);
+      await inv.updateMaterialInput(602, { quantity: "6" }, T);
+      expect(Number((await q(`SELECT actual_quantity + 0 AS a FROM h_batch_inputs WHERE id = 602`))[0].a)).toBe(6);
+      expect(Number((await q(`SELECT actual_quantity + 0 AS a FROM h_batch_inputs WHERE id = 601`))[0].a)).toBe(5);
+    });
+  });
 });
