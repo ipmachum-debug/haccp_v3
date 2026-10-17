@@ -10,8 +10,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { PackageMinus, Loader2, AlertTriangle, DollarSign } from "lucide-react";
-import { useLocation } from "wouter";
-import { Checkbox } from "@/components/ui/checkbox";
 
 import { todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
@@ -23,9 +21,6 @@ export default function InventoryRelease() {
   const [releaseDate, setReleaseDate] = useState(todayLocal());
   const [reason, setReason] = useState("");
   const [destination, setDestination] = useState("");
-  const [autoCreateSale, setAutoCreateSale] = useState(true);
-  const [unitPrice, setUnitPrice] = useState("");
-  const [customerId, setCustomerId] = useState<number | null>(null);
 
   // 재고 LOT 목록 조회
   const { data: lots, refetch: refetchLots } = trpc.inventory.list.useQuery();
@@ -34,53 +29,16 @@ export default function InventoryRelease() {
   const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999, itemTypes: ["raw_material", "subsidiary", "external_product"] });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
 
-  // 거래처 목록 조회 (고객)
-  const { data: customers } = trpc.partners.list.useQuery({ partnerType: "customer" });
-
-  const [, navigate] = useLocation();
-
-  // 매출 거래 생성 mutation
-  const createSaleMutation = trpc.haccpIntegration.createSaleFromUsage.useMutation({
-    onSuccess: (data: any) => {
-      toast.success("매출 거래가 자동 생성되었습니다.", {
-        action: {
-          label: "보기",
-          onClick: () => navigate("/dashboard/accounting/sales/list"),
-        },
-      });
-    },
-    onError: (error: { message: string }) => {
-      toast.error(`매출 거래 생성 실패: ${error.message}`);
-    },
-  });
-
   // 출고 mutation
   const releaseStockMutation = trpc.inventory.releaseStock.useMutation({
     onSuccess: async (data: any) => {
       toast.success("재고가 성공적으로 출고되었습니다.");
       
-      // 자동 매출 거래 생성
-      if (autoCreateSale && selectedLotId && unitPrice && customerId) {
-        const selectedLot = lots?.find((lot: any) => lot.id === selectedLotId);
-        const material = materials?.find((m: any) => m.id === selectedLot?.materialId);
-        try {
-          await createSaleMutation.mutateAsync({
-            itemName: material?.materialName || "제품",
-            quantity: quantity,
-            unit: selectedLot?.unit || "개",
-            unitPrice: unitPrice,
-            partnerId: customerId,
-          });
-        } catch (error) {
-          // 에러는 mutation의 onError에서 처리됨
-        }
-      }
+      // 매출전표 자동 생성은 중단 (Codex #564 검증 S1·S2) — 출고한 재고가 매출 승인 때 다시 빠졌다. 판매는 '제품 출고' 에서.
       
       // 폼 초기화
       setSelectedLotId(null);
       setQuantity("");
-      setUnitPrice("");
-      setCustomerId(null);
       setReason("");
       setDestination("");
       setReleaseDate(todayLocal());
@@ -254,59 +212,10 @@ export default function InventoryRelease() {
                 </div>
               </div>
 
-              {/* 매출 거래 자동 생성 옵션 */}
-              <div className="border-t pt-4 space-y-4">
-                <div className="flex items-center space-x-2">
-                  <Checkbox
-                    id="autoCreateSale"
-                    checked={autoCreateSale}
-                    onCheckedChange={(checked) => setAutoCreateSale(checked as boolean)}
-                  />
-                  <Label htmlFor="autoCreateSale" className="flex items-center gap-2 cursor-pointer">
-                    <DollarSign className="w-4 h-4" />
-                    출고 시 매출 거래 자동 생성
-                  </Label>
-                </div>
-
-                {autoCreateSale && (
-                  <div className="grid grid-cols-2 gap-4 pl-6">
-                    <div className="space-y-2">
-                      <Label htmlFor="unitPrice">판매 단가 *</Label>
-                      <Input
-                        id="unitPrice"
-                        type="number"
-                        step="0.01"
-                        placeholder="예: 10000"
-                        value={unitPrice}
-                        onChange={(e) => setUnitPrice(e.target.value)}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="customer">고객사 *</Label>
-                      <Select
-                        value={customerId?.toString() || ""}
-                        onValueChange={(value) => setCustomerId(parseInt(value))}
-                      >
-                        <SelectTrigger id="customer">
-                          <SelectValue placeholder="고객사 선택" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {!customers || customers.length === 0 ? (
-                            <SelectItem value="empty" disabled>
-                              고객사가 없습니다
-                            </SelectItem>
-                          ) : (
-                            customers.map((customer: any) => (
-                              <SelectItem key={customer.id} value={customer.id.toString()}>
-                                {customer.partnerName}
-                              </SelectItem>
-                            ))
-                          )}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                )}
+              {/* 매출전표 자동 생성은 중단 (Codex #564 검증 S1·S2) */}
+              <div className="border-t pt-4 text-sm text-muted-foreground flex items-center gap-2">
+                <DollarSign className="w-4 h-4" />
+                판매 출고는 '제품 출고' 에서 등록하세요 — 출고와 매출이 한 문서로 처리되고, 매출 승인 때 재고가 다시 빠지지 않습니다.
               </div>
 
               <div className="flex justify-end">

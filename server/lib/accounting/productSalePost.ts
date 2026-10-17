@@ -239,6 +239,11 @@ export async function postProductSale(
     let alreadyDeductedByOutbound = false;
     const saleSourceType = (sale as any).sourceType as string | null;
     const saleSourceId = (sale as any).sourceId as number | null;
+    // ★ 2026-10-17 (Codex #564 검증 S1): 재고 출고에서 자동 생성된 구형 매출(inventory_usage) — 재고는 그 출고 때 이미 빠졌다.
+    //   원 출고와의 검증된 연결이 없으므로 추측해 재사용하지 않고, 일반 판매로 다시 차감하지도 않는다 → 확정 거부.
+    if (saleSourceType === "inventory_usage") {
+      throw new Error(`[${docId}] 재고 출고 화면에서 자동 생성된 매출입니다 — 확정하면 출고한 재고가 다시 빠져 차단합니다 (전표 취소 후 제품 출고로 등록하거나 별도 정정).`);
+    }
     if (saleSourceType === "product_outbound" && saleSourceId) {
       const [obRows] = await conn.execute(
         `SELECT o.lot_id, o.quantity, o.status, l.unit_price

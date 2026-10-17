@@ -108,6 +108,28 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     expect((await q(`SELECT status FROM accounting_sales WHERE id = 10536`))[0].status).toBe("approved");
   });
 
+  it("S1·S2·S3 (Codex #564 검증): 재고 출고 → 매출전표 자동 생성 중단(두 경로·일괄, 동시 요청), 남은 inventory_usage 매출은 확정 거부 — LOT 재차감 없음", async () => {
+    const hi = await import("./db/haccp/haccpIntegration");
+    const hai = await import("./db/haccp/haccpAccountingIntegration");
+    const base = { itemName: "하늘사랑 1.6kg", quantity: "5", unit: "box", unitPrice: "12000", partnerId: 1, createdBy: 4 };
+    const rs = await Promise.allSettled([1, 2, 3].map(() => hi.createSaleFromUsage({ ...base, inventoryTransactionId: 77001 }, T)));
+    expect(rs.map((r) => r.status)).toEqual(["rejected", "rejected", "rejected"]);
+    expect(String((rs[0] as any).reason?.message)).toMatch(/제품 출고/);
+    await expect(hi.createSaleFromUsage({ ...base }, T)).rejects.toThrow(/제품 출고/);
+    expect(await hai.createSaleFromUsage(T, 77001)).toMatchObject({ skipped: true, reason: "usage_sale_disabled" });
+    expect((await hai.batchCreateAccountingTransactions(T)).sales).toMatchObject({ created: 0, errors: 0 });
+    expect(Number((await q(`SELECT COUNT(*) AS n FROM accounting_sales`))[0].n)).toBe(0);
+    // 예전에 만들어진 구형 매출 — 확정하면 출고한 LOT 이 다시 빠진다 → 거부, 재고·분개·상태 그대로
+    await q(`INSERT INTO accounting_sales (id, tenant_id, transaction_date, item_name, product_id, quantity, unit, unit_price, total_amount, tax_amount, tax_rate, status, created_by, accounting_excluded, source_type, source_id)
+      VALUES (10600, ?, '2026-10-12', '하늘사랑 1.6kg', 90, 5, 'box', 12000, 60000, 6000, 10, 'pending', 4, 0, 'inventory_usage', 77001)`, [T]);
+    const { dispatchPostSale } = await import("./lib/accounting/postDispatcher");
+    await expect(dispatchPostSale(10600, 4, T)).rejects.toThrow(/재고 출고 화면에서 자동 생성된 매출/);
+    expect(await lot(1834)).toMatchObject({ a: 358, status: "available" });
+    expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions`))[0].n)).toBe(0);
+    expect(Number((await q(`SELECT COUNT(*) AS n FROM expense_journal_entries`))[0].n)).toBe(0);
+    expect((await q(`SELECT status FROM accounting_sales WHERE id = 10600`))[0].status).toBe("pending");
+  });
+
   it("이어서 #10535 (10/08, 150박스): #1834 그대로 118, #1588 −951 → −1,101, 10/08 이동, 금액 993,300 / 903,000 + 90,300, 매출원가 없음", async () => {
     await insertSale(10536, "2026-10-15", 240, 1444800, 144480);
     await postProductSale(10536, 4);
