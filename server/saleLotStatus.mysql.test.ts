@@ -1600,4 +1600,102 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect([Number(l.c), l.inspection_result]).toEqual([0, null]);
     });
   });
+  describe("입고 정본화 PR-2 — 입고 확정 단일 처리 (발주서 입고·직접 입고, 2026-10-17)", () => {
+    let svc: any;
+    beforeAll(async () => { svc = await import("./lib/inventory/inbound/inboundService"); });
+    beforeEach(async () => {
+      for (const t of ["h_inbound_headers", "h_inbound_lines", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "h_materials", "item_master", "material_ledger_daily", "purchase_orders", "purchase_order_lines", "accounting_purchases", "tenant_feature_settings", "domain_events", "partners"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (700, ?, 'M700', '멥쌀', 'kg', 1), (800, 3, 'M800', '타사', 'kg', 1)`, [T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES (1700, ?, 'M700', '멥쌀', 'raw_material', 'kg', 1, 700)`, [T]);
+      await q(`INSERT INTO purchase_orders (id, tenant_id, po_number, partner_id, order_date, status, created_by) VALUES (31, ?, 'PO-31', 0, '2026-10-17', 'approved', 4)`, [T]);
+      await q(`INSERT INTO purchase_order_lines (id, tenant_id, po_id, line_number, material_id, item_name, ordered_qty, received_qty, unit, unit_price, amount) VALUES (311, ?, 31, 1, 1700, '멥쌀', 100, 0, 'kg', 2000, 200000)`, [T]);
+    });
+    const line = (qty: number, extra: any = {}) => ({ materialId: 700, purchaseQuantity: qty, purchaseUnit: "kg", stockQuantity: qty, stockUnit: "kg", unitPrice: 2000, ...extra });
+    const draft = (key: string, lines: any[], extra: any = {}) => svc.createInboundDraft({ tenantId: T, userId: 4, idempotencyKey: key, sourceType: "direct", inboundDate: "2026-10-17", lines, ...extra });
+    const fromPo = (key: string, qty: number) => draft(key, [line(qty, { poLineId: 311 })], { sourceType: "purchase_order", poId: 31 });
+    const counts = async () => [
+      Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_lots`))[0].n),
+      Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions`))[0].n),
+      Number((await q(`SELECT COALESCE(SUM(available_quantity), 0) + 0 AS a FROM h_inventory WHERE material_id = 700`))[0].a),
+    ];
+    const received = async () => Number((await q(`SELECT received_qty + 0 AS r FROM purchase_order_lines WHERE id = 311`))[0].r);
+    const poStatus = async () => (await q(`SELECT status FROM purchase_orders WHERE id = 31`))[0].status;
+
+    it("직접 입고: 같은 키로 두 번 만들어도 문서 하나, 확정 두 번·동시 두 번이어도 LOT·원장 한 번, 집계 = LOT 합, 수불부 반영", async () => {
+      const a = await draft("key-direct-1", [line(50, { expiryDate: "2027-01-01" })]);
+      const b = await draft("key-direct-1", [line(50)]);
+      expect([a.created, b.created, b.headerId]).toEqual([true, false, a.headerId]);
+      expect(await counts()).toEqual([0, 0, 0]); // 문서만으로는 재고 없음
+      const rs = await Promise.all([svc.confirmInbound(a.headerId, T, 4), svc.confirmInbound(a.headerId, T, 4)]);
+      expect(rs.filter((r: any) => r.alreadyProcessed === false).length).toBe(1);
+      expect(await counts()).toEqual([1, 1, 50]);
+      const lot = (await q(`SELECT inbound_line_id, expiry_date, receipt_date, unit_price + 0 AS p FROM h_inventory_lots`))[0];
+      const ln = (await q(`SELECT id, lot_id, receipt_tx_id FROM h_inbound_lines`))[0];
+      expect([Number(lot.inbound_line_id), String(lot.expiry_date).length > 0, Number(lot.p)]).toEqual([Number(ln.id), true, 2000]);
+      expect(ln.lot_id).not.toBeNull();
+      expect(ln.receipt_tx_id).not.toBeNull();
+      expect(Number((await q(`SELECT receiving_qty + 0 AS r FROM material_ledger_daily WHERE material_id = 700`))[0].r)).toBe(50);
+      expect((await q(`SELECT status FROM h_inbound_headers`))[0].status).toBe("confirmed");
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM domain_events WHERE event_type = 'inbound.confirmed'`))[0].n)).toBe(1);
+    });
+
+    it("발주서 입고 부분 입고: 100 발주 → 30 확정 → 잔량 70 → 80 거부(재고 무변경) → 70 확정 → 입고 완료", async () => {
+      await svc.confirmInbound((await fromPo("key-po-30", 30)).headerId, T, 4);
+      expect([await received(), await poStatus()]).toEqual([30, "partial_received"]);
+      expect((await svc.getReceivableLines(31, T))[0].remainingQty).toBe(70);
+      const over = await fromPo("key-po-80", 80);
+      await expect(svc.confirmInbound(over.headerId, T, 4)).rejects.toThrow(/잔량 70/);
+      expect(await counts()).toEqual([1, 1, 30]);
+      await svc.confirmInbound((await fromPo("key-po-70", 70)).headerId, T, 4);
+      expect([await received(), await poStatus()]).toEqual([100, "received"]);
+      // 발주 줄 품목(item_master 1700) 이 아니라 원재료 id(700) 로 입고
+      expect((await q(`SELECT DISTINCT material_id FROM h_inventory_lots`)).map((r: any) => Number(r.material_id))).toEqual([700]);
+    });
+
+    it("여러 줄 중 하나라도 실패하면 전부 되돌림 (LOT 0, 발주 입고량 무변경)", async () => {
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status) VALUES (9601, ?, 700, 'DUP-LOT', 1, 1, 1, 'kg', 'available')`, [T]);
+      const d = await draft("key-multi", [line(10, { poLineId: 311 }), line(5, { lotNumber: "DUP-LOT" })], { sourceType: "purchase_order", poId: 31 });
+      await expect(svc.confirmInbound(d.headerId, T, 4)).rejects.toThrow(/Duplicate entry/);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_lots`))[0].n)).toBe(1);
+      expect([await received(), (await q(`SELECT status FROM h_inbound_headers`))[0].status]).toEqual([0, "draft"]);
+    });
+
+    it("승인 필요 회사: 확정 요청은 승인 대기(재고 없음) → 승인 시 한 번 반영", async () => {
+      await q(`INSERT INTO tenant_feature_settings (tenant_id, feature_code, enabled) VALUES (?, 'INBOUND_APPROVAL', 1)`, [T]);
+      const d = await draft("key-approve", [line(20)]);
+      expect(await svc.confirmInbound(d.headerId, T, 4)).toEqual({ status: "pending_approval" });
+      expect(await counts()).toEqual([0, 0, 0]);
+      expect((await svc.approveInbound(d.headerId, T, 9)).status).toBe("confirmed");
+      expect(await counts()).toEqual([1, 1, 20]);
+      expect(Number((await q(`SELECT approved_by FROM h_inbound_headers`))[0].approved_by)).toBe(9);
+    });
+
+    it("입고 줄 취소: 일부 사용됐으면 거부, 아니면 LOT 차감·취소 수량·발주 입고량 감소·문서 취소, 연결 전표 있으면 거부", async () => {
+      const d = await fromPo("key-cancel", 40);
+      await svc.confirmInbound(d.headerId, T, 4);
+      const lineId = Number((await q(`SELECT id FROM h_inbound_lines`))[0].id);
+      await q(`UPDATE h_inventory_lots SET available_quantity = 35, current_quantity = 35`);
+      await expect(svc.cancelInboundLine(lineId, T, 4)).rejects.toThrow(/이미 일부 사용/);
+      await q(`UPDATE h_inventory_lots SET available_quantity = 40, current_quantity = 40`);
+      await q(`INSERT INTO accounting_purchases (id, tenant_id, transaction_date, item_name, quantity, unit, unit_price, total_amount, status, created_by, inbound_line_id) VALUES (701, ?, '2026-10-17', '멥쌀', 40, 'kg', 2000, 80000, 'pending', 4, ?)`, [T, lineId]);
+      await expect(svc.cancelInboundLine(lineId, T, 4)).rejects.toThrow(/매입전표 #701/);
+      await q(`UPDATE accounting_purchases SET status = 'cancelled' WHERE id = 701`);
+      expect(await svc.cancelInboundLine(lineId, T, 4, "반품")).toEqual({ cancelledQty: 40 });
+      const l = (await q(`SELECT cancelled_qty + 0 AS c FROM h_inbound_lines`))[0];
+      expect([Number(l.c), await received(), await poStatus(), (await q(`SELECT status FROM h_inbound_headers`))[0].status]).toEqual([40, 0, "approved", "cancelled"]);
+      expect(Number((await q(`SELECT available_quantity + 0 AS a FROM h_inventory_lots`))[0].a)).toBe(0);
+      await expect(svc.cancelInboundLine(lineId, T, 4)).rejects.toThrow(/이미 취소/);
+    });
+
+    it("다른 회사 문서·원료 거부, 검수 불합격 줄은 확정 거부, 발주서 입고에 다른 발주 줄 거부", async () => {
+      const d = await draft("key-tenant", [line(5)]);
+      await expect(svc.confirmInbound(d.headerId, 3, 4)).rejects.toThrow(/찾을 수 없습니다/);
+      await expect(draft("key-other-mat", [line(5, { materialId: 800 })])).rejects.toThrow(/원재료를 찾을 수 없습니다/);
+      const f = await draft("key-fail", [line(5, { inspectionResult: "fail" })]);
+      await expect(svc.confirmInbound(f.headerId, T, 4)).rejects.toThrow(/검수 불합격/);
+      await q(`INSERT INTO purchase_orders (id, tenant_id, po_number, partner_id, order_date, status, created_by) VALUES (32, ?, 'PO-32', 0, '2026-10-17', 'approved', 4)`, [T]);
+      await expect(draft("key-wrong-po", [line(5, { poLineId: 311 })], { sourceType: "purchase_order", poId: 32 })).rejects.toThrow(/이 발주서의 줄이 아닙니다/);
+      expect(await counts()).toEqual([0, 0, 0]);
+    });
+  });
 });
