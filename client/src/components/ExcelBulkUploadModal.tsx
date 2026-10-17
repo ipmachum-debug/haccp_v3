@@ -148,6 +148,16 @@ interface ExcelBulkUploadModalProps {
 // 메인 컴포넌트
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+/** 매입 일괄 등록 결과 — 성공(분개까지)·승인 대기·격리·분개 실패·취소를 나눠 보여준다 (Codex #567 검증 N4) */
+function purchaseBreakdown(r: any): string {
+  return [
+    r?.pendingApprovalCount ? `입고 승인 대기 ${r.pendingApprovalCount}건 (재고·전표는 승인 때)` : "",
+    r?.quarantinedCount ? `검수 불합격 격리 ${r.quarantinedCount}건 (재고·전표 없음)` : "",
+    r?.postFailedCount ? `분개 실패 ${r.postFailedCount}건 (재고는 반영, 전표 대기 — 같은 작업 다시 등록 또는 목록에서 승인)` : "",
+    r?.cancelledCount ? `이미 반품·취소된 입고 ${r.cancelledCount}건` : "",
+  ].filter(Boolean).join(" · ");
+}
+
 export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: ExcelBulkUploadModalProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -198,6 +208,8 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
 
   const utils = trpc.useUtils();
   const bulkPurchaseMutation = trpc.haccpIntegration.bulkCreatePurchases.useMutation();
+  // 업로드 작업 키 — 파일을 새로 읽을 때마다 새로. 같은 작업을 다시 등록(응답 유실·재시도)하면 같은 입고·전표 (Codex #567 N1)
+  const [uploadJobKey, setUploadJobKey] = useState<string>(() => `ub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
   const bulkSaleMutation = trpc.haccpIntegration.bulkCreateSales.useMutation();
   const aiMatchMutation = (trpc as any).aiSkuMatch?.matchBatch?.useMutation?.();
   const [duplicateKeys, setDuplicateKeys] = useState<Set<string>>(new Set());
@@ -543,6 +555,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
     });
 
     setParsedRows(rows);
+    setUploadJobKey(`ub-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`);
     setStep('check');
     // 중복 검사 비동기 실행 (매입/매출 모두)
     setTimeout(() => { void runDuplicateCheck(rows); }, 100);
@@ -755,6 +768,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
           taxRate: r.taxRate,
           memo: r.memo || undefined,
           unit: r.unit || undefined,
+          idempotencyKey: `${uploadJobKey}-r${r.rowIndex}`,
         }));
 
       if (uploadItems.length === 0) {
@@ -768,7 +782,7 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
         setUploadResult(result);
         utils.haccpIntegration.getAllPurchases.invalidate();
         setStep('result');
-        toast({ title: `매입 일괄 등록 완료`, description: `성공: ${result.successCount}건, 실패: ${result.failCount}건` });
+        toast({ title: `매입 일괄 등록 완료`, description: [`성공: ${result.successCount}건`, purchaseBreakdown(result), `실패: ${result.failCount}건`].filter(Boolean).join(", ") });
       } catch (e) {
         const error = e as Error;
         toast({ title: "등록 오류", description: error.message, variant: "destructive" });
@@ -1679,6 +1693,8 @@ export default function ExcelBulkUploadModal({ open, onOpenChange, mode }: Excel
               <div>
                 <h2 className="text-lg font-bold">{modeLabel} 일괄 등록 완료</h2>
                 <p className="text-sm text-muted-foreground mt-0.5">총 {uploadResult.total}건 처리</p>
+                {isPurchase && purchaseBreakdown(uploadResult) && <p className="text-xs text-amber-700 mt-1">{purchaseBreakdown(uploadResult)}</p>}
+                {isPurchase && <p className="text-[11px] text-muted-foreground mt-1">엑셀 일괄 등록은 검수 결과를 기록하지 않습니다(미기록) — 불합격 입고는 매입 등록·발주 입고 화면의 검수 칸에서.</p>}
               </div>
               <div className="flex justify-center gap-8">
                 <div className="text-center">

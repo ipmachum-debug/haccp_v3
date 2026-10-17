@@ -39,7 +39,8 @@ export async function createPurchase(params: {
   if (params.itemMasterId && !resolvedMaterialId) {
     try {
       const { itemMaster } = await import("../../../drizzle/schema");
-      const [masterItem] = await db.select().from(itemMaster).where(eq(itemMaster.id, params.itemMasterId));
+      // 이 회사의 품목만 (다른 회사 품목 id 로 그 회사 원재료를 잡지 않는다)
+      const [masterItem] = await db.select().from(itemMaster).where(and(eq(itemMaster.id, params.itemMasterId), eq(itemMaster.tenantId, tenantId as number)));
       if (masterItem && masterItem.itemType === 'raw_material' && masterItem.legacyMaterialId) {
         resolvedMaterialId = masterItem.legacyMaterialId;
       }
@@ -185,6 +186,9 @@ async function createMaterialPurchaseViaInbound(params: {
   }
   const supply = Math.round(Number(params.amount) * 100) / 100;
   const taxRate = params.taxRate ?? (Number(params.taxAmount) > 0 ? 10 : 0);
+  // 세액은 입력값 그대로 보존 (Codex #567 검증 N3) — 공급가 × 세율과 달라도 바꾸지 않는다. 음수·공급가 초과만 거부.
+  const taxAmount = Math.round(Number(params.taxAmount ?? 0) * 100) / 100;
+  if (!(taxAmount >= 0) || (supply > 0 && taxAmount > supply)) throw new Error(`${mat.material_name}: 세액 ${params.taxAmount} 이 올바르지 않습니다 (0 이상, 공급가 이하).`);
   const key = params.idempotencyKey || `purchase-${tenantId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   const { createInboundDraft, confirmInbound } = await import("../../lib/inventory/inbound/inboundService");
   const { headerId } = await createInboundDraft({
@@ -193,17 +197,25 @@ async function createMaterialPurchaseViaInbound(params: {
     lines: [{
       materialId, purchaseQuantity: params.quantity, purchaseUnit,
       stockQuantity, stockUnit: stockQuantity != null ? String(mat.unit) : null,
-      unitPrice: params.unitPrice, totalPrice: supply, taxRate,
+      unitPrice: params.unitPrice, totalPrice: supply, taxRate, taxAmount,
       expiryDate: params.expiryDate || null, productionDate: params.productionDate || null,
       inspectionResult: params.inspectionResult ?? null, notes: params.memo ?? null,
     }],
   });
+  // 같은 요청 키로 다시 온 경우 — 문서의 지금 상태로 답한다 (격리·반품·취소된 줄을 '확정' 으로 보고하지 않는다, Codex #567 Q2)
+  const [hs]: any = await raw.execute(`SELECT status FROM h_inbound_headers WHERE id = ? AND tenant_id = ?`, [headerId, tenantId]);
+  if ((hs as any[])[0]?.status === "cancelled") {
+    return { id: 0, insertId: 0, inboundHeaderId: headerId, status: "cancelled", posted: false, postError: null };
+  }
   const r = await confirmInbound(headerId, tenantId, params.createdBy);
   if (r.status !== "confirmed") {
     return { id: 0, insertId: 0, inboundHeaderId: headerId, status: "pending_approval", pendingApproval: true, posted: false, postError: null };
   }
   if (r.quarantinedLineIds?.length) {
     return { id: 0, insertId: 0, inboundHeaderId: headerId, status: "quarantined", quarantined: true, posted: false, postError: null };
+  }
+  if (r.cancelledLineIds?.length) {
+    return { id: 0, insertId: 0, inboundHeaderId: headerId, status: "cancelled", posted: false, postError: null };
   }
   const purchaseId = r.voucherIds[0] ?? 0;
   const lot = r.lots[0];

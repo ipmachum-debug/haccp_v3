@@ -860,6 +860,9 @@ async function ensureInboundDocumentSchema(conn: any) {
   await addCol("h_inbound_lines", "disposition", "`disposition` varchar(20) NULL");
   // 줄 전표 세율 (매입 입력의 면세·영세 — 생략하면 발주 줄 기준/10%)
   await addCol("h_inbound_lines", "tax_rate", "`tax_rate` decimal(5,2) NULL");
+  // 명시 세액 보존 (Codex #567 N3) · 수불부에 넣은 날짜 (Q1 — 재검수 합격분은 처리일)
+  await addCol("h_inbound_lines", "tax_amount", "`tax_amount` decimal(15,2) NULL");
+  await addCol("h_inbound_lines", "ledger_date", "`ledger_date` date NULL");
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS h_inbound_inspections (
       id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -959,6 +962,8 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_inbound_lines", column: "valuation_purchase_id", why: "무단가 입고 평가 전표" },
   { table: "h_inbound_lines", column: "disposition", why: "검수 불합격 격리·반품·재검수 상태" },
   { table: "h_inbound_lines", column: "tax_rate", why: "입고 줄 전표 세율 (매입 입력)" },
+  { table: "h_inbound_lines", column: "tax_amount", why: "입고 줄 명시 세액 (매입 입력)" },
+  { table: "h_inbound_lines", column: "ledger_date", why: "입고 줄 수불부 반영일 (취소 역처리)" },
   { table: "h_inbound_inspections", column: "seq", why: "검수 이력 (최초 불합격 보존)" },
 ];
 
