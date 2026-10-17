@@ -1113,6 +1113,33 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number((await q(`SELECT actual_quantity + 0 AS a FROM h_batch_inputs WHERE id = 602`))[0].a)).toBe(6);
       expect(Number((await q(`SELECT actual_quantity + 0 AS a FROM h_batch_inputs WHERE id = 601`))[0].a)).toBe(5);
     });
+
+    it("투입 수정: 재고가 이미 차감된 투입은 수량·LOT 수정 거부, 다른 원료 LOT 지정 거부 (Codex #549 P1)", async () => {
+      await inv.addMaterialInputToBatch({ batchId: 7001, materialId: 700, lotId: 9001, quantity: "30", unit: "kg", userId: 4, tenantId: T });
+      const id = Number((await q(`SELECT id FROM h_batch_inputs`))[0].id);
+      await expect(inv.updateMaterialInput(id, { quantity: "90" }, T)).rejects.toThrow(/이미 차감된 투입/);
+      await expect(inv.updateMaterialInput(id, { lotId: 9003 }, T)).rejects.toThrow(/이미 차감된 투입/);
+      const row = (await q(`SELECT actual_quantity + 0 AS a, lot_id FROM h_batch_inputs WHERE id = ?`, [id]))[0];
+      expect([Number(row.a), Number(row.lot_id)]).toEqual([30, 9001]);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (701, ?, 'M701', '설탕', 'kg', 1)`, [T]);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status) VALUES (9004, ?, 701, 'C-1', 10, 10, 10, 'kg', 'available')`, [T]);
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, lot_id, planned_quantity, unit) VALUES (69003, ?, 7001, 700, NULL, 5, 'kg')`, [T]);
+      await expect(inv.updateMaterialInput(69003, { lotId: 9004 }, T)).rejects.toThrow(/다른 원료의 LOT/);
+    });
+
+    it("투입 삭제: LOT 없는 출고 잔량이 있으면 전체 거부 — 혼합(정상 LOT + LOT 없음)도 일부 복원 없이 (Codex #549 P2)", async () => {
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, lot_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES
+        (511, ?, 7001, 700, NULL, 30, 30, 'kg', 1), (512, ?, 7001, 700, 9001, 15, 15, 'kg', 1)`, [T, T]);
+      await q(`UPDATE h_inventory_lots SET available_quantity = 90, current_quantity = 90 WHERE id = 9001`);
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, source_type, source_id, source_line_id, created_by) VALUES
+        (?, NULL, 700, 'usage', 30, 'kg', 'BATCH', 7001, 511, 4),
+        (?, 9001, 700, 'usage', 10, 'kg', 'BATCH', 7001, 512, 4), (?, NULL, 700, 'usage', 5, 'kg', 'BATCH', 7001, 512, 4)`, [T, T, T]);
+      await expect(inv.deleteMaterialInput(511, T, 4)).rejects.toThrow(/LOT 가 없는 30.000/);
+      await expect(inv.deleteMaterialInput(512, T, 4)).rejects.toThrow(/LOT 가 없는 5.000/);
+      expect(await avail(9001)).toBe(90); // 정상 그룹도 되돌리지 않음
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_inputs WHERE id IN (511, 512)`))[0].n)).toBe(2);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE transaction_type = 'return'`))[0].n)).toBe(0);
+    });
   });
   describe("재고 쓰기 경로 PR-2 — '소모→현황 재고 동기화' 쓰기 차단, 미리보기만 (2026-10-17)", () => {
     beforeEach(async () => {
@@ -1138,12 +1165,23 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await state()).toEqual([50, 50, 0]);
     });
 
-    it("미리보기는 차이만 보여 주고 아무것도 바꾸지 않음", async () => {
+    it("미리보기는 차이만 보여 주고 아무것도 바꾸지 않음 — 참고값 표시, 음수도 그대로, 요청 회사만", async () => {
       const { syncStockFromConsumption } = await import("./db/production/outboundManagement");
-      const r = await syncStockFromConsumption(T, 4, true);
+      const r = await syncStockFromConsumption(T, 4); // 생략 = 미리보기
+      expect(r.referenceOnly).toBe(true);
+      expect(r.basisNote).toMatch(/정상 재고나 보정 확정값이 아닙니다/);
       expect(r.materialsProcessed).toBe(1);
       expect(r.details[0].warnings[0]).toContain("참고재고 70.0");
       expect(await state()).toEqual([50, 50, 0]);
+      // 소모 > 입고 → 음수 참고값 (0 으로 자르지 않음)
+      await q(`UPDATE h_batch_inputs SET actual_quantity = 130`);
+      expect((await syncStockFromConsumption(T, 4, true)).details[0].warnings[0]).toContain("참고재고 -30.0");
+      // 다른 회사 데이터는 읽지 않음
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (800, 3, 'M800', '타사', 'kg', 1)`);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status) VALUES (9102, 3, 800, 'X', 10, 1, 1, 'kg', 'available')`);
+      expect((await syncStockFromConsumption(T, 4, true)).details.map((d: any) => d.materialId)).toEqual([700]);
+      expect(await state()).toEqual([50, 50, 0]);
+      await expect(syncStockFromConsumption(0 as any, 4, true)).rejects.toThrow(/테넌트/);
     });
   });
   describe("재고 쓰기 경로 PR-3 — 발주 제안 승인은 발주서 작성 (재고·LOT 생성 안 함, 2026-10-17)", () => {

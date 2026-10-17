@@ -104,7 +104,7 @@ export function StockSyncButton({ onComplete: _onComplete }: { onComplete: () =>
         setResultMsg(data.errors[0] || "차이가 없습니다.");
         setDetails([]);
       } else {
-        setResultMsg(`${data.materialsProcessed}개 원재료에 차이 (참고용 — 매출·취소·실사·반품은 이 식에 없음, 재고는 바꾸지 않음)`);
+        setResultMsg(`${data.materialsProcessed}개 원재료에 차이 — ${data.basisNote ?? "참고값이며 정상 재고가 아닙니다."} 재고는 바꾸지 않습니다.`);
         setDetails(data.details || []);
         setShowDetails(true);
       }

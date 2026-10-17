@@ -646,6 +646,8 @@ export async function syncStockFromConsumption(tenantId: number, userId: number,
   const result = {
     success: true,
     dryRun,
+    referenceOnly: true as const,
+    basisNote: "참고값 = LOT 수량 합 − 배치 투입 합. 매출·취소·반품·실사·폐기·기초잔액 미반영 — 정상 재고나 보정 확정값이 아닙니다.",
     materialsProcessed: 0,
     totalDeducted: 0,
     details: [] as Array<{
@@ -662,15 +664,14 @@ export async function syncStockFromConsumption(tenantId: number, userId: number,
 
   try {
     // ================================================================
-    // 전략: 입고총량 - 소모총량 = 정상현재고
-    //   현재 INV/LOT 값과 정상현재고의 차이를 보정
-    //   LOT는 FEFO(오래된 LOT부터) 소모 배분
-    //   TX는 건드리지 않음 (기존 TX가 부정확해도 INV/LOT만 보정)
+    // 참고값 = SUM(LOT.quantity) − SUM(배치 투입) — 제한된 진단용 식 (정상 재고 아님)
+    //   LOT.quantity 의미가 경로마다 다르고(최초량/현재량 혼재), 매출·취소·반품·실사·폐기·기초잔액이 없다.
+    //   음수도 그대로 보여 준다 (0 으로 자르지 않음). SELECT 만 한다.
     // ================================================================
 
     // 1. 원재료별: 입고총량, 소모총량, 현재 INV가용량, LOT가용합계
     //    HAVING → 서브쿼리 wrapping (MySQL 8 strict mode 호환)
-    const [auditRows]: any = await db.execute(sql.raw(`
+    const [auditRows]: any = await db.execute(sql`
       SELECT * FROM (
         SELECT
           m.id AS materialId,
@@ -681,7 +682,7 @@ export async function syncStockFromConsumption(tenantId: number, userId: number,
           COALESCE(inv.invId, 0) AS invId,
           COALESCE(inv.invAvail, 0) AS invAvail,
           COALESCE(bi_sum.totalConsumed, 0) AS totalConsumed,
-          GREATEST(0, COALESCE(lot_sum.totalReceipt, 0) - COALESCE(bi_sum.totalConsumed, 0)) AS correctStock
+          (COALESCE(lot_sum.totalReceipt, 0) - COALESCE(bi_sum.totalConsumed, 0)) AS correctStock
         FROM h_materials m
         LEFT JOIN (
           SELECT material_id, SUM(quantity) AS totalReceipt, SUM(available_quantity) AS lotAvail
@@ -705,11 +706,11 @@ export async function syncStockFromConsumption(tenantId: number, userId: number,
       WHERE ABS(invAvail - correctStock) > 0.01
          OR ABS(lotAvail - correctStock) > 0.01
       ORDER BY ABS(invAvail - correctStock) DESC
-    `));
+    `);
 
     const materials = auditRows as any[];
     if (!materials || materials.length === 0) {
-      result.errors.push("동기화 대상이 없습니다. 모든 소모가 이미 재고에 반영되었습니다.");
+      result.errors.push("이 참고식 기준으로 차이가 있는 원재료가 없습니다 (재고가 정확하다는 뜻은 아닙니다).");
       return result;
     }
 
