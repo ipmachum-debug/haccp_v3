@@ -1205,4 +1205,52 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await counts()).toEqual([0, 0, 0]);
     });
   });
+  describe("재고 쓰기 경로 PR-4 — 생산완료 제품 LOT 은 ensureBatchLots 하나 (덮어쓰기 없음, 한 벌만, 2026-10-17)", () => {
+    beforeEach(async () => {
+      for (const t of ["h_batches", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "product_skus", "production_sku_output", "item_master", "h_products_v2"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, actual_quantity, planned_date, status, created_by)
+        VALUES (7201, ?, 1, 'B7201', 90, 100, 96, '2026-10-14', 'completed', 4)`, [T]);
+      await q(`INSERT INTO product_skus (id, tenant_id, item_id, sku_code, sku_name, sales_unit, kg_per_sales_unit, unit_price) VALUES
+        (208, ?, 1, 'S208', '하늘사랑 1.6kg', 'box', 1.6, 30000), (209, ?, 1, 'S209', '0.8kg 팩', 'pack', 0.8, 9000)`, [T, T]);
+      await q(`INSERT INTO production_sku_output (tenant_id, batch_id, sku_id, quantity) VALUES (?, 7201, 208, 30), (?, 7201, 209, 60)`, [T, T]);
+    });
+    const lots = async () => (await q(`SELECT sku_id, unit, quantity + 0 AS q, available_quantity + 0 AS a, current_quantity + 0 AS c, unit_price, tenant_id, receipt_date FROM h_inventory_lots WHERE batch_id = 7201 ORDER BY sku_id`))
+      .map((r: any) => [Number(r.sku_id), r.unit, Number(r.q), Number(r.a), Number(r.c), r.unit_price, Number(r.tenant_id)]);
+
+    it("SKU 별 LOT (단위 그대로, 현재수량, 판매가를 단가로 넣지 않음) + 입고 원장, 제품 집계는 쓰지 않음", async () => {
+      const { ensureBatchLots } = await import("./db/production/productOutboundManagement");
+      const r = await ensureBatchLots(7201, T);
+      expect(r.created.length).toBe(2);
+      expect(await lots()).toEqual([[208, "box", 30, 30, 30, null, T], [209, "pack", 60, 60, 60, null, T]]);
+      const led = await q(`SELECT transaction_type, quantity + 0 AS q, unit, source_type, source_id, transaction_date FROM h_inventory_transactions ORDER BY id`);
+      expect(led.map((x: any) => [x.transaction_type, Number(x.q), x.unit, x.source_type, Number(x.source_id)])).toEqual([["inbound", 30, "box", "BATCH_OUTPUT", 7201], ["inbound", 60, "pack", "BATCH_OUTPUT", 7201]]);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory WHERE product_id IS NOT NULL`))[0].n)).toBe(0);
+    });
+
+    it("이미 LOT 이 있으면 그대로 — 판매로 줄어든 잔량을 생산수량으로 되살리지 않음", async () => {
+      const { ensureBatchLots } = await import("./db/production/productOutboundManagement");
+      await ensureBatchLots(7201, T);
+      await q(`UPDATE h_inventory_lots SET available_quantity = 12, current_quantity = 12 WHERE batch_id = 7201 AND sku_id = 208`); // 18박스 판매
+      expect(await ensureBatchLots(7201, T)).toMatchObject({ skipped: true, reason: "lots_already_exist" });
+      expect((await lots())[0]).toEqual([208, "box", 30, 12, 12, null, T]);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions`))[0].n)).toBe(2);
+    });
+
+    it("동시에 두 번 불러도 LOT 은 한 벌 (배치 잠금)", async () => {
+      const { ensureBatchLots } = await import("./db/production/productOutboundManagement");
+      const rs = await Promise.all([ensureBatchLots(7201, T), ensureBatchLots(7201, T), ensureBatchLots(7201, T)]);
+      expect(rs.filter((r) => !r.skipped).length).toBe(1);
+      expect((await lots()).length).toBe(2);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions`))[0].n)).toBe(2);
+    });
+
+    it("SKU 실적 없으면 배치 실적 수량으로 LOT 하나 (기본 단위), 다른 회사·회사 없음은 생성 안 함", async () => {
+      await q(`DELETE FROM production_sku_output`);
+      const { ensureBatchLots } = await import("./db/production/productOutboundManagement");
+      expect(await ensureBatchLots(7201, 3)).toMatchObject({ skipped: true, reason: "batch_not_found" });
+      await expect(ensureBatchLots(7201, 0 as any)).rejects.toThrow(/테넌트/);
+      await ensureBatchLots(7201, T);
+      expect(await lots()).toEqual([[0, "kg", 96, 96, 96, null, T]]);
+    });
+  });
 });

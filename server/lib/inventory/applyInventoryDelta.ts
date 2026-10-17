@@ -98,6 +98,19 @@ export async function recomputeAggregateFromLots(
   const { tenantId } = args;
   const s = normalizeSubject(args.subject);
 
+  // ★ 2026-10-17 (재고 결정 D2): 제품 집계는 쓰지 않는다. 제품 LOT 은 SKU 마다 단위(box/pack/kg)가 달라
+  //   product_id 하나로 더하면 다른 단위가 섞인다 (h_inventory 에 SKU·단위 구분이 없음). 제품 재고 정본은 LOT,
+  //   조회는 getProductCanonicalStock 같은 LOT 기반 파생값. 값만 계산해 돌려준다 (운영 제품 집계 행 0 — 10/16 사본).
+  if (s.col === "product_id") {
+    const [pRows]: any = await conn.execute(
+      `SELECT COALESCE(SUM(available_quantity), 0) AS avail FROM h_inventory_lots
+        WHERE tenant_id = ? AND product_id = ? AND status = 'available'`,
+      [tenantId, s.id],
+    );
+    const available = Math.round((parseFloat(pRows[0]?.avail ?? "0") || 0) * 1000) / 1000;
+    return { available, total: available, reserved: 0 };
+  }
+
   // (1) 집계 행 잠금(FOR UPDATE) — 없으면 이후 INSERT
   const [invRows]: any = await conn.execute(
     `SELECT id, reserved_quantity, unit FROM h_inventory
@@ -290,6 +303,9 @@ export interface ReceiveNewLotParams {
   manufacturerName?: string | null;
   location?: string | null;
   batchId?: number | null;
+  /** 제품 LOT 의 판매 SKU (생산완료 SKU 별 LOT) */
+  skuId?: number | null;
+  skuName?: string | null;
   reference?: ApplyLotDeltaParams["reference"];
   notes?: string | null;
   createdBy: number;
@@ -312,17 +328,19 @@ export async function receiveNewLot(
   // (1) LOT 생성
   const [lotResult]: any = await conn.execute(
     `INSERT INTO h_inventory_lots
-       (tenant_id, lot_number, material_id, product_id, batch_id, quantity,
+       (tenant_id, lot_number, material_id, product_id, batch_id, sku_id, sku_name, quantity,
         available_quantity, current_quantity, unit, unit_price,
         production_date, receipt_date, expiry_date,
         supplier_name, manufacturer_name, location, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`,
     [
       p.tenantId,
       p.lotNumber,
       s.materialId,
       s.productId,
       p.batchId ?? null,
+      p.skuId ?? null,
+      p.skuName ?? null,
       qty,
       qty,
       qty,

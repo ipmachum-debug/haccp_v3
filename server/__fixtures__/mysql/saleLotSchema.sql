@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고·배치·투입) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고·배치·투입·SKU 생산실적·제품) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -740,4 +740,41 @@ CREATE TABLE `h_batch_inputs` (
   KEY `h_batch_inputs_tenant_id_tenants_id_fk` (`tenant_id`),
   KEY `fk_batch_inputs_batch` (`batch_id`),
   KEY `fk_batch_inputs_material` (`material_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `production_sku_output`;
+CREATE TABLE `production_sku_output` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `tenant_id` int NOT NULL DEFAULT '1',
+  `batch_id` bigint NOT NULL,
+  `sku_id` bigint NOT NULL,
+  `bundle_sku_id` bigint DEFAULT NULL,
+  `quantity` int NOT NULL DEFAULT '0',
+  `defective_qty` int DEFAULT '0',
+  `total_kg` decimal(10,3) DEFAULT NULL,
+  `notes` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  PRIMARY KEY (`id`),
+  KEY `idx_pso_batch_id` (`batch_id`),
+  KEY `idx_pso_sku_id` (`sku_id`),
+  KEY `idx_pso_tenant_id` (`tenant_id`),
+  KEY `idx_pso_bundle` (`bundle_sku_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `h_products_v2`;
+CREATE TABLE `h_products_v2` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `product_code` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `product_name` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `version` int NOT NULL DEFAULT '1',
+  `category` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `unit` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `shelf_life_days` int DEFAULT NULL,
+  `description` text CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci,
+  `is_active` tinyint NOT NULL DEFAULT '1',
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `tenant_id` int NOT NULL DEFAULT '1',
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `h_products_v2_product_code_unique` (`product_code`),
+  KEY `h_products_v2_tenant_id_tenants_id_fk` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
