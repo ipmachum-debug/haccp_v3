@@ -18,6 +18,12 @@ const GOOD_KEYS: Record<string, any[]> = {
   uq_ibl_tenant_lot: uq("tenant_id", "lot_id"),
   uq_ibh_tenant_idem: uq("tenant_id", "idempotency_key"),
   uq_ap_tenant_active_inbound_line: uq("tenant_id", "active_inbound_line_id"),
+  uq_polc_tenant_pending_line: uq("tenant_id", "pending_line_id"),
+};
+// UNIQUE 대상 생성 컬럼 — MySQL 이 저장하는 모양 그대로 (Codex #561·562 검증 R5)
+const GOOD_GENERATED: Record<string, any> = {
+  active_inbound_line_id: { extra: "STORED GENERATED", expr: "if((`status` <> _utf8mb4\\'cancelled\\'),`inbound_line_id`,NULL)" },
+  pending_line_id: { extra: "STORED GENERATED", expr: "if((`status` = _utf8mb4\\'pending\\'),`po_line_id`,NULL)" },
 };
 
 /** 가짜 연결 — 컬럼·인덱스 유무와 DDL 실패를 주입 */
@@ -37,6 +43,7 @@ function fakeConn(o: { hasColumn: boolean; hasIndex: boolean; alterFails?: boole
         if (state.indexFails) throw new Error("lock wait timeout");
         state.hasIndex = true; return [{}];
       }
+      if (/GENERATION_EXPRESSION/.test(q)) return [GOOD_GENERATED[params?.[1]] ? [GOOD_GENERATED[params?.[1]]] : []];
       if (/INFORMATION_SCHEMA\.COLUMNS/.test(q)) return [state.hasColumn ? [{ COLUMN_NAME: "sku_id" }] : []];
       // 성능 인덱스(idx_sales_tenant_sku) 만 주입 대상 — 입고 문서 유니크 키(PR-1) 는 있는 것으로
       // 입고 문서 필수 유니크 키(PR-1) — 기대 구성 그대로 있는 것으로
@@ -108,6 +115,18 @@ describe("서버 시작 순서", () => {
     const block = src.slice(gate, listen);
     expect(block).toMatch(/if \(schemaCheck && !schemaCheck\.ok\) \{[\s\S]*process\.exit\(1\);/);
     expect(block).toContain("DB 연결 문제로 보고 계속 시작");
+  });
+  it("UNIQUE 대상 생성 컬럼: 일반 컬럼·NULL 상수식·반대 조건이면 ok:false (Codex #561·562 검증 R5)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    for (const bad of [{ extra: "", expr: "" }, { extra: "STORED GENERATED", expr: "NULL" }, { extra: "STORED GENERATED", expr: "if((`status` = _utf8mb4\\'cancelled\\'),`inbound_line_id`,NULL)" }]) {
+      const c = fakeConn({ hasColumn: true, hasIndex: true });
+      const orig = c.query.getMockImplementation()!;
+      c.query.mockImplementation(async (q: string, params?: any[]) =>
+        /GENERATION_EXPRESSION/.test(q) && params?.[1] === "active_inbound_line_id" ? [[bad]] : orig(q, params));
+      const r = await ensureRequiredSchema(c, { allowDdl: true });
+      expect(r.ok).toBe(false);
+      expect(r.missing.join()).toMatch(/active_inbound_line_id 생성식 불일치/);
+    }
   });
 });
 

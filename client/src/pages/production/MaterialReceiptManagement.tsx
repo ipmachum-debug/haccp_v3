@@ -61,9 +61,11 @@ export default function MaterialReceiptManagement() {
   const [reqKey, setReqKey] = useState<string>(newReqKey);
   // 원재료 입고 mutation
   const receiveMaterialMutation = trpc.inventory.receiveMaterial.useMutation({
-    onSuccess: () => {
+    onSuccess: (r: any) => {
       setReqKey(newReqKey());
-      toast.success("원재료가 입고되었습니다.");
+      // 승인 대기면 LOT 은 아직 없다 — 완료로 보이지 않게 (Codex #561·562 검증 R4)
+      if (r?.pendingApproval) toast.info(`입고 승인 대기 (입고 문서 #${r.inboundHeaderId}) — 승인되면 재고에 반영됩니다.`);
+      else toast.success(`원재료가 입고되었습니다${r?.lotNumber ? ` (LOT ${r.lotNumber})` : ""}.`);
       setIsReceiveDialogOpen(false);
       refetchLots();
     },

@@ -137,6 +137,8 @@ function PurchaseOrderListContent() {
   const convByLine = new Map<number, { factor: number; baseUnit: string } | null>(
     ((receivable ?? []) as any[]).map((r) => [Number(r.poLineId), r.conversion ?? null]),
   );
+  // 회계만 사용하는 회사는 재고 환산이 필요 없다 — 서버 정책과 같게 (Codex #561·562 검증 R7)
+  const accountingOnly = ((receivable ?? []) as any[]).some((r) => r.inventoryTracking === false);
   const [packInput, setPackInput] = useState<Record<number, string>>({});
   const savePackMutation = trpc.inbound.savePackUnit.useMutation({
     onSuccess: () => { toast({ title: "환산 설정 저장" }); refetchReceivable(); },
@@ -881,6 +883,7 @@ function PurchaseOrderListContent() {
                         {(() => {
                           const conv = convByLine.get(Number(line.id));
                           const qty = receiveLines[line.id] ?? 0;
+                          if (accountingOnly) return <span className="text-muted-foreground">회계 전용 — 재고·LOT 없음</span>;
                           if (conv) {
                             return conv.factor === 1
                               ? <span className="text-muted-foreground">{qty} {conv.baseUnit}</span>

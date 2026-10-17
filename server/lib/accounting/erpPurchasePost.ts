@@ -14,7 +14,7 @@ export async function erpPostPurchase(purchaseId: number, userId: number, expect
   return withTransaction(async (conn) => {
     // 매입 데이터 조회 + 잠금
     const [rows] = await conn.execute(
-      `SELECT id, tenant_id, item_name, quantity, unit_price, total_amount, tax_amount, status, partner_id, transaction_date
+      `SELECT id, tenant_id, item_name, quantity, unit_price, total_amount, tax_amount, status, partner_id, transaction_date, inbound_line_id
        FROM accounting_purchases
        WHERE id = ? FOR UPDATE`,
       [purchaseId]
@@ -32,6 +32,13 @@ export async function erpPostPurchase(purchaseId: number, userId: number, expect
     // 금액 계약 (amountContract, 2026-10-15): total_amount = 공급가, 외상매입금 = 공급가 + 세액
     const { supply: supplyAmount, tax: taxAmount, gross: grossAmount } = documentAmounts({ totalAmount: purchase.total_amount, taxAmount: purchase.tax_amount });
     const entryDate = purchase.transaction_date || new Date().toISOString().slice(0, 10);
+    // 입고 줄에 연결된 전표 — 살아 있는 확정 입고 줄·금액 기준 검사 (Codex #561·562 검증 R2·R3).
+    //   LOT 이 있는 입고(재고 사용으로 받은 입고) 는 재고 경로 — 디스패처가 문서 기준으로 보낸다 (R6)
+    if (purchase.inbound_line_id != null) {
+      const { assertInboundVoucherPostable } = await import("../inventory/inbound/inboundVoucherGuard");
+      const line = await assertInboundVoucherPostable(conn, { tenantId: Number(tenantId), purchaseId, inboundLineId: Number(purchase.inbound_line_id), supplyAmount });
+      if (line.lotId) throw new Error(`연결된 입고 줄 #${purchase.inbound_line_id} 은 재고 입고입니다 — 재고 경로로 확정해야 합니다.`);
+    }
 
     // 분개 헤더 생성
     const [jeResult] = await conn.execute(

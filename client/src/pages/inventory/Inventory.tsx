@@ -41,7 +41,9 @@ export default function Inventory() {
   const createLotMutation = trpc.inventory.createLot.useMutation({
     onSuccess: (result: any) => {
       setReqKey(newReqKey());
-      toast.success(result.message);
+      // 승인 대기면 아직 재고에 없다 (Codex #561·562 검증 R4)
+      if (result.pendingApproval) toast.info(`${result.message} (입고 문서 #${result.inboundHeaderId})`);
+      else toast.success(result.message);
       refetch();
       setIsDialogOpen(false);
       // 폼 초기화

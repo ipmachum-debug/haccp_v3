@@ -849,6 +849,13 @@ async function ensureInboundDocumentSchema(conn: any) {
   await addCol("accounting_purchases", "active_inbound_line_id",
     "`active_inbound_line_id` bigint GENERATED ALWAYS AS (IF(`status` <> 'cancelled', `inbound_line_id`, NULL)) STORED");
   await addIndex("accounting_purchases", "uq_ap_tenant_active_inbound_line", "UNIQUE KEY `uq_ap_tenant_active_inbound_line` (`tenant_id`, `active_inbound_line_id`)");
+  // 입고 문서의 처리 기준 고정 (Codex #561·562 검증 R6) — 작성 때 회사 설정(재고관리 사용)을 문서에 남긴다.
+  //   설정을 나중에 바꿔도 기존 문서·연결 전표는 이 기준으로 마무리되고, 새 문서부터 새 기준. NULL = 이 컬럼 이전 문서.
+  await addCol("h_inbound_headers", "inventory_tracking", "`inventory_tracking` tinyint NULL");
+  // 무단가 입고 줄의 최초 평가 (Codex #561·562 검증 R3) — 연결 전표 첫 확정 때 한 번 기록, 이후 재발행·확정은 이 값과 같아야 한다.
+  await addCol("h_inbound_lines", "valuation_unit_price", "`valuation_unit_price` decimal(15,2) NULL");
+  await addCol("h_inbound_lines", "valuation_amount", "`valuation_amount` decimal(15,2) NULL");
+  await addCol("h_inbound_lines", "valuation_purchase_id", "`valuation_purchase_id` bigint NULL");
   // 발주 수량 변경 요청·승인 이력 (2026-10-17, CEO 결정 3 — 초과 입고는 자동 허용 없이 변경 승인 후 추가 입고)
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS purchase_order_line_changes (
@@ -924,7 +931,25 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_inbound_headers", column: "supplier_name", why: "자유 입력 공급자명" },
   { table: "accounting_purchases", column: "active_inbound_line_id", why: "입고 줄당 살아 있는 전표 하나" },
   { table: "purchase_order_line_changes", column: "new_qty", why: "발주 수량 변경 승인 이력" },
+  { table: "h_inbound_headers", column: "inventory_tracking", why: "입고 문서 처리 기준 고정 (재고/회계 전용)" },
+  { table: "h_inbound_lines", column: "valuation_unit_price", why: "무단가 입고 최초 평가 단가" },
+  { table: "h_inbound_lines", column: "valuation_amount", why: "무단가 입고 최초 평가액" },
+  { table: "h_inbound_lines", column: "valuation_purchase_id", why: "무단가 입고 평가 전표" },
 ];
+
+/**
+ * UNIQUE 의 대상이 되는 생성 컬럼 — 생성 컬럼인지와 식의 의미까지 확인 (Codex #561·562 검증 R5).
+ *   이름·UNIQUE 구성이 맞아도 일반 컬럼이거나 식이 NULL 상수·반대 조건이면 중복을 막지 못한다. 다르면 fail-closed (자동 수리 없음).
+ *   식 비교는 MySQL 이 저장한 표현에서 백틱·문자셋 표기·괄호·공백·대소문자를 걷어낸 뒤 정확히 같아야 한다.
+ */
+export const REQUIRED_GENERATED_COLUMNS: Array<{ table: string; column: string; expr: string; why: string }> = [
+  { table: "accounting_purchases", column: "active_inbound_line_id", expr: "if((`status` <> 'cancelled'),`inbound_line_id`,NULL)", why: "입고 줄당 살아 있는 전표 하나" },
+  { table: "purchase_order_line_changes", column: "pending_line_id", expr: "if((`status` = 'pending'),`po_line_id`,NULL)", why: "발주 줄당 대기 변경 요청 하나" },
+];
+
+export const normalizeGenerationExpr = (e: string) =>
+  String(e ?? "").toLowerCase().replace(/_utf8mb[34]|_utf8|_latin1|_binary/g, "").replace(/[`\\()\s]/g, "");
+
 
 /** 입고 줄 하나에 LOT 하나 — DB 가 보장해야 하는 키 (없으면 서버를 시작하지 않는다) */
 //   이름·유니크 여부만이 아니라 **컬럼 구성(순서 포함)** 까지 확인한다 (Codex #557 검증 P2: 같은 이름의 UNIQUE(tenant_id, id) 는
@@ -934,6 +959,7 @@ export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; colu
   { table: "h_inbound_lines", index: "uq_ibl_tenant_lot", columns: ["tenant_id", "lot_id"], why: "LOT 당 입고 줄 하나 (PR-1)" },
   { table: "h_inbound_headers", index: "uq_ibh_tenant_idem", columns: ["tenant_id", "idempotency_key"], why: "입고 문서 중복 방지 (PR-1)" },
   { table: "accounting_purchases", index: "uq_ap_tenant_active_inbound_line", columns: ["tenant_id", "active_inbound_line_id"], why: "입고 줄당 살아 있는 전표 하나" },
+  { table: "purchase_order_line_changes", index: "uq_polc_tenant_pending_line", columns: ["tenant_id", "pending_line_id"], why: "발주 줄당 대기 변경 요청 하나" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {
@@ -962,6 +988,20 @@ export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean 
     if (!list.length) missing.push(`${u.table}.${u.index} (${u.why})`);
     else if (!unique || cols.join(",") !== u.columns.join(",")) {
       missing.push(`${u.table}.${u.index} 구성 불일치 — 기대 UNIQUE(${u.columns.join(", ")}), 실제 ${unique ? "UNIQUE" : "INDEX"}(${cols.join(", ")}) (${u.why})`);
+    }
+  }
+  for (const g of REQUIRED_GENERATED_COLUMNS) {
+    const [rows]: any = await conn.query(
+      `SELECT EXTRA AS extra, GENERATION_EXPRESSION AS expr FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`,
+      [g.table, g.column],
+    );
+    const r = (rows as any[])?.[0];
+    if (!r) { missing.push(`${g.table}.${g.column} (${g.why})`); continue; }
+    const extra = String(r.extra ?? r.EXTRA ?? "");
+    const expr = String(r.expr ?? r.GENERATION_EXPRESSION ?? "");
+    if (!/STORED GENERATED/i.test(extra) || normalizeGenerationExpr(expr) !== normalizeGenerationExpr(g.expr)) {
+      missing.push(`${g.table}.${g.column} 생성식 불일치 — 기대 STORED ${g.expr}, 실제 ${extra || "일반 컬럼"} ${expr || "-"} (${g.why})`);
     }
   }
   const warnings: string[] = [];
