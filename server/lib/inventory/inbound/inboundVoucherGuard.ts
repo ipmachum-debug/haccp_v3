@@ -17,7 +17,7 @@ export async function assertInboundVoucherPostable(conn: any, p: {
 }): Promise<InboundVoucherLine> {
   const [il]: any = await conn.execute(
     `SELECT l.id, l.header_id, l.line_number, l.lot_id, l.material_id, l.purchase_quantity, l.total_price, l.cancelled_qty,
-            l.valuation_unit_price, l.valuation_amount, h.status
+            l.valuation_unit_price, l.valuation_amount, l.disposition, h.status
        FROM h_inbound_lines l JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
       WHERE l.id = ? AND l.tenant_id = ? LIMIT 1 FOR UPDATE`,
     [p.inboundLineId, p.tenantId],
@@ -28,6 +28,9 @@ export async function assertInboundVoucherPostable(conn: any, p: {
   }
   if (Number(line.cancelled_qty) > EPS) {
     throw new Error(`연결된 입고 줄 ${line.header_id}-${line.line_number} 은 취소됐습니다 — 이 전표는 확정할 수 없습니다 (전표를 취소하세요).`);
+  }
+  if (line.disposition === "quarantine") {
+    throw new Error(`연결된 입고 줄 ${line.header_id}-${line.line_number} 은 검수 불합격으로 격리 중입니다 — 확정할 수 없습니다 (CEO 결정 4).`);
   }
   const amount = Math.round(Number(p.supplyAmount) * 100) / 100;
   const lotId = line.lot_id != null ? Number(line.lot_id) : null;

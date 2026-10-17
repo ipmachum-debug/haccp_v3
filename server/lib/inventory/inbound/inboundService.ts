@@ -15,7 +15,8 @@
  *     줄은 lot_id 가 있으면 건너뜀, 마지막 방어는 LOT (회사, inbound_line_id) UNIQUE.
  *   - 부분 입고: 발주 줄 잔량(ordered − received) 을 넘는 입고는 거부 (초과 입고 허용 여부는 미결정 — 기본 거부).
  *   - 승인 대기: 회사 설정 INBOUND_APPROVAL 이 켜진 회사만 (확정 요청 → pending_approval → 승인 시 확정). 정책 데이터, 코드 분기 아님.
- *   - 검수 불합격(fail) 줄은 확정하지 않는다 (불합격 처리 정책 미결정 — 기본 거부).
+ *   - 검수 불합격(fail) 줄은 가용 재고에 넣지 않는다 (CEO 결정 4): 확정 때 LOT·원장·수불부·전표 없이 '격리' 로 두고
+ *     재검수(합격 → 그때 재고·전표 / 불합격 → 이력만) 또는 반품으로 처리. 최초 검수 결과는 줄에 그대로, 이후는 검수 이력에 추가.
  *   - 원료 id 는 이 회사의 h_materials id 로 (item_master id 가 와도 ItemIdentityService 로 변환).
  * 매입전표: 발주서 입고는 확정 때 대기 전표 초안을 입고 줄에 연결해 만든다 (CEO 결정). 전표 확정은 분개만 (재고 재생성 없음).
  */
@@ -212,7 +213,7 @@ async function findByKey(tenantId: number, key: string): Promise<number | null> 
 }
 
 export type ConfirmInboundResult =
-  | { status: "confirmed"; alreadyProcessed: boolean; lots: Array<{ lineId: number; lotId: number; lotNumber: string }>; voucherIds: number[] }
+  | { status: "confirmed"; alreadyProcessed: boolean; lots: Array<{ lineId: number; lotId: number; lotNumber: string }>; voucherIds: number[]; quarantinedLineIds?: number[] }
   | { status: "pending_approval" };
 
 /**
@@ -297,9 +298,10 @@ export async function confirmInbound(
     const lines = lRows as any[];
     if (lines.length === 0) throw new Error("입고 줄이 없습니다.");
     const lots: Array<{ lineId: number; lotId: number; lotNumber: string }> = [];
+    const quarantinedLineIds: number[] = [];
     for (const line of lines) {
       if (line.lot_id) { lots.push({ lineId: Number(line.id), lotId: Number(line.lot_id), lotNumber: String(line.lot_number) }); continue; }
-      if (line.inspection_result === "fail") throw new Error(`${line.line_number}번 줄: 검수 불합격 — 확정할 수 없습니다.`);
+      const failed = line.inspection_result === "fail";
       const purchaseQty = Number(line.purchase_quantity);
       const stockQty = Number(line.stock_quantity);
       const label = `${line.line_number}번 줄`;
@@ -326,60 +328,34 @@ export async function confirmInbound(
           throw new Error(`${line.line_number}번 줄: 발주 잔량 ${round3(remaining)} 을 넘습니다 (입고 ${purchaseQty}).`);
         }
       }
-      let lotId = 0;
-      let lotNumber = "";
-      if (tracking) {
-        lotNumber = line.lot_number || `IB${tenantId}-${headerId}-${line.line_number}`;
-        const stockUnitPrice = stockQty > 0 ? Math.round((Number(line.total_price) / stockQty) * 100) / 100 : null;
-        const r = await receiveNewLot(conn, {
-          tenantId,
-          subject: { materialId: Number(line.material_id) },
-          lotNumber,
-          quantity: stockQty,
-          unit: line.stock_unit,
-          unitPrice: stockUnitPrice,
-          receiptDate: inboundDate,
-          expiryDate: line.expiry_ymd ?? null,
-          productionDate: line.production_ymd ?? null,
-          supplierName,
-          location: line.location ?? null,
-          inboundLineId: Number(line.id),
-          reference: { referenceType: "inbound", referenceId: headerId, sourceType: "h_inbound_lines", sourceId: Number(line.id), sourceLineId: Number(line.id), actionType: "INBOUND_CONFIRM" },
-          notes: `입고 확정 ${headerId}-${line.line_number}`,
-          createdBy: userId,
-          transactionType: "receipt",
-        });
-        const [tx]: any = await conn.execute(
-          `SELECT id FROM h_inventory_transactions WHERE tenant_id = ? AND lot_id = ? AND transaction_type = 'receipt' ORDER BY id LIMIT 1`, [tenantId, r.lotId],
-        );
-        await conn.execute(
-          `UPDATE h_inbound_lines SET lot_id = ?, lot_number = ?, receipt_tx_id = ? WHERE id = ? AND tenant_id = ?`,
-          [r.lotId, lotNumber, (tx as any[])[0]?.id ?? null, line.id, tenantId],
-        );
-        await conn.execute(
-          `INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, receiving_qty, source, notes)
-           VALUES (?, ?, ?, ?, 'inbound', ?)
-           ON DUPLICATE KEY UPDATE receiving_qty = receiving_qty + VALUES(receiving_qty), updated_at = NOW()`,
-          [tenantId, line.material_id, inboundDate, stockQty, `입고 ${headerId}-${line.line_number}`],
-        );
-        lotId = r.lotId;
-      }
-      let taxRate = 10;
+      // 발주 입고량은 실제로 들어온 수량 — 격리돼도 들어왔다 (반품하면 되돌린다)
       if (line.po_line_id) {
         await conn.execute(
           `UPDATE purchase_order_lines SET received_qty = received_qty + ? WHERE id = ? AND tenant_id = ?`, [purchaseQty, line.po_line_id, tenantId],
         );
-        const [tr]: any = await conn.execute(`SELECT amount, tax_amount FROM purchase_order_lines WHERE id = ? AND tenant_id = ?`, [line.po_line_id, tenantId]);
-        const amt = Number((tr as any[])[0]?.amount ?? 0);
-        if (amt > 0) taxRate = Math.round((Number((tr as any[])[0]?.tax_amount ?? 0) / amt) * 10000) / 100;
       }
+      // 최초 검수 결과를 이력 1번으로 (이후 재검수는 2번부터 추가 — 덮어쓰지 않는다)
+      if (line.inspection_result) {
+        await conn.execute(
+          `INSERT IGNORE INTO h_inbound_inspections (tenant_id, inbound_line_id, seq, action, result, inspection_json, inspected_by)
+           VALUES (?, ?, 1, 'initial', ?, ?, ?)`,
+          [tenantId, line.id, line.inspection_result, line.inspection_json != null ? (typeof line.inspection_json === "string" ? line.inspection_json : JSON.stringify(line.inspection_json)) : null, line.inspected_by ?? userId],
+        );
+      }
+      if (failed) {
+        // 검수 불합격 — 가용 재고·원장·수불부·전표 없음. 격리로 두고 재검수·반품으로 처리 (CEO 결정 4)
+        await conn.execute(`UPDATE h_inbound_lines SET disposition = 'quarantine' WHERE id = ? AND tenant_id = ?`, [line.id, tenantId]);
+        quarantinedLineIds.push(Number(line.id));
+        lots.push({ lineId: Number(line.id), lotId: 0, lotNumber: "" });
+        continue;
+      }
+      const st = tracking
+        ? await stockInLine(conn, { tenantId, headerId, line, supplierName, receiptDate: inboundDate, ledgerDate: inboundDate, userId, actionType: "INBOUND_CONFIRM" })
+        : { lotId: 0, lotNumber: "" };
       if (createVouchers) {
-        voucherIds.push(await ensureInboundLineVoucher(conn, {
-          tenantId, lineId: Number(line.id), userId, partnerId: poPartnerId ?? (header.supplier_id != null ? Number(header.supplier_id) : null), taxRate,
-          duringConfirm: true,
-        }));
+        voucherIds.push(await createLineVoucher(conn, { tenantId, line, userId, partnerId: poPartnerId ?? (header.supplier_id != null ? Number(header.supplier_id) : null), duringConfirm: true }));
       }
-      lots.push({ lineId: Number(line.id), lotId, lotNumber });
+      lots.push({ lineId: Number(line.id), lotId: st.lotId, lotNumber: st.lotNumber });
     }
     if (header.po_id) await recomputePoStatus(conn, Number(header.po_id), tenantId);
     await conn.execute(
@@ -391,9 +367,9 @@ export async function confirmInbound(
     );
     await publishEvent({
       tenantId, eventType: "inbound.confirmed", aggregateType: "Inbound", aggregateId: headerId,
-      payload: { headerId, poId: header.po_id ?? null, lots, voucherIds }, createdBy: userId,
+      payload: { headerId, poId: header.po_id ?? null, lots, voucherIds, quarantinedLineIds }, createdBy: userId,
     }, conn);
-    return { status: "confirmed", alreadyProcessed: false, lots, voucherIds };
+    return { status: "confirmed", alreadyProcessed: false, lots, voucherIds, quarantinedLineIds };
   }, `inbound.confirm:${headerId}`);
 }
 
@@ -421,6 +397,7 @@ export async function cancelInboundLine(lineId: number, tenantIdIn: number, user
     const remaining = round3(Number(line.stock_quantity) - Number(line.cancelled_qty));
     if (!(remaining > EPS)) throw new Error("이미 취소된 입고 줄입니다.");
     if (line.header_status !== "confirmed") throw new Error("확정된 입고 줄만 취소할 수 있습니다.");
+    if (line.disposition === "quarantine") throw new Error("검수 불합격으로 격리 중인 줄입니다 — 재검수 또는 반품으로 처리하세요.");
     const [pv]: any = await conn.execute(
       `SELECT id FROM accounting_purchases WHERE tenant_id = ? AND inbound_line_id = ? AND status <> 'cancelled' LIMIT 1`, [tenantId, lineId],
     );
@@ -506,6 +483,216 @@ export async function getReceivableLines(poId: number, tenantIdIn: number) {
   return out;
 }
 
+/** 입고 줄을 재고에 넣는다 — LOT(입고 줄 연결)·입고 원장·집계·수불부. 확정과 재검수 합격이 같은 처리. */
+async function stockInLine(conn: any, p: {
+  tenantId: number; headerId: number; line: any; supplierName: string | null; receiptDate: string; ledgerDate: string; userId: number;
+  actionType: "INBOUND_CONFIRM" | "INBOUND_RELEASE";
+}): Promise<{ lotId: number; lotNumber: string }> {
+  const { tenantId, headerId, line } = p;
+  const stockQty = Number(line.stock_quantity);
+  const lotNumber = line.lot_number || `IB${tenantId}-${headerId}-${line.line_number}`;
+  const stockUnitPrice = stockQty > 0 ? Math.round((Number(line.total_price) / stockQty) * 100) / 100 : null;
+  const r = await receiveNewLot(conn, {
+    tenantId,
+    subject: { materialId: Number(line.material_id) },
+    lotNumber,
+    quantity: stockQty,
+    unit: line.stock_unit,
+    unitPrice: stockUnitPrice,
+    receiptDate: p.receiptDate,
+    expiryDate: line.expiry_ymd ?? null,
+    productionDate: line.production_ymd ?? null,
+    supplierName: p.supplierName,
+    location: line.location ?? null,
+    inboundLineId: Number(line.id),
+    reference: { referenceType: "inbound", referenceId: headerId, sourceType: "h_inbound_lines", sourceId: Number(line.id), sourceLineId: Number(line.id), actionType: p.actionType },
+    notes: `${p.actionType === "INBOUND_RELEASE" ? "재검수 합격 입고" : "입고 확정"} ${headerId}-${line.line_number}`,
+    createdBy: p.userId,
+    transactionType: "receipt",
+  });
+  const [tx]: any = await conn.execute(
+    `SELECT id FROM h_inventory_transactions WHERE tenant_id = ? AND lot_id = ? AND transaction_type = 'receipt' ORDER BY id LIMIT 1`, [tenantId, r.lotId],
+  );
+  await conn.execute(
+    `UPDATE h_inbound_lines SET lot_id = ?, lot_number = ?, receipt_tx_id = ? WHERE id = ? AND tenant_id = ?`,
+    [r.lotId, lotNumber, (tx as any[])[0]?.id ?? null, line.id, tenantId],
+  );
+  await conn.execute(
+    `INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, receiving_qty, source, notes)
+     VALUES (?, ?, ?, ?, 'inbound', ?)
+     ON DUPLICATE KEY UPDATE receiving_qty = receiving_qty + VALUES(receiving_qty), updated_at = NOW()`,
+    [tenantId, line.material_id, p.ledgerDate, stockQty, `입고 ${headerId}-${line.line_number}`],
+  );
+  return { lotId: r.lotId, lotNumber };
+}
+
+/** 입고 줄의 매입전표 초안 — 세율은 발주 줄 기준 (없으면 10%) */
+async function createLineVoucher(conn: any, p: { tenantId: number; line: any; userId: number; partnerId: number | null; duringConfirm: boolean }): Promise<number> {
+  let taxRate = 10;
+  if (p.line.po_line_id) {
+    const [tr]: any = await conn.execute(`SELECT amount, tax_amount FROM purchase_order_lines WHERE id = ? AND tenant_id = ?`, [p.line.po_line_id, p.tenantId]);
+    const amt = Number((tr as any[])[0]?.amount ?? 0);
+    if (amt > 0) taxRate = Math.round((Number((tr as any[])[0]?.tax_amount ?? 0) / amt) * 10000) / 100;
+  }
+  return ensureInboundLineVoucher(conn, {
+    tenantId: p.tenantId, lineId: Number(p.line.id), userId: p.userId, partnerId: p.partnerId, taxRate, duringConfirm: p.duringConfirm,
+  });
+}
+
+/** 격리 줄 잠금 + 확인 (재검수·반품 공통) */
+async function lockQuarantinedLine(conn: any, tenantId: number, lineId: number) {
+  const [rows]: any = await conn.execute(
+    `SELECT l.*, DATE_FORMAT(l.expiry_date, '%Y-%m-%d') AS expiry_ymd, DATE_FORMAT(l.production_date, '%Y-%m-%d') AS production_ymd,
+            h.status AS header_status, h.po_id, h.supplier_id, h.supplier_name, h.create_voucher_drafts, h.source_type, h.inventory_tracking
+       FROM h_inbound_lines l JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
+      WHERE l.id = ? AND l.tenant_id = ? LIMIT 1 FOR UPDATE`,
+    [lineId, tenantId],
+  );
+  const line = (rows as any[])[0];
+  if (!line) throw new Error("입고 줄을 찾을 수 없습니다.");
+  if (line.disposition !== "quarantine") throw new Error("격리 중인 입고 줄이 아닙니다.");
+  if (line.header_status !== "confirmed") throw new Error("확정된 입고 문서의 줄만 처리할 수 있습니다.");
+  const [sq]: any = await conn.execute(`SELECT COALESCE(MAX(seq), 0) AS s FROM h_inbound_inspections WHERE tenant_id = ? AND inbound_line_id = ?`, [tenantId, lineId]);
+  return { line, nextSeq: Number((sq as any[])[0]?.s ?? 0) + 1 };
+}
+
+const kstToday = () => new Date(Date.now() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+
+/**
+ * 격리 줄 재검수 (CEO 결정 4). 이력에 추가만 — 최초 불합격(줄의 inspection_result·이력 1번) 은 그대로.
+ *   합격: 그때 재고에 넣는다 (LOT·원장·집계, 수불부는 오늘 날짜 — 과거 마감일을 바꾸지 않음) + 문서 정책대로 전표 초안.
+ *   불합격: 이력만, 계속 격리.
+ */
+export async function reinspectInboundLine(lineId: number, tenantIdIn: number, userId: number, p: { result: "pass" | "fail"; notes?: string | null; inspectionJson?: unknown }): Promise<{ disposition: "released" | "quarantine"; lotId: number | null; voucherId: number | null }> {
+  const tenantId = requireTenant(tenantIdIn);
+  if (p.result !== "pass" && p.result !== "fail") throw new Error("재검수 결과는 합격 또는 불합격입니다.");
+  const trackingNow = await isInventoryTrackingEnabled(tenantId);
+  return withInventoryTx(async (conn) => {
+    const { line, nextSeq } = await lockQuarantinedLine(conn, tenantId, lineId);
+    await conn.execute(
+      `INSERT INTO h_inbound_inspections (tenant_id, inbound_line_id, seq, action, result, notes, inspection_json, inspected_by)
+       VALUES (?, ?, ?, 'reinspect', ?, ?, ?, ?)`,
+      [tenantId, lineId, nextSeq, p.result, p.notes ? String(p.notes).slice(0, 500) : null, p.inspectionJson != null ? JSON.stringify(p.inspectionJson) : null, userId],
+    );
+    if (p.result === "fail") return { disposition: "quarantine" as const, lotId: null, voucherId: null };
+    const tracking = line.inventory_tracking == null ? trackingNow : Number(line.inventory_tracking) === 1;
+    let lotId: number | null = null;
+    if (tracking) {
+      await assertStockUnit(conn, tenantId, Number(line.material_id), line.stock_unit, `${line.line_number}번 줄`);
+      let supplierName: string | null = line.supplier_name ?? null;
+      if (line.supplier_id) {
+        const [ps]: any = await conn.execute(`SELECT company_name FROM partners WHERE id = ? AND tenant_id = ? LIMIT 1`, [line.supplier_id, tenantId]);
+        supplierName = (ps as any[])[0]?.company_name ?? null;
+      }
+      const [hd]: any = await conn.execute(`SELECT DATE_FORMAT(inbound_date, '%Y-%m-%d') AS d FROM h_inbound_headers WHERE id = ? AND tenant_id = ?`, [line.header_id, tenantId]);
+      const st = await stockInLine(conn, {
+        tenantId, headerId: Number(line.header_id), line, supplierName,
+        receiptDate: String((hd as any[])[0].d), ledgerDate: kstToday(), userId, actionType: "INBOUND_RELEASE",
+      });
+      lotId = st.lotId;
+    }
+    await conn.execute(`UPDATE h_inbound_lines SET disposition = 'released' WHERE id = ? AND tenant_id = ?`, [lineId, tenantId]);
+    const createVouchers = line.create_voucher_drafts != null ? Number(line.create_voucher_drafts) === 1 : line.source_type === "purchase_order";
+    let voucherId: number | null = null;
+    if (createVouchers) {
+      let partnerId: number | null = line.supplier_id != null ? Number(line.supplier_id) : null;
+      if (line.po_id) {
+        const [pp]: any = await conn.execute(`SELECT partner_id FROM purchase_orders WHERE id = ? AND tenant_id = ?`, [line.po_id, tenantId]);
+        if ((pp as any[])[0]?.partner_id != null) partnerId = Number((pp as any[])[0].partner_id);
+      }
+      voucherId = await createLineVoucher(conn, { tenantId, line, userId, partnerId, duringConfirm: false });
+    }
+    await publishEvent({
+      tenantId, eventType: "inbound.released", aggregateType: "Inbound", aggregateId: Number(line.header_id),
+      payload: { headerId: Number(line.header_id), lineId, lotId, voucherId }, createdBy: userId,
+    }, conn);
+    return { disposition: "released" as const, lotId, voucherId };
+  }, `inbound.reinspect:${lineId}`);
+}
+
+/** 격리 줄 반품 (CEO 결정 4) — 재고에 들어간 적이 없으니 수량 기록만 되돌린다 (발주 입고량·줄 취소 수량), 이력 추가. */
+export async function returnInboundLine(lineId: number, tenantIdIn: number, userId: number, reason: string): Promise<{ returnedQty: number }> {
+  const tenantId = requireTenant(tenantIdIn);
+  const why = String(reason ?? "").trim();
+  if (!why) throw new Error("반품 사유가 필요합니다.");
+  return withInventoryTx(async (conn) => {
+    const { line, nextSeq } = await lockQuarantinedLine(conn, tenantId, lineId);
+    const qty = round3(Number(line.stock_quantity) - Number(line.cancelled_qty));
+    await conn.execute(
+      `INSERT INTO h_inbound_inspections (tenant_id, inbound_line_id, seq, action, result, notes, inspected_by) VALUES (?, ?, ?, 'return', NULL, ?, ?)`,
+      [tenantId, lineId, nextSeq, why.slice(0, 500), userId],
+    );
+    await conn.execute(
+      `UPDATE h_inbound_lines SET disposition = 'returned', cancelled_qty = cancelled_qty + ? WHERE id = ? AND tenant_id = ?`, [qty, lineId, tenantId],
+    );
+    if (line.po_line_id) {
+      const purchaseBack = round3(Number(line.purchase_quantity) * (qty / Number(line.stock_quantity)));
+      await conn.execute(
+        `UPDATE purchase_order_lines SET received_qty = GREATEST(received_qty - ?, 0) WHERE id = ? AND tenant_id = ?`, [purchaseBack, line.po_line_id, tenantId],
+      );
+      await recomputePoStatus(conn, Number(line.po_id), tenantId);
+    }
+    const [open]: any = await conn.execute(
+      `SELECT COUNT(*) AS n FROM h_inbound_lines WHERE header_id = ? AND tenant_id = ? AND stock_quantity - cancelled_qty > ?`, [line.header_id, tenantId, EPS],
+    );
+    if (Number((open as any[])[0]?.n ?? 0) === 0) {
+      await conn.execute(
+        `UPDATE h_inbound_headers SET status = 'cancelled', cancelled_by = ?, cancelled_at = NOW() WHERE id = ? AND tenant_id = ?`, [userId, line.header_id, tenantId],
+      );
+    }
+    await publishEvent({
+      tenantId, eventType: "inbound.returned", aggregateType: "Inbound", aggregateId: Number(line.header_id),
+      payload: { headerId: Number(line.header_id), lineId, quantity: qty, reason: why }, createdBy: userId,
+    }, conn);
+    return { returnedQty: qty };
+  }, `inbound.return:${lineId}`);
+}
+
+/** 격리 중인 입고 줄 목록 + 검수 이력 */
+export async function listQuarantinedLines(tenantIdIn: number) {
+  const tenantId = requireTenant(tenantIdIn);
+  const { getRawConnection } = await import("../../../db/connection");
+  const conn = await getRawConnection();
+  const [rows]: any = await conn.execute(
+    `SELECT l.id, l.header_id, l.line_number, l.material_id, m.material_name, l.purchase_quantity, l.purchase_unit, l.stock_quantity, l.stock_unit,
+            l.lot_number, DATE_FORMAT(l.expiry_date, '%Y-%m-%d') AS expiry_date, h.inbound_number, DATE_FORMAT(h.inbound_date, '%Y-%m-%d') AS inbound_date,
+            h.po_id, COALESCE(p.company_name, h.supplier_name) AS supplier
+       FROM h_inbound_lines l
+       JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
+       LEFT JOIN h_materials m ON m.id = l.material_id AND m.tenant_id = l.tenant_id
+       LEFT JOIN partners p ON p.id = h.supplier_id AND p.tenant_id = h.tenant_id
+      WHERE l.tenant_id = ? AND l.disposition = 'quarantine'
+      ORDER BY h.inbound_date, l.id`,
+    [tenantId],
+  );
+  const ids = (rows as any[]).map((r) => Number(r.id));
+  const hist = ids.length ? await listInspectionHistory(tenantId, ids) : new Map<number, any[]>();
+  return (rows as any[]).map((r) => ({
+    lineId: Number(r.id), headerId: Number(r.header_id), inboundNumber: r.inbound_number, inboundDate: r.inbound_date, lineNumber: Number(r.line_number),
+    materialId: Number(r.material_id), materialName: r.material_name, purchaseQuantity: Number(r.purchase_quantity), purchaseUnit: r.purchase_unit,
+    stockQuantity: Number(r.stock_quantity), stockUnit: r.stock_unit, lotNumber: r.lot_number, expiryDate: r.expiry_date,
+    poId: r.po_id != null ? Number(r.po_id) : null, supplier: r.supplier, history: hist.get(Number(r.id)) ?? [],
+  }));
+}
+
+export async function listInspectionHistory(tenantIdIn: number, lineIds: number[]): Promise<Map<number, any[]>> {
+  const tenantId = requireTenant(tenantIdIn);
+  const out = new Map<number, any[]>();
+  if (!lineIds.length) return out;
+  const { getRawConnection } = await import("../../../db/connection");
+  const [rows]: any = await (await getRawConnection()).query(
+    `SELECT inbound_line_id, seq, action, result, notes, inspected_by, inspected_at FROM h_inbound_inspections
+      WHERE tenant_id = ? AND inbound_line_id IN (?) ORDER BY inbound_line_id, seq`,
+    [tenantId, lineIds],
+  );
+  for (const r of rows as any[]) {
+    const k = Number(r.inbound_line_id);
+    if (!out.has(k)) out.set(k, []);
+    out.get(k)!.push({ seq: Number(r.seq), action: r.action, result: r.result, notes: r.notes, inspectedBy: Number(r.inspected_by), inspectedAt: r.inspected_at });
+  }
+  return out;
+}
+
 async function recomputePoStatus(conn: any, poId: number, tenantId: number): Promise<void> {
   const [rows]: any = await conn.execute(
     `SELECT COUNT(*) AS n, SUM(received_qty >= ordered_qty - ?) AS full, SUM(received_qty > ?) AS any_recv
@@ -583,7 +770,7 @@ export async function ensureInboundLineVoucher(conn: any, p: {
 }): Promise<number> {
   const [lr]: any = await conn.execute(
     `SELECT l.id, l.line_number, l.header_id, l.material_id, l.purchase_quantity, l.purchase_unit, l.unit_price, l.total_price, l.lot_id,
-            l.stock_quantity, l.cancelled_qty, l.valuation_unit_price, l.valuation_amount,
+            l.stock_quantity, l.cancelled_qty, l.valuation_unit_price, l.valuation_amount, l.disposition,
             h.status AS header_status, h.supplier_id, DATE_FORMAT(h.inbound_date, '%Y-%m-%d') AS inbound_date
        FROM h_inbound_lines l JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
       WHERE l.id = ? AND l.tenant_id = ? LIMIT 1 FOR UPDATE`,
@@ -595,6 +782,7 @@ export async function ensureInboundLineVoucher(conn: any, p: {
   //   헤더는 다른 줄 때문에 confirmed 로 남을 수 있으니 줄의 취소 수량을 본다.
   if (Number(line.cancelled_qty) > EPS) throw new Error(`입고 줄 ${line.header_id}-${line.line_number} 은 취소됐습니다 — 전표를 만들 수 없습니다.`);
   if (!p.duringConfirm && line.header_status !== "confirmed") throw new Error("확정된 입고 줄만 전표를 만들 수 있습니다.");
+  if (line.disposition === "quarantine") throw new Error(`입고 줄 ${line.header_id}-${line.line_number} 은 검수 불합격으로 격리 중입니다 — 재검수 합격 뒤 전표를 만들 수 있습니다.`);
   const find = async () => {
     const [ex]: any = await conn.execute(
       `SELECT id FROM accounting_purchases WHERE tenant_id = ? AND inbound_line_id = ? AND status <> 'cancelled' LIMIT 1`, [p.tenantId, p.lineId],

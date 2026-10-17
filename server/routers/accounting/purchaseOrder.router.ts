@@ -530,8 +530,10 @@ export const purchaseOrderRouter = router({
     if (r.status === "pending_approval") {
       return { message: "입고 승인 대기 — 승인되면 재고에 반영됩니다.", newStatus: after?.status, inboundHeaderId: headerId, createdPurchaseIds: [], lineFailures: [] };
     }
+    const q = r.quarantinedLineIds?.length ?? 0;
     return {
-      message: `${r.lots.length}건 입고 확정 (매입전표 초안 ${r.voucherIds.length}건)`,
+      message: `${r.lots.length - q}건 입고 확정 (매입전표 초안 ${r.voucherIds.length}건)${q ? ` · 검수 불합격 ${q}건 격리 — 재고에 넣지 않음, 재검수·반품으로 처리` : ""}`,
+      quarantinedLineIds: r.quarantinedLineIds ?? [],
       newStatus: after?.status,
       inboundHeaderId: headerId,
       createdPurchaseIds: r.voucherIds,

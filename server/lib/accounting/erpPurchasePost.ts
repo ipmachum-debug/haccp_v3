@@ -14,7 +14,7 @@ export async function erpPostPurchase(purchaseId: number, userId: number, expect
   return withTransaction(async (conn) => {
     // 매입 데이터 조회 + 잠금
     const [rows] = await conn.execute(
-      `SELECT id, tenant_id, item_name, quantity, unit_price, total_amount, tax_amount, status, partner_id, transaction_date, inbound_line_id
+      `SELECT id, tenant_id, item_name, quantity, unit_price, total_amount, tax_amount, status, partner_id, transaction_date, inbound_line_id, source_type
        FROM accounting_purchases
        WHERE id = ? FOR UPDATE`,
       [purchaseId]
@@ -34,6 +34,10 @@ export async function erpPostPurchase(purchaseId: number, userId: number, expect
     const entryDate = purchase.transaction_date || new Date().toISOString().slice(0, 10);
     // 입고 줄에 연결된 전표 — 살아 있는 확정 입고 줄·금액 기준 검사 (Codex #561·562 검증 R2·R3).
     //   LOT 이 있는 입고(재고 사용으로 받은 입고) 는 재고 경로 — 디스패처가 문서 기준으로 보낸다 (R6)
+    // 재고 입고에서 자동 생성된 구형 매입(입고 줄 연결 없음) 도 재고 설정과 무관하게 확정하지 않는다 (Codex #563 R8 정책, #565 S4 와 대칭)
+    if (purchase.inbound_line_id == null && purchase.source_type === "inventory_receipt") {
+      throw new Error(`매입 ${purchaseId} 는 입고 문서 이전 방식의 재고 입고에서 만든 전표입니다 — 확정하지 않습니다 (전표 취소 후 별도 정정).`);
+    }
     if (purchase.inbound_line_id != null) {
       const { assertInboundVoucherPostable } = await import("../inventory/inbound/inboundVoucherGuard");
       const line = await assertInboundVoucherPostable(conn, { tenantId: Number(tenantId), purchaseId, inboundLineId: Number(purchase.inbound_line_id), supplyAmount });

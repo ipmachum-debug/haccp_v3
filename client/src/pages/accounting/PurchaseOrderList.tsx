@@ -66,6 +66,7 @@ import { toast } from "@/hooks/use-toast";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 import { PoQtyChangeDialog } from "@/components/accounting/PoQtyChangeDialog";
+import { QuarantineDialog } from "@/components/accounting/QuarantineDialog";
 
 // 발주서 목록 단일 row / 상세 조회 / 라인 타입
 type OrderRow = RouterOutput["purchaseOrder"]["list"][number];
@@ -124,7 +125,9 @@ function PurchaseOrderListContent() {
   const [receiptDate, setReceiptDate] = useState<string>(() => new Date().toISOString().slice(0, 10));
   const [receiveAutoFilled, setReceiveAutoFilled] = useState<boolean>(false);
   // 줄별 LOT 번호·소비기한 (선택) — 입고 문서 줄에 기록, LOT 에 그대로
-  const [receiveExtra, setReceiveExtra] = useState<Record<number, { lotNumber?: string; expiryDate?: string }>>({});
+  const [receiveExtra, setReceiveExtra] = useState<Record<number, { lotNumber?: string; expiryDate?: string; inspection?: "pass" | "fail" }>>({});
+  // 검수 불합격 격리 목록 (CEO 결정 4)
+  const [quarantineOpen, setQuarantineOpen] = useState(false);
   // 입고 요청 키 — 대화창 하나에 하나. 더블 클릭·재시도는 같은 입고 문서로 (서버 idempotency)
   const [receiveKey, setReceiveKey] = useState<string>("");
   // 발주 수량 변경 요청·승인 (초과 입고는 자동 허용 없이 차단 — 변경 승인 뒤 추가 입고)
@@ -218,7 +221,8 @@ function PurchaseOrderListContent() {
   });
 
   const receiveMutation = trpc.purchaseOrder.receive.useMutation({
-    onSuccess: (r: { message: string; newStatus: string }) => {
+    onSuccess: (r: { message: string; newStatus: string; quarantinedLineIds?: number[] }) => {
+      if (r.quarantinedLineIds?.length) utils.inbound.quarantined.invalidate();
       toast({
         title: "입고 처리 완료",
         description: `${r.message} — 상태: ${STATUS_LABELS[r.newStatus]?.label || r.newStatus}`,
@@ -439,6 +443,7 @@ function PurchaseOrderListContent() {
           lineId: parseInt(lineId), receivedQty: qty,
           ...(extra.lotNumber?.trim() ? { lotNumber: extra.lotNumber.trim() } : {}),
           ...(extra.expiryDate ? { expiryDate: extra.expiryDate } : {}),
+          ...(extra.inspection ? { inspectionResult: extra.inspection } : {}),
         };
       });
 
@@ -557,6 +562,7 @@ function PurchaseOrderListContent() {
         title="발주서"
         description="공급업체 발주 → 승인 → 입고 처리 → 매입전표 자동 생성"
         primary={{ label: "발주서 등록", icon: Plus, onClick: () => navigate("/dashboard/accounting/purchase-orders/create") }}
+        secondary={{ label: "검수 불합격 격리", icon: XCircle, onClick: () => setQuarantineOpen(true) }}
       />
 
       {/* KPI */}
@@ -838,6 +844,7 @@ function PurchaseOrderListContent() {
                   <TableHead className="w-[170px]">재고 환산</TableHead>
                   <TableHead className="w-[130px]">LOT 번호 (선택)</TableHead>
                   <TableHead className="w-[140px]">소비기한 (선택)</TableHead>
+                  <TableHead className="w-[110px]">검수</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -930,6 +937,20 @@ function PurchaseOrderListContent() {
                           disabled={remaining <= 0}
                         />
                       </TableCell>
+                      <TableCell>
+                        {/* 불합격은 재고에 넣지 않고 격리 (재검수·반품) */}
+                        <Select
+                          value={receiveExtra[line.id]?.inspection ?? "pass"}
+                          onValueChange={(v) => setReceiveExtra({ ...receiveExtra, [line.id]: { ...receiveExtra[line.id], inspection: v as "pass" | "fail" } })}
+                          disabled={remaining <= 0}
+                        >
+                          <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="pass">합격</SelectItem>
+                            <SelectItem value="fail">불합격 (격리)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </TableCell>
                     </TableRow>
                   );
                 })}
@@ -958,6 +979,8 @@ function PurchaseOrderListContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <QuarantineDialog open={quarantineOpen} onOpenChange={setQuarantineOpen} />
 
       <PoQtyChangeDialog
         poId={qtyChangePoId}

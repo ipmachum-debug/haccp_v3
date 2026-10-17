@@ -856,6 +856,26 @@ async function ensureInboundDocumentSchema(conn: any) {
   await addCol("h_inbound_lines", "valuation_unit_price", "`valuation_unit_price` decimal(15,2) NULL");
   await addCol("h_inbound_lines", "valuation_amount", "`valuation_amount` decimal(15,2) NULL");
   await addCol("h_inbound_lines", "valuation_purchase_id", "`valuation_purchase_id` bigint NULL");
+  // 검수 불합격 → 격리·반품·재검수 (2026-10-17, CEO 결정 4) — 줄의 처리 상태 + 검수 이력(추가만, 최초 불합격을 덮어쓰지 않음)
+  await addCol("h_inbound_lines", "disposition", "`disposition` varchar(20) NULL");
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS h_inbound_inspections (
+      id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      tenant_id int NOT NULL,
+      inbound_line_id bigint NOT NULL,
+      seq int NOT NULL,
+      action varchar(20) NOT NULL,
+      result varchar(20) NULL,
+      notes varchar(500) NULL,
+      inspection_json json NULL,
+      inspected_by bigint NOT NULL,
+      inspected_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_ibi_tenant_line_seq (tenant_id, inbound_line_id, seq),
+      KEY idx_ibi_tenant_line (tenant_id, inbound_line_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  } catch (err: any) {
+    console.warn("[Migration] h_inbound_inspections failed:", err.message);
+  }
   // 발주 수량 변경 요청·승인 이력 (2026-10-17, CEO 결정 3 — 초과 입고는 자동 허용 없이 변경 승인 후 추가 입고)
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS purchase_order_line_changes (
@@ -935,6 +955,8 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_inbound_lines", column: "valuation_unit_price", why: "무단가 입고 최초 평가 단가" },
   { table: "h_inbound_lines", column: "valuation_amount", why: "무단가 입고 최초 평가액" },
   { table: "h_inbound_lines", column: "valuation_purchase_id", why: "무단가 입고 평가 전표" },
+  { table: "h_inbound_lines", column: "disposition", why: "검수 불합격 격리·반품·재검수 상태" },
+  { table: "h_inbound_inspections", column: "seq", why: "검수 이력 (최초 불합격 보존)" },
 ];
 
 /**
@@ -960,6 +982,7 @@ export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; colu
   { table: "h_inbound_headers", index: "uq_ibh_tenant_idem", columns: ["tenant_id", "idempotency_key"], why: "입고 문서 중복 방지 (PR-1)" },
   { table: "accounting_purchases", index: "uq_ap_tenant_active_inbound_line", columns: ["tenant_id", "active_inbound_line_id"], why: "입고 줄당 살아 있는 전표 하나" },
   { table: "purchase_order_line_changes", index: "uq_polc_tenant_pending_line", columns: ["tenant_id", "pending_line_id"], why: "발주 줄당 대기 변경 요청 하나" },
+  { table: "h_inbound_inspections", index: "uq_ibi_tenant_line_seq", columns: ["tenant_id", "inbound_line_id", "seq"], why: "검수 이력 순번 중복 방지" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {
