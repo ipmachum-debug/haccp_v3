@@ -866,10 +866,12 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
 ];
 
 /** 입고 줄 하나에 LOT 하나 — DB 가 보장해야 하는 키 (없으면 서버를 시작하지 않는다) */
-export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; why: string }> = [
-  { table: "h_inventory_lots", index: "uq_lot_tenant_inbound_line", why: "입고 줄당 LOT 하나 (PR-1)" },
-  { table: "h_inbound_lines", index: "uq_ibl_tenant_lot", why: "LOT 당 입고 줄 하나 (PR-1)" },
-  { table: "h_inbound_headers", index: "uq_ibh_tenant_idem", why: "입고 문서 중복 방지 (PR-1)" },
+//   이름·유니크 여부만이 아니라 **컬럼 구성(순서 포함)** 까지 확인한다 (Codex #557 검증 P2: 같은 이름의 UNIQUE(tenant_id, id) 는
+//   중복을 막지 못하는데 통과했다). 다르면 fail-closed — 자동 DROP/재생성하지 않는다 (중복 사전 점검 + 승인된 DDL 로 재구성).
+export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; columns: string[]; why: string }> = [
+  { table: "h_inventory_lots", index: "uq_lot_tenant_inbound_line", columns: ["tenant_id", "inbound_line_id"], why: "입고 줄당 LOT 하나 (PR-1)" },
+  { table: "h_inbound_lines", index: "uq_ibl_tenant_lot", columns: ["tenant_id", "lot_id"], why: "LOT 당 입고 줄 하나 (PR-1)" },
+  { table: "h_inbound_headers", index: "uq_ibh_tenant_idem", columns: ["tenant_id", "idempotency_key"], why: "입고 문서 중복 방지 (PR-1)" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {
@@ -888,10 +890,17 @@ export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean 
   }
   for (const u of REQUIRED_UNIQUE_INDEXES) {
     const [rows]: any = await conn.query(
-      `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? AND NON_UNIQUE = 0 LIMIT 1`,
+      `SELECT COLUMN_NAME AS col, NON_UNIQUE AS nu FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? ORDER BY SEQ_IN_INDEX`,
       [u.table, u.index],
     );
-    if (!(rows as any[])?.length) missing.push(`${u.table}.${u.index} (${u.why})`);
+    const list = (rows as any[]) ?? [];
+    const cols = list.map((r) => String(r.col ?? r.COLUMN_NAME ?? ""));
+    const unique = list.length > 0 && list.every((r) => Number(r.nu ?? r.NON_UNIQUE) === 0);
+    if (!list.length) missing.push(`${u.table}.${u.index} (${u.why})`);
+    else if (!unique || cols.join(",") !== u.columns.join(",")) {
+      missing.push(`${u.table}.${u.index} 구성 불일치 — 기대 UNIQUE(${u.columns.join(", ")}), 실제 ${unique ? "UNIQUE" : "INDEX"}(${cols.join(", ")}) (${u.why})`);
+    }
   }
   const warnings: string[] = [];
   const [idx]: any = await conn.query(

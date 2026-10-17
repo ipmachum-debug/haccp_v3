@@ -1571,6 +1571,19 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect((await q(`SELECT COLUMN_TYPE AS ct FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'h_inbound_headers' AND COLUMN_NAME = 'status'`))[0].ct).toContain("pending_approval");
     });
 
+    it("같은 이름이지만 컬럼 구성이 다른 키 — 필수 스키마가 ok:false (자동 재생성 안 함, Codex #557 검증 P2)", async () => {
+      const { ensureRequiredSchema } = await import("./db/startupMigrations");
+      await q(`ALTER TABLE h_inventory_lots DROP INDEX uq_lot_tenant_inbound_line, ADD UNIQUE KEY uq_lot_tenant_inbound_line (tenant_id, id)`);
+      try {
+        const r = await ensureRequiredSchema(admin, { allowDdl: true });
+        expect(r.ok).toBe(false);
+        expect(r.missing.join()).toMatch(/uq_lot_tenant_inbound_line 구성 불일치 — 기대 UNIQUE\(tenant_id, inbound_line_id\), 실제 UNIQUE\(tenant_id, id\)/);
+      } finally {
+        await q(`ALTER TABLE h_inventory_lots DROP INDEX uq_lot_tenant_inbound_line, ADD UNIQUE KEY uq_lot_tenant_inbound_line (tenant_id, inbound_line_id)`);
+      }
+      expect((await ensureRequiredSchema(admin, { allowDdl: false })).ok).toBe(true);
+    });
+
     it("입고 줄 하나에 LOT 하나 — 같은 회사·같은 줄로 두 번째 LOT 은 DB 가 거부, 다른 회사·NULL 은 허용", async () => {
       const { withInventoryTx, receiveNewLot } = await import("./lib/inventory/applyInventoryDelta");
       const make = (tenantId: number, materialId: number, n: string, inboundLineId: number | null) =>
