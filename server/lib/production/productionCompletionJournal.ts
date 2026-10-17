@@ -48,7 +48,11 @@ export function isOnOrAfterStart(completedAt: string | Date | null | undefined, 
 }
 
 /** 전기 금액 결정 — material_cost 우선, 없으면 투입 total_price 합계 */
-export function resolveBatchCost(batch: { material_cost?: unknown; actual_cost?: unknown }, inputsTotal: number): number {
+export function resolveBatchCost(batch: { material_cost?: unknown; actual_cost?: unknown; cost_finalized_at?: unknown }, inputsTotal: number): number {
+  // ★ 2026-10-17 (Codex #555 검증 P1): 확정 원가(cost_finalized_at 이 있는 actual_cost — 실제 출고 원가) 가 정본.
+  //   이전엔 옛 material_cost 를 먼저 골라 배치 원가 125,000 / 분개·LOT 100,000 으로 갈렸다.
+  const fin = batch.cost_finalized_at != null && String(batch.cost_finalized_at) !== "" ? Number(batch.actual_cost ?? 0) : 0;
+  if (Number.isFinite(fin) && fin > 0) return Math.round(fin * 100) / 100;
   const mc = Number(batch.material_cost ?? 0);
   if (Number.isFinite(mc) && mc > 0) return Math.round(mc * 100) / 100;
   const ac = Number(batch.actual_cost ?? 0);
@@ -74,7 +78,7 @@ export async function postProductionCompletionJournal(p: {
   const pool = await getRawConnection();
 
   const [bRows] = await pool.execute<any[]>(
-    `SELECT id, batch_code, status, completed_at, planned_date, material_cost, actual_cost, actual_quantity
+    `SELECT id, batch_code, status, completed_at, planned_date, material_cost, actual_cost, cost_finalized_at, actual_quantity
        FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`,
     [p.batchId, p.tenantId],
   );
