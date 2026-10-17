@@ -306,6 +306,8 @@ export interface ReceiveNewLotParams {
   /** 제품 LOT 의 판매 SKU (생산완료 SKU 별 LOT) */
   skuId?: number | null;
   skuName?: string | null;
+  /** 입고 문서 줄 (h_inbound_lines.id) — UNIQUE(tenant_id, inbound_line_id) 로 줄 하나에 LOT 하나 (입고 정본화 PR-1) */
+  inboundLineId?: number | null;
   reference?: ApplyLotDeltaParams["reference"];
   notes?: string | null;
   createdBy: number;
@@ -328,11 +330,11 @@ export async function receiveNewLot(
   // (1) LOT 생성
   const [lotResult]: any = await conn.execute(
     `INSERT INTO h_inventory_lots
-       (tenant_id, lot_number, material_id, product_id, batch_id, sku_id, sku_name, quantity,
+       (tenant_id, lot_number, material_id, product_id, batch_id, sku_id, sku_name, inbound_line_id, quantity,
         available_quantity, current_quantity, unit, unit_price,
         production_date, receipt_date, expiry_date,
         supplier_name, manufacturer_name, location, status)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`,
     [
       p.tenantId,
       p.lotNumber,
@@ -341,6 +343,7 @@ export async function receiveNewLot(
       p.batchId ?? null,
       p.skuId ?? null,
       p.skuName ?? null,
+      p.inboundLineId ?? null,
       qty,
       qty,
       qty,

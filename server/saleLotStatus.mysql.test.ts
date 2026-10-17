@@ -1556,4 +1556,48 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect((await backfillPurchaseJournal(601, T, 4, { apply: false })).status).toBe("would_post");
     });
   });
+  describe("입고 정본화 PR-1 — 입고 문서 스키마·중복 방지 키 (2026-10-17)", () => {
+    beforeEach(async () => {
+      for (const t of ["h_inbound_headers", "h_inbound_lines", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "h_materials"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (700, ?, 'M700', '멥쌀', 'kg', 1), (800, 3, 'M800', '타사', 'kg', 1)`, [T]);
+    });
+
+    it("필수 스키마: 새 컬럼·유니크 키가 있고, 다시 불러도 그대로 (기존 행 값 무변경)", async () => {
+      const { ensureRequiredSchema } = await import("./db/startupMigrations");
+      expect(await ensureRequiredSchema(admin, { allowDdl: true })).toMatchObject({ ok: true, missing: [] });
+      const uniq = await q(`SELECT TABLE_NAME AS t, INDEX_NAME AS i FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE() AND NON_UNIQUE = 0 AND INDEX_NAME IN ('uq_lot_tenant_inbound_line','uq_ibl_tenant_lot','uq_ibl_tenant_header_line','uq_ibh_tenant_idem') GROUP BY 1, 2 ORDER BY 2`);
+      expect(uniq.map((r: any) => r.i)).toEqual(["uq_ibh_tenant_idem", "uq_ibl_tenant_header_line", "uq_ibl_tenant_lot", "uq_lot_tenant_inbound_line"]);
+      expect((await q(`SELECT COLUMN_TYPE AS ct FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'h_inbound_headers' AND COLUMN_NAME = 'status'`))[0].ct).toContain("pending_approval");
+    });
+
+    it("입고 줄 하나에 LOT 하나 — 같은 회사·같은 줄로 두 번째 LOT 은 DB 가 거부, 다른 회사·NULL 은 허용", async () => {
+      const { withInventoryTx, receiveNewLot } = await import("./lib/inventory/applyInventoryDelta");
+      const make = (tenantId: number, materialId: number, n: string, inboundLineId: number | null) =>
+        withInventoryTx((conn) => receiveNewLot(conn, { tenantId, subject: { materialId }, lotNumber: n, quantity: 10, unit: "kg", inboundLineId, createdBy: 4 }));
+      const r = await make(T, 700, "IB-1", 501);
+      expect(Number((await q(`SELECT inbound_line_id FROM h_inventory_lots WHERE id = ?`, [r.lotId]))[0].inbound_line_id)).toBe(501);
+      await expect(make(T, 700, "IB-2", 501)).rejects.toThrow(/Duplicate entry/);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions`))[0].n)).toBe(1); // 실패한 두 번째는 원장도 남기지 않음
+      await make(3, 800, "IB-3", 501); // 다른 회사
+      await make(T, 700, "IB-4", null);
+      await make(T, 700, "IB-5", null); // 기존처럼 NULL 은 여러 개
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_lots`))[0].n)).toBe(4);
+    });
+
+    it("문서: 승인 대기 상태 저장, 같은 회사·같은 키 문서 / 같은 문서 줄 번호 / 같은 LOT 두 줄은 거부", async () => {
+      await q(`INSERT INTO h_inbound_headers (id, tenant_id, inbound_number, site_id, inbound_date, status, created_by, idempotency_key, source_type)
+        VALUES (61, ?, 'IB-2-1', 1, '2026-10-17', 'pending_approval', 4, 'k-1', 'direct')`, [T]);
+      await expect(q(`INSERT INTO h_inbound_headers (tenant_id, inbound_number, site_id, inbound_date, status, created_by, idempotency_key) VALUES (?, 'IB-2-2', 1, '2026-10-17', 'draft', 4, 'k-1')`, [T])).rejects.toThrow(/Duplicate entry/);
+      await q(`INSERT INTO h_inbound_headers (tenant_id, inbound_number, site_id, inbound_date, status, created_by, idempotency_key) VALUES (3, 'IB-3-1', 1, '2026-10-17', 'draft', 4, 'k-1')`);
+      const line = (n: number, lot: number | null) => q(`INSERT INTO h_inbound_lines (tenant_id, header_id, line_number, material_id, purchase_quantity, purchase_unit, stock_quantity, stock_unit, unit_price, total_price, lot_id)
+        VALUES (?, 61, ?, 700, 10, 'kg', 10, 'kg', 1000, 10000, ?)`, [T, n, lot]);
+      await line(1, 9001);
+      await expect(line(1, null)).rejects.toThrow(/Duplicate entry/);
+      await expect(line(2, 9001)).rejects.toThrow(/Duplicate entry/);
+      await line(2, null);
+      const l = (await q(`SELECT cancelled_qty + 0 AS c, inspection_result FROM h_inbound_lines WHERE line_number = 2`))[0];
+      expect([Number(l.c), l.inspection_result]).toEqual([0, null]);
+    });
+  });
 });

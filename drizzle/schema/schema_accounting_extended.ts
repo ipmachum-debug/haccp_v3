@@ -37,6 +37,8 @@ export const accountingPurchases = mysqlTable("accounting_purchases", {
   // HACCP 연동 정보
   sourceType: varchar("source_type", { length: 50 }), // "inventory_receipt", "manual" 등
   sourceId: bigint("source_id", { mode: "number" }), // h_inventory_transactions.id 등
+  // 입고 줄 연결 (2026-10-17, 입고 정본화 PR-1) — 매입전표는 기존 입고에 연결만, 재고를 다시 만들지 않는다 (PR-5)
+  inboundLineId: bigint("inbound_line_id", { mode: "number" }),
 
   // 메모 및 상태
   notes: text("notes"), // 메모

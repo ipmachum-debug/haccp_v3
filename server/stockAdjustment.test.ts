@@ -148,7 +148,7 @@ describe("applyPhysicalCount (실사 1품목)", () => {
     expect(r.affected).toEqual([{ lotId: 777, lotNumber: r.createdLotNumber, changeQty: 25.5, newAvailable: 25.5 }]);
     const lotIns = calls.find((c) => c.sql.startsWith("INSERT INTO h_inventory_lots"))!;
     expect(lotIns.params[2]).toBe(615);   // material_id
-    expect(lotIns.params[7]).toBe(25.5);  // quantity (batch_id·sku_id·sku_name 뒤)
+    expect(lotIns.params[8]).toBe(25.5);  // quantity (batch_id·sku_id·sku_name·inbound_line_id 뒤)
     const ledger = calls.find((c) => c.sql.startsWith("INSERT INTO h_inventory_transactions"))!;
     expect(ledger.params[3]).toBe("adjustment");
     expect(ledger.params[4]).toBe(25.5);
