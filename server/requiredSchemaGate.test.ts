@@ -17,6 +17,7 @@ const GOOD_KEYS: Record<string, any[]> = {
   uq_lot_tenant_inbound_line: uq("tenant_id", "inbound_line_id"),
   uq_ibl_tenant_lot: uq("tenant_id", "lot_id"),
   uq_ibh_tenant_idem: uq("tenant_id", "idempotency_key"),
+  uq_ap_tenant_active_inbound_line: uq("tenant_id", "active_inbound_line_id"),
 };
 
 /** 가짜 연결 — 컬럼·인덱스 유무와 DDL 실패를 주입 */

@@ -227,6 +227,8 @@ export const hInboundHeaders = mysqlTable("h_inbound_headers", {
   approvedAt: timestamp("approved_at"),
   cancelledBy: bigint("cancelled_by", { mode: "number" }),
   cancelledAt: timestamp("cancelled_at"),
+  createVoucherDrafts: tinyint("create_voucher_drafts"), // 확정·승인 때 매입전표 초안을 만들지 (문서에 보존)
+  supplierName: varchar("supplier_name", { length: 200 }), // 거래처 미선택 자유 입력 공급자명 (원문)
   createdBy: bigint("created_by", { mode: "number" }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),

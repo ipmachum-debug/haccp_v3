@@ -138,6 +138,8 @@ export async function createInventoryLot(data: {
   receiptDate?: Date;
   userId: number;
   tenantId?: number;
+  unitPrice?: number | null;      // 입고 단가 — LOT 원가 (Codex #560 검증 N3: 이전엔 0 으로 입고)
+  idempotencyKey?: string | null; // 같은 요청 재시도는 입고 한 번 (N6)
 }) {
   const tenantId = requireTenantId(data.tenantId);
   const qty = parsePositiveQty(data.quantity);
@@ -145,6 +147,7 @@ export async function createInventoryLot(data: {
   const { receiveDirect } = await import("../../lib/inventory/inbound/inboundService");
   const { lotId } = await receiveDirect({
     tenantId, userId: data.userId, materialId: data.materialId, quantity: qty, unit: data.unit,
+    unitPrice: data.unitPrice ?? null, idempotencyKey: data.idempotencyKey ?? null,
     supplierId: data.supplierId ?? null, receiptDate: kstYmd(data.receiptDate ?? new Date()),
     expiryDate: data.expiryDate ? kstYmd(data.expiryDate) : null, lotNumber: data.lotNumber,
     notes: `재고 입고 - LOT ${data.lotNumber}`, createVoucherDraft: false,
@@ -701,6 +704,8 @@ export async function receiveMaterial(params: {
   location?: string;
   tenantId?: number;
   userId?: number;
+  unitPrice?: number | null;
+  idempotencyKey?: string | null; // 같은 요청 재시도는 입고 한 번 (Codex #560 검증 N6)
 }) {
   const tenantId = requireTenantId(params.tenantId);
   const qty = parsePositiveQty(params.quantity);
@@ -710,6 +715,7 @@ export async function receiveMaterial(params: {
   const { receiveDirect } = await import("../../lib/inventory/inbound/inboundService");
   const r = await receiveDirect({
     tenantId, userId: params.userId ?? 0, materialId: params.materialId, quantity: qty, unit: params.unit,
+    unitPrice: params.unitPrice ?? null, idempotencyKey: params.idempotencyKey ?? null,
     receiptDate: String(params.receiptDate).slice(0, 10), expiryDate: params.expiryDate ? String(params.expiryDate).slice(0, 10) : null,
     lotNumber, location: params.location ?? null, createVoucherDraft: false,
   });

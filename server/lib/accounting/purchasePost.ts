@@ -153,6 +153,24 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
       }
       inboundLinked = true;
       reuseLotId = Number(line.lot_id);
+      // 입고 때 단가가 없던 LOT (0) 이면 이 전표 금액으로 원가를 매긴다 — 아직 쓰이지 않은 LOT 만 (Codex #560 검증 N3).
+      //   이미 쓰인 LOT 은 소급하지 않고 경고만 (미평가 LOT — 별도 평가 절차).
+      const [lt]: any = await conn.execute(
+        `SELECT l.unit_price, l.quantity, l.available_quantity,
+                (SELECT COUNT(*) FROM h_inventory_transactions t WHERE t.tenant_id = l.tenant_id AND t.lot_id = l.id AND t.transaction_type <> 'receipt') AS moves
+           FROM h_inventory_lots l WHERE l.id = ? AND l.tenant_id = ? LIMIT 1 FOR UPDATE`,
+        [reuseLotId, tenantId],
+      );
+      const lotRow = (lt as any[])[0];
+      if (lotRow && !(Number(lotRow.unit_price) > 0) && supplyAmount > 0) {
+        const unmoved = Number(lotRow.moves) === 0 && Math.abs(Number(lotRow.quantity) - Number(lotRow.available_quantity)) < 0.0005;
+        if (unmoved && Number(lotRow.quantity) > 0) {
+          await conn.execute(`UPDATE h_inventory_lots SET unit_price = ? WHERE id = ? AND tenant_id = ?`,
+            [(Math.round((supplyAmount / Number(lotRow.quantity)) * 100) / 100).toFixed(2), reuseLotId, tenantId]);
+        } else {
+          console.warn(`[purchasePost] 매입 ${purchaseId}: 연결 LOT #${reuseLotId} 이 이미 쓰여 단가를 소급하지 않음 (미평가 LOT)`);
+        }
+      }
       resolvedMaterialId = Number(line.material_id);
       resolvedItemType = "raw_material";
     }

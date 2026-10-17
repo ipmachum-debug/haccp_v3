@@ -28,6 +28,9 @@ export default function InventoryReceipt() {
   const [unitPrice, setUnitPrice] = useState("");
   const [supplierId, setSupplierId] = useState<number | null>(null);
   const [supplierName, setSupplierName] = useState("");
+  // 입고 요청 키 — 성공할 때까지 같은 키 (더블 클릭·재시도에 입고 한 번, Codex #560 검증 N6)
+  const newReqKey = () => `rcv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const [reqKey, setReqKey] = useState<string>(newReqKey);
 
   // 품목 목록 조회 (원재료 + 부재료 + 외주제품)
   const { data: _rawMaterials, isLoading: materialsLoading } = trpc.material.list.useQuery({ limit: 9999, itemTypes: ["raw_material", "subsidiary", "external_product"] });
@@ -59,14 +62,15 @@ export default function InventoryReceipt() {
   // 수동 LOT 입고 mutation
   const createLotMutation = trpc.inventory.createLot.useMutation({
     onSuccess: async (data: any) => {
+      setReqKey(newReqKey());
       toast.success("재고가 성공적으로 입고되었습니다.");
       
       // 수동 LOT 입고는 전표를 만들지 않는다 — 여기서 만든 전표는 서버가 입고 줄에 연결한다 (전표 확정 = 분개만)
-      if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId) {
+      if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId && data.lotId) {
         const selectedMaterial = materials?.find((m: any) => m.id === selectedMaterialId);
         try {
           await createPurchaseMutation.mutateAsync({
-            inventoryTransactionId: data.lotId,
+            lotId: data.lotId, // LOT id — 재고거래 id 와 따로 (Codex #560 검증 N2)
             itemName: selectedMaterial?.materialName || "재료",
             quantity: quantity,
             unit: unit,
@@ -92,20 +96,22 @@ export default function InventoryReceipt() {
   });
 
   // LOT 자동생성 입고 mutation
-  // 입고 요청 키 — 성공할 때까지 같은 키 (더블 클릭·재시도에 입고 한 번)
-  const newReqKey = () => `rcv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-  const [reqKey, setReqKey] = useState<string>(newReqKey);
   const createReceivingWithLotMutation = trpc.lotManagement.createReceivingWithLot.useMutation({
     onSuccess: async (result: any) => {
       setReqKey(newReqKey());
-      toast.success(`입고 완료! LOT: ${result.lotNumber}`);
+      // 승인이 필요한 회사: 재고·전표는 승인 때 (Codex #560 검증 N5) — 완료로 보이지 않게, 전표도 만들지 않는다
+      if (result.pendingApproval) {
+        toast.info("입고 승인 대기 — 승인되면 재고와 매입전표 초안이 반영됩니다.");
+      } else {
+        toast.success(`입고 완료! LOT: ${result.lotNumber}`);
+      }
       
       // 입고 확정이 단가가 있으면 입고 줄에 연결된 전표 초안을 이미 만든다 (2026-10-17) — 그때는 다시 만들지 않는다
-      if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId && !result.accountingPurchaseCreated) {
+      if (!result.pendingApproval && result.lotId && autoCreatePurchase && selectedMaterialId && unitPrice && supplierId && !result.accountingPurchaseCreated) {
         const selectedMaterial = materials?.find((m: any) => m.id === selectedMaterialId);
         try {
           await createPurchaseMutation.mutateAsync({
-            inventoryTransactionId: result.lotId || 0,
+            lotId: result.lotId,
             itemName: selectedMaterial?.materialName || "재료",
             quantity: quantity,
             unit: unit,
@@ -153,7 +159,8 @@ export default function InventoryReceipt() {
         quantity: parseFloat(quantity),
         unit,
         unitPrice: unitPrice ? parseFloat(unitPrice) : undefined,
-        supplierName: supplierLabel || undefined,
+        partnerId: supplierId || undefined, // 선택한 거래처 id (Codex #560 검증 N4)
+        supplierName: supplierId ? undefined : (supplierLabel || undefined),
         expiryDate: expiryDate || undefined,
         receiptDate: receiptDate || undefined,
         notes: '',
@@ -172,6 +179,9 @@ export default function InventoryReceipt() {
         unit,
         expiryDate: expiryDate || undefined,
         receiptDate: receiptDate || undefined,
+        supplierId: supplierId || undefined,
+        unitPrice: unitPrice ? parseFloat(unitPrice) : undefined, // LOT 원가 (Codex #560 검증 N3)
+        idempotencyKey: reqKey,
       });
     }
   };

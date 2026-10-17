@@ -35,8 +35,12 @@ export default function Inventory() {
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   const exportInventory = trpc.excel.exportInventory.useMutation();
 
+  // 입고 요청 키 — 성공할 때까지 같은 키 (더블 클릭·응답 유실 재시도에 입고 한 번, Codex #560 검증 N6)
+  const newReqKey = () => `rcv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const [reqKey, setReqKey] = useState<string>(newReqKey);
   const createLotMutation = trpc.inventory.createLot.useMutation({
     onSuccess: (result: any) => {
+      setReqKey(newReqKey());
       toast.success(result.message);
       refetch();
       setIsDialogOpen(false);
@@ -85,6 +89,7 @@ export default function Inventory() {
       unit,
       expiryDate: expiryDate || undefined,
       receiptDate: receiptDate || undefined,
+      idempotencyKey: reqKey,
     });
   };
 

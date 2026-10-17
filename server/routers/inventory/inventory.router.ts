@@ -40,7 +40,9 @@ export const inventoryRouter = router({
           unit: z.string(),
           expiryDate: z.string().optional(),
           supplierId: z.number().optional(),
-          receiptDate: z.string().optional()
+          receiptDate: z.string().optional(),
+          unitPrice: z.number().min(0).optional(),
+          idempotencyKey: z.string().min(8).max(64).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -54,7 +56,9 @@ export const inventoryRouter = router({
           supplierId: input.supplierId,
           receiptDate: input.receiptDate ? new Date(input.receiptDate) : undefined,
           userId: ctx.user?.id || 0,
-          tenantId: ctx.tenantId
+          tenantId: ctx.tenantId,
+          unitPrice: input.unitPrice ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
         });
       }),
     
@@ -68,7 +72,9 @@ export const inventoryRouter = router({
           receiptDate: z.string(),
           expiryDate: z.string().optional(),
           lotNumber: z.string().optional(),
-          location: z.string().optional()
+          location: z.string().optional(),
+          unitPrice: z.number().min(0).optional(),
+          idempotencyKey: z.string().min(8).max(64).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -82,7 +88,9 @@ export const inventoryRouter = router({
           lotNumber: input.lotNumber,
           location: input.location,
           tenantId: ctx.tenantId,
-          userId: ctx.user?.id || 0
+          userId: ctx.user?.id || 0,
+          unitPrice: input.unitPrice ?? null,
+          idempotencyKey: input.idempotencyKey ?? null,
         });
       }),
     

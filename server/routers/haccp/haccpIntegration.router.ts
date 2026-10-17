@@ -9,7 +9,10 @@ export const haccpIntegrationRouter = router({
     createPurchaseFromReceipt: adminProcedure
       .input(
         z.object({
-          inventoryTransactionId: z.number(),
+          // 번호 종류를 구분해 받는다 (Codex #560 검증 N2) — 셋 중 하나
+          inventoryTransactionId: z.number().optional(),
+          lotId: z.number().optional(),
+          inboundLineId: z.number().optional(),
           partnerId: z.number().optional(),
           itemName: z.string(),
           quantity: z.string(),
