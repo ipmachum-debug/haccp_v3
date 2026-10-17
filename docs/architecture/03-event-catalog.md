@@ -71,6 +71,8 @@ CREATE TABLE domain_events (
 
 | 이벤트 | 트리거 | payload |
 |---|---|---|
+| `inbound.confirmed` | 입고 확정 (발주서 입고·직접 입고 공통, 2026-10-17) | `{ headerId, poId, lots: [{ lineId, lotId, lotNumber }] }` |
+| `inbound.cancelled` | 입고 줄 취소 | `{ headerId, lineId, lotId, quantity, reason }` |
 | `inventory.adjusted` | 재고 조정 | `{ itemId, lotId, deltaQuantity, reason }` |
 | `inventory.moved` | 창고 이동 | `{ itemId, lotId, fromWh, toWh, quantity }` |
 | `inventory.low-stock-alert` | 재고 부족 감지 | `{ itemId, current, threshold }` |

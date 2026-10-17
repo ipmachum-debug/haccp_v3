@@ -3,3 +3,4 @@ export { inventoryRouter } from "./inventory.router";
 export { materialLedgerRouter } from "./materialLedger.router";
 export { stockAlertsRouter } from "./stockAlerts.router";
 export { materialPriceRouter } from "./materialPrice.router";
+export { inboundRouter } from "./inbound.router";

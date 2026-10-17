@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고·배치·투입·SKU 생산실적·제품) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고·배치·투입·SKU 생산실적·제품·발주서) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -778,3 +778,54 @@ CREATE TABLE `h_products_v2` (
   UNIQUE KEY `h_products_v2_product_code_unique` (`product_code`),
   KEY `h_products_v2_tenant_id_tenants_id_fk` (`tenant_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+DROP TABLE IF EXISTS `purchase_orders`;
+CREATE TABLE `purchase_orders` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `tenant_id` int NOT NULL DEFAULT '1',
+  `po_number` varchar(50) NOT NULL,
+  `partner_id` bigint NOT NULL,
+  `order_date` varchar(10) NOT NULL,
+  `expected_delivery_date` varchar(10) DEFAULT NULL,
+  `delivery_address` varchar(500) DEFAULT NULL,
+  `total_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `tax_amount` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `grand_total` decimal(15,2) NOT NULL DEFAULT '0.00',
+  `status` enum('draft','approved','partial_received','received','cancelled') NOT NULL DEFAULT 'draft',
+  `approved_by` bigint DEFAULT NULL,
+  `approved_at` timestamp NULL DEFAULT NULL,
+  `cancelled_by` bigint DEFAULT NULL,
+  `cancelled_at` timestamp NULL DEFAULT NULL,
+  `cancel_reason` text,
+  `notes` text,
+  `created_by` bigint NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_po_tenant_number` (`tenant_id`,`po_number`),
+  KEY `idx_po_tenant_status` (`tenant_id`,`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+DROP TABLE IF EXISTS `purchase_order_lines`;
+CREATE TABLE `purchase_order_lines` (
+  `id` bigint NOT NULL AUTO_INCREMENT,
+  `tenant_id` int NOT NULL DEFAULT '1',
+  `po_id` bigint NOT NULL,
+  `line_number` int NOT NULL,
+  `material_id` bigint DEFAULT NULL,
+  `item_name` varchar(255) NOT NULL,
+  `item_code` varchar(100) DEFAULT NULL,
+  `ordered_qty` decimal(10,3) NOT NULL,
+  `received_qty` decimal(10,3) NOT NULL DEFAULT '0.000',
+  `unit` varchar(20) NOT NULL,
+  `unit_price` decimal(15,2) NOT NULL,
+  `amount` decimal(15,2) NOT NULL,
+  `tax_amount` decimal(15,2) DEFAULT '0.00',
+  `expected_delivery_date` varchar(10) DEFAULT NULL,
+  `notes` text,
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uq_po_line` (`po_id`,`line_number`),
+  KEY `idx_pol_tenant_po` (`tenant_id`,`po_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

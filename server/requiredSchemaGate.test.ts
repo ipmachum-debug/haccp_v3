@@ -12,13 +12,20 @@ import { REPO_ROOT } from "./__helpers__/appRoutes";
 vi.mock("./db/connection", () => ({ getRawConnection: vi.fn(), getDb: vi.fn(), withTransaction: vi.fn() }));
 import { ensureRequiredSchema } from "./db/startupMigrations";
 
+const uq = (...cols: string[]) => cols.map((col) => ({ col, nu: 0 }));
+const GOOD_KEYS: Record<string, any[]> = {
+  uq_lot_tenant_inbound_line: uq("tenant_id", "inbound_line_id"),
+  uq_ibl_tenant_lot: uq("tenant_id", "lot_id"),
+  uq_ibh_tenant_idem: uq("tenant_id", "idempotency_key"),
+};
+
 /** 가짜 연결 — 컬럼·인덱스 유무와 DDL 실패를 주입 */
 function fakeConn(o: { hasColumn: boolean; hasIndex: boolean; alterFails?: boolean; indexFails?: boolean }) {
   const ddl: string[] = [];
   const state = { ...o };
   return {
     ddl,
-    query: vi.fn(async (q: string) => {
+    query: vi.fn(async (q: string, params?: any[]) => {
       if (/^ALTER TABLE `accounting_sales` ADD COLUMN `sku_id`/.test(q)) {
         ddl.push("alter");
         if (state.alterFails) throw Object.assign(new Error("ALTER command denied"), { code: "ER_TABLEACCESS_DENIED_ERROR" });
@@ -31,6 +38,8 @@ function fakeConn(o: { hasColumn: boolean; hasIndex: boolean; alterFails?: boole
       }
       if (/INFORMATION_SCHEMA\.COLUMNS/.test(q)) return [state.hasColumn ? [{ COLUMN_NAME: "sku_id" }] : []];
       // 성능 인덱스(idx_sales_tenant_sku) 만 주입 대상 — 입고 문서 유니크 키(PR-1) 는 있는 것으로
+      // 입고 문서 필수 유니크 키(PR-1) — 기대 구성 그대로 있는 것으로
+      if (/INFORMATION_SCHEMA\.STATISTICS/.test(q) && /SEQ_IN_INDEX/.test(q)) return [GOOD_KEYS[params?.[1]] ?? []];
       if (/INFORMATION_SCHEMA\.STATISTICS/.test(q)) return [!/idx_sales_tenant_sku/.test(q) || state.hasIndex ? [{ 1: 1 }] : []];
       return [[]];
     }),
@@ -55,15 +64,30 @@ describe("ensureRequiredSchema", () => {
     expect(r.ok).toBe(true);
     expect(r.warnings[0]).toMatch(/idx_sales_tenant_sku 없음/);
   });
-  it("입고 줄당 LOT 하나 유니크 키가 없으면 ok:false (입고 정본화 PR-1)", async () => {
-    vi.spyOn(console, "warn").mockImplementation(() => {});
+  const withKey = (name: string, rows: any[]) => {
     const c = fakeConn({ hasColumn: true, hasIndex: true });
     const orig = c.query.getMockImplementation()!;
     c.query.mockImplementation(async (q: string, params?: any[]) =>
-      /INFORMATION_SCHEMA\.STATISTICS/.test(q) && params?.includes("uq_lot_tenant_inbound_line") ? [[]] : orig(q, params));
-    const r = await ensureRequiredSchema(c, { allowDdl: true });
+      /SEQ_IN_INDEX/.test(q) && params?.[1] === name ? [rows] : orig(q, params));
+    return c;
+  };
+  it("입고 문서 필수 유니크 키가 없으면 ok:false (입고 정본화 PR-1)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = await ensureRequiredSchema(withKey("uq_lot_tenant_inbound_line", []), { allowDdl: true });
     expect(r.ok).toBe(false);
     expect(r.missing.join()).toMatch(/uq_lot_tenant_inbound_line/);
+  });
+  it.each([
+    ["uq_lot_tenant_inbound_line", uq("tenant_id", "id"), "다른 컬럼"],
+    ["uq_lot_tenant_inbound_line", uq("tenant_id", "inbound_line_id", "id"), "여분 컬럼"],
+    ["uq_ibl_tenant_lot", uq("tenant_id"), "접두만"],
+    ["uq_ibl_tenant_lot", uq("lot_id", "tenant_id"), "순서 다름"],
+    ["uq_ibh_tenant_idem", [{ col: "tenant_id", nu: 1 }, { col: "idempotency_key", nu: 1 }], "일반 인덱스"],
+  ])("필수 키 %s 구성이 틀리면 ok:false — %s (Codex #557 검증 P2)", async (name, rows, _label) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = await ensureRequiredSchema(withKey(name as string, rows as any[]), { allowDdl: true });
+    expect(r.ok).toBe(false);
+    expect(r.missing.join()).toMatch(new RegExp(`${name} 구성 불일치`));
   });
   it("RUN_STARTUP_MIGRATIONS=false (allowDdl=false) → DDL 없이 검사만, 없으면 ok:false", async () => {
     const c = fakeConn({ hasColumn: false, hasIndex: false });
