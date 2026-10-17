@@ -538,10 +538,13 @@ async function insertPurchaseJournal(conn: any, p: {
 
 export type PurchaseJournalBackfill =
   | { purchaseId: number; status: "would_post" | "posted"; amount: number; entryDate: string; itemName: string | null; hasStock: boolean; journalEntryId?: number }
-  | { purchaseId: number; status: "skip"; reason: "not_found" | "not_confirmed" | "already_posted" | "zero_amount"; detail?: string };
+  | { purchaseId: number; status: "skip"; reason: "not_found" | "not_confirmed" | "already_posted" | "other_journal" | "zero_amount" | "missing_date"; detail?: string };
 
 /**
- * 확정(승인·지급)됐는데 분개가 없는 매입의 **분개만** 만든다 (2026-10-17, 입고 정본화 PR-0 / CEO 결정).
+ * 누락 분개 보충 — 확정(승인·지급)됐는데 분개가 없는 매입의 **분개만** 만든다 (2026-10-17, 입고 정본화 PR-0 / CEO·Codex 결정).
+ * 매입 확정·입고 함수를 다시 부르지 않는다. 쓰는 것은 분개 헤더·줄과 감사 기록뿐.
+ * 건너뜀: 대기·취소 매입, 이미 분개, 다른 이름으로 이 매입을 가리키는 분개(역분개·취소 이력), 금액 0, 일자 없음.
+ * 실행은 서버 운영자 도구(scripts/purchase-journal-backfill.ts)만 — API 없음, 대표 승인 후.
  * 재고·LOT·원장·입고전표·수불부·상태는 건드리지 않는다. 기본 미리보기(apply=false).
  * 같은 매입에 두 번 불러도 분개는 한 벌 (매입 행 FOR UPDATE + 분개 존재 확인).
  */
@@ -559,6 +562,8 @@ export async function backfillPurchaseJournal(
   }
   const { supply, tax, gross } = documentAmounts(purchase);
   if (!(gross > 0)) return { purchaseId, status: "skip", reason: "zero_amount" };
+  // 원 거래 일자가 없으면 만들지 않는다 (추정 금지 — Codex 설계 결정)
+  if (!purchase.transactionDate) return { purchaseId, status: "skip", reason: "missing_date" };
   const entryDate = typeof purchase.transactionDate === "string" ? purchase.transactionDate : formatLocalDate(purchase.transactionDate as Date);
   const { resolvedItemType } = await resolvePurchaseItem(db, purchase, tenantId);
   const accounts = await resolvePurchaseAccounts(tenantId, resolvedItemType, tax);
@@ -570,6 +575,15 @@ export async function backfillPurchaseJournal(
     const st = (lock as any[])[0]?.status;
     if (st !== "approved" && st !== "paid") return { purchaseId, status: "skip", reason: "not_confirmed", detail: String(st) } as PurchaseJournalBackfill;
     if (await purchaseJournalExists(conn, tenantId, purchaseId)) return { purchaseId, status: "skip", reason: "already_posted" } as PurchaseJournalBackfill;
+    // 다른 이름으로 이 매입을 가리키는 분개(역분개·취소·옛 형식 등)가 있으면 사람이 먼저 판단 — 보충하지 않는다
+    const [other]: any = await conn.execute(
+      `SELECT id, description FROM expense_journal_entries
+        WHERE tenant_id = ? AND description REGEXP ? LIMIT 3`,
+      [tenantId, `PURCHASE-${purchaseId}([^0-9]|$)`],
+    );
+    if ((other as any[]).length > 0) {
+      return { purchaseId, status: "skip", reason: "other_journal", detail: (other as any[]).map((o) => `#${o.id} ${o.description}`).join(" / ") } as PurchaseJournalBackfill;
+    }
     const [stock]: any = await conn.execute(
       `SELECT COUNT(*) AS n FROM h_inventory_transactions
         WHERE tenant_id = ? AND transaction_type = 'receipt'
@@ -583,5 +597,20 @@ export async function backfillPurchaseJournal(
       tenantId, purchaseId, purchase, entryDate, supplyAmount: supply, taxAmount: tax, grossAmount: gross, accounts, userId,
     });
     return { ...base, status: "posted", journalEntryId } as PurchaseJournalBackfill;
-  }, `backfillPurchaseJournal:${purchaseId}`);
+  }, `backfillPurchaseJournal:${purchaseId}`).then(async (r) => {
+    if (r.status === "posted") {
+      // 감사 기록 (커밋 뒤, 실패해도 분개는 유지)
+      try {
+        const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
+        await createAuditLog({
+          action: "purchase.journal_backfill", entityType: "accounting_purchase", entityId: purchaseId, userId,
+          description: `누락 분개 보충 — 분개 #${r.journalEntryId} ${r.amount}원 (재고·상태 무변경)`,
+          changes: { journalEntryId: r.journalEntryId, amount: r.amount, entryDate: r.entryDate },
+        } as any, tenantId);
+      } catch (e) {
+        console.warn(`[backfillPurchaseJournal] 감사 기록 실패 (분개는 유지) #${purchaseId}:`, e);
+      }
+    }
+    return r;
+  });
 }

@@ -244,6 +244,16 @@ export async function runBatchCompletionHooks(
     }
   }
 
+  // ── (3-b) 배치 원가 확정 (actual_cost · cost_finalized_at) — 원료가 다 출고된 뒤 한 번 ──
+  // 2026-10-17 (Codex #553 검토 P2): completeBatch 안에서만 하던 확정을 공통 후처리로. 첫 완료가 미출고로 보류되면
+  //   재출고 뒤 자가치유가 이 훅을 부를 때 확정된다. 이미 확정된 배치는 그대로 (재호출 무변경).
+  try {
+    const fin = await finalizeBatchCost(pool, batchId, tenantId);
+    if (fin === "materials_not_issued") result.warnings.push("배치 원가 확정 보류: 원료 미출고");
+  } catch (e: any) {
+    result.errors.push(`배치 원가 확정 실패: ${e?.message || e}`);
+  }
+
   // ── (4) 생산완료 회계 전기 (차변 제품 / 대변 원재료) + 제품 LOT 단가 = 생산원가 (같은 트랜잭션) ──
   // 2026-10-12: 운영에서 한 번도 전기된 적 없던 공백. 전기 시작일 이후 완료 배치만, 멱등.
   try {
@@ -261,4 +271,35 @@ export async function runBatchCompletionHooks(
   }
 
   return result;
+}
+
+/**
+ * 배치 원가 확정 — 출고된 투입 행 금액 합(정제수 제외) 을 actual_cost 로, cost_finalized_at 기록.
+ * 미출고 줄이 있으면 하지 않는다. 이미 확정(cost_finalized_at) 된 배치는 바꾸지 않는다.
+ */
+export async function finalizeBatchCost(conn: any, batchId: number, tenantId: number): Promise<"finalized" | "already" | "materials_not_issued" | "zero" | "not_completed"> {
+  const { countUnissuedBatchLines } = await import("./issuedBatchLines");
+  if ((await countUnissuedBatchLines(batchId, tenantId, conn)) > 0) return "materials_not_issued";
+  const [bRows]: any = await conn.execute(
+    `SELECT status, cost_finalized_at FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`, [batchId, tenantId],
+  );
+  const b = (bRows as any[])[0];
+  if (!b || b.status !== "completed") return "not_completed";
+  if (b.cost_finalized_at) return "already";
+  const [sRows]: any = await conn.execute(
+    `SELECT COALESCE(SUM(bi.total_price), 0) AS total
+       FROM h_batch_inputs bi
+       LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+      WHERE bi.batch_id = ? AND bi.tenant_id = ? AND bi.inventory_deducted = 1
+        AND NOT (COALESCE(m.material_name, '') LIKE '%정제수%' OR LOWER(COALESCE(m.material_name, '')) LIKE '%purified water%')`,
+    [batchId, tenantId],
+  );
+  const total = Math.round((Number((sRows as any[])[0]?.total ?? 0) || 0) * 100) / 100;
+  if (!(total > 0)) return "zero";
+  const [res]: any = await conn.execute(
+    `UPDATE h_batches SET actual_cost = ?, cost_finalized_at = NOW()
+      WHERE id = ? AND tenant_id = ? AND status = 'completed' AND cost_finalized_at IS NULL`,
+    [total.toFixed(2), batchId, tenantId],
+  );
+  return Number(res?.affectedRows ?? 0) === 1 ? "finalized" : "already";
 }
