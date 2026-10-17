@@ -134,6 +134,14 @@ export async function ensureBatchLots(batchId: number, tenantId: number, userId:
       return { created: [], skipped: true, reason: "lots_already_exist" };
     }
 
+    // 2-b. 원료가 아직 다 출고되지 않았으면 판매 가능한 제품 LOT 을 만들지 않는다 (Codex #552 검토 P1).
+    //   출고가 끝나면 재출고 → 매시 자가치유(또는 다음 완료 후처리) 가 만든다.
+    const { countUnissuedBatchLines } = await import("../../lib/production/issuedBatchLines");
+    const unissued = await countUnissuedBatchLines(batchId, tenantId, conn);
+    if (unissued > 0) {
+      return { created: [], skipped: true, reason: "materials_not_issued", warning: `원료 ${unissued}줄 미출고` };
+    }
+
     const [nameRows]: any = await conn.execute(
       `SELECT COALESCE(im.item_name, p.product_name, CONCAT('제품#', ?)) AS product_name
          FROM (SELECT 1) x
@@ -205,6 +213,7 @@ export async function ensureBatchLots(batchId: number, tenantId: number, userId:
           console.warn(`[ensureBatchLots] ${warning}`);
         }
       }
+      await valueIfAlreadyPosted(conn, batchId, tenantId);
       return { created, skipped: false, warning };
     }
 
@@ -214,12 +223,9 @@ export async function ensureBatchLots(batchId: number, tenantId: number, userId:
       return { created: [], skipped: true, reason: "no_quantity" };
     }
     const lotNumber = await uniqueLotNumber(conn, `PROD-${batchCode}`);
-    // unit 폴백: item_master.base_unit → 'kg'
-    const [unitRow]: any = await conn.execute(
-      `SELECT base_unit FROM item_master WHERE tenant_id = ? AND legacy_product_id = ? LIMIT 1`,
-      [tenantId, batch.product_id],
-    );
-    const unit = (unitRow as any[])[0]?.base_unit || "kg";
+    // 단위 = kg — 수량이 배치 실적(kg) 이므로 (Codex #551 검토: 이전엔 item_master.base_unit 을 붙여
+    //   '박스' 같은 포장 단위에 kg 숫자가 들어갔다). 판매 단위 LOT 은 SKU 실적이 있을 때만 (위 4-A).
+    const unit = "kg";
     const r = await receiveNewLot(conn, {
       tenantId,
       subject: { productId: Number(batch.product_id) },
@@ -235,8 +241,28 @@ export async function ensureBatchLots(batchId: number, tenantId: number, userId:
       createdBy: userId,
     });
     created.push({ lotId: r.lotId, lotNumber, quantity: fallbackQty, unit, skuId: null });
+    await valueIfAlreadyPosted(conn, batchId, tenantId);
     return { created, skipped: false };
   }, "ensureBatchLots");
+}
+
+/**
+ * 생산완료 분개가 이미 전기된 배치에 LOT 을 나중에 만든 경우 — 같은 트랜잭션에서 그 분개 금액으로 원가 단가를 매긴다
+ * (Codex #551 검토: 분개가 있으면 완료 훅이 단가를 다시 매기지 않아 보강 LOT 단가가 영영 NULL 이었다).
+ * 분개가 없으면 아무것도 안 함 — 완료 훅의 분개 전기가 같은 트랜잭션에서 단가를 매긴다.
+ */
+async function valueIfAlreadyPosted(conn: any, batchId: number, tenantId: number): Promise<void> {
+  const marker = `[생산완료] BATCH-${batchId}`;
+  const [jRows]: any = await conn.execute(
+    `SELECT total_debit FROM expense_journal_entries
+      WHERE tenant_id = ? AND (description = ? OR description LIKE ?) LIMIT 1`,
+    [tenantId, marker, `${marker} %`],
+  );
+  const j = (jRows as any[])[0];
+  if (!j || !(Number(j.total_debit) > 0)) return;
+  const { valueProductLotsInTx } = await import("../../lib/production/productLotUnitCost");
+  const r = await valueProductLotsInTx(conn, batchId, tenantId, Number(j.total_debit));
+  if (!r.applied) console.warn(`[ensureBatchLots] 배치#${batchId} 보강 LOT 원가 단가 미적용: ${r.reason}${(r as any).detail ? ` (${(r as any).detail})` : ""}`);
 }
 
 /* ───────── 완제품 재고 정본(LOT kg환산) 조회 ─────────

@@ -695,7 +695,11 @@ export const batchLifecycleRouter = router({
           }
           return {
             success: true,
-            message: "배치가 성공적으로 완료되었습니다.",
+            // 원료 미출고면 생산완료만 기록 — 제품 재고·원가 보류를 화면에 알린다 (Codex #552 검토 P1)
+            message: (result as any).materialsSettled === false ? (result as any).message : "배치가 성공적으로 완료되었습니다.",
+            materialsSettled: (result as any).materialsSettled !== false,
+            unissuedLines: (result as any).unissuedLines ?? 0,
+            issueErrors: (result as any).issueErrors ?? [],
             data: {
               ...result,
               pdfGenerated,

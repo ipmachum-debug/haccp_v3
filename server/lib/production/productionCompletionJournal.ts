@@ -62,7 +62,7 @@ export function journalMarker(batchId: number): string {
 
 export type ProductionJournalResult =
   | { posted: true; journalEntryId: number; amount: number; entryDate: string; lotCost: ProductLotCostResult }
-  | { posted: false; reason: "disabled" | "before_start" | "already" | "zero_cost" | "not_completed" | "not_found" | "no_accounts"; detail?: string };
+  | { posted: false; reason: "disabled" | "before_start" | "already" | "zero_cost" | "not_completed" | "not_found" | "no_accounts" | "materials_not_issued"; detail?: string };
 
 export async function postProductionCompletionJournal(p: {
   batchId: number;
@@ -87,6 +87,11 @@ export async function postProductionCompletionJournal(p: {
   if (!isOnOrAfterStart(businessDate, startDate)) {
     return { posted: false, reason: "before_start", detail: `${businessDate} < ${startDate}` };
   }
+
+  // 원료가 다 출고되기 전에는 생산원가를 확정하지 않는다 (Codex #552 검토 P1 — 미출고 줄은 원가 0 으로 빠진다)
+  const { countUnissuedBatchLines } = await import("./issuedBatchLines");
+  const unissued = await countUnissuedBatchLines(p.batchId, p.tenantId, pool);
+  if (unissued > 0) return { posted: false, reason: "materials_not_issued", detail: `원료 ${unissued}줄 미출고` };
 
   const [iRows] = await pool.execute<any[]>(
     `SELECT COALESCE(SUM(total_price), 0) AS total FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`,

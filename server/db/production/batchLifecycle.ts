@@ -300,6 +300,8 @@ export async function completeBatch(params: {
 
   // 3. 원재료 소비 및 재고 정산
   let totalMaterialCost = 0;
+  let unissuedLines = -1; // 확인 전 = 판정 불가
+  const issueErrors: string[] = [];
   try {
     const { hBatchInputs, hMaterials } = await import("../../../drizzle/schema");
 
@@ -326,12 +328,20 @@ export async function completeBatch(params: {
       try {
         const { autoIssueMaterialsDispatch } = await import("../../lib/production/autoMaterialIssueDispatcher");
         const issue = await autoIssueMaterialsDispatch(batchId, Number(existingBatch.createdBy) || 0, effectiveTenantId);
-        if (issue.busy || issue.errors.length > 0) {
-          console.warn(`[completeBatch] 배치#${batchId} 미출고 원료 출고 미완료 — 재출고 필요:`, issue.errors);
-        }
+        if (issue.busy) issueErrors.push("다른 원료 출고가 진행 중입니다 — 끝난 뒤 '누락 출고 다시 실행' 으로 확인하세요.");
+        issueErrors.push(...issue.errors);
       } catch (issueErr: any) {
-        console.error(`[completeBatch] 배치#${batchId} 미출고 원료 출고 실패:`, issueErr?.message || issueErr);
+        issueErrors.push(`원료 출고 실패: ${issueErr?.message || issueErr}`);
       }
+    }
+    // ★ Codex #552 검토 P1: 출고가 끝났는지 다시 센다 — 미출고 줄이 있으면 제품 LOT·생산원가를 확정하지 않고 응답에 알린다.
+    //   (생산완료 사실은 남긴다. 재출고가 끝나면 매시 자가치유가 제품 LOT·완료 훅을 마저 실행한다.)
+    try {
+      const { countUnissuedBatchLines } = await import("../../lib/production/issuedBatchLines");
+      unissuedLines = await countUnissuedBatchLines(batchId, effectiveTenantId);
+    } catch (cntErr: any) {
+      unissuedLines = -1; // 판정 불가 — 확정하지 않는다
+      issueErrors.push(`출고 상태 확인 실패: ${cntErr?.message || cntErr}`);
     }
 
     // 원가 누적 (정제수 제외) — 출고 후 투입 행 기준
@@ -370,7 +380,11 @@ export async function completeBatch(params: {
   //   이전: 여기서 SKU LOT 을 직접 INSERT 하고, 이미 있으면 quantity·available 을 생산수량으로 **덮어써**
   //   그사이 판매·출고한 양이 되살아났다 (원장 없음, tenant 조건 없음, 트랜잭션 없음, 'inbound' created_by=1).
   //   지금: 관문 receiveNewLot·배치 잠금·이미 있으면 그대로 (완료를 다시 불러도 수량 복원 없음).
-  try {
+  const materialsSettled = unissuedLines === 0;
+  if (!materialsSettled) {
+    console.warn(`[completeBatch] 배치#${batchId}: 원료 미출고(${unissuedLines}줄) — 제품 LOT·생산원가 확정 보류`, issueErrors);
+  }
+  if (materialsSettled) try {
     const tenantId = existingBatch.tenantId;
     if (!tenantId) throw new Error('[P0 보안] tenantId is required for completeBatch');
     const { ensureBatchLots } = await import("./productOutboundManagement");
@@ -384,8 +398,8 @@ export async function completeBatch(params: {
     console.error(`[completeBatch] 제품 LOT 생성 실패:`, skuLotErr);
   }
 
-  // 3-1. 원가 확정 업데이트
-  if (totalMaterialCost > 0) {
+  // 3-1. 원가 확정 업데이트 (원료가 다 출고됐을 때만)
+  if (materialsSettled && totalMaterialCost > 0) {
     await db
       .update(hBatches)
       .set({
@@ -505,7 +519,12 @@ export async function completeBatch(params: {
 
   return {
     success: true,
-    message: "배치가 성공적으로 완료되었습니다",
+    message: materialsSettled
+      ? "배치가 성공적으로 완료되었습니다"
+      : `생산완료는 기록했지만 원료 ${unissuedLines > 0 ? `${unissuedLines}줄이 ` : ""}출고되지 않아 제품 재고·생산원가는 확정하지 않았습니다. '누락 출고 다시 실행' 후 자동으로 반영됩니다.`,
+    materialsSettled,
+    unissuedLines: Math.max(unissuedLines, 0),
+    issueErrors,
     data: {
       batchId,
       actualQuantity,
