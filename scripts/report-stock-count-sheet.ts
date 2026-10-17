@@ -21,7 +21,10 @@ const MATERIALS = (arg("material") ?? "").split(",").map((x) => Number(x)).filte
 const CAT_LABEL: Record<string, string> = {
   USED_REMAINING_LEDGER: "'다 씀' 표시인데 장부상 잔량",
   USED_REMAINING_OTHER: "'다 씀' 표시인데 잔량(장부와 다름)",
-  AVAILABLE_LEDGER_DIFF: "가용 ≠ 장부",
+  AVAILABLE_LEDGER_DIFF: "가용 ≠ 거래 장부",
+  LEDGER_CLAMP_ZERO: "가용 0 (음수 금지 차감 멈춤)",
+  LEDGER_NO_RECEIPT: "입고 기록 없음 — 장부 판단 불가",
+  LEDGER_AMBIGUOUS: "이동 거래 — 장부 판단 불가",
   CURRENT_DIFF: "현재수량 ≠ 가용",
   NEGATIVE_REAL: "음수 LOT",
   NEGATIVE_PLACEHOLDER: "음수 자리표시 LOT",
@@ -50,17 +53,18 @@ async function main() {
     if (!inScope) continue;
     const m = byMat.get(l.materialId) ?? { name: l.material ?? `원료#${l.materialId}`, unit: l.materialUnit, score: 0, lots: [] };
     m.lots.push({ ...l, cats });
-    if (cats.length) m.score += Math.abs(l.available - l.ledger) + (l.status === "used" ? Math.max(l.available, 0) : 0);
+    // 확인 필요 수량: 장부와 차이 / 장부 판단 불가 LOT 의 가용 / 'used' 잔량
+    if (cats.length) m.score += (l.ledger != null ? Math.abs(l.available - l.ledger) : Math.abs(l.available)) + (l.status === "used" ? Math.max(l.available, 0) : 0);
     byMat.set(l.materialId, m);
   }
   let ranked = [...byMat.entries()].filter(([, m]) => m.score > EPS).sort((a, b) => b[1].score - a[1].score);
   if (TOP > 0) ranked = ranked.slice(0, TOP);
-  const header = ["순위", "원료ID", "원료", "단위", "LOT ID", "LOT 번호", "상태", "입고일", "소비기한", "시스템 가용", "장부(입고+조정-사용)", "현재수량", "분류", "실사 수량", "메모"];
+  const header = ["순위", "원료ID", "원료", "단위", "LOT ID", "LOT 번호", "상태", "입고일", "소비기한", "시스템 가용", "거래 장부(입고+반품+조정-사용)", "현재수량", "분류", "실사 수량", "메모"];
   const lines = [header.join(",")];
   ranked.forEach(([id, m], i) => {
     for (const l of m.lots) {
       lines.push([
-        i + 1, id, m.name, m.unit, l.id, l.lot, l.status, l.receiptDate, l.expiryDate, l.available, l.ledger, l.current,
+        i + 1, id, m.name, m.unit, l.id, l.lot, l.status, l.receiptDate, l.expiryDate, l.available, l.ledger ?? "판단 불가", l.current,
         l.cats.map((c: any) => CAT_LABEL[c.cat] ?? c.cat).join(" / "), "", "",
       ].map(csv).join(","));
     }

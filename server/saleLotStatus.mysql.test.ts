@@ -1443,6 +1443,39 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(((await validateBatchStart(7301, T)) as any).shortages.map((x: any) => x.materialId)).not.toContain(701);
     });
 
+    it("재고 복구 도구의 거래 장부(Codex #569~571 검증 1번): 관문으로 입고·사용·반품·조정한 정상 LOT 은 불일치가 아님, 입고 기록 없는 LOT 은 판단 불가", async () => {
+      const { withInventoryTx, receiveNewLot, applyLotDelta } = await import("./lib/inventory/applyInventoryDelta");
+      const { loadLotLedger, classifyLot } = await import("../scripts/_lib/lotLedger");
+      const mk = async (lot: string) => (await withInventoryTx((c) => receiveNewLot(c, { tenantId: T, subject: { materialId: 700 }, lotNumber: lot, quantity: 50, unit: "kg", receiptDate: "2026-10-17", reference: { referenceType: "test", referenceId: 1 }, createdBy: 4 } as any), "t")).lotId;
+      const delta = (lotId: number, quantity: number, direction: "increase" | "decrease", transactionType: any) =>
+        withInventoryTx((c) => applyLotDelta(c, { tenantId: T, lotId, subject: { materialId: 700 }, quantity, direction, transactionType, unit: "kg", reference: { referenceType: "test", referenceId: 1 }, createdBy: 4 } as any), "t");
+      const a = await mk("LG-USE"); await delta(a, 20, "decrease", "usage");
+      const b = await mk("LG-RET"); await delta(b, 5, "increase", "return");
+      const c = await mk("LG-ADJ"); await delta(c, 10, "decrease", "adjustment");
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status) VALUES (9399, ?, 700, 'OLD-NO-RCPT', 50, 30, 30, 'kg', 'available')`, [T]);
+      const rows = await loadLotLedger(admin, T, [], [a, b, c, 9399]);
+      const by = new Map(rows.map((r) => [r.id, r]));
+      expect([a, b, c].map((id) => [by.get(id)!.available, by.get(id)!.ledger, classifyLot(by.get(id)!)])).toEqual([[30, 30, []], [55, 55, []], [40, 40, []]]);
+      expect([by.get(9399)!.ledger, by.get(9399)!.ledgerState, classifyLot(by.get(9399)!).map((x) => x.cat)]).toEqual([null, "no_receipt", ["LEDGER_NO_RECEIPT"]]);
+    });
+
+    it("재고 복구 진단의 배치 대조(Codex #569~571 검증 2·3번): source 형식만 있는 차감·batch_input 형식 차감·실적 없는 투입(계획 폴백) 모두 정상, 연결 없는 거래는 '미확인'", async () => {
+      const { diagnoseBatch } = await import("../scripts/_lib/consumptionDiag");
+      // (a) 계획 60 / 실적 NULL, source 형식만(reference_type 없음) 차감 60
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, source_type, source_id, source_line_id, created_by) VALUES (?, 9301, 700, 'usage', 60, 'kg', 'BATCH', 7301, 801, 4)`, [T]);
+      // (b) batch_input 형식 차감 (투입 줄 id 를 reference_id 로)
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES (803, ?, 7301, 700, 5, 5, 'kg', 1)`, [T]);
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, reference_type, reference_id, created_by) VALUES (?, 9302, 700, 'usage', 5, 'kg', 'batch_input', 803, 4)`, [T]);
+      // (c) 배치에는 걸렸지만 투입 줄을 알 수 없는 거래
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, reference_type, reference_id, created_by) VALUES (?, 9302, 700, 'usage', 1, 'kg', 'batch', 7301, 4)`, [T]);
+      const d = await diagnoseBatch(admin, T, 7301);
+      const by = new Map(d.lines.map((l: any) => [l.inputId, l]));
+      expect([by.get(801)!.qty, by.get(801)!.qtySource, by.get(801)!.deducted, by.get(801)!.flags]).toEqual([60, "planned", 60, []]);
+      expect([by.get(803)!.deducted, by.get(803)!.flags]).toEqual([5, []]);
+      expect(d.unlinkedTx.map((t: any) => t.qty)).toEqual([1]);
+      expect(d.txCount).toBe(3);
+    });
+
     it("다시 실행·동시 3회 실행해도 한 번만 출고", async () => {
       const rs = await Promise.all([dispatch(), dispatch(), dispatch()]);
       expect(rs.filter((r) => r.busy).length).toBeGreaterThanOrEqual(0);

@@ -1,7 +1,7 @@
 /**
  * LOT 현재수량(current_quantity) → 가용(available_quantity) 맞춤 — 미리보기 / 승인 LOT 만 (2026-10-17, 단지 재고 복구 2단계 ①)
  *
- * 대상: 현재수량 ≠ 가용이면서 가용 = 장부(입고 + 조정 − 사용) 인 LOT 만 (report-lot-integrity 의 CURRENT_DIFF '제안').
+ * 대상: 현재수량 ≠ 가용이면서 가용 = 거래 장부(입고 + 반품 + 조정 − 사용, 입고 기록이 있는 LOT 만) 인 LOT (report-lot-integrity 의 CURRENT_DIFF '제안').
  *   가용·장부가 같으니 근거가 있는 값은 가용이다 — 현재수량만 그 값으로. 가용·상태·거래·집계는 바꾸지 않는다.
  *   가용이 장부와 다른 LOT 은 대상이 아니다 (실사 대상).
  *
@@ -54,7 +54,7 @@ async function main() {
         await c.execute(`SELECT id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? FOR UPDATE`, [t.id, TENANT]);
         const [cur] = await loadLotLedger(c, TENANT, [], [t.id]);
         // 잠근 뒤 다시 확인 — 그 사이 출고·입고가 있었으면 건너뜀
-        if (!cur || !same(cur.available, cur.ledger) || cur.current == null || same(cur.current, cur.available)) return false;
+        if (!cur || cur.ledger == null || !same(cur.available, cur.ledger) || cur.current == null || same(cur.current, cur.available)) return false;
         await c.execute(`UPDATE h_inventory_lots SET current_quantity = available_quantity WHERE id = ? AND tenant_id = ?`, [t.id, TENANT]);
         return true;
       }, `lot-current-align:${t.id}`);
