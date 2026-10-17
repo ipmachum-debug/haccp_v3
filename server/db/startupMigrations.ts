@@ -754,6 +754,10 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_mf_ingredients", column: "pretreatment_factor", why: "전처리 배율 (PR B)" },
   { table: "h_batch_mass_basis", column: "rows_json", why: "배치 기준 스냅샷 (PR B)" },
   { table: "h_batch_mass_basis", column: "sub_batch_kg", why: "CCP 행 기준량 고정 (PR C 후속)" },
+  // 회사별 기능 선택 — 조회 실패를 '꺼짐' 으로 보지 않으므로(#547 검토 P1) 표가 반드시 있어야 한다
+  { table: "tenant_feature_settings", column: "tenant_id", why: "회사별 기능 선택 (수율 환산)" },
+  { table: "tenant_feature_settings", column: "feature_code", why: "회사별 기능 선택 (수율 환산)" },
+  { table: "tenant_feature_settings", column: "enabled", why: "회사별 기능 선택 (수율 환산)" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {

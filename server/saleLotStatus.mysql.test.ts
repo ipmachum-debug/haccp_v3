@@ -915,6 +915,21 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await isTenantFeatureEnabled(admin, T + 1, MASS_BASIS_FEATURE)).toBe(false); // 다른 회사는 그대로
     });
 
+    it("회사 설정 표를 읽을 수 없으면(표 없음) 배치를 만들지 않음 — 꺼짐으로 보고 3.665 로 만들지 않음 (Codex #547 P1)", async () => {
+      await q(`RENAME TABLE tenant_feature_settings TO _tenant_feature_settings_off`);
+      try {
+        await expect(newBatch("5", "MILK-FEATURE-ERR")).rejects.toThrow(/사용 여부를 확인할 수 없습니다/);
+        expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batches`))[0].n)).toBe(0);
+        expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_inputs`))[0].n)).toBe(0);
+        const { ensureRequiredSchema } = await import("./db/startupMigrations");
+        const r = await ensureRequiredSchema(admin, { allowDdl: false });
+        expect(r.ok).toBe(false);
+        expect(r.missing.some((m: string) => m.startsWith("tenant_feature_settings."))).toBe(true);
+      } finally {
+        await q(`RENAME TABLE _tenant_feature_settings_off TO tenant_feature_settings`);
+      }
+    });
+
     // ── Codex #546 배포 검토 P1-1: 켜진 버전의 계산 실패를 기존 계산으로 덮지 않는다 ──
     const batchCount = async () => Number((await q(`SELECT COUNT(*) AS n FROM h_batches`))[0].n);
     const leftovers = async () => [

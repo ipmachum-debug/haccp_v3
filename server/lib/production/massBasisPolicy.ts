@@ -9,18 +9,22 @@
  */
 export const MASS_BASIS_FEATURE = "PRODUCTION_MASS_BASIS";
 
+/**
+ * 조회가 **성공**했는데 행이 없거나 enabled=0 일 때만 false.
+ * 조회 자체가 실패하면(연결·잠금 대기·표 없음·권한) throw — 판정할 수 없는데 '꺼짐' 으로 보고 기존 계산
+ * (배합비 × 생산량, 과다 차감) 으로 배치를 만들면 안 된다 (Codex #547 배포 검토 P1). 표는 부팅 필수 스키마가 보장한다.
+ */
 export async function isTenantFeatureEnabled(conn: any, tenantId: number, featureCode: string): Promise<boolean> {
+  let rows: any;
   try {
-    const [rows]: any = await conn.execute(
+    [rows] = await conn.execute(
       `SELECT enabled FROM tenant_feature_settings WHERE tenant_id = ? AND feature_code = ? LIMIT 1`,
       [tenantId, featureCode],
     );
-    return Number(rows?.[0]?.enabled ?? 0) === 1;
   } catch (err: any) {
-    // 표가 없으면(마이그레이션 전) 꺼짐으로 — 기존 계산 그대로
-    if (err?.code !== "ER_NO_SUCH_TABLE") console.warn(`[tenantFeature] ${featureCode} tenant=${tenantId} 조회 실패 (꺼짐 처리):`, err?.message);
-    return false;
+    throw new Error(`[회사 기능 설정] ${featureCode} 사용 여부를 확인할 수 없습니다 (tenant=${tenantId}): ${err?.code ?? ""} ${err?.message ?? err}`);
   }
+  return Number(rows?.[0]?.enabled ?? 0) === 1;
 }
 
 export async function setTenantFeature(conn: any, tenantId: number, featureCode: string, enabled: boolean, userId: number | null): Promise<void> {
