@@ -291,7 +291,7 @@ export async function autoIssueMaterialsForBatch(
             const price = isWater ? 0 : unitPrice;
             await conn.execute(
               `UPDATE h_batch_inputs
-                  SET inventory_deducted = 1, actual_quantity = ?, unit_price = ?, total_price = ?, input_time = NOW(), input_by = ?,
+                  SET inventory_deducted = 1, stock_exempt_at_issue = 1, actual_quantity = ?, unit_price = ?, total_price = ?, input_time = NOW(), input_by = ?,
                       notes = CONCAT(COALESCE(notes, ''), CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE ' / ' END, '재고 차감 제외 원료')
                 WHERE id = ? AND tenant_id = ?`,
               [qty, price.toFixed(2), (qty * price).toFixed(2), userId, input.id, tenantId],

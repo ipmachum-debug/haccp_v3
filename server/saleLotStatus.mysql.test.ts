@@ -1434,6 +1434,15 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect((await ledger()).filter((x) => x[2] === 802)).toEqual([]);
       const w = (await q(`SELECT inventory_deducted, actual_quantity + 0 AS a, total_price + 0 AS tp, notes FROM h_batch_inputs WHERE id = 802`))[0];
       expect([Number(w.inventory_deducted), Number(w.a), Number(w.tp), w.notes]).toEqual([1, 30, 0, "재고 차감 제외 원료"]);
+      // 진단: 출고 당시 제외 기록으로 정상 — 원료 설정을 나중에 꺼도 그대로, 기록 없는 줄은 '차감 거래 없음' 유지 (Codex #572 P2)
+      const { diagnoseBatch } = await import("../scripts/_lib/consumptionDiag");
+      await q(`UPDATE h_materials SET stock_exempt = 0 WHERE id = 701`);
+      const dg = await diagnoseBatch(admin, T, 7301);
+      expect(dg.lines.find((l: any) => l.inputId === 802)).toMatchObject({ exemptAtIssue: true, flags: [] });
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, planned_quantity, unit, inventory_deducted) VALUES (804, ?, 7301, 701, 3, 'kg', 1)`, [T]);
+      expect((await diagnoseBatch(admin, T, 7301)).lines.find((l: any) => l.inputId === 804)!.flags).toEqual(["차감 거래 없음(차감 표시 있음)"]);
+      await q(`DELETE FROM h_batch_inputs WHERE id = 804`);
+      await q(`UPDATE h_materials SET stock_exempt = 1 WHERE id = 701`);
       expect(Number((await q(`SELECT COUNT(*) AS n FROM material_ledger_daily WHERE material_id = 701`))[0].n)).toBe(0);
       expect(await ledger()).toEqual([[9302, 50, 801], [9301, 10, 801]]); // 멥쌀은 그대로 차감
       await dispatch();
