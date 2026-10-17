@@ -295,38 +295,42 @@ export async function updateMaterialInput(
   tenantId?: number
 ) {
   const t = requireTenantId(tenantId);
-  const conn = await getRawConnection();
-  const [rows]: any = await conn.execute(
-    `SELECT id, material_id, inventory_deducted FROM h_batch_inputs WHERE id = ? AND tenant_id = ? LIMIT 1`, [inputId, t],
-  );
-  const input = (rows as any[])[0];
-  if (!input) throw new Error("투입 내역을 찾을 수 없습니다");
-  // ★ Codex #549 검토 P1: 이미 재고를 뺀 투입의 수량·LOT 를 기록만 바꾸면 LOT·원장과 어긋난다 → 거부.
-  //   정정은 투입 삭제(원장 추적 복원) 후 다시 투입하거나 재고 조정으로.
-  if (data.quantity !== undefined || data.lotId !== undefined) {
-    const [led]: any = await conn.execute(
-      `SELECT COUNT(*) AS n FROM h_inventory_transactions
-        WHERE tenant_id = ? AND source_line_id = ? AND transaction_type = 'usage' AND source_type = 'BATCH'`,
-      [t, inputId],
+  const { withInventoryTx } = await import("../../lib/inventory/applyInventoryDelta");
+  // ★ 2026-10-17 (Codex #552 검토 P1): 자동출고와 같은 행 잠금 — 출고가 시작된 줄은 출고가 끝난 뒤 '이미 차감' 으로 거부되고,
+  //   수정이 먼저면 출고는 잠근 행에서 고친 수량을 읽는다 (둘이 섞이지 않는다).
+  await withInventoryTx(async (conn) => {
+    const [rows]: any = await conn.execute(
+      `SELECT id, batch_id, material_id, inventory_deducted FROM h_batch_inputs WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`, [inputId, t],
     );
-    if (Number(input.inventory_deducted) === 1 || Number((led as any[])[0]?.n ?? 0) > 0) {
-      throw new Error("재고가 이미 차감된 투입은 수량·LOT 를 직접 바꿀 수 없습니다. 투입을 삭제한 뒤 다시 투입하거나 재고 조정으로 처리하세요.");
+    const input = (rows as any[])[0];
+    if (!input) throw new Error("투입 내역을 찾을 수 없습니다");
+    // ★ Codex #549 검토 P1: 이미 재고를 뺀 투입의 수량·LOT 를 기록만 바꾸면 LOT·원장과 어긋난다 → 거부.
+    //   정정은 투입 삭제(원장 추적 복원) 후 다시 투입하거나 재고 조정으로.
+    if (data.quantity !== undefined || data.lotId !== undefined) {
+      const [led]: any = await conn.execute(
+        `SELECT COUNT(*) AS n FROM h_inventory_transactions
+          WHERE tenant_id = ? AND source_line_id = ? AND transaction_type = 'usage' AND source_type IN ('BATCH', 'batch_completion')`,
+        [t, inputId],
+      );
+      if (Number(input.inventory_deducted) === 1 || Number((led as any[])[0]?.n ?? 0) > 0) {
+        throw new Error("재고가 이미 차감된 투입은 수량·LOT 를 직접 바꿀 수 없습니다. 투입을 삭제한 뒤 다시 투입하거나 재고 조정으로 처리하세요.");
+      }
     }
-  }
-  if (data.lotId !== undefined) {
-    const [l]: any = await conn.execute(`SELECT id, material_id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? LIMIT 1`, [data.lotId, t]);
-    const lot = (l as any[])[0];
-    if (!lot) throw new Error("재고 LOT를 찾을 수 없습니다");
-    if (lot.material_id != null && Number(lot.material_id) !== Number(input.material_id)) {
-      throw new Error("다른 원료의 LOT 는 지정할 수 없습니다");
+    if (data.lotId !== undefined) {
+      const [l]: any = await conn.execute(`SELECT id, material_id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? LIMIT 1`, [data.lotId, t]);
+      const lot = (l as any[])[0];
+      if (!lot) throw new Error("재고 LOT를 찾을 수 없습니다");
+      if (lot.material_id != null && Number(lot.material_id) !== Number(input.material_id)) {
+        throw new Error("다른 원료의 LOT 는 지정할 수 없습니다");
+      }
     }
-  }
-  const sets: string[] = [];
-  const args: any[] = [];
-  if (data.quantity !== undefined) { sets.push("actual_quantity = ?"); args.push(parsePositiveQty(data.quantity)); }
-  if (data.lotId !== undefined) { sets.push("lot_id = ?"); args.push(data.lotId); }
-  if (sets.length === 0) return;
-  await conn.execute(`UPDATE h_batch_inputs SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`, [...args, inputId, t]);
+    const sets: string[] = [];
+    const args: any[] = [];
+    if (data.quantity !== undefined) { sets.push("actual_quantity = ?"); args.push(parsePositiveQty(data.quantity)); }
+    if (data.lotId !== undefined) { sets.push("lot_id = ?"); args.push(data.lotId); }
+    if (sets.length === 0) return;
+    await conn.execute(`UPDATE h_batch_inputs SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`, [...args, inputId, t]);
+  }, "inventory.updateMaterialInput");
 }
 
 /**

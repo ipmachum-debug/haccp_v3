@@ -48,7 +48,13 @@ export function BatchCompletionDialog({
   // 배치 완료 mutation
   const completeMutation = trpc.batch.complete.useMutation({
     onSuccess: (result: any) => {
-      toast.success(result.message);
+      // 원료 미출고면 생산완료만 기록되고 제품 재고·원가는 보류 — 성공처럼 보이지 않게 경고로 (2026-10-17)
+      if (result.materialsSettled === false) {
+        toast.warning(result.message, { duration: 12000 });
+        for (const e of (result.issueErrors ?? []).slice(0, 3)) toast.error(e);
+      } else {
+        toast.success(result.message);
+      }
       if (result.data.pdfGenerated) {
         toast.info("HACCP 보고서 PDF가 생성되었습니다.");
       }

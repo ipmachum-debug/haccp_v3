@@ -279,15 +279,25 @@ export async function autoIssueMaterialsForBatch(
         const { allocateLotsFEFO } = await import("../inventory/fefoLotAllocation");
 
         const line = await withInventoryTx(async (conn) => {
-          // (a) 줄 잠금 + 재확인 — 동시에 다른 실행이 출고했으면 건너뜀
+          // (a) 줄 잠금 + 재확인 — 동시에 다른 실행이 출고했으면 건너뜀.
+          //   ★ Codex #552 검토 P1: 출고 기준(수량·단위·자재)은 **잠근 행** 에서 다시 읽는다 — 바깥에서 읽은 뒤
+          //   사용자가 실투입을 고쳤으면 그 값으로 (이전: 잠금 전 계획 60 을 빼고 실투입 20 을 60 으로 덮어씀).
           const [bRows]: any = await conn.execute(
-            `SELECT inventory_deducted FROM h_batch_inputs WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
-            [input.id, tenantId],
+            `SELECT inventory_deducted, material_id, unit, planned_quantity, actual_quantity
+               FROM h_batch_inputs WHERE id = ? AND tenant_id = ? AND batch_id = ? LIMIT 1 FOR UPDATE`,
+            [input.id, tenantId, batchId],
           );
-          if (!(bRows as any[])[0] || Number((bRows as any[])[0].inventory_deducted) === 1) return null;
+          const row = (bRows as any[])[0];
+          if (!row || Number(row.inventory_deducted) === 1) return null;
+          if (Number(row.material_id) !== rawMaterialId || String(row.unit || "kg") !== unit) {
+            throw new Error("투입 원료·단위가 출고 중에 바뀌었습니다 — 다시 실행하세요");
+          }
+          const lineQty = parseFloat((row.actual_quantity ?? row.planned_quantity)?.toString() || "0");
+          if (!(lineQty > 0)) return null;
+          //   구형 출고 유형(batch_completion) 도 같은 조건으로 (Codex #552 검토 P2)
           const [led]: any = await conn.execute(
             `SELECT COUNT(*) AS n FROM h_inventory_transactions
-              WHERE tenant_id = ? AND source_type = 'BATCH' AND source_id = ? AND source_line_id = ? AND transaction_type = 'usage'`,
+              WHERE tenant_id = ? AND source_type IN ('BATCH', 'batch_completion') AND source_id = ? AND source_line_id = ? AND transaction_type = 'usage'`,
             [tenantId, batchId, input.id],
           );
           if (Number((led as any[])[0]?.n ?? 0) > 0) return null;
@@ -308,14 +318,14 @@ export async function autoIssueMaterialsForBatch(
           const inventoryId = (invRows as any[])[0]?.id != null ? Number((invRows as any[])[0].id) : 0;
           let allocations: FefoAllocation[];
           try {
-            allocations = await allocateLotsFEFO(inventoryId, requiredQuantity, unit, tenantId, canonicalId, conn as any, { allowNegative, asOfDate: transactionDate });
+            allocations = await allocateLotsFEFO(inventoryId, lineQty, unit, tenantId, canonicalId, conn as any, { allowNegative, asOfDate: transactionDate });
           } catch (fefoInner: any) {
             if (allowNegative && fefoInner instanceof NoLotsForNegativeError) {
               // LOT 가 하나도 없음 → 자리표시 LOT 를 만들어 전량 음수 차감
               const ph = await createNegativePlaceholderLot(conn, {
                 materialId: canonicalId, tenantId, inventoryId: inventoryId || null, unit, unitPrice, receiptDate: transactionDate,
               });
-              allocations = [{ lotId: ph.lotId, quantity: requiredQuantity, unitCost: unitPrice, expiryDate: null, negative: true }];
+              allocations = [{ lotId: ph.lotId, quantity: lineQty, unitCost: unitPrice, expiryDate: null, negative: true }];
             } else {
               throw fefoInner; // 재고 부족(음수 금지) 등 — 이 줄은 출고하지 않음
             }
@@ -422,7 +432,9 @@ export async function autoIssueMaterialsForBatch(
       `);
     }
 
-    console.log(`[autoMaterialIssue] 배치 #${batchId} 원료 자동 출고 완료: ${result.issuedMaterials.length}건, 총 원가 ${result.totalCost.toFixed(0)}원`);
+    // 줄 하나라도 실패했으면 전체 결과는 실패 (Codex #552 검토 P1 — success 만 보는 호출자가 놓치지 않게)
+    if (result.errors.length > 0) result.success = false;
+    console.log(`[autoMaterialIssue] 배치 #${batchId} 원료 자동 출고: ${result.issuedMaterials.length}건 출고, 오류 ${result.errors.length}건, 총 원가 ${result.totalCost.toFixed(0)}원`);
 
   } catch (error: any) {
     console.error(`[autoMaterialIssue] 배치 #${batchId} 원료 자동 출고 실패:`, error);

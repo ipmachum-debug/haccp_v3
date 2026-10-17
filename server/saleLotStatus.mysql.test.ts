@@ -1207,7 +1207,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
   });
   describe("재고 쓰기 경로 PR-4 — 생산완료 제품 LOT 은 ensureBatchLots 하나 (덮어쓰기 없음, 한 벌만, 2026-10-17)", () => {
     beforeEach(async () => {
-      for (const t of ["h_batches", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "product_skus", "production_sku_output", "item_master", "h_products_v2"]) await q(`DELETE FROM ${t}`);
+      for (const t of ["h_batches", "h_batch_inputs", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "product_skus", "production_sku_output", "item_master", "h_products_v2", "expense_journal_entries"]) await q(`DELETE FROM ${t}`);
       await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, actual_quantity, planned_date, status, created_by)
         VALUES (7201, ?, 1, 'B7201', 90, 100, 96, '2026-10-14', 'completed', 4)`, [T]);
       await q(`INSERT INTO product_skus (id, tenant_id, item_id, sku_code, sku_name, sales_unit, kg_per_sales_unit, unit_price) VALUES
@@ -1242,6 +1242,38 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(rs.filter((r) => !r.skipped).length).toBe(1);
       expect((await lots()).length).toBe(2);
       expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions`))[0].n)).toBe(2);
+    });
+
+    it("원료가 다 출고되지 않았으면 제품 LOT·생산완료 분개를 만들지 않음 (Codex #552 P1)", async () => {
+      await q(`DELETE FROM h_batch_inputs`);
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, planned_quantity, unit, inventory_deducted) VALUES (901, ?, 7201, 700, 10, 'kg', 0)`, [T]);
+      const { ensureBatchLots } = await import("./db/production/productOutboundManagement");
+      expect(await ensureBatchLots(7201, T)).toMatchObject({ skipped: true, reason: "materials_not_issued" });
+      expect(await lots()).toEqual([]);
+      const { postProductionCompletionJournal } = await import("./lib/production/productionCompletionJournal");
+      const jr = await postProductionCompletionJournal({ batchId: 7201, tenantId: T, userId: 4 });
+      expect(["materials_not_issued", "disabled", "before_start"]).toContain((jr as any).reason);
+      // 출고되면(원장 연결) 생성
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, source_type, source_id, source_line_id, created_by) VALUES (?, NULL, 700, 'usage', 10, 'kg', 'BATCH', 7201, 901, 4)`, [T]);
+      expect((await ensureBatchLots(7201, T)).created.length).toBe(2);
+      await q(`DELETE FROM h_batch_inputs`);
+    });
+
+    it("SKU 없는 배치 LOT 단위는 kg (포장 단위 base_unit 을 붙이지 않음, Codex #551)", async () => {
+      await q(`DELETE FROM production_sku_output`);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_product_id) VALUES (1090, ?, 'P90', '제품', 'own_product', 'box', 1, 90)`, [T]);
+      const { ensureBatchLots } = await import("./db/production/productOutboundManagement");
+      await ensureBatchLots(7201, T);
+      expect((await lots())[0].slice(1, 3)).toEqual(["kg", 96]);
+    });
+
+    it("생산완료 분개가 이미 있으면 보강 LOT 에 그 금액으로 원가 단가 (Codex #551)", async () => {
+      await q(`INSERT INTO expense_journal_entries (tenant_id, entry_date, description, total_debit, total_credit, posted_by) VALUES (?, '2026-10-14', '[생산완료] BATCH-7201', 96000, 96000, 4)`, [T]);
+      const { ensureBatchLots } = await import("./db/production/productOutboundManagement");
+      await ensureBatchLots(7201, T);
+      // kg 비율 배분: box 30×1.6=48kg, pack 60×0.8=48kg → 각 48,000원 → box 1600, pack 800
+      expect((await q(`SELECT sku_id, unit_price + 0 AS p FROM h_inventory_lots WHERE batch_id = 7201 ORDER BY sku_id`)).map((r: any) => [Number(r.sku_id), Number(r.p)])).toEqual([[208, 1600], [209, 800]]);
+      await q(`DELETE FROM expense_journal_entries`);
     });
 
     it("SKU 실적 없으면 배치 실적 수량으로 LOT 하나 (기본 단위), 다른 회사·회사 없음은 생성 안 함", async () => {
@@ -1292,6 +1324,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     it("투입 단위가 LOT 과 다르면 그 줄은 출고하지 않음 (D6)", async () => {
       await q(`UPDATE h_batch_inputs SET unit = 'g', planned_quantity = 600 WHERE id = 801`);
       const r = await dispatch();
+      expect(r.success).toBe(false); // 줄 오류가 있으면 전체 실패 (Codex #552 P1)
       expect(r.errors.join()).toMatch(/단위가 다릅니다/);
       expect(await ledger()).toEqual([]);
       expect([await avail(9301), await avail(9302)]).toEqual([50, 50]);
@@ -1320,6 +1353,38 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(r.success).toBe(false);
       expect(await ledger()).toEqual([]);
       await expect(dispatch(0)).rejects.toThrow(/테넌트/);
+    });
+
+    it("잠근 행에서 수량을 다시 읽음 — 바깥 조회 뒤 실투입을 20 으로 고치면 20 만 출고 (Codex #552 P1)", async () => {
+      const other = await mysql.createConnection({ uri: URL_! });
+      try {
+        await other.query(`SET SESSION time_zone = '+09:00'`);
+        await other.beginTransaction();
+        await other.query(`SELECT id FROM h_batch_inputs WHERE id = 801 FOR UPDATE`); // 출고가 이 행에서 기다리게
+        const running = dispatch();
+        await new Promise((r) => setTimeout(r, 400));
+        await other.query(`UPDATE h_batch_inputs SET actual_quantity = 20 WHERE id = 801`);
+        await other.commit();
+        const r = await running;
+        expect(r.errors).toEqual([]);
+      } finally {
+        await other.end();
+      }
+      expect(await ledger()).toEqual([[9302, 20, 801]]);
+      expect(Number((await q(`SELECT actual_quantity + 0 AS a FROM h_batch_inputs WHERE id = 801`))[0].a)).toBe(20);
+    });
+
+    it("구형 출고 유형(batch_completion) 이 줄에 연결돼 있으면 다시 출고하지 않음 (Codex #552 P2)", async () => {
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, source_type, source_id, source_line_id, created_by)
+        VALUES (?, 9301, 700, 'usage', 60, 'kg', 'batch_completion', 7301, 801, 4)`, [T]);
+      await dispatch();
+      expect(await ledger()).toEqual([[9301, 60, 801]]);
+    });
+
+    it("투입 수정도 같은 행 잠금 — 차감된 뒤면 거부", async () => {
+      await dispatch();
+      const inv = await import("./db/inventory/inventoryFunctions");
+      await expect(inv.updateMaterialInput(801, { quantity: "20" }, T)).rejects.toThrow(/이미 차감된 투입/);
     });
   });
 });
