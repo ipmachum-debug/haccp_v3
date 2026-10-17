@@ -34,8 +34,12 @@ export function ReceiptTab() {
   const mats: any[] = (_raw as any)?.items ?? (Array.isArray(_raw) ? _raw : []);
   const { data: receipts, isLoading } = trpc.inventory.getInboundHistory.useQuery({ limit: 9999 });
 
+  // 입고 요청 키 — 성공할 때까지 같은 키 (더블 클릭·재시도에 입고 한 번, 서버 idempotency)
+  const newReqKey = () => `rcv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const [reqKey, setReqKey] = useState<string>(newReqKey);
   const createMut = trpc.lotManagement.createReceivingWithLot.useMutation({
     onSuccess: (r: any) => {
+      setReqKey(newReqKey());
       // 입고→현황→발주→예측 모든 탭 캐시 갱신
       utils.inventory.getInboundHistory.invalidate();
       utils.inventory.list.invalidate();
@@ -75,7 +79,8 @@ export function ReceiptTab() {
       supplierName: selectedSupplierName || undefined,
       expiryDate: expiry || undefined,
       receiptDate: rcptDate || undefined,
-      notes: notes || undefined
+      notes: notes || undefined,
+      idempotencyKey: reqKey,
     });
   };
 

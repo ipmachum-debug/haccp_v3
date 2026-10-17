@@ -436,10 +436,32 @@ export async function createPurchaseFromReceipt(params: {
     }
   }
 
+  // ★ 2026-10-17 (입고 정본화 PR-4): 입고 확정으로 만든 LOT 이면 그 입고 줄에 연결 (전표 확정 = 분개만, 재고 재생성 없음).
+  //   그 줄에 살아 있는 전표가 이미 있으면(입고 때 초안 자동 생성) 새로 만들지 않고 그 전표를 돌려준다.
+  let inboundLineId: number | null = null;
+  if (params.inventoryTransactionId && tenantId) {
+    const raw = await getRawConnection();
+    const [ln]: any = await raw.execute(
+      `SELECT l.inbound_line_id FROM h_inventory_lots l
+        WHERE l.tenant_id = ? AND l.inbound_line_id IS NOT NULL
+          AND (l.id = ? OR l.id = (SELECT t.lot_id FROM h_inventory_transactions t WHERE t.id = ? AND t.tenant_id = ?))
+        LIMIT 1`,
+      [tenantId, params.inventoryTransactionId, params.inventoryTransactionId, tenantId],
+    );
+    inboundLineId = (ln as any[])[0]?.inbound_line_id != null ? Number((ln as any[])[0].inbound_line_id) : null;
+    if (inboundLineId) {
+      const [ex]: any = await raw.execute(
+        `SELECT * FROM accounting_purchases WHERE tenant_id = ? AND inbound_line_id = ? AND status <> 'cancelled' LIMIT 1`, [tenantId, inboundLineId],
+      );
+      if ((ex as any[])[0]) return (ex as any[])[0];
+    }
+  }
+
   const [purchase] = await db.insert(accountingPurchases).values({
     tenantId: tenantId,
     transactionDate,
     partnerId: params.partnerId,
+    inboundLineId,
     materialId: resolvedMaterialId, // ★ 역방향 FK 연결
     itemName: params.itemName,
     quantity: params.quantity,

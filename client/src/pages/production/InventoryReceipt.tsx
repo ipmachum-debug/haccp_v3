@@ -61,6 +61,7 @@ export default function InventoryReceipt() {
     onSuccess: async (data: any) => {
       toast.success("재고가 성공적으로 입고되었습니다.");
       
+      // 수동 LOT 입고는 전표를 만들지 않는다 — 여기서 만든 전표는 서버가 입고 줄에 연결한다 (전표 확정 = 분개만)
       if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId) {
         const selectedMaterial = materials?.find((m: any) => m.id === selectedMaterialId);
         try {
@@ -91,11 +92,16 @@ export default function InventoryReceipt() {
   });
 
   // LOT 자동생성 입고 mutation
+  // 입고 요청 키 — 성공할 때까지 같은 키 (더블 클릭·재시도에 입고 한 번)
+  const newReqKey = () => `rcv-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+  const [reqKey, setReqKey] = useState<string>(newReqKey);
   const createReceivingWithLotMutation = trpc.lotManagement.createReceivingWithLot.useMutation({
     onSuccess: async (result: any) => {
+      setReqKey(newReqKey());
       toast.success(`입고 완료! LOT: ${result.lotNumber}`);
       
-      if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId) {
+      // 입고 확정이 단가가 있으면 입고 줄에 연결된 전표 초안을 이미 만든다 (2026-10-17) — 그때는 다시 만들지 않는다
+      if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId && !result.accountingPurchaseCreated) {
         const selectedMaterial = materials?.find((m: any) => m.id === selectedMaterialId);
         try {
           await createPurchaseMutation.mutateAsync({
@@ -151,6 +157,7 @@ export default function InventoryReceipt() {
         expiryDate: expiryDate || undefined,
         receiptDate: receiptDate || undefined,
         notes: '',
+        idempotencyKey: reqKey,
       });
     } else {
       // 수동 LOT 번호

@@ -72,7 +72,11 @@ export async function cancelPurchase(
     //     등록(createPurchase) : reference_type='accounting_purchase', reference_id=매입ID
     //     확정(postPurchase)   : source_type='accounting_purchases', source_id=매입ID (reference_type 'PURCHASE')
     //     이전에는 reference_type='PURCHASE' + source_id 만 찾아 수기 등록 매입의 LOT 을 못 찾고 재고가 남았다.
-    const [txRows] = await conn.execute(
+    // ★ 2026-10-17 (입고 정본화, CEO 결정): 입고 줄에 연결된 전표는 **회계만** 되돌린다 — 재고는 입고 줄 취소에서 한 번만.
+    //   구형 참조 규약이 우연히 맞더라도 재고를 건드리지 않게 재고 단계를 통째로 건너뛴다 (재고 이중 차감 방지).
+    const [lk]: any = await conn.execute(`SELECT inbound_line_id FROM accounting_purchases WHERE id = ? AND tenant_id = ?`, [purchaseId, tenantId]);
+    const inboundLinked = (lk as any[])[0]?.inbound_line_id != null;
+    const [txRows] = inboundLinked ? [[]] as any : await conn.execute(
       `SELECT id, lot_id, quantity, unit, unit_cost
          FROM h_inventory_transactions
         WHERE tenant_id = ?
