@@ -141,37 +141,16 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
     let inboundLinked = false;
     const inboundLineId = (purchase as any).inboundLineId != null ? Number((purchase as any).inboundLineId) : null;
     if (inboundLineId) {
-      const [il]: any = await conn.execute(
-        `SELECT l.lot_id, l.material_id, h.status FROM h_inbound_lines l
-           JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
-          WHERE l.id = ? AND l.tenant_id = ? LIMIT 1`,
-        [inboundLineId, tenantId],
-      );
-      const line = (il as any[])[0];
-      if (!line || line.status !== "confirmed" || !line.lot_id) {
-        throw new Error(`연결된 입고 줄 #${inboundLineId} 이 확정되지 않았습니다 — 입고를 먼저 확정하세요.`);
+      // 살아 있는 확정 입고 줄인지·금액 기준(입고 금액 / 무단가 첫 평가) 검사 + 무단가 LOT 첫 평가 (Codex #561·562 검증 R2·R3)
+      const { assertInboundVoucherPostable } = await import("../inventory/inbound/inboundVoucherGuard");
+      const line = await assertInboundVoucherPostable(conn, { tenantId, purchaseId, inboundLineId, supplyAmount });
+      if (!line.lotId) {
+        // 회계 전용으로 받은 입고 (LOT 없음) — 재고 경로가 아니다. 디스패처가 문서 기준으로 보낸다 (R6)
+        throw new Error(`연결된 입고 줄 #${inboundLineId} 은 회계 전용 입고입니다 — 재고 없이 분개만 확정됩니다 (회계 경로).`);
       }
       inboundLinked = true;
-      reuseLotId = Number(line.lot_id);
-      // 입고 때 단가가 없던 LOT (0) 이면 이 전표 금액으로 원가를 매긴다 — 아직 쓰이지 않은 LOT 만 (Codex #560 검증 N3).
-      //   이미 쓰인 LOT 은 소급하지 않고 경고만 (미평가 LOT — 별도 평가 절차).
-      const [lt]: any = await conn.execute(
-        `SELECT l.unit_price, l.quantity, l.available_quantity,
-                (SELECT COUNT(*) FROM h_inventory_transactions t WHERE t.tenant_id = l.tenant_id AND t.lot_id = l.id AND t.transaction_type <> 'receipt') AS moves
-           FROM h_inventory_lots l WHERE l.id = ? AND l.tenant_id = ? LIMIT 1 FOR UPDATE`,
-        [reuseLotId, tenantId],
-      );
-      const lotRow = (lt as any[])[0];
-      if (lotRow && !(Number(lotRow.unit_price) > 0) && supplyAmount > 0) {
-        const unmoved = Number(lotRow.moves) === 0 && Math.abs(Number(lotRow.quantity) - Number(lotRow.available_quantity)) < 0.0005;
-        if (unmoved && Number(lotRow.quantity) > 0) {
-          await conn.execute(`UPDATE h_inventory_lots SET unit_price = ? WHERE id = ? AND tenant_id = ?`,
-            [(Math.round((supplyAmount / Number(lotRow.quantity)) * 100) / 100).toFixed(2), reuseLotId, tenantId]);
-        } else {
-          console.warn(`[purchasePost] 매입 ${purchaseId}: 연결 LOT #${reuseLotId} 이 이미 쓰여 단가를 소급하지 않음 (미평가 LOT)`);
-        }
-      }
-      resolvedMaterialId = Number(line.material_id);
+      reuseLotId = line.lotId;
+      resolvedMaterialId = line.materialId;
       resolvedItemType = "raw_material";
     }
     // ★ 2026-10-17 (입고 정본화 PR-0): 입고 탭(lotManagement.createReceivingWithLot) 이 LOT 을 먼저 만들고

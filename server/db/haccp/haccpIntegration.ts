@@ -420,60 +420,58 @@ export async function createPurchaseFromReceipt(params: {
   const totalAmount = parseFloat(params.quantity) * parseFloat(params.unitPrice);
   const taxAmount = totalAmount * (parseFloat(params.taxRate || "10") / 100);
 
-  // ★ 2026-04-13 추가: 재고거래 → LOT → materialId 역추적
-  //    재고 입고 시 생성된 LOT 의 materialId 를 매입 전표에 저장해 양방향 링크 유지
-  let resolvedMaterialId = params.materialId ?? null;
-  if (!resolvedMaterialId && params.inventoryTransactionId) {
-    try {
-      const { hInventoryTransactions, hInventoryLots } = await import("../../../drizzle/schema");
-      const [txRow] = await db
-        .select({ materialId: hInventoryLots.materialId })
-        .from(hInventoryTransactions)
-        .innerJoin(hInventoryLots, eq(hInventoryTransactions.lotId, hInventoryLots.id))
-        .where(eq(hInventoryTransactions.id, params.inventoryTransactionId));
-      if (txRow?.materialId) {
-        resolvedMaterialId = Number(txRow.materialId);
-      }
-    } catch (e) {
-      console.error("[createPurchaseFromReceipt] materialId 역추적 실패:", e);
-    }
-  }
-
-  // ★ 2026-10-17 (입고 정본화 PR-4, Codex #560 검증 N1·N2): 입고 확정으로 만든 입고면 그 입고 줄의 전표로.
+  // ★ 2026-10-17 (입고 정본화 PR-4, Codex #560 검증 N1·N2 / #561·562 검증 R1): 입고 확정으로 만든 입고면 그 입고 줄의 전표로.
   //   번호 종류(입고 줄 / LOT / 재고거래) 를 명시적으로 구분해 한 경로로만 찾는다 — 같은 숫자의 우연 일치로 다른 입고를 잡지 않는다.
+  //   R1: 모든 조회에 호출자 회사 조건. 명시한 번호가 이 회사의 입고가 아니면(없음·타사·입고 아닌 거래) 바로 거절 —
+  //       구형 전표 INSERT 로 빠지지 않는다. 원료도 이 회사 입고 LOT(또는 이 회사 원재료) 에서만.
   //   전표 조회·생성은 입고 줄 잠금 아래 한 트랜잭션 (ensureInboundLineVoucher) + DB UNIQUE — 동시 요청에도 한 장.
   //   원료·수량·금액·일자는 확정된 입고 줄 기준 (전표일 = 입고일).
+  if (!tenantId) throw new Error("tenantId 필수");
+  const raw = await getRawConnection();
+  let resolvedMaterialId: number | null = null;
   let inboundLineId: number | null = null;
-  if (tenantId) {
-    const raw = await getRawConnection();
-    if (params.inboundLineId) {
-      const [r]: any = await raw.execute(`SELECT id FROM h_inbound_lines WHERE id = ? AND tenant_id = ? LIMIT 1`, [params.inboundLineId, tenantId]);
-      if (!(r as any[])[0]) throw new Error("입고 줄을 찾을 수 없습니다.");
-      inboundLineId = Number(params.inboundLineId);
-    } else if (params.lotId) {
-      const [r]: any = await raw.execute(`SELECT id, inbound_line_id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? LIMIT 1`, [params.lotId, tenantId]);
-      if (!(r as any[])[0]) throw new Error("입고 LOT 을 찾을 수 없습니다.");
-      inboundLineId = (r as any[])[0].inbound_line_id != null ? Number((r as any[])[0].inbound_line_id) : null;
-    } else if (params.inventoryTransactionId) {
-      const [r]: any = await raw.execute(
-        `SELECT l.inbound_line_id FROM h_inventory_transactions t JOIN h_inventory_lots l ON l.id = t.lot_id AND l.tenant_id = t.tenant_id
-          WHERE t.id = ? AND t.tenant_id = ? LIMIT 1`, [params.inventoryTransactionId, tenantId]);
-      inboundLineId = (r as any[])[0]?.inbound_line_id != null ? Number((r as any[])[0].inbound_line_id) : null;
-    }
-    if (inboundLineId) {
-      if (params.partnerId) {
-        const [ps]: any = await raw.execute(`SELECT id FROM partners WHERE id = ? AND tenant_id = ? LIMIT 1`, [params.partnerId, tenantId]);
-        if (!(ps as any[])[0]) throw new Error("거래처를 찾을 수 없습니다.");
-      }
-      const { ensureInboundLineVoucher } = await import("../../lib/inventory/inbound/inboundService");
-      const id = await withTransaction((conn: any) => ensureInboundLineVoucher(conn, {
-        tenantId: Number(tenantId), lineId: inboundLineId!, userId: params.createdBy,
-        partnerId: params.partnerId ?? null, taxRate: params.taxRate != null ? Number(params.taxRate) : null,
-        unitPriceIfUnpriced: params.unitPrice != null ? Number(params.unitPrice) : null,
-      }), "createPurchaseFromReceipt");
-      const [rows]: any = await raw.execute(`SELECT * FROM accounting_purchases WHERE id = ? AND tenant_id = ?`, [id, tenantId]);
-      return (rows as any[])[0];
-    }
+  if (params.inboundLineId) {
+    const [r]: any = await raw.execute(`SELECT id FROM h_inbound_lines WHERE id = ? AND tenant_id = ? LIMIT 1`, [params.inboundLineId, tenantId]);
+    if (!(r as any[])[0]) throw new Error("입고 줄을 찾을 수 없습니다.");
+    inboundLineId = Number(params.inboundLineId);
+  } else if (params.lotId) {
+    const [r]: any = await raw.execute(
+      `SELECT id, inbound_line_id, material_id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? AND material_id IS NOT NULL LIMIT 1`,
+      [params.lotId, tenantId]);
+    const lot = (r as any[])[0];
+    if (!lot) throw new Error("입고 LOT 을 찾을 수 없습니다.");
+    inboundLineId = lot.inbound_line_id != null ? Number(lot.inbound_line_id) : null;
+    resolvedMaterialId = Number(lot.material_id);
+  } else if (params.inventoryTransactionId) {
+    const [r]: any = await raw.execute(
+      `SELECT l.inbound_line_id, l.material_id FROM h_inventory_transactions t
+         JOIN h_inventory_lots l ON l.id = t.lot_id AND l.tenant_id = t.tenant_id
+        WHERE t.id = ? AND t.tenant_id = ? AND t.transaction_type IN ('receipt', 'inbound') AND l.material_id IS NOT NULL LIMIT 1`,
+      [params.inventoryTransactionId, tenantId]);
+    const tx = (r as any[])[0];
+    if (!tx) throw new Error("이 회사의 입고 거래를 찾을 수 없습니다.");
+    inboundLineId = tx.inbound_line_id != null ? Number(tx.inbound_line_id) : null;
+    resolvedMaterialId = Number(tx.material_id);
+  }
+  if (params.materialId) {
+    const [m]: any = await raw.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [params.materialId, tenantId]);
+    if (!(m as any[])[0]) throw new Error("원재료를 찾을 수 없습니다.");
+    if (resolvedMaterialId && resolvedMaterialId !== Number(params.materialId)) throw new Error("입고 원료와 지정한 원재료가 다릅니다.");
+    resolvedMaterialId = Number(params.materialId);
+  }
+  if (params.partnerId) {
+    const [ps]: any = await raw.execute(`SELECT id FROM partners WHERE id = ? AND tenant_id = ? LIMIT 1`, [params.partnerId, tenantId]);
+    if (!(ps as any[])[0]) throw new Error("거래처를 찾을 수 없습니다.");
+  }
+  if (inboundLineId) {
+    const { ensureInboundLineVoucher } = await import("../../lib/inventory/inbound/inboundService");
+    const id = await withTransaction((conn: any) => ensureInboundLineVoucher(conn, {
+      tenantId: Number(tenantId), lineId: inboundLineId!, userId: params.createdBy,
+      partnerId: params.partnerId ?? null, taxRate: params.taxRate != null ? Number(params.taxRate) : null,
+      unitPriceIfUnpriced: params.unitPrice != null ? Number(params.unitPrice) : null,
+    }), "createPurchaseFromReceipt");
+    const [rows]: any = await raw.execute(`SELECT * FROM accounting_purchases WHERE id = ? AND tenant_id = ?`, [id, tenantId]);
+    return (rows as any[])[0];
   }
 
   const [purchase] = await db.insert(accountingPurchases).values({

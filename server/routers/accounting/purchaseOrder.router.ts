@@ -4,7 +4,7 @@
  * 발주 → 승인 → 입고 → 매입전표 자동 변환 전체 워크플로우
  * ═══════════════════════════════════════════════════════════════
  */
-import { router, tenantRequiredProcedure, adminProcedure } from "../../_core/trpc";
+import { router, tenantRequiredProcedure, adminProcedure, requireCapability } from "../../_core/trpc";
 import { z } from "zod";
 import { getDb, withTransaction } from "../../db";
 import { purchaseOrders, purchaseOrderLines } from "../../../drizzle/schema/schema_purchase_orders";
@@ -538,6 +538,31 @@ export const purchaseOrderRouter = router({
       lineFailures: [] as Array<{ lineNumber: number; itemName: string; error: string }>,
     };
   }),
+
+  /** 발주 수량 변경 — 요청 (CEO 결정 3: 초과 입고는 변경 승인 후 추가 입고, 이력 보존) */
+  requestQtyChange: requireCapability("ERP_PURCHASE", "WRITE")
+    .input(z.object({ poLineId: z.number().int().positive(), newQty: z.number().positive(), reason: z.string().min(1).max(500) }))
+    .mutation(async ({ ctx, input }) => {
+      const { requestPoLineQtyChange } = await import("../../lib/inventory/inbound/poQtyChange");
+      return withTransaction((conn: any) => requestPoLineQtyChange(conn, { tenantId: ctx.tenantId, userId: ctx.user.id, ...input }), "po.requestQtyChange");
+    }),
+
+  /** 발주 수량 변경 — 승인·반려 */
+  decideQtyChange: requireCapability("ERP_PURCHASE", "APPROVE")
+    .input(z.object({ changeId: z.number().int().positive(), approve: z.boolean(), note: z.string().max(500).optional() }))
+    .mutation(async ({ ctx, input }) => {
+      const { decidePoLineQtyChange } = await import("../../lib/inventory/inbound/poQtyChange");
+      return withTransaction((conn: any) => decidePoLineQtyChange(conn, { tenantId: ctx.tenantId, userId: ctx.user.id, ...input }), "po.decideQtyChange");
+    }),
+
+  /** 발주 수량 변경 이력 */
+  qtyChanges: tenantRequiredProcedure
+    .input(z.object({ poId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      const { listPoLineQtyChanges } = await import("../../lib/inventory/inbound/poQtyChange");
+      const { getRawConnection } = await import("../../db");
+      return listPoLineQtyChanges(await getRawConnection(), ctx.tenantId, input.poId);
+    }),
 
   /** 발주 줄 입고 가능 잔량 — '미입고 잔량 전체 채우기' */
   receivableLines: tenantRequiredProcedure

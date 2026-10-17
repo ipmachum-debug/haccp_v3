@@ -58,12 +58,14 @@ import {
   Printer,
   Edit,
   Save,
+  ListPlus,
 } from "lucide-react";
 import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
 import { toast } from "@/hooks/use-toast";
 import type { RouterOutput } from "@/lib/trpcTypes";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
+import { PoQtyChangeDialog } from "@/components/accounting/PoQtyChangeDialog";
 
 // 발주서 목록 단일 row / 상세 조회 / 라인 타입
 type OrderRow = RouterOutput["purchaseOrder"]["list"][number];
@@ -125,6 +127,8 @@ function PurchaseOrderListContent() {
   const [receiveExtra, setReceiveExtra] = useState<Record<number, { lotNumber?: string; expiryDate?: string }>>({});
   // 입고 요청 키 — 대화창 하나에 하나. 더블 클릭·재시도는 같은 입고 문서로 (서버 idempotency)
   const [receiveKey, setReceiveKey] = useState<string>("");
+  // 발주 수량 변경 요청·승인 (초과 입고는 자동 허용 없이 차단 — 변경 승인 뒤 추가 입고)
+  const [qtyChangePoId, setQtyChangePoId] = useState<number | null>(null);
   // 포장 단위 환산 미리보기 (예: 3포대 → 60kg) — 서버가 같은 설정으로 다시 확인한다
   const { data: receivable, refetch: refetchReceivable } = trpc.purchaseOrder.receivableLines.useQuery(
     { poId: receivePoId! },
@@ -133,6 +137,8 @@ function PurchaseOrderListContent() {
   const convByLine = new Map<number, { factor: number; baseUnit: string } | null>(
     ((receivable ?? []) as any[]).map((r) => [Number(r.poLineId), r.conversion ?? null]),
   );
+  // 회계만 사용하는 회사는 재고 환산이 필요 없다 — 서버 정책과 같게 (Codex #561·562 검증 R7)
+  const accountingOnly = ((receivable ?? []) as any[]).some((r) => r.inventoryTracking === false);
   const [packInput, setPackInput] = useState<Record<number, string>>({});
   const savePackMutation = trpc.inbound.savePackUnit.useMutation({
     onSuccess: () => { toast({ title: "환산 설정 저장" }); refetchReceivable(); },
@@ -508,6 +514,17 @@ function PurchaseOrderListContent() {
                     <PackageCheck className="h-3.5 w-3.5" />
                   </Button>
                 )}
+                {["approved", "partial_received", "received"].includes(po.status) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setQtyChangePoId(po.id)}
+                    title="발주 수량 변경 (요청·승인)"
+                    className="h-7 w-7 p-0 text-purple-600 hover:bg-purple-50"
+                  >
+                    <ListPlus className="h-3.5 w-3.5" />
+                  </Button>
+                )}
                 {["draft", "approved"].includes(po.status) && (
                   <Button
                     size="sm"
@@ -866,6 +883,7 @@ function PurchaseOrderListContent() {
                         {(() => {
                           const conv = convByLine.get(Number(line.id));
                           const qty = receiveLines[line.id] ?? 0;
+                          if (accountingOnly) return <span className="text-muted-foreground">회계 전용 — 재고·LOT 없음</span>;
                           if (conv) {
                             return conv.factor === 1
                               ? <span className="text-muted-foreground">{qty} {conv.baseUnit}</span>
@@ -923,6 +941,9 @@ function PurchaseOrderListContent() {
             <Button variant="outline" onClick={fillRemaining} className="mr-auto">
               미입고 잔량 전체 채우기
             </Button>
+            <Button variant="outline" onClick={() => setQtyChangePoId(receivePoId)} title="발주보다 더 들어왔으면 수량 변경 승인 뒤 추가 입고">
+              발주 수량 변경
+            </Button>
             <Button variant="outline" onClick={() => setReceiveDialogOpen(false)}>
               취소
             </Button>
@@ -937,6 +958,12 @@ function PurchaseOrderListContent() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PoQtyChangeDialog
+        poId={qtyChangePoId}
+        open={qtyChangePoId != null}
+        onOpenChange={(v) => { if (!v) setQtyChangePoId(null); }}
+      />
     </div>
   );
 }

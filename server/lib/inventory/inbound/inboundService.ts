@@ -169,11 +169,11 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
       const [h]: any = await conn.execute(
         `INSERT INTO h_inbound_headers
            (tenant_id, inbound_number, site_id, supplier_id, inbound_date, status, notes, created_by, source_type, po_id, idempotency_key,
-            create_voucher_drafts, supplier_name)
-         VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)`,
+            create_voucher_drafts, supplier_name, inventory_tracking)
+         VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`,
         [tenantId, `IB-${tenantId}-${ymd}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, p.siteId ?? 1,
          p.supplierId ?? null, p.inboundDate, p.notes ?? null, p.userId, p.sourceType, p.poId ?? null, key,
-         voucherPolicy, p.supplierId ? null : (String(p.supplierName ?? "").trim().slice(0, 200) || null)],
+         voucherPolicy, p.supplierId ? null : (String(p.supplierName ?? "").trim().slice(0, 200) || null), tracking ? 1 : 0],
       );
       const headerId = Number(h.insertId);
       await conn.execute(`UPDATE h_inbound_headers SET inbound_number = ? WHERE id = ? AND tenant_id = ?`, [`IB-${tenantId}-${ymd}-${headerId}`, headerId, tenantId]);
@@ -227,17 +227,20 @@ export async function confirmInbound(
   const { getRawConnection } = await import("../../../db/connection");
   const needsApproval = await isTenantFeatureEnabled(await getRawConnection(), tenantId, INBOUND_APPROVAL_FEATURE);
   // 회계만 사용하는 회사: LOT·재고·수불부를 만들지 않고 입고 수량(발주 입고량)·전표 초안만 (CEO 결정 2)
-  const tracking = await isInventoryTrackingEnabled(tenantId);
+  const trackingNow = await isInventoryTrackingEnabled(tenantId);
 
   return withInventoryTx(async (conn) => {
     const [hRows]: any = await conn.execute(
       `SELECT id, status, DATE_FORMAT(inbound_date, '%Y-%m-%d') AS inbound_date, supplier_id, po_id, source_type,
-              create_voucher_drafts, supplier_name
+              create_voucher_drafts, supplier_name, inventory_tracking
          FROM h_inbound_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
       [headerId, tenantId],
     );
     const header = (hRows as any[])[0];
     if (!header) throw new Error(`입고 문서 #${headerId} 를 찾을 수 없습니다.`);
+    // 문서를 만들 때의 처리 기준으로 확정한다 (Codex #561·562 검증 R6) — 그 사이 설정을 바꿔도 이 문서는 같은 기준.
+    //   NULL = 기준 컬럼 이전 문서 → 지금 설정.
+    const tracking = header.inventory_tracking == null ? trackingNow : Number(header.inventory_tracking) === 1;
     if (header.status === "confirmed") {
       const [done]: any = await conn.execute(
         `SELECT id, lot_id, lot_number FROM h_inbound_lines WHERE header_id = ? AND tenant_id = ? ORDER BY line_number`, [headerId, tenantId],
@@ -373,6 +376,7 @@ export async function confirmInbound(
       if (createVouchers) {
         voucherIds.push(await ensureInboundLineVoucher(conn, {
           tenantId, lineId: Number(line.id), userId, partnerId: poPartnerId ?? (header.supplier_id != null ? Number(header.supplier_id) : null), taxRate,
+          duringConfirm: true,
         }));
       }
       lots.push({ lineId: Number(line.id), lotId, lotNumber });
@@ -478,12 +482,14 @@ export async function getReceivableLines(poId: number, tenantIdIn: number) {
     [poId, tenantId],
   );
   const conn = await getRawConnection();
+  // 회계만 사용하는 회사는 재고 환산이 필요 없다 — 확정과 같은 정책 (Codex #561·562 검증 R7)
+  const inventoryTracking = await isInventoryTrackingEnabled(tenantId);
   const out = [];
   for (const r of rows as any[]) {
     // 재고 환산 미리보기 — 1 발주 단위 = ? 기준 단위 (설정 없으면 null → 화면에서 입고 차단·설정 안내)
     let conversion: { factor: number; baseUnit: string } | null = null;
     let conversionError: string | null = null;
-    if (r.material_id != null) {
+    if (inventoryTracking && r.material_id != null) {
       try {
         const mid = (await toInventoryMaterialId(Number(r.material_id), tenantId, conn)).id;
         const pk = await resolvePackConversion(conn, tenantId, mid, r.unit, 1, `${r.line_number}번 줄`);
@@ -494,7 +500,7 @@ export async function getReceivableLines(poId: number, tenantIdIn: number) {
       poLineId: Number(r.id), lineNumber: Number(r.line_number), materialId: r.material_id != null ? Number(r.material_id) : null,
       itemName: r.item_name, unit: r.unit, unitPrice: Number(r.unit_price),
       orderedQty: Number(r.ordered_qty), receivedQty: Number(r.received_qty), remainingQty: Number(r.remaining_qty),
-      conversion, conversionError,
+      conversion, conversionError, inventoryTracking,
     });
   }
   return out;
@@ -572,9 +578,12 @@ export async function ensureInboundLineVoucher(conn: any, p: {
   tenantId: number; lineId: number; userId: number; partnerId?: number | null; taxRate?: number | null;
   /** 입고 때 단가가 없던 줄(0) 에만 쓰는 전표 단가 — 단가가 있던 줄은 입고 단가가 정본 (Codex #560 검증 N3) */
   unitPriceIfUnpriced?: number | null;
+  /** 입고 확정 안에서 부를 때만 true — 헤더는 아직 확정 전이다. 밖(재발행) 에서는 확정된 문서만 (Codex #561·562 검증 R2) */
+  duringConfirm?: boolean;
 }): Promise<number> {
   const [lr]: any = await conn.execute(
     `SELECT l.id, l.line_number, l.header_id, l.material_id, l.purchase_quantity, l.purchase_unit, l.unit_price, l.total_price, l.lot_id,
+            l.stock_quantity, l.cancelled_qty, l.valuation_unit_price, l.valuation_amount,
             h.status AS header_status, h.supplier_id, DATE_FORMAT(h.inbound_date, '%Y-%m-%d') AS inbound_date
        FROM h_inbound_lines l JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
       WHERE l.id = ? AND l.tenant_id = ? LIMIT 1 FOR UPDATE`,
@@ -582,6 +591,10 @@ export async function ensureInboundLineVoucher(conn: any, p: {
   );
   const line = (lr as any[])[0];
   if (!line) throw new Error("입고 줄을 찾을 수 없습니다.");
+  // 살아 있는 입고 줄만 (Codex #561·562 검증 R2) — 취소된 줄로 전표를 다시 만들면 재고 없는 원재료 자산이 생긴다.
+  //   헤더는 다른 줄 때문에 confirmed 로 남을 수 있으니 줄의 취소 수량을 본다.
+  if (Number(line.cancelled_qty) > EPS) throw new Error(`입고 줄 ${line.header_id}-${line.line_number} 은 취소됐습니다 — 전표를 만들 수 없습니다.`);
+  if (!p.duringConfirm && line.header_status !== "confirmed") throw new Error("확정된 입고 줄만 전표를 만들 수 있습니다.");
   const find = async () => {
     const [ex]: any = await conn.execute(
       `SELECT id FROM accounting_purchases WHERE tenant_id = ? AND inbound_line_id = ? AND status <> 'cancelled' LIMIT 1`, [p.tenantId, p.lineId],
@@ -593,10 +606,17 @@ export async function ensureInboundLineVoucher(conn: any, p: {
   const [mn]: any = await conn.execute(`SELECT material_name FROM h_materials WHERE id = ? AND tenant_id = ?`, [line.material_id, p.tenantId]);
   const taxRate = p.taxRate ?? 10;
   const unpriced = !(Number(line.total_price) > 0);
-  const unitPrice = unpriced && (p.unitPriceIfUnpriced ?? 0) > 0 ? Number(p.unitPriceIfUnpriced) : Number(line.unit_price);
-  const supply = unpriced && (p.unitPriceIfUnpriced ?? 0) > 0
-    ? Math.round(Number(line.purchase_quantity) * unitPrice * 100) / 100
-    : Math.round(Number(line.total_price) * 100) / 100;
+  // 무단가 입고가 이미 평가됐으면 그 평가가 정본 (Codex #561·562 검증 R3) — 다른 가격 재발행은 거부 (별도 재평가 절차).
+  const valued = unpriced && line.valuation_amount != null;
+  if (valued && (p.unitPriceIfUnpriced ?? 0) > 0 && Math.abs(Number(p.unitPriceIfUnpriced) - Number(line.valuation_unit_price)) > 0.005) {
+    throw new Error(`이 입고는 단가 ${Number(line.valuation_unit_price)} 로 평가됐습니다 — 다른 단가로 전표를 다시 만들 수 없습니다 (재평가는 별도 절차).`);
+  }
+  const unitPrice = valued ? Number(line.valuation_unit_price)
+    : unpriced && (p.unitPriceIfUnpriced ?? 0) > 0 ? Number(p.unitPriceIfUnpriced) : Number(line.unit_price);
+  const supply = valued ? Math.round(Number(line.valuation_amount) * 100) / 100
+    : unpriced && (p.unitPriceIfUnpriced ?? 0) > 0
+      ? Math.round(Number(line.purchase_quantity) * unitPrice * 100) / 100
+      : Math.round(Number(line.total_price) * 100) / 100;
   const tax = Math.round(supply * taxRate / 100);
   try {
     const [vi]: any = await conn.execute(

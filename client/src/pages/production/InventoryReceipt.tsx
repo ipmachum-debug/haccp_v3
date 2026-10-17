@@ -63,21 +63,12 @@ export default function InventoryReceipt() {
   const createLotMutation = trpc.inventory.createLot.useMutation({
     onSuccess: async (data: any) => {
       setReqKey(newReqKey());
-      toast.success("재고가 성공적으로 입고되었습니다.");
-      
-      // 수동 LOT 입고는 전표를 만들지 않는다 — 여기서 만든 전표는 서버가 입고 줄에 연결한다 (전표 확정 = 분개만)
-      if (autoCreatePurchase && selectedMaterialId && unitPrice && supplierId && data.lotId) {
-        const selectedMaterial = materials?.find((m: any) => m.id === selectedMaterialId);
-        try {
-          await createPurchaseMutation.mutateAsync({
-            lotId: data.lotId, // LOT id — 재고거래 id 와 따로 (Codex #560 검증 N2)
-            itemName: selectedMaterial?.materialName || "재료",
-            quantity: quantity,
-            unit: unit,
-            unitPrice: unitPrice,
-            partnerId: supplierId,
-          });
-        } catch (error) {}
+      // 승인이 필요한 회사: 문서만 만들어졌다 — LOT·재고·전표 초안은 승인 때 (Codex #561·562 검증 R4)
+      //   전표 초안은 서버가 입고 줄에 연결해 만든다 (createVoucherDraft) — 화면이 따로 만들지 않는다
+      if (data.pendingApproval) {
+        toast.info(`입고 승인 대기 (입고 문서 #${data.inboundHeaderId}) — 승인되면 재고${autoCreatePurchase ? "와 매입전표 초안" : ""}이 반영됩니다.`);
+      } else {
+        toast.success(`재고가 입고되었습니다.${data.voucherIds?.length ? " 매입전표 초안(대기)이 함께 만들어졌습니다." : ""}`);
       }
       
       setSelectedMaterialId(null);
@@ -182,6 +173,7 @@ export default function InventoryReceipt() {
         supplierId: supplierId || undefined,
         unitPrice: unitPrice ? parseFloat(unitPrice) : undefined, // LOT 원가 (Codex #560 검증 N3)
         idempotencyKey: reqKey,
+        createVoucherDraft: !!(autoCreatePurchase && unitPrice && supplierId),
       });
     }
   };

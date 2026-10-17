@@ -43,6 +43,8 @@ export const inventoryRouter = router({
           receiptDate: z.string().optional(),
           unitPrice: z.number().min(0).optional(),
           idempotencyKey: z.string().min(8).max(64).optional(),
+          // 매입전표 초안을 입고 줄에 연결해 만든다 — 승인 대기 회사는 승인 때 (Codex #561·562 검증 R4, N5 와 같은 방식)
+          createVoucherDraft: z.boolean().optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {
@@ -59,6 +61,7 @@ export const inventoryRouter = router({
           tenantId: ctx.tenantId,
           unitPrice: input.unitPrice ?? null,
           idempotencyKey: input.idempotencyKey ?? null,
+          createVoucherDraft: input.createVoucherDraft ?? false,
         });
       }),
     

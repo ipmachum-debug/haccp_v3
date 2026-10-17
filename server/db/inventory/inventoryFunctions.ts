@@ -140,23 +140,31 @@ export async function createInventoryLot(data: {
   tenantId?: number;
   unitPrice?: number | null;      // 입고 단가 — LOT 원가 (Codex #560 검증 N3: 이전엔 0 으로 입고)
   idempotencyKey?: string | null; // 같은 요청 재시도는 입고 한 번 (N6)
+  createVoucherDraft?: boolean;   // 단가가 있으면 입고 줄에 연결된 대기 전표 초안 (승인 대기면 승인 때)
 }) {
   const tenantId = requireTenantId(data.tenantId);
   const qty = parsePositiveQty(data.quantity);
   // ★ 2026-10-17 (입고 정본화 PR-4): 직접 입고 = 입고 문서 + 입고 확정 (재고 반영 한 곳, 전표는 만들지 않음)
   const { receiveDirect } = await import("../../lib/inventory/inbound/inboundService");
-  const { lotId } = await receiveDirect({
+  const r = await receiveDirect({
     tenantId, userId: data.userId, materialId: data.materialId, quantity: qty, unit: data.unit,
     unitPrice: data.unitPrice ?? null, idempotencyKey: data.idempotencyKey ?? null,
     supplierId: data.supplierId ?? null, receiptDate: kstYmd(data.receiptDate ?? new Date()),
     expiryDate: data.expiryDate ? kstYmd(data.expiryDate) : null, lotNumber: data.lotNumber,
-    notes: `재고 입고 - LOT ${data.lotNumber}`, createVoucherDraft: false,
+    notes: `재고 입고 - LOT ${data.lotNumber}`, createVoucherDraft: data.createVoucherDraft === true,
   });
-
+  // 입고 승인이 필요한 회사는 문서만 만들어졌다 — 재고·LOT 은 승인 때 (Codex #561·562 검증 R4: 이전엔 '입고되었습니다' + lotId 0)
+  if (r.status === "pending_approval") {
+    return { success: true, status: r.status, pendingApproval: true, inboundHeaderId: r.headerId, message: "입고 승인 대기 — 승인되면 재고에 반영됩니다", lotId: null };
+  }
   return {
     success: true,
+    status: r.status,
+    pendingApproval: false,
+    inboundHeaderId: r.headerId,
     message: "재고가 입고되었습니다",
-    lotId
+    lotId: r.lotId,
+    voucherIds: r.voucherIds,
   };
 }
 
@@ -719,7 +727,9 @@ export async function receiveMaterial(params: {
     receiptDate: String(params.receiptDate).slice(0, 10), expiryDate: params.expiryDate ? String(params.expiryDate).slice(0, 10) : null,
     lotNumber, location: params.location ?? null, createVoucherDraft: false,
   });
-  return { lotId: r.lotId, lotNumber: r.lotNumber || lotNumber };
+  // 승인 대기면 LOT 은 아직 없다 — 지어 둔 번호를 확정 입고 결과로 돌려주지 않는다 (Codex #561·562 검증 R4)
+  if (r.status === "pending_approval") return { status: r.status, pendingApproval: true, inboundHeaderId: r.headerId, lotId: null, lotNumber: null };
+  return { status: r.status, pendingApproval: false, inboundHeaderId: r.headerId, lotId: r.lotId, lotNumber: r.lotNumber || lotNumber };
 }
 
 /** Date → KST 달력 날짜 'YYYY-MM-DD' */

@@ -10,7 +10,10 @@ import { REPO_ROOT } from "./__helpers__/appRoutes";
 
 const st = vi.hoisted(() => ({ docTenant: 2 as number | undefined, calls: [] as any[] }));
 vi.mock("./db/connection", () => ({
-  getDb: vi.fn(async () => ({ execute: vi.fn(async () => [[st.docTenant != null ? { tenant_id: st.docTenant } : undefined].filter(Boolean)]) })),
+  // 전표 회사 조회만 행을 돌려준다 — 입고 줄 연결 조회(디스패처 R6) 는 연결 없음
+  getDb: vi.fn(async () => ({ execute: vi.fn(async (q: any) => JSON.stringify(q?.queryChunks ?? q).includes("h_inbound_lines")
+    ? [[]]
+    : [[st.docTenant != null ? { tenant_id: st.docTenant } : undefined].filter(Boolean)]) })),
 }));
 vi.mock("./lib/accounting/tenantModuleCheck", () => ({ isHaccpEnabled: vi.fn(async () => true) }));
 // 2026-10-17: 디스패처는 재고관리 사용 여부(회사 설정, 없으면 HACCP 패키지) 로 가른다
