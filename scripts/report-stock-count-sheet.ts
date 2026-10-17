@@ -5,6 +5,8 @@
  *   확인 대상 LOT: 사용 가능 상태 LOT 전부 + 'used' 인데 잔량 있는 LOT + 음수 LOT.
  *   열: 순위·원료·LOT·상태·입고일·소비기한·시스템 가용·장부·현재수량·분류·실사 수량(빈칸)·메모(빈칸)
  * 주의: 오래된 LOT 은 예전 기록 방식 때문에 장부 값 자체가 맞지 않을 수 있다 (예: 사용 합이 입고보다 큼) — 실사 수량이 기준.
+ * 원료마다 맨 위에 '원료 합계' 줄 — 현장에서 LOT 을 구분할 수 없으면 실사 수량을 이 줄에만 적는다
+ *   (옛 LOT 에 임의로 나누지 않는다, CEO 2026-10-17). LOT 별로 셀 수 있으면 LOT 줄에 적고 합계 줄은 비운다.
  * 실사 결과는 이 시트로 받고, 반영은 승인된 원료·LOT 만 별도 조정 절차로 한다 (이 스크립트는 쓰기 없음).
  *
  * 실행: npx tsx scripts/report-stock-count-sheet.ts --tenant=2 --out=count-sheet.csv [--material=645,641] [--top=20]
@@ -62,6 +64,13 @@ async function main() {
   const header = ["순위", "원료ID", "원료", "단위", "LOT ID", "LOT 번호", "상태", "입고일", "소비기한", "시스템 가용", "거래 장부(입고+반품+조정-사용)", "현재수량", "분류", "실사 수량", "메모"];
   const lines = [header.join(",")];
   ranked.forEach(([id, m], i) => {
+    // 시스템 가용 합계 = 사용 가능 LOT 만 (집계·출고 기준과 같게). 'used' 잔량은 따로 적는다.
+    const total = r3(m.lots.filter((l: any) => l.status === "available").reduce((s: number, l: any) => s + Number(l.available), 0));
+    const usedLeft = r3(m.lots.filter((l: any) => l.status === "used" && Number(l.available) > EPS).reduce((s: number, l: any) => s + Number(l.available), 0));
+    lines.push([
+      i + 1, id, m.name, m.unit, "", "원료 합계", "", "", "", total, "", "",
+      `LOT 을 구분할 수 없으면 실사 총량을 이 줄에만 (LOT 에 나누지 않음)${usedLeft ? ` · '다 씀' 표시 LOT 잔량 ${usedLeft} 은 합계에 없음` : ""}`, "", "",
+    ].map(csv).join(","));
     for (const l of m.lots) {
       lines.push([
         i + 1, id, m.name, m.unit, l.id, l.lot, l.status, l.receiptDate, l.expiryDate, l.available, l.ledger ?? "판단 불가", l.current,
@@ -70,7 +79,7 @@ async function main() {
     }
   });
   writeFileSync(OUT, "﻿" + lines.join("\n") + "\n"); // 엑셀에서 한글이 깨지지 않게 BOM
-  console.log(`실사 목록: 원료 ${ranked.length}개, LOT ${lines.length - 1}줄 → ${OUT}`);
+  console.log(`실사 목록: 원료 ${ranked.length}개, ${lines.length - 1}줄 (원료 합계 줄 포함) → ${OUT}`);
   for (const [id, m] of ranked.slice(0, 15)) console.log(`  #${id} ${m.name}: 차이 크기 ${r3(m.score)}${m.unit ?? ""} · LOT ${m.lots.length}개`);
   await (conn as any).end?.();
 }
