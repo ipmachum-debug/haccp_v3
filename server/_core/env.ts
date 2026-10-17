@@ -111,10 +111,12 @@ export function printEnvDiagnostics() {
   const key = findApiKey();
   console.log("[env] ===== AI/LLM API 진단 =====");
   console.log("[env] cwd:", process.cwd());
-  console.log("[env] process.env.OPENAI_API_KEY:", JSON.stringify(process.env.OPENAI_API_KEY));
-  console.log("[env] process.env.BUILT_IN_FORGE_API_KEY:", JSON.stringify(process.env.BUILT_IN_FORGE_API_KEY));
-  console.log("[env] forgeApiUrl:", process.env.BUILT_IN_FORGE_API_URL || "(OpenAI 기본)");
-  console.log("[env] forgeApiKey:", key ? `✅ 설정됨 (length=${key.length}, prefix=${key.slice(0, 7)}***)` : "❌ 미설정");
+  // ★ 2026-10-17 (Codex #558 검증 — 보안 P1): 키 원문·접두를 로그에 남기지 않는다. 설정 여부와 길이만.
+  const presence = (v: string | undefined) => (v ? `설정됨 (length=${v.length})` : "미설정");
+  console.log("[env] OPENAI_API_KEY:", presence(process.env.OPENAI_API_KEY));
+  console.log("[env] BUILT_IN_FORGE_API_KEY:", presence(process.env.BUILT_IN_FORGE_API_KEY));
+  console.log("[env] forgeApiUrl:", process.env.BUILT_IN_FORGE_API_URL ? "설정됨" : "(OpenAI 기본)");
+  console.log("[env] forgeApiKey:", key ? `✅ ${presence(key)}` : "❌ 미설정");
   console.log("[env] =============================");
 }
 

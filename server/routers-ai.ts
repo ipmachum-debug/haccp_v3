@@ -329,7 +329,7 @@ export const aiRouter = router({
       forgeApiUrl: process.env.BUILT_IN_FORGE_API_URL || "(OpenAI 기본)",
       hasKey: diag.key.length > 0,
       keyLength: diag.key.length,
-      keyPrefix: diag.key ? diag.key.slice(0, 7) + "***" : "",
+      keyPrefix: "", // 2026-10-17 보안: 키 일부도 응답에 내보내지 않는다 (설정 여부·길이만)
       source: diag.source,
       processEnv: diag.processEnv,
       checkedPaths: diag.checked,

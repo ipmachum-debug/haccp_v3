@@ -327,6 +327,25 @@ export async function receiveNewLot(
   const qty = Math.abs(p.quantity);
   const receipt = toDateStr(p.receiptDate) ?? toDateStr(new Date())!;
 
+  // ★ 2026-10-17 (Codex #558 검증 F1, 공통 재고 경계): 원재료 LOT 단위는 원재료 기준 단위와 같아야 하고,
+  //   같은 원재료의 사용 중 LOT 에 다른 단위가 있으면 새 LOT 을 만들지 않는다 — 집계가 단위 구분 없이 더하기 때문
+  //   (kg 10 + g 1000 = 1010). 환산 근거가 없으므로 거부. 기준 단위가 비어 있는 원재료는 다른 단위 LOT 만 검사.
+  if (s.materialId) {
+    const unitN = String(p.unit ?? "").trim().toLowerCase();
+    const [mr]: any = await conn.execute(`SELECT unit FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [s.materialId, p.tenantId]);
+    const base = String((mr as any[])[0]?.unit ?? "").trim().toLowerCase();
+    if (base && unitN !== base) {
+      throw new Error(`LOT 단위(${p.unit}) 가 원재료 기준 단위(${(mr as any[])[0].unit}) 와 다릅니다 (원재료 #${s.materialId}).`);
+    }
+    const [ou]: any = await conn.execute(
+      `SELECT DISTINCT unit FROM h_inventory_lots WHERE tenant_id = ? AND material_id = ? AND status = 'available' AND LOWER(TRIM(unit)) <> ? LIMIT 3`,
+      [p.tenantId, s.materialId, unitN],
+    );
+    if ((ou as any[]).length) {
+      throw new Error(`원재료 #${s.materialId} 에 다른 단위(${(ou as any[]).map((r: any) => r.unit).join(", ")}) 의 LOT 이 있어 ${p.unit} LOT 을 더할 수 없습니다.`);
+    }
+  }
+
   // (1) LOT 생성
   const [lotResult]: any = await conn.execute(
     `INSERT INTO h_inventory_lots
@@ -447,7 +466,9 @@ async function insertLedger(
 function toDateStr(d?: Date | string | null): string | null {
   if (d == null) return null;
   if (typeof d === "string") return d.slice(0, 10);
-  return d.toISOString().slice(0, 10);
+  // ★ 2026-10-17 (Codex #558 검증 F6): DB 세션·원시 풀이 +09:00 이라 DATE 는 KST 자정의 Date 로 온다 —
+  //   toISOString() 은 UTC 라 하루 앞당겨졌다. KST 달력 날짜로 (프로세스 TZ 와 무관).
+  return new Date(d.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 /**
