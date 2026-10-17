@@ -25,7 +25,11 @@ export async function createPurchase(params: {
   expiryDate?: string; // 소비기한
   productionDate?: string; // 생산일자
   unit?: string; // 단위
+  packagingUnit?: string; // 포장규격 단위 (원재료 기준 단위여야 함)
   createdBy: number;
+  idempotencyKey?: string | null;   // 같은 요청 재시도는 입고·전표 한 번
+  savePackUnit?: boolean;           // 포장 환산 설정이 없을 때 이 입력(1 단위 = 포장규격)으로 저장하고 진행 — 사용자 확인 후에만
+  inspectionResult?: "pass" | "fail" | null; // 입고 검수 (불합격 → 격리)
 }, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
@@ -42,6 +46,15 @@ export async function createPurchase(params: {
     } catch (e) {
       console.error("[createPurchase] itemMaster 조회 실패:", e);
     }
+  }
+
+  // ★ 2026-10-17 (입고 정본화 — 매입 입력 경유): 원재료 매입은 입고 문서로 — 재고 반영은 입고 확정 한 곳.
+  //   이전: 여기서 LOT·원장·집계를 직접 INSERT(관문·잠금·환산 검사 없음, 회계만 회사도 LOT 생성) + 육안검사 기록 + postPurchase.
+  //   지금: 입고 문서(직접 입고, 전표 초안 연결) → 확정(재고·수불부 한 번, 불합격은 격리) → 연결 전표 확정(분개만).
+  //   포장규격은 회사·원료·포장 단위 설정으로 (CEO 결정 1 — 설정 없으면 차단, 사용자가 확인하면 이 입력으로 저장).
+  if (resolvedMaterialId) {
+    if (!tenantId) throw new Error("tenantId 필수");
+    return createMaterialPurchaseViaInbound({ ...params, materialId: Number(resolvedMaterialId) }, Number(tenantId));
   }
 
   // ★ 2026-04-15: material_id / account_category_id 컬럼 부재 시 fallback
@@ -98,206 +111,6 @@ export async function createPurchase(params: {
     }
   }
 
-  // 원재료 ID가 있으면 h_inventory_lots 및 h_material_inspections 자동 생성
-  // ★ 2026-04-15: HACCP 통합 블록 전체를 try/catch 로 보호
-  //   하위 테이블(h_inventory_lots, h_material_inspections, categories, h_stock_alerts)
-  //   중 하나라도 없으면 전체 입고가 실패하던 문제.
-  //   이제는 메인 매입전표(accounting_purchases) 는 이미 insert 완료된 상태이므로
-  //   HACCP 통합이 실패해도 로그만 남기고 계속 진행.
-  if (resolvedMaterialId) {
-    try {
-      const { hInventoryLots, hMaterialInspections, hMaterials } = await import("../../../drizzle/schema");
-      const { eq } = await import("drizzle-orm");
-
-      // 원재료 정보 조회 (unit 필드 필요)
-      const [material] = await db.select().from(hMaterials).where(eq(hMaterials.id, resolvedMaterialId));
-      if (!material) {
-        console.warn(`[createPurchase] Material not found: ${resolvedMaterialId}, skipping HACCP integration`);
-        // 원재료를 찾지 못하면 HACCP 연동 건너뛰기 (매입 기록은 이미 생성됨)
-      } else {
-
-      // LOT 번호 자동 생성 (형식: MAT-YYYYMMDD-순번)
-      const today = new Date();
-      const dateStr = today.toISOString().slice(0, 10).replace(/-/g, "");
-      const randomSuffix = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
-      const lotNumber = `MAT-${dateStr}-${randomSuffix}`;
-
-      // 포장규격 × 수량 = 총 재고량
-      const totalInventoryQuantity = (params.packagingSize || 1) * params.quantity;
-
-      // ★ 2026-10-13 (원가 정합성): LOT 단가 = LOT 수량 단위당 가격 (금액 ÷ 기준수량, 없으면 단가 ÷ 포장규격).
-      //   이전에는 LOT 에 unit_price 를 안 넣고 거래 unit_cost 에 "포대당 가격" 을 넣어 kg 수량과 단위가 어긋났다
-      //   (찹쌀 50포×65,000원=3,250,000원/1,000kg → kg당 3,250원인데 unit_cost=65,000, LOT 단가 NULL).
-      const { perUnitPriceFromPurchase } = await import("../../lib/inventory/materialPrice");
-      const perUnitPrice = perUnitPriceFromPurchase({
-        unitPrice: params.unitPrice,
-        packagingSize: params.packagingSize,
-        amount: params.amount,
-        totalBaseQty: totalInventoryQuantity,
-      });
-
-      // h_inventory_lots에 LOT 생성
-      const [lot] = await db.insert(hInventoryLots).values({
-        tenantId: tenantId,
-        lotNumber,
-        materialId: resolvedMaterialId,
-        quantity: totalInventoryQuantity,
-        availableQuantity: totalInventoryQuantity, // 초기 입고 시 가용 수량 = 총 수량
-        unitPrice: perUnitPrice > 0 ? String(perUnitPrice) : null,
-        unit: material.unit, // 원재료의 단위 사용
-        receiptDate: params.transactionDate,
-        expiryDate: params.expiryDate || null,
-        productionDate: params.productionDate || null,
-        status: "available", // enum: available, reserved, used, expired, disposed
-      } as any);
-
-      // ★ 2026-06-25: 입고 트랜잭션(receipt) 및 h_inventory 합계 갱신
-      //   이전에는 h_inventory_lots만 INSERT하고 h_inventory_transactions 누락 → 트랜잭션
-      //   기준 보고서/재고 화면이 LOT 합계와 불일치하는 문제 발생 (MAT- orphan LOT 이슈).
-      //   inboundManagement.ts (직접 입고 경로)의 (B), (C) 패턴과 동일하게 보완.
-      try {
-        const { hInventoryTransactions, hInventory } = await import("../../../drizzle/schema");
-        // (B) receipt 트랜잭션 기록
-        await db.insert(hInventoryTransactions).values({
-          tenantId: tenantId,
-          lotId: lot.insertId as number,
-          materialId: resolvedMaterialId,
-          transactionType: "receipt",
-          quantity: totalInventoryQuantity,
-          unit: material.unit,
-          // 2026-10-13: unit_cost 도 LOT 수량 단위당 (quantity 와 같은 단위). amount 는 매입 금액 그대로.
-          unitCost: perUnitPrice > 0 ? String(perUnitPrice) : null,
-          amount: params.amount ? String(params.amount) : null,
-          transactionDate: params.transactionDate,
-          referenceType: "accounting_purchase",
-          referenceId: purchase.insertId as number,
-          notes: params.memo || null,
-          createdBy: params.createdBy,
-        } as any);
-
-        // (C) h_inventory 합계 누계 (UPSERT)
-        const [existingInv] = await db
-          .select()
-          .from(hInventory)
-          .where(and(
-            eq(hInventory.tenantId, tenantId as number),
-            eq(hInventory.materialId, resolvedMaterialId)
-          ));
-        if (existingInv) {
-          await db
-            .update(hInventory)
-            .set({
-              totalQuantity: String(Number(existingInv.totalQuantity) + totalInventoryQuantity),
-              availableQuantity: String(Number(existingInv.availableQuantity) + totalInventoryQuantity),
-            } as any)
-            .where(eq(hInventory.id, existingInv.id));
-        } else {
-          await db.insert(hInventory).values({
-            tenantId: tenantId,
-            materialId: resolvedMaterialId,
-            itemName: material.materialName,
-            totalQuantity: String(totalInventoryQuantity),
-            availableQuantity: String(totalInventoryQuantity),
-            reservedQuantity: "0",
-            unit: material.unit,
-          } as any);
-        }
-      } catch (txnErr: any) {
-        // 트랜잭션/재고 합계 INSERT 실패는 비치명 (LOT/매입은 이미 기록됨)
-        console.error(`[createPurchase] h_inventory_transactions/h_inventory 기록 실패 (비치명):`,
-          txnErr?.message || txnErr);
-      }
-
-      // ★ 2026-10-13: 신규 입고가 → 자재 현재 단가(h_materials.unit_price) 자동 갱신 + 이력 (CEO 요구)
-      if (perUnitPrice > 0) {
-        const { getRawConnection } = await import("../connection");
-        const { applyMaterialPriceFromReceipt } = await import("../../lib/inventory/materialPrice");
-        await applyMaterialPriceFromReceipt(await getRawConnection(), {
-          materialId: resolvedMaterialId,
-          tenantId: tenantId as number,
-          unitPrice: perUnitPrice,
-          changedBy: params.createdBy,
-          reason: `매입 입고 #${purchase.insertId} (${lotNumber})`,
-        });
-      }
-
-      // h_material_inspections에 육안검사일지 자동 생성
-      // 실제 DB 구조에 맞춰 수정: receiving_id, inspection_date, inspector_id, status, result
-      try {
-        await db.insert(hMaterialInspections).values({
-          tenantId: tenantId,
-          receivingId: purchase.insertId as number, // accounting_purchases.id
-          inspectionDate: params.transactionDate,
-          inspectorId: params.createdBy,
-          status: "pending", // enum: pending, passed, failed, conditional - 초기 상태는 pending
-          result: "pass", // enum: pass, fail, conditional
-          notes: params.memo || null
-        } as any);
-      } catch (inspErr: any) {
-        console.warn(`[createPurchase] 육안검사일지 생성 실패 (비치명):`, inspErr?.message || inspErr);
-      }
-
-      // 카테고리의 alertDays 조회 및 알람 자동 생성
-      try {
-        const { categories, hStockAlerts } = await import("../../../drizzle/schema");
-        // 원재료의 categoryId 조회 (이미 조회한 material 변수 사용)
-        if (material?.categoryId) {
-          const [category] = await db.select().from(categories).where(eq(categories.id, material.categoryId));
-
-          // alertDays > 0이면 알람 생성
-          if (category && category.alertDays && category.alertDays > 0) {
-            const alerts: any[] = [];
-
-            // 소비기한 기반 알람 (expiryDate - alertDays)
-            if (params.expiryDate) {
-              const expiryDate = new Date(params.expiryDate);
-              const alertDate = new Date(expiryDate);
-              alertDate.setDate(alertDate.getDate() - category.alertDays);
-
-              alerts.push({
-                tenantId: tenantId,
-                siteId: 1,
-                lotId: lot.insertId as number,
-                alertType: "expiring_soon",
-                alertDate: alertDate.toISOString().slice(0, 19).replace("T", " "),
-                resolved: 0,
-                notes: `소비기한 ${category.alertDays}일 전 알람`
-              });
-            }
-
-            // 생산일자 기반 알람 (productionDate + alertDays)
-            if (params.productionDate) {
-              const productionDate = new Date(params.productionDate);
-              const alertDate = new Date(productionDate);
-              alertDate.setDate(alertDate.getDate() + category.alertDays);
-
-              alerts.push({
-                tenantId: tenantId,
-                siteId: 1,
-                lotId: lot.insertId as number,
-                alertType: "expiring_soon",
-                alertDate: alertDate.toISOString().slice(0, 19).replace("T", " "),
-                resolved: 0,
-                notes: `생산일자 ${category.alertDays}일 후 알람`
-              });
-            }
-
-            // 알람 일괄 삽입
-            if (alerts.length > 0) {
-              await db.insert(hStockAlerts).values(alerts);
-            }
-          }
-        }
-      } catch (alertErr: any) {
-        console.warn(`[createPurchase] 재고 알람 생성 실패 (비치명):`, alertErr?.message || alertErr);
-      }
-      } // close else block for material found check
-    } catch (haccpErr: any) {
-      // HACCP 통합 전체 실패 — 매입전표는 이미 생성됨, 나머지는 best-effort
-      console.warn(`[createPurchase] HACCP 통합 실패 (매입전표는 생성됨, materialId=${resolvedMaterialId}):`, haccpErr?.message || haccpErr);
-    }
-  }
-
   // === 원료수불부 입고 연동 ===
   // ★ 2026-10-16: 여기서 더하지 않는다 — 아래 postPurchase (B-3) 가 확정 시 한 번 기록한다.
   //   이전에는 등록 때 onPurchaseCreated 로 한 번, postPurchase 로 또 한 번 더해 수불부 입고가 이중 가산됐다
@@ -330,6 +143,97 @@ export async function createPurchase(params: {
   }
 
   return Object.assign(purchase as object, { posted, postError });
+}
+
+/** 원재료 매입 = 입고 문서(직접 입고) + 확정 + 연결 전표 확정. createPurchase 에서만 부른다. */
+async function createMaterialPurchaseViaInbound(params: {
+  transactionDate: string; partnerId: number; itemName: string; materialId: number; quantity: number; packagingSize?: number;
+  unitPrice: number; amount: number; taxAmount: number; taxRate?: number; memo?: string; expiryDate?: string; productionDate?: string;
+  unit?: string; packagingUnit?: string; createdBy: number; idempotencyKey?: string | null; savePackUnit?: boolean; inspectionResult?: "pass" | "fail" | null;
+}, tenantId: number) {
+  const raw = await getRawConnection();
+  const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
+  const materialId = (await toInventoryMaterialId(params.materialId, tenantId, raw)).id;
+  const [mr]: any = await raw.execute(`SELECT id, unit, material_name FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [materialId, tenantId]);
+  const mat = (mr as any[])[0];
+  if (!mat) throw new Error("원재료를 찾을 수 없습니다.");
+  const { isInventoryTrackingEnabled } = await import("../../lib/inventory/inventoryTrackingPolicy");
+  const tracking = await isInventoryTrackingEnabled(tenantId);
+  const purchaseUnit = String(params.unit || "개").trim();
+  const norm = (u: unknown) => String(u ?? "").trim().toLowerCase();
+  // 포장규격(1 매입 단위 = N 기준 단위) — 재고 수량은 설정으로 계산하고 입력값과 같아야 한다
+  let stockQuantity: number | null = null;
+  const pack = Number(params.packagingSize ?? 0);
+  if (tracking && pack > 0 && params.packagingUnit && norm(params.packagingUnit) !== norm(mat.unit)) {
+    throw new Error(`${mat.material_name}: 포장규격 단위(${params.packagingUnit}) 가 원재료 기준 단위(${mat.unit}) 와 다릅니다 — 기준 단위로 입력하세요.`);
+  }
+  if (tracking && pack > 0 && !(norm(purchaseUnit) === norm(mat.unit) && pack === 1)) {
+    stockQuantity = Math.round(params.quantity * pack * 1000) / 1000;
+    if (norm(purchaseUnit) !== norm(mat.unit)) {
+      const [pu]: any = await raw.execute(
+        `SELECT id FROM material_pack_units WHERE tenant_id = ? AND material_id = ? AND LOWER(TRIM(pack_unit)) = ? AND is_active = 1 LIMIT 1`,
+        [tenantId, materialId, norm(purchaseUnit)],
+      );
+      if (!(pu as any[])[0]) {
+        if (!params.savePackUnit) {
+          throw new Error(`PACK_UNIT_MISSING: ${mat.material_name} — '${purchaseUnit}' → ${mat.unit} 포장 환산 설정이 없습니다 (입력: 1${purchaseUnit} = ${pack}${mat.unit}). 확인 후 저장하면 다음부터 이 설정으로 계산합니다.`);
+        }
+        const { upsertPackUnit } = await import("../../lib/inventory/inbound/packUnits");
+        await upsertPackUnit(raw, { tenantId, userId: params.createdBy, materialId, packUnit: purchaseUnit, baseQty: pack });
+      }
+    }
+  }
+  const supply = Math.round(Number(params.amount) * 100) / 100;
+  const taxRate = params.taxRate ?? (Number(params.taxAmount) > 0 ? 10 : 0);
+  const key = params.idempotencyKey || `purchase-${tenantId}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const { createInboundDraft, confirmInbound } = await import("../../lib/inventory/inbound/inboundService");
+  const { headerId } = await createInboundDraft({
+    tenantId, userId: params.createdBy, idempotencyKey: key, sourceType: "direct", supplierId: params.partnerId,
+    inboundDate: params.transactionDate, notes: params.memo ?? null, createVoucherDrafts: true,
+    lines: [{
+      materialId, purchaseQuantity: params.quantity, purchaseUnit,
+      stockQuantity, stockUnit: stockQuantity != null ? String(mat.unit) : null,
+      unitPrice: params.unitPrice, totalPrice: supply, taxRate,
+      expiryDate: params.expiryDate || null, productionDate: params.productionDate || null,
+      inspectionResult: params.inspectionResult ?? null, notes: params.memo ?? null,
+    }],
+  });
+  const r = await confirmInbound(headerId, tenantId, params.createdBy);
+  if (r.status !== "confirmed") {
+    return { id: 0, insertId: 0, inboundHeaderId: headerId, status: "pending_approval", pendingApproval: true, posted: false, postError: null };
+  }
+  if (r.quarantinedLineIds?.length) {
+    return { id: 0, insertId: 0, inboundHeaderId: headerId, status: "quarantined", quarantined: true, posted: false, postError: null };
+  }
+  const purchaseId = r.voucherIds[0] ?? 0;
+  const lot = r.lots[0];
+  // 신규 입고가 → 자재 현재 단가 갱신 (재고 단위당, 2026-10-13 CEO 요구) — 재고 회사·LOT 이 있을 때만
+  if (lot?.lotId) {
+    try {
+      const [lp]: any = await raw.execute(`SELECT unit_price FROM h_inventory_lots WHERE id = ? AND tenant_id = ?`, [lot.lotId, tenantId]);
+      const per = Number((lp as any[])[0]?.unit_price ?? 0);
+      if (per > 0) {
+        const { applyMaterialPriceFromReceipt } = await import("../../lib/inventory/materialPrice");
+        await applyMaterialPriceFromReceipt(raw, { materialId, tenantId, unitPrice: per, changedBy: params.createdBy, reason: `매입 입고 #${purchaseId} (${lot.lotNumber})` });
+      }
+    } catch (e: any) {
+      console.warn(`[createPurchase] 자재 단가 갱신 실패 (비치명):`, e?.message || e);
+    }
+  }
+  // 매입 입력은 등록 = 확정 (이전 동작 유지). 연결 전표라 분개만 — 재고는 위 입고 확정이 이미 반영했다.
+  let posted = false;
+  let postError: string | null = null;
+  if (purchaseId > 0) {
+    try {
+      const { dispatchPostPurchase } = await import("../../lib/accounting/postDispatcher");
+      await dispatchPostPurchase(purchaseId, params.createdBy, tenantId);
+      posted = true;
+    } catch (e: any) {
+      postError = e?.message ?? String(e);
+      console.error(`[createPurchase] 전표 확정 실패 (전표 ${purchaseId} 은 pending 유지):`, postError);
+    }
+  }
+  return { id: purchaseId, insertId: purchaseId, inboundHeaderId: headerId, lotId: lot?.lotId || null, status: "confirmed", posted, postError };
 }
 
 /**
