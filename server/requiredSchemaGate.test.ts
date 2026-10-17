@@ -30,7 +30,8 @@ function fakeConn(o: { hasColumn: boolean; hasIndex: boolean; alterFails?: boole
         state.hasIndex = true; return [{}];
       }
       if (/INFORMATION_SCHEMA\.COLUMNS/.test(q)) return [state.hasColumn ? [{ COLUMN_NAME: "sku_id" }] : []];
-      if (/INFORMATION_SCHEMA\.STATISTICS/.test(q)) return [state.hasIndex ? [{ 1: 1 }] : []];
+      // 성능 인덱스(idx_sales_tenant_sku) 만 주입 대상 — 입고 문서 유니크 키(PR-1) 는 있는 것으로
+      if (/INFORMATION_SCHEMA\.STATISTICS/.test(q)) return [!/idx_sales_tenant_sku/.test(q) || state.hasIndex ? [{ 1: 1 }] : []];
       return [[]];
     }),
   };
@@ -53,6 +54,16 @@ describe("ensureRequiredSchema", () => {
     const r = await ensureRequiredSchema(fakeConn({ hasColumn: true, hasIndex: false, indexFails: true }), { allowDdl: true });
     expect(r.ok).toBe(true);
     expect(r.warnings[0]).toMatch(/idx_sales_tenant_sku 없음/);
+  });
+  it("입고 줄당 LOT 하나 유니크 키가 없으면 ok:false (입고 정본화 PR-1)", async () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const c = fakeConn({ hasColumn: true, hasIndex: true });
+    const orig = c.query.getMockImplementation()!;
+    c.query.mockImplementation(async (q: string, params?: any[]) =>
+      /INFORMATION_SCHEMA\.STATISTICS/.test(q) && params?.includes("uq_lot_tenant_inbound_line") ? [[]] : orig(q, params));
+    const r = await ensureRequiredSchema(c, { allowDdl: true });
+    expect(r.ok).toBe(false);
+    expect(r.missing.join()).toMatch(/uq_lot_tenant_inbound_line/);
   });
   it("RUN_STARTUP_MIGRATIONS=false (allowDdl=false) → DDL 없이 검사만, 없으면 ok:false", async () => {
     const c = fakeConn({ hasColumn: false, hasIndex: false });

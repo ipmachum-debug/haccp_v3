@@ -58,6 +58,8 @@ export const hInventoryLots = mysqlTable("h_inventory_lots", {
   manufacturerName: varchar("manufacturer_name", { length: 200 }),
   location: varchar("location", { length: 100 }),
   status: mysqlEnum("status", ["available", "reserved", "used", "expired", "disposed"]).default("available"),
+  // 입고 줄 (2026-10-17, 입고 정본화 PR-1) — UNIQUE(tenant_id, inbound_line_id): 입고 줄 하나에 LOT 하나. 기존 LOT 은 NULL.
+  inboundLineId: bigint("inbound_line_id", { mode: "number" }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });
@@ -213,10 +215,18 @@ export const hInboundHeaders = mysqlTable("h_inbound_headers", {
   siteId: bigint("site_id", { mode: "number" }).notNull(),
   supplierId: bigint("supplier_id", { mode: "number" }), // 공급업체 ID
   inboundDate: date("inbound_date").notNull(), // 입고일
-  status: mysqlEnum("status", ["draft", "confirmed", "cancelled"]).default("draft").notNull(),
+  status: mysqlEnum("status", ["draft", "confirmed", "cancelled", "pending_approval"]).default("draft").notNull(),
   confirmedAt: timestamp("confirmed_at"), // 확정 시간
   confirmedBy: bigint("confirmed_by", { mode: "number" }), // 확정자
   notes: text("notes"), // 비고
+  // 입고 문서 (2026-10-17, 입고 정본화 PR-1) — 기존 행은 NULL
+  sourceType: varchar("source_type", { length: 30 }), // 'purchase_order' | 'direct' | 'legacy_purchase'
+  poId: bigint("po_id", { mode: "number" }),
+  idempotencyKey: varchar("idempotency_key", { length: 64 }), // UNIQUE(tenant_id, idempotency_key)
+  approvedBy: bigint("approved_by", { mode: "number" }),
+  approvedAt: timestamp("approved_at"),
+  cancelledBy: bigint("cancelled_by", { mode: "number" }),
+  cancelledAt: timestamp("cancelled_at"),
   createdBy: bigint("created_by", { mode: "number" }).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
@@ -242,6 +252,16 @@ export const hInboundLines = mysqlTable("h_inbound_lines", {
   expiryDate: date("expiry_date"), // 유통기한
   location: varchar("location", { length: 100 }), // 보관 위치
   notes: text("notes"), // 비고
+  // 입고 문서 줄 (2026-10-17, 입고 정본화 PR-1) — 기존 행은 NULL / 0
+  poLineId: bigint("po_line_id", { mode: "number" }),
+  lotId: bigint("lot_id", { mode: "number" }), // UNIQUE(tenant_id, lot_id)
+  receiptTxId: bigint("receipt_tx_id", { mode: "number" }),
+  productionDate: date("production_date"),
+  inspectionResult: mysqlEnum("inspection_result", ["pending", "pass", "fail", "conditional"]),
+  inspectionJson: json("inspection_json"),
+  inspectedBy: bigint("inspected_by", { mode: "number" }),
+  inspectedAt: timestamp("inspected_at"),
+  cancelledQty: decimal("cancelled_qty", { precision: 10, scale: 3 }).notNull().default("0"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
 });

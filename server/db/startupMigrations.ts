@@ -736,6 +736,92 @@ async function ensureMassBasisSchema(conn: any) {
 }
 
 /**
+ * 입고 문서 스키마 (2026-10-17, 입고 정본화 PR-1) — 기존 h_inbound_headers/lines 를 입고 문서로 승격.
+ * 전부 NULL 허용(또는 기본값 있는) 컬럼 추가 + 유니크 키. 기존 행의 값은 바꾸지 않는다 (자동 연결·보정 없음).
+ *
+ * 중복 방지 키 의미 (Codex 권고: 회사 범위·NULL 기존 행 호환·취소/재시도):
+ *   - h_inventory_lots (tenant_id, inbound_line_id) UNIQUE — 입고 줄 하나에 LOT 하나. 같은 줄을 다시 확정(재시도·동시 클릭)
+ *     하면 두 번째 INSERT 가 DB 에서 막힌다. 기존 LOT 은 inbound_line_id NULL 이라 영향 없음 (NULL 은 여러 개 허용).
+ *     입고 취소는 그 LOT 의 수량을 되돌릴 뿐 줄·LOT 연결은 남긴다. 다시 받으려면 **새 입고 줄**(새 id) → 새 LOT.
+ *   - h_inbound_lines (tenant_id, lot_id) UNIQUE — 반대 방향도 1:1.
+ *   - h_inbound_lines (tenant_id, header_id, line_number) UNIQUE — 문서 안 줄 번호 중복 금지 (10/16 사본 중복 0).
+ *   - h_inbound_headers (tenant_id, idempotency_key) UNIQUE — 같은 요청(화면이 만든 키)으로 문서를 두 번 만들지 않음.
+ *   - accounting_purchases.inbound_line_id — 매입전표가 기존 입고에 '연결' 만 (재고를 다시 만들지 않기 위한 키, PR-5).
+ */
+async function ensureInboundDocumentSchema(conn: any) {
+  const addCol = async (table: string, column: string, ddl: string) => {
+    try {
+      const [cols]: any = await conn.query(
+        `SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`,
+        [table, column],
+      );
+      if (!(cols as any[]).length) {
+        await conn.query(`ALTER TABLE \`${table}\` ADD COLUMN ${ddl}`);
+        console.log(`[Migration] ${table}.${column} added`);
+      }
+    } catch (err: any) {
+      if (err.code !== "ER_NO_SUCH_TABLE") console.warn(`[Migration] ${table}.${column} failed:`, err.message);
+    }
+  };
+  const addIndex = async (table: string, name: string, ddl: string) => {
+    try {
+      const [ix]: any = await conn.query(
+        `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? LIMIT 1`,
+        [table, name],
+      );
+      if (!(ix as any[]).length) {
+        await conn.query(`ALTER TABLE \`${table}\` ADD ${ddl}`);
+        console.log(`[Migration] ${table}.${name} added`);
+      }
+    } catch (err: any) {
+      if (err.code !== "ER_NO_SUCH_TABLE") console.warn(`[Migration] ${table}.${name} failed:`, err.message);
+    }
+  };
+  // 헤더
+  await addCol("h_inbound_headers", "source_type", "`source_type` varchar(30) NULL");
+  await addCol("h_inbound_headers", "po_id", "`po_id` bigint NULL");
+  await addCol("h_inbound_headers", "idempotency_key", "`idempotency_key` varchar(64) NULL");
+  await addCol("h_inbound_headers", "approved_by", "`approved_by` bigint NULL");
+  await addCol("h_inbound_headers", "approved_at", "`approved_at` timestamp NULL");
+  await addCol("h_inbound_headers", "cancelled_by", "`cancelled_by` bigint NULL");
+  await addCol("h_inbound_headers", "cancelled_at", "`cancelled_at` timestamp NULL");
+  try {
+    const [st]: any = await conn.query(
+      `SELECT COLUMN_TYPE FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'h_inbound_headers' AND COLUMN_NAME = 'status' LIMIT 1`,
+    );
+    const t = String((st as any[])[0]?.COLUMN_TYPE ?? "");
+    if (t && !t.includes("'pending_approval'")) {
+      // 값을 끝에 붙인다 (기존 값 순서 유지 — 메타데이터 변경)
+      await conn.query(`ALTER TABLE h_inbound_headers MODIFY COLUMN status enum('draft','confirmed','cancelled','pending_approval') NOT NULL DEFAULT 'draft'`);
+      console.log("[Migration] h_inbound_headers.status + pending_approval");
+    }
+  } catch (err: any) {
+    if (err.code !== "ER_NO_SUCH_TABLE") console.warn("[Migration] h_inbound_headers.status failed:", err.message);
+  }
+  await addIndex("h_inbound_headers", "uq_ibh_tenant_idem", "UNIQUE KEY `uq_ibh_tenant_idem` (`tenant_id`, `idempotency_key`)");
+  await addIndex("h_inbound_headers", "idx_ibh_tenant_po", "KEY `idx_ibh_tenant_po` (`tenant_id`, `po_id`)");
+  // 줄
+  await addCol("h_inbound_lines", "po_line_id", "`po_line_id` bigint NULL");
+  await addCol("h_inbound_lines", "lot_id", "`lot_id` bigint NULL");
+  await addCol("h_inbound_lines", "receipt_tx_id", "`receipt_tx_id` bigint NULL");
+  await addCol("h_inbound_lines", "production_date", "`production_date` date NULL");
+  await addCol("h_inbound_lines", "inspection_result", "`inspection_result` enum('pending','pass','fail','conditional') NULL");
+  await addCol("h_inbound_lines", "inspection_json", "`inspection_json` json NULL");
+  await addCol("h_inbound_lines", "inspected_by", "`inspected_by` bigint NULL");
+  await addCol("h_inbound_lines", "inspected_at", "`inspected_at` timestamp NULL");
+  await addCol("h_inbound_lines", "cancelled_qty", "`cancelled_qty` decimal(10,3) NOT NULL DEFAULT 0");
+  await addIndex("h_inbound_lines", "uq_ibl_tenant_header_line", "UNIQUE KEY `uq_ibl_tenant_header_line` (`tenant_id`, `header_id`, `line_number`)");
+  await addIndex("h_inbound_lines", "uq_ibl_tenant_lot", "UNIQUE KEY `uq_ibl_tenant_lot` (`tenant_id`, `lot_id`)");
+  await addIndex("h_inbound_lines", "idx_ibl_tenant_po_line", "KEY `idx_ibl_tenant_po_line` (`tenant_id`, `po_line_id`)");
+  // LOT ↔ 입고 줄
+  await addCol("h_inventory_lots", "inbound_line_id", "`inbound_line_id` bigint NULL");
+  await addIndex("h_inventory_lots", "uq_lot_tenant_inbound_line", "UNIQUE KEY `uq_lot_tenant_inbound_line` (`tenant_id`, `inbound_line_id`)");
+  // 매입전표 ↔ 입고 줄 (연결만)
+  await addCol("accounting_purchases", "inbound_line_id", "`inbound_line_id` bigint NULL");
+  await addIndex("accounting_purchases", "idx_ap_tenant_inbound_line", "KEY `idx_ap_tenant_inbound_line` (`tenant_id`, `inbound_line_id`)");
+}
+
+/**
  * 요청을 받기 전에 반드시 있어야 하는 스키마 (2026-10-16, Codex #527 배포 리뷰 P2)
  *
  * 부팅 마이그레이션은 listen 뒤에 돌고 실패를 삼킨다 → 컬럼 생성이 실패해도 새 코드가 요청을 받을 수 있었다.
@@ -758,12 +844,39 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "tenant_feature_settings", column: "tenant_id", why: "회사별 기능 선택 (수율 환산)" },
   { table: "tenant_feature_settings", column: "feature_code", why: "회사별 기능 선택 (수율 환산)" },
   { table: "tenant_feature_settings", column: "enabled", why: "회사별 기능 선택 (수율 환산)" },
+  // 입고 문서 (입고 정본화 PR-1) — select(hInboundHeaders / hInboundLines / hInventoryLots / accountingPurchases) 가 읽는다
+  { table: "h_inbound_headers", column: "source_type", why: "입고 출처 (PR-1)" },
+  { table: "h_inbound_headers", column: "po_id", why: "발주 연결 (PR-1)" },
+  { table: "h_inbound_headers", column: "idempotency_key", why: "입고 문서 중복 방지 (PR-1)" },
+  { table: "h_inbound_headers", column: "approved_by", why: "입고 승인 (PR-1)" },
+  { table: "h_inbound_headers", column: "approved_at", why: "입고 승인 (PR-1)" },
+  { table: "h_inbound_headers", column: "cancelled_by", why: "입고 취소 (PR-1)" },
+  { table: "h_inbound_headers", column: "cancelled_at", why: "입고 취소 (PR-1)" },
+  { table: "h_inbound_lines", column: "po_line_id", why: "발주 줄 연결 (PR-1)" },
+  { table: "h_inbound_lines", column: "lot_id", why: "입고 줄 LOT (PR-1)" },
+  { table: "h_inbound_lines", column: "receipt_tx_id", why: "입고 원장 (PR-1)" },
+  { table: "h_inbound_lines", column: "production_date", why: "제조일 (PR-1)" },
+  { table: "h_inbound_lines", column: "inspection_result", why: "검수 결과 (PR-1)" },
+  { table: "h_inbound_lines", column: "inspection_json", why: "검수 항목 (PR-1)" },
+  { table: "h_inbound_lines", column: "inspected_by", why: "검수자 (PR-1)" },
+  { table: "h_inbound_lines", column: "inspected_at", why: "검수 시각 (PR-1)" },
+  { table: "h_inbound_lines", column: "cancelled_qty", why: "취소·반품 누계 (PR-1)" },
+  { table: "h_inventory_lots", column: "inbound_line_id", why: "LOT ↔ 입고 줄 (PR-1)" },
+  { table: "accounting_purchases", column: "inbound_line_id", why: "매입전표 ↔ 입고 줄 (PR-1)" },
+];
+
+/** 입고 줄 하나에 LOT 하나 — DB 가 보장해야 하는 키 (없으면 서버를 시작하지 않는다) */
+export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; why: string }> = [
+  { table: "h_inventory_lots", index: "uq_lot_tenant_inbound_line", why: "입고 줄당 LOT 하나 (PR-1)" },
+  { table: "h_inbound_lines", index: "uq_ibl_tenant_lot", why: "LOT 당 입고 줄 하나 (PR-1)" },
+  { table: "h_inbound_headers", index: "uq_ibh_tenant_idem", why: "입고 문서 중복 방지 (PR-1)" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {
   if (opts.allowDdl) {
     await ensureSalesSkuColumn(conn);
     await ensureMassBasisSchema(conn);
+    await ensureInboundDocumentSchema(conn);
   }
   const missing: string[] = [];
   for (const c of REQUIRED_COLUMNS) {
@@ -772,6 +885,13 @@ export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean 
       [c.table, c.column],
     );
     if (!(rows as any[])?.length) missing.push(`${c.table}.${c.column} (${c.why})`);
+  }
+  for (const u of REQUIRED_UNIQUE_INDEXES) {
+    const [rows]: any = await conn.query(
+      `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME = ? AND NON_UNIQUE = 0 LIMIT 1`,
+      [u.table, u.index],
+    );
+    if (!(rows as any[])?.length) missing.push(`${u.table}.${u.index} (${u.why})`);
   }
   const warnings: string[] = [];
   const [idx]: any = await conn.query(
