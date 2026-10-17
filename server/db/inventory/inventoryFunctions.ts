@@ -125,6 +125,8 @@ export async function getAllInventoryLots(filters?: {
 
 /**
  * 재고 입고 (LOT 생성)
+ * ★ 2026-10-17 (재고 쓰기 경로 정리 PR-1): 재고 관문 receiveNewLot 경유 — 회사(tenant_id)·현재수량·입고 원장·집계를 한 트랜잭션으로.
+ *   이전: tenant_id 없이 LOT INSERT, 집계 미갱신, 트랜잭션 없음, 공급처명 가짜값("Supplier N").
  */
 export async function createInventoryLot(data: {
   materialId: number;
@@ -137,38 +139,25 @@ export async function createInventoryLot(data: {
   userId: number;
   tenantId?: number;
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-  const { hInventoryLots, hInventoryTransactions } = await import("../../../drizzle/schema.js");
-
-  // 1. 재고 LOT 생성
-  const [result] = await db.insert(hInventoryLots).values({
-    materialId: data.materialId,
-    lotNumber: data.lotNumber,
-    quantity: data.quantity,
-    availableQuantity: data.quantity,
-    unit: data.unit,
-    expiryDate: data.expiryDate || null,
-    receiptDate: data.receiptDate || new Date(),
-    supplierName: data.supplierId ? `Supplier ${data.supplierId}` : null,
-    status: "available"
-  } as any);
-
-  const lotId = result.insertId;
-
-  // 2. 재고 거래 내역 생성 (receipt)
-  // PR-§5.2-2: material_id 직접 작성
-  await db.insert(hInventoryTransactions).values({
-    lotId: Number(lotId),
-    materialId: data.materialId,
-    transactionType: "receipt",
-    quantity: data.quantity,
-    unit: data.unit,
-    referenceType: "supplier",
-    referenceId: data.supplierId || null,
-    notes: `재고 입고 - LOT ${data.lotNumber}`,
-    createdBy: data.userId
-  } as any);
+  const tenantId = requireTenantId(data.tenantId);
+  const qty = parsePositiveQty(data.quantity);
+  const { withInventoryTx, receiveNewLot } = await import("../../lib/inventory/applyInventoryDelta");
+  const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
+  const { lotId } = await withInventoryTx(async (conn) => {
+    const materialId = await canonicalMaterialInTenant(conn, data.materialId, tenantId, toInventoryMaterialId);
+    return receiveNewLot(conn, {
+      tenantId,
+      subject: { materialId },
+      lotNumber: data.lotNumber,
+      quantity: qty,
+      unit: data.unit,
+      receiptDate: data.receiptDate ?? new Date(),
+      expiryDate: data.expiryDate ?? null,
+      reference: { referenceType: "supplier", referenceId: data.supplierId ?? null, sourceType: "MANUAL_RECEIPT", actionType: "MANUAL_RECEIPT" },
+      notes: `재고 입고 - LOT ${data.lotNumber}`,
+      createdBy: data.userId,
+    });
+  }, "inventory.createLot");
 
   return {
     success: true,
@@ -177,6 +166,31 @@ export async function createInventoryLot(data: {
   };
 }
 
+/** 재고 쓰기 경로는 회사가 정해져야 한다 (workerProcedure/adminProcedure 는 tenantId 를 보장하지 않는다) */
+function requireTenantId(tenantId: number | null | undefined): number {
+  const t = Number(tenantId);
+  if (!Number.isFinite(t) || t <= 0) throw new Error("테넌트 정보가 필요합니다. 회사를 선택한 뒤 다시 시도하세요.");
+  return t;
+}
+
+function parsePositiveQty(v: string | number): number {
+  const q = typeof v === "number" ? v : parseFloat(v);
+  if (!Number.isFinite(q) || q <= 0) throw new Error(`수량이 올바르지 않습니다: ${v}`);
+  return q;
+}
+
+/** 입력 자재 id → 이 회사의 h_materials.id. 다른 회사 자재·없는 자재는 거부. */
+async function canonicalMaterialInTenant(
+  conn: any,
+  anyMaterialId: number,
+  tenantId: number,
+  toInventoryMaterialId: (id: number, t: number, c?: any) => Promise<{ id: number }>,
+): Promise<number> {
+  const { id } = await toInventoryMaterialId(anyMaterialId, tenantId, conn);
+  const [rows]: any = await conn.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [id, tenantId]);
+  if (!(rows as any[])[0]) throw new Error(`원재료를 찾을 수 없습니다 (id=${anyMaterialId})`);
+  return id;
+}
 /**
  * 재고 LOT 조회 (FEFO 원칙 적용 - 유통기한 가까운 순)
  */
@@ -205,6 +219,9 @@ export async function getInventoryLotsByMaterialId(materialId: number, tenantId?
 
 /**
  * 원재료 투입 (재고 차감 및 거래 내역 생성)
+ * ★ 2026-10-17 (재고 쓰기 경로 정리 PR-1): 회사 격리 + 재고 관문 applyLotDelta 경유, 한 트랜잭션.
+ *   이전: LOT 을 id 로만 조회·차감(다른 회사 LOT 차감 가능), 투입·원장에 tenant_id 없음, 집계 미갱신, 잠금 없음.
+ *   원장에 투입 줄 id(source_line_id) 를 남겨 투입 삭제 시 그 LOT·수량으로 되돌린다.
  */
 export async function addMaterialInputToBatch(data: {
   batchId: number;
@@ -215,63 +232,59 @@ export async function addMaterialInputToBatch(data: {
   userId: number;
   tenantId?: number;
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-  const { hInventoryLots, hInventoryTransactions, hBatchInputs } = await import("../../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
+  const tenantId = requireTenantId(data.tenantId);
+  const qty = parsePositiveQty(data.quantity);
+  const { withInventoryTx, applyLotDelta } = await import("../../lib/inventory/applyInventoryDelta");
+  const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
 
-  // 1. 재고 LOT 조회
-  const [lot] = await db.select().from(hInventoryLots).where(eq(hInventoryLots.id, data.lotId));
-  if (!lot) throw new Error("재고 LOT를 찾을 수 없습니다");
+  const remaining = await withInventoryTx(async (conn) => {
+    const [bRows]: any = await conn.execute(
+      `SELECT id FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`, [data.batchId, tenantId],
+    );
+    if (!(bRows as any[])[0]) throw new Error("배치를 찾을 수 없습니다");
+    const materialId = await canonicalMaterialInTenant(conn, data.materialId, tenantId, toInventoryMaterialId);
+    const [lRows]: any = await conn.execute(
+      `SELECT id, unit, material_id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? LIMIT 1`, [data.lotId, tenantId],
+    );
+    const lot = (lRows as any[])[0];
+    if (!lot) throw new Error("재고 LOT를 찾을 수 없습니다");
+    if (String(lot.unit ?? "").trim() !== String(data.unit ?? "").trim()) {
+      throw new Error(`단위가 다릅니다: LOT ${lot.unit}, 투입 ${data.unit} — 같은 단위로 입력하세요`);
+    }
 
-  // 2. 가용 수량 확인
-  const requestedQty = parseFloat(data.quantity);
-  const availableQty = parseFloat(lot.availableQuantity);
-  if (requestedQty > availableQty) {
-    throw new Error(`재고 부족: 요청 ${requestedQty}${data.unit}, 가용 ${availableQty}${data.unit}`);
-  }
+    const [ins]: any = await conn.execute(
+      `INSERT INTO h_batch_inputs
+         (tenant_id, batch_id, material_id, lot_id, planned_quantity, actual_quantity, unit, input_time, input_by, inventory_deducted)
+       VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), ?, 1)`,
+      [tenantId, data.batchId, materialId, data.lotId, qty, qty, data.unit, data.userId],
+    );
+    const inputId = Number(ins.insertId);
 
-  // 3. 재고 차감
-  const newAvailableQty = (availableQty - requestedQty).toFixed(3);
-  await db.update(hInventoryLots)
-    .set({ availableQuantity: newAvailableQty })
-    .where(eq(hInventoryLots.id, data.lotId));
-
-  // 4. 재고 거래 내역 생성
-  // PR-§5.2-2: material_id 직접 작성
-  await db.insert(hInventoryTransactions).values({
-    lotId: data.lotId,
-    materialId: data.materialId,
-    transactionType: "usage",
-    quantity: data.quantity,
-    unit: data.unit,
-    referenceType: "batch",
-    referenceId: data.batchId,
-    notes: `배치 ${data.batchId}에 원재료 투입`,
-    createdBy: data.userId
-  } as any);
-
-  // 5. 배치 원재료 투입 기록 생성
-  await db.insert(hBatchInputs).values({
-    batchId: data.batchId,
-    materialId: data.materialId,
-    lotId: data.lotId,
-    plannedQuantity: data.quantity,
-    actualQuantity: data.quantity,
-    unit: data.unit,
-    inputTime: new Date(),
-    inputBy: data.userId
-  });
+    const r = await applyLotDelta(conn, {
+      tenantId,
+      lotId: data.lotId,
+      subject: { materialId },
+      quantity: qty,
+      direction: "decrease",
+      transactionType: "usage",
+      unit: data.unit,
+      reference: { referenceType: "batch", referenceId: data.batchId, sourceType: "BATCH", sourceId: data.batchId, sourceLineId: inputId, actionType: "MANUAL_INPUT" },
+      notes: `배치 ${data.batchId}에 원재료 투입`,
+      createdBy: data.userId,
+    });
+    return r.remaining;
+  }, "inventory.addMaterialInput");
 
   return {
     success: true,
     message: "원재료가 투입되었습니다",
-    remainingQuantity: newAvailableQty
+    remainingQuantity: remaining.toFixed(3)
   };
 }
 
 /**
- * 배치별 원재료 투입 내역 조회
+ * 원재료 투입 수정 — 같은 회사 투입 행만 (2026-10-17 PR-1: 이전엔 id 로만 갱신, 없는 컬럼 quantity 를 쓰려 함)
+ * 재고 수량은 바꾸지 않는다 (투입 기록만). 실투입 정정은 재고 조정으로.
  */
 export async function updateMaterialInput(
   inputId: number,
@@ -281,62 +294,78 @@ export async function updateMaterialInput(
   },
   tenantId?: number
 ) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  const { hBatchInputs } = await import("../../../drizzle/schema");
-
-  const updateData: any = {};
-  if (data.quantity !== undefined) updateData.quantity = data.quantity;
-  if (data.lotId !== undefined) updateData.lotId = data.lotId;
-
-  await db
-    .update(hBatchInputs)
-    .set(updateData)
-    .where(eq(hBatchInputs.id, inputId));
+  const t = requireTenantId(tenantId);
+  const conn = await getRawConnection();
+  const [rows]: any = await conn.execute(`SELECT id FROM h_batch_inputs WHERE id = ? AND tenant_id = ? LIMIT 1`, [inputId, t]);
+  if (!(rows as any[])[0]) throw new Error("투입 내역을 찾을 수 없습니다");
+  if (data.lotId !== undefined) {
+    const [l]: any = await conn.execute(`SELECT id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? LIMIT 1`, [data.lotId, t]);
+    if (!(l as any[])[0]) throw new Error("재고 LOT를 찾을 수 없습니다");
+  }
+  const sets: string[] = [];
+  const args: any[] = [];
+  if (data.quantity !== undefined) { sets.push("actual_quantity = ?"); args.push(parsePositiveQty(data.quantity)); }
+  if (data.lotId !== undefined) { sets.push("lot_id = ?"); args.push(data.lotId); }
+  if (sets.length === 0) return;
+  await conn.execute(`UPDATE h_batch_inputs SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`, [...args, inputId, t]);
 }
 
-export async function deleteMaterialInput(inputId: number, tenantId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
+/**
+ * 원재료 투입 삭제 — 그 투입이 실제로 뺀 LOT·수량(원장)을 추적해 되돌린다 (2026-10-17 PR-1).
+ *   이전: 투입·LOT 을 id 로만 조회(다른 회사 데이터 삭제·복원 가능), 원장 없이 input.lot_id 하나에 수량을 더함
+ *         (자동출고가 여러 LOT 에서 뺐어도 한 LOT 으로, LOT 없는 투입은 복원 안 함).
+ *   지금: 원장 usage (source BATCH / source_line_id = 투입 id) − 이미 되돌린 return 을 LOT 별로 applyLotDelta(increase, 'return').
+ *         재고를 뺐다고 표시된 투입(inventory_deducted=1)인데 그 원장을 찾을 수 없으면(생산완료 일괄차감 등) 거부 — 재고 조정으로 처리.
+ */
+export async function deleteMaterialInput(inputId: number, tenantId?: number, userId?: number) {
+  const t = requireTenantId(tenantId);
+  const { withInventoryTx, applyLotDelta } = await import("../../lib/inventory/applyInventoryDelta");
+  return withInventoryTx(async (conn) => {
+    const [iRows]: any = await conn.execute(
+      `SELECT id, batch_id, material_id, inventory_deducted FROM h_batch_inputs WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
+      [inputId, t],
+    );
+    const input = (iRows as any[])[0];
+    if (!input) throw new Error("투입 내역을 찾을 수 없습니다");
 
-  const { hBatchInputs, hInventoryLots } = await import("../../../drizzle/schema");
-  const { eq: eqOp } = await import("drizzle-orm");
-
-  // 1. 투입 내역 조회
-  const input = await db
-    .select()
-    .from(hBatchInputs)
-    .where(eqOp(hBatchInputs.id, inputId))
-    .limit(1);
-
-  if (input.length === 0) {
-    throw new Error("투입 내역을 찾을 수 없습니다");
-  }
-
-  const inputData = input[0];
-
-  // 2. 재고 복구 (투입한 수량을 다시 돌려줌)
-  const [lot] = await db.select().from(hInventoryLots).where(eqOp(hInventoryLots.id, Number(inputData.lotId)));
-  if (lot) {
-    const currentQty = parseFloat(lot.availableQuantity);
-    const returnQty = parseFloat(inputData.actualQuantity || inputData.plannedQuantity);
-    const newQty = (currentQty + returnQty).toFixed(3);
-    await db.update(hInventoryLots)
-      .set({ availableQuantity: newQty })
-      .where(eqOp(hInventoryLots.id, Number(inputData.lotId)));
-  }
-
-  // 3. 재고 거래 내역 삭제 (해당 투입과 관련된 거래만 삭제)
-  // 주의: 정확한 매칭을 위해서는 hInventoryTransactions에 inputId 참조가 필요하지만
-  // 현재 스키마에는 없으므로 재고 복구만 수행
-
-  // 4. 투입 내역 삭제
-  await db
-    .delete(hBatchInputs)
-    .where(eqOp(hBatchInputs.id, inputId));
+    const [txRows]: any = await conn.execute(
+      `SELECT lot_id, material_id, unit,
+              SUM(CASE WHEN transaction_type = 'usage' AND source_type = 'BATCH' THEN quantity ELSE 0 END)
+            - SUM(CASE WHEN transaction_type = 'return' AND source_type = 'BATCH_INPUT_CANCEL' THEN quantity ELSE 0 END) AS net,
+              COUNT(*) AS n
+         FROM h_inventory_transactions
+        WHERE tenant_id = ? AND source_line_id = ?
+          AND ((transaction_type = 'usage' AND source_type = 'BATCH' AND source_id = ?)
+            OR (transaction_type = 'return' AND source_type = 'BATCH_INPUT_CANCEL'))
+        GROUP BY lot_id, material_id, unit`,
+      [t, inputId, Number(input.batch_id)],
+    );
+    const groups = txRows as any[];
+    if (Number(input.inventory_deducted) === 1 && groups.length === 0) {
+      throw new Error("이 투입의 재고 출고 기록을 찾을 수 없어 자동으로 되돌릴 수 없습니다. 재고 조정으로 처리하세요.");
+    }
+    let restored = 0;
+    for (const g of groups) {
+      const net = parseFloat(g.net) || 0;
+      if (g.lot_id == null || net <= 0.0005) continue; // LOT 없는 과거 출고 기록은 되돌릴 LOT 이 없다
+      await applyLotDelta(conn, {
+        tenantId: t,
+        lotId: Number(g.lot_id),
+        subject: { materialId: g.material_id != null ? Number(g.material_id) : Number(input.material_id) },
+        quantity: net,
+        direction: "increase",
+        transactionType: "return",
+        unit: g.unit,
+        reference: { referenceType: "batch", referenceId: Number(input.batch_id), sourceType: "BATCH_INPUT_CANCEL", sourceId: Number(input.batch_id), sourceLineId: inputId, actionType: "INPUT_CANCEL" },
+        notes: `배치 ${input.batch_id} 원재료 투입 #${inputId} 삭제 — 재고 복원`,
+        createdBy: userId ?? 0,
+      });
+      restored++;
+    }
+    await conn.execute(`DELETE FROM h_batch_inputs WHERE id = ? AND tenant_id = ?`, [inputId, t]);
+    return { restoredLots: restored };
+  }, "inventory.deleteMaterialInput");
 }
-
 export async function getBatchMaterialInputs(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
@@ -525,7 +554,10 @@ export async function notifyLowStock(materialId: number, tenantId?: number) {
   const { eq, sum } = await import("drizzle-orm");
 
   // 원재료 정보 조회
-  const [material] = await db.select().from(hMaterials).where(eq(hMaterials.id, materialId));
+  // ★ 2026-10-17 PR-1: 같은 회사 자재·LOT 만 (이전엔 id 로만 조회 → 다른 회사 재고까지 합산)
+  const t = requireTenantId(tenantId);
+  const { and: andOp } = await import("drizzle-orm");
+  const [material] = await db.select().from(hMaterials).where(andOp(eq(hMaterials.id, materialId), eq(hMaterials.tenantId, t as any)));
   if (!material) throw new Error("원재료를 찾을 수 없습니다");
 
   // 현재 재고 조회
@@ -534,7 +566,7 @@ export async function notifyLowStock(materialId: number, tenantId?: number) {
       totalStock: sum(hInventoryLots.availableQuantity)
     })
     .from(hInventoryLots)
-    .where(eq(hInventoryLots.materialId, materialId));
+    .where(andOp(eq(hInventoryLots.materialId, materialId), eq(hInventoryLots.tenantId, t as any), eq(hInventoryLots.status, "available")));
 
   const totalStock = parseFloat(stockResult[0]?.totalStock || "0");
   const safetyLevel = parseFloat(material.safetyStockLevel || "0");
@@ -611,21 +643,32 @@ export async function batchUpdateExpiryWarningDays(expiryWarningDays: number, te
 // Delete Inventory Lot
 // ============================================================================
 
-// 재고 LOT 삭제
+// 재고 LOT 삭제 — 같은 회사, 거래 이력 없는 LOT 만 (2026-10-17 PR-1: 이전엔 id 로만 삭제, 집계 미갱신)
 export async function deleteInventoryLot(lotId: number, tenantId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  await db.delete(hInventoryLots).where(eq(hInventoryLots.id, lotId));
-  return { success: true };
+  const t = requireTenantId(tenantId);
+  const { withInventoryTx, recomputeAggregateFromLots } = await import("../../lib/inventory/applyInventoryDelta");
+  return withInventoryTx(async (conn) => {
+    const [rows]: any = await conn.execute(
+      `SELECT id, material_id, product_id, unit FROM h_inventory_lots WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`, [lotId, t],
+    );
+    const lot = (rows as any[])[0];
+    if (!lot) throw new Error("재고 LOT를 찾을 수 없습니다");
+    const [tx]: any = await conn.execute(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE lot_id = ? AND tenant_id = ?`, [lotId, t]);
+    if (Number((tx as any[])[0]?.n ?? 0) > 0) throw new Error("거래 이력이 있는 LOT 는 삭제할 수 없습니다. 재고 조정으로 처리하세요.");
+    await conn.execute(`DELETE FROM h_inventory_lots WHERE id = ? AND tenant_id = ?`, [lotId, t]);
+    const subject = lot.material_id != null ? { materialId: Number(lot.material_id) } : { productId: Number(lot.product_id) };
+    if (lot.material_id != null || lot.product_id != null) await recomputeAggregateFromLots(conn, { tenantId: t, subject, unit: lot.unit });
+    return { success: true };
+  }, "inventory.deleteLot");
 }
-
 // ============================================================================
 // 원재료 입고/LOT 관리 API
 // ============================================================================
 
 /**
  * 원재료 입고 등록 (LOT 생성)
+ * ★ 2026-10-17 (재고 쓰기 경로 정리 PR-1): 재고 관문 receiveNewLot 경유 — 회사·현재수량·입고 원장(입고일)·집계를 한 트랜잭션으로.
+ *   이전: tenant_id 없이 LOT INSERT, 집계 생략, created_by=0.
  */
 export async function receiveMaterial(params: {
   materialId: number;
@@ -636,56 +679,31 @@ export async function receiveMaterial(params: {
   lotNumber?: string;
   location?: string;
   tenantId?: number;
+  userId?: number;
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
+  const tenantId = requireTenantId(params.tenantId);
+  const qty = parsePositiveQty(params.quantity);
   // LOT 번호 자동 생성 (제공되지 않은 경우)
   const lotNumber = params.lotNumber || `LOT-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
-
-  // 트랜잭션 시작
-  return await db.transaction(async (tx) => {
-    // 1. hInventoryLots에 LOT 생성
-    const [lot] = await tx.insert(hInventoryLots).values({
-      materialId: params.materialId,
-      productId: null,
+  const { withInventoryTx, receiveNewLot } = await import("../../lib/inventory/applyInventoryDelta");
+  const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
+  return withInventoryTx(async (conn) => {
+    const materialId = await canonicalMaterialInTenant(conn, params.materialId, tenantId, toInventoryMaterialId);
+    return receiveNewLot(conn, {
+      tenantId,
+      subject: { materialId },
       lotNumber,
-      quantity: params.quantity.toString(),
-      availableQuantity: params.quantity.toString(),
+      quantity: qty,
       unit: params.unit,
       receiptDate: params.receiptDate,
       expiryDate: params.expiryDate || null,
-      supplierName: "", // supplierId로부터 조회 필요
-      location: params.location || "",
-      status: "available"
-    } as any);
-
-    const lotId = lot.insertId;
-
-    // 2. hInventoryTransactions에 입고 거래 생성
-    // PR-§5.2-2: material_id 직접 작성
-    await tx.insert(hInventoryTransactions).values({
-      lotId,
-      materialId: params.materialId,
-      transactionType: "receipt",
-      quantity: params.quantity.toString(),
-      unit: params.unit,
-      // transactionDate 필드 없음 (createdAt 자동 생성)
-      referenceType: "material_receipt",
-      referenceId: null,
-      createdBy: 0, // 시스템 자동 입고
-      notes: ""
-    } as any);
-
-    // 3. hMaterialReceipts 대신 hInventoryLots의 notes에 입고 정보 기록
-    // (hMaterialReceipts 테이블이 스키마에 없으므로 생략)
-
-    // 4. hInventory 총 재고 업데이트 (생략 - hInventoryLots만 사용)
-
-    return { lotId, lotNumber };
-  });
+      location: params.location || null,
+      reference: { referenceType: "material_receipt", sourceType: "MANUAL_RECEIPT", actionType: "MANUAL_RECEIPT" },
+      notes: null,
+      createdBy: params.userId ?? 0,
+    });
+  }, "inventory.receiveMaterial");
 }
-
 /**
  * FEFO 방식 LOT 조회 (유통기한 가까운 순)
  */

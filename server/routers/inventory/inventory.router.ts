@@ -80,7 +80,8 @@ export const inventoryRouter = router({
           expiryDate: input.expiryDate,
           lotNumber: input.lotNumber,
           location: input.location,
-          tenantId: ctx.tenantId
+          tenantId: ctx.tenantId,
+          userId: ctx.user?.id || 0
         });
       }),
     
@@ -116,7 +117,7 @@ export const inventoryRouter = router({
       .input(z.object({ materialId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getInventoryLotsByMaterialId } = await import("../../db");
-        return await getInventoryLotsByMaterialId(input.materialId);
+        return await getInventoryLotsByMaterialId(input.materialId, ctx.tenantId);
       }),
     
     // 원재료 투입
@@ -138,11 +139,12 @@ export const inventoryRouter = router({
           lotId: input.lotId,
           quantity: input.quantity,
           unit: input.unit,
-          userId: ctx.user?.id || 0
+          userId: ctx.user?.id || 0,
+          tenantId: ctx.tenantId
         });
         
         // 재고 부족 감지 및 알림
-        await notifyLowStock(input.materialId);
+        await notifyLowStock(input.materialId, ctx.tenantId);
         
         return { success: true, message: "원재료가 투입되었습니다" };
       }),
@@ -169,7 +171,7 @@ export const inventoryRouter = router({
         await updateMaterialInput(input.inputId, {
           quantity: input.quantity,
           lotId: input.lotId
-        });
+        }, ctx.tenantId);
         
         // 감사 로그 기록
         await createAuditLog({
@@ -191,7 +193,7 @@ export const inventoryRouter = router({
       .input(z.object({ inputId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteMaterialInput, createAuditLog } = await import("../../db");
-        await deleteMaterialInput(input.inputId);
+        await deleteMaterialInput(input.inputId, ctx.tenantId, ctx.user?.id);
         
         // 감사 로그 기록
         await createAuditLog({
@@ -318,7 +320,7 @@ export const inventoryRouter = router({
         // 4단계 FK(fk_tx_lot RESTRICT): 거래 이력이 있는 LOT 는 DB 가 삭제를 거부한다 → 사용자 메시지로
         const { translateFkError } = await import("../../utils/fkError");
         try {
-          await deleteInventoryLot(input.lotId);
+          await deleteInventoryLot(input.lotId, ctx.tenantId);
         } catch (e) {
           throw translateFkError(e, "LOT");
         }

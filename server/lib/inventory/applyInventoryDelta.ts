@@ -234,14 +234,15 @@ export async function applyLotDelta(
       );
     }
   } else {
-    // 증가(반품 복원/입고-기존LOT) — status 를 available 로 되돌림
+    // 증가(반품 복원/입고-기존LOT) — 소진('used') 만 available 로 되돌림.
+    //   ★ 2026-10-17 (재고 결정 D4): 수량 복원과 출고 가능 상태 복원은 별개 — 만료·폐기·보류 LOT 은 수량만 돌려놓고 상태는 그대로.
     await conn.execute(
       // ★ 2026-10-15: current_quantity 를 quantity 보다 먼저 (좌→우 평가 — 이전엔 NULL 이면 두 번 더해짐)
       `UPDATE h_inventory_lots
          SET current_quantity = COALESCE(current_quantity, quantity) + ?,
              quantity = quantity + ?,
              available_quantity = available_quantity + ?,
-             status = CASE WHEN status IN ('used','expired') THEN 'available' ELSE status END,
+             status = CASE WHEN status = 'used' THEN 'available' ELSE status END,
              updated_at = NOW()
          WHERE id = ?`,
       [qty, qty, qty, p.lotId],
