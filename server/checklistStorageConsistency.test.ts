@@ -38,7 +38,8 @@ const forms: Form[] = walk(PAGES)
 const routes = readAppRoutes();
 // 라우트가 없어 열 수 없는 양식은 제외 (위생·원료·출하 검사 공통 양식 3종 — 실제 검사는 별도 모듈 /dashboard/inspection/*)
 const reachable = reachableClientFiles();
-const UNROUTED_KNOWN = ["hygiene_inspection", "material_inspection", "shipping_inspection"];
+// material_inspection: 연결 없던 작성 화면(MaterialInspectionForm) 은 2026-10-17 삭제 — 원재료 검수는 입고 화면·육안검사일지
+const UNROUTED_KNOWN = ["hygiene_inspection", "shipping_inspection"];
 const isReachable = (f: Form) => reachable.has(f.file);
 const resolveFile = (importPath: string) => {
   const rel = importPath.replace(/^@\//, "client/src/").replace(/^\.\//, "client/src/");
@@ -50,7 +51,7 @@ describe("공통 양식 일지 — 목록이 작성 화면과 같은 저장소�
     expect(forms.length).toBeGreaterThanOrEqual(35);
   });
 
-  it("열 수 없는 양식은 알려진 3종뿐 (새로 생기면 라우트 연결 또는 목록 정리)", () => {
+  it("열 수 없는 양식은 알려진 2종뿐 (새로 생기면 라우트 연결 또는 목록 정리)", () => {
     expect(forms.filter((f) => !isReachable(f)).map((f) => f.formType).sort()).toEqual(UNROUTED_KNOWN);
   });
 

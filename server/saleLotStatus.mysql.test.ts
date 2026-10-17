@@ -2337,6 +2337,31 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(m.quarantinedLineIds).toEqual([m.lots[1].lineId]);
       expect(await counts()).toEqual([1, 1, 5]);
     });
+
+    it("결정4 육안검사일지: 불합격 입고는 '부적합'·조치(격리)로 — 같은 날 같은 원료의 합격분과 합치지 않음, 다시 동기화·재검수 합격 뒤에도 중복 없음, 최초 불합격 보존", async () => {
+      const vi = await import("./db/haccp/visualInspectionMaterial");
+      const db = await (await import("./db/connection")).getDb();
+      await vi.createVisualInspectionTables(db);
+      await q(`DELETE FROM h_visual_inspection_items`); await q(`DELETE FROM h_visual_inspection_logs`);
+      const ok = await svc.confirmInbound((await draft("key-vi-ok", [line(20)])).headerId, T, 4);
+      const bad = await svc.confirmInbound((await draft("key-vi-bad", [line(5, { inspectionResult: "fail" })])).headerId, T, 4);
+      const badLine = bad.lots[0].lineId;
+      const { id: logId } = await vi.getOrCreateMonthlyLog(db, T, 1, 2026, 10, 4);
+      expect(await vi.syncReceivingsToInspectionLog(db, T, logId, 2026, 10)).toEqual({ synced: 2 });
+      const items = async () => (await q(`SELECT product_name, compliance, corrective_action, note FROM h_visual_inspection_items WHERE log_id = ? ORDER BY sort_order`, [logId]))
+        .map((r: any) => [r.product_name, r.compliance, r.corrective_action, r.note]);
+      expect(await items()).toEqual([
+        ["멥쌀", "적합", "", `LOT: ${ok.lots[0].lotNumber} 입고줄: ${ok.lots[0].lineId}`],
+        ["멥쌀", "부적합", "격리 (재검수·반품 대기)", `입고줄: ${badLine}`],
+      ]);
+      expect(await vi.syncReceivingsToInspectionLog(db, T, logId, 2026, 10)).toEqual({ synced: 0 });
+      await svc.reinspectInboundLine(badLine, T, 4, { result: "pass" });
+      expect(await vi.syncReceivingsToInspectionLog(db, T, logId, 2026, 10)).toEqual({ synced: 0 }); // 같은 입고 줄 — 새 행 없음
+      expect((await items())[1].slice(0, 2)).toEqual(["멥쌀", "부적합"]); // 최초 불합격 그대로
+      // 다른 달 일지로 보면 재검수 뒤 상태가 조치에 반영
+      const fetched = await vi.fetchMaterialReceivingsForMonth(db, T, 2026, 10);
+      expect(fetched.find((x: any) => x.inboundLineId === badLine)).toMatchObject({ compliance: "부적합", correctiveAction: "격리 후 재검수 합격" });
+    });
   });
 
   describe("발주 수량 변경 — 요청 → 승인 → 추가 입고, 초과 입고는 그대로 차단 (2026-10-17, CEO 결정 3)", () => {

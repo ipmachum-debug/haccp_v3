@@ -28,9 +28,6 @@
     "client/src/pages/quality/HygieneInspectionDetail.tsx → /dashboard/inspections/hygiene",
     "client/src/pages/quality/HygieneInspections.tsx → /dashboard/inspections/hygiene/${inspection.id}",
     "client/src/pages/quality/HygieneInspections.tsx → /dashboard/inspections/hygiene/create",
-    "client/src/pages/quality/MaterialInspectionDetail.tsx → /dashboard/inspections/material",
-    "client/src/pages/quality/MaterialInspections.tsx → /dashboard/inspections/material/${inspection.id}",
-    "client/src/pages/quality/MaterialInspections.tsx → /dashboard/inspections/material/create",
     "client/src/pages/quality/ShippingInspectionDetail.tsx → /dashboard/inspections/shipping",
     "client/src/pages/quality/ShippingInspections.tsx → /dashboard/inspections/shipping/${inspection.id}",
     "client/src/pages/quality/ShippingInspections.tsx → /dashboard/inspections/shipping/create"

@@ -444,8 +444,8 @@ export async function fetchMaterialReceivingsForMonth(
   // 1차: 입고전표(h_inbound_headers + h_inbound_lines) 기반 조회
   const inboundResult = await db.execute(sql`
     SELECT ih.id as header_id, ih.inbound_date, ih.notes as header_notes,
-           il.id as line_id, il.lot_number, il.purchase_quantity, il.purchase_unit,
-           il.expiry_date,
+           il.id as line_id, il.line_number, il.lot_number, il.purchase_quantity, il.purchase_unit,
+           il.expiry_date, il.inspection_result, il.disposition,
            m.material_name, m.category
     FROM h_inbound_headers ih
     JOIN h_inbound_lines il ON il.header_id = ih.id AND il.tenant_id = ${tenantId}
@@ -487,7 +487,16 @@ export async function fetchMaterialReceivingsForMonth(
     if (!r.material_name) continue;
     const lot = r.lot_number || '';
     if (lot) seenLots.add(lot);
+    // ★ 2026-10-17 (CEO 결정 4): 입고 검수 결과를 그대로 — 불합격은 '부적합' + 조치(격리·반품·재검수 합격).
+    //   이전엔 모든 입고를 '적합' 으로 채워 격리·반품된 불합격 입고도 일지엔 적합으로 남았다. 최초 불합격을 덮어쓰지 않는다.
+    const failed = r.inspection_result === 'fail';
+    const action = !failed ? ''
+      : r.disposition === 'returned' ? '반품'
+      : r.disposition === 'released' ? '격리 후 재검수 합격'
+      : '격리 (재검수·반품 대기)';
+    const noteParts = [lot ? `LOT: ${lot}` : '', `입고줄: ${r.line_id}`].filter(Boolean);
     items.push({
+      inboundLineId: Number(r.line_id),
       receiptDate: r.inbound_date ? String(r.inbound_date).substring(5) : '',
       productName: r.material_name || '',
       importCertOrigin: '국내',
@@ -502,9 +511,9 @@ export async function fetchMaterialReceivingsForMonth(
       foreignMatter: '○',
       labelAllergen: '○',
       labelManager: '',
-      compliance: '적합',
-      correctiveAction: '',
-      note: lot ? `LOT: ${lot}` : '',
+      compliance: failed ? '부적합' : '적합',
+      correctiveAction: action,
+      note: noteParts.join(' '),
     });
   }
 
@@ -581,6 +590,8 @@ export async function syncReceivingsToInspectionLog(
   for (const e of existingItems as any[]) {
     const lotMatch = (e.note || '').match(/LOT:\s*(\S+)/);
     if (lotMatch) existingSet.add(`lot:${lotMatch[1]}`);
+    const lineMatch = (e.note || '').match(/입고줄:\s*(\d+)/);
+    if (lineMatch) existingSet.add(`line:${lineMatch[1]}`);
     existingSet.add(`${e.receipt_date}|${e.product_name}`);
   }
 
@@ -598,9 +609,13 @@ export async function syncReceivingsToInspectionLog(
 
     const lotMatch = (r.note || '').match(/LOT:\s*(\S+)/);
     const lotKey = lotMatch ? `lot:${lotMatch[1]}` : null;
+    const lineKey = r.inboundLineId ? `line:${r.inboundLineId}` : null;
     const fallbackKey = `${r.receiptDate}|${r.productName}`;
 
-    if ((lotKey && existingSet.has(lotKey)) || existingSet.has(fallbackKey)) continue;
+    // 입고 줄이 있으면 그 줄 기준 (같은 날 같은 원료의 다른 입고 — 예: 합격분과 불합격분 — 를 하나로 합치지 않는다)
+    if (lineKey) {
+      if (existingSet.has(lineKey) || (lotKey && existingSet.has(lotKey))) continue;
+    } else if ((lotKey && existingSet.has(lotKey)) || existingSet.has(fallbackKey)) continue;
 
     await db.execute(sql`
       INSERT INTO h_visual_inspection_items
@@ -617,6 +632,7 @@ export async function syncReceivingsToInspectionLog(
          ${r.correctiveAction}, ${r.note}, ${sortOrder})
     `);
     if (lotKey) existingSet.add(lotKey);
+    if (lineKey) existingSet.add(lineKey);
     existingSet.add(fallbackKey);
     sortOrder++;
     synced++;
