@@ -99,6 +99,10 @@ export async function validateBatchStart(batchId: number, tenantId: number) {
     });
   }
 
+  // 재고 차감 제외 원료(회사 설정)도 부족 판정에서 뺀다 — 자동출고가 LOT 을 쓰지 않는다
+  const { getStockExemptMaterialIds } = await import("../inventory/stockExemptPolicy");
+  const exempt = await getStockExemptMaterialIds(conn as any, tenantId, lines.map((l) => l.canonicalMaterialId));
+  for (const l of lines) if (exempt.has(l.canonicalMaterialId)) l.isWater = true;
   const ids = [...new Set(lines.filter((l) => !l.alreadyIssued && !l.isWater).map((l) => l.canonicalMaterialId))];
   const available = new Map<number, number>();
   if (ids.length > 0) {

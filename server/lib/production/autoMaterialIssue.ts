@@ -274,6 +274,41 @@ export async function autoIssueMaterialsForBatch(
 
       const unitPrice = baseUnitPrice;
 
+      // 재고 차감 제외 원료 (회사 설정, 예: 정제수) — 투입·원가만 기록하고 LOT·재고 거래·집계·수불부는 건드리지 않는다
+      try {
+        const { getStockExemptMaterialIds } = await import("../inventory/stockExemptPolicy");
+        const rawConn = await getRawConnection();
+        if ((await getStockExemptMaterialIds(rawConn, tenantId, [canonicalId])).has(canonicalId)) {
+          const { withInventoryTx } = await import("../inventory/applyInventoryDelta");
+          const done = await withInventoryTx(async (conn) => {
+            const [bRows]: any = await conn.execute(
+              `SELECT inventory_deducted, actual_quantity, planned_quantity FROM h_batch_inputs WHERE id = ? AND tenant_id = ? AND batch_id = ? LIMIT 1 FOR UPDATE`,
+              [input.id, tenantId, batchId],
+            );
+            const row = (bRows as any[])[0];
+            if (!row || Number(row.inventory_deducted) === 1) return null;
+            const qty = parseFloat((row.actual_quantity ?? row.planned_quantity)?.toString() || "0");
+            const price = isWater ? 0 : unitPrice;
+            await conn.execute(
+              `UPDATE h_batch_inputs
+                  SET inventory_deducted = 1, actual_quantity = ?, unit_price = ?, total_price = ?, input_time = NOW(), input_by = ?,
+                      notes = CONCAT(COALESCE(notes, ''), CASE WHEN COALESCE(notes, '') = '' THEN '' ELSE ' / ' END, '재고 차감 제외 원료')
+                WHERE id = ? AND tenant_id = ?`,
+              [qty, price.toFixed(2), (qty * price).toFixed(2), userId, input.id, tenantId],
+            );
+            return { qty, cost: qty * price };
+          }, `autoIssue.exempt.batch${batchId}.line${input.id}`);
+          if (done) {
+            result.issuedMaterials.push({ materialId: canonicalId, materialName, requiredQuantity, issuedQuantity: done.qty, unit, lotAllocations: [] });
+            result.totalCost += done.cost;
+          }
+          continue;
+        }
+      } catch (exErr: any) {
+        result.errors.push(`${materialName}: 재고 차감 제외 처리 실패 (${exErr?.message || exErr})`);
+        continue;
+      }
+
       try {
         const { withInventoryTx, applyLotDelta } = await import("../inventory/applyInventoryDelta");
         const { allocateLotsFEFO } = await import("../inventory/fefoLotAllocation");

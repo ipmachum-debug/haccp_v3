@@ -100,6 +100,29 @@ export const inboundRouter = router({
       return { enabled: input.enabled };
     }),
 
+  // 재고 차감 제외 원료 (CEO 결정 — 정제수 등). 자동출고는 투입만 기록하고 LOT·재고를 쓰지 않는다
+  stockExemptMaterials: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const { listStockExemptMaterials } = await import("../../lib/inventory/stockExemptPolicy");
+    return listStockExemptMaterials(await getRawConnection(), ctx.tenantId);
+  }),
+  setStockExempt: adminProcedure
+    .input(z.object({ materialId: z.number().int().positive(), exempt: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      if (!ctx.tenantId) throw new Error("테넌트 정보가 필요합니다.");
+      const conn = await getRawConnection();
+      const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
+      const materialId = (await toInventoryMaterialId(input.materialId, ctx.tenantId, conn)).id;
+      const { setMaterialStockExempt } = await import("../../lib/inventory/stockExemptPolicy");
+      await setMaterialStockExempt(conn, { tenantId: ctx.tenantId, materialId, exempt: input.exempt });
+      const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
+      await createAuditLog({
+        action: "material.stock_exempt", entityType: "material", entityId: materialId, userId: ctx.user?.id,
+        changes: { stockExempt: input.exempt },
+        description: `원료 #${materialId} 재고 차감 ${input.exempt ? "제외" : "포함"}`,
+      } as any, ctx.tenantId);
+      return { materialId, exempt: input.exempt };
+    }),
+
   // 포장 단위 환산 (예: 쌀 1포대 = 20kg) — 없으면 그 단위로 입고할 수 없다
   packUnits: readInventory
     .input(z.object({ materialId: z.number().int().positive().optional() }).optional())

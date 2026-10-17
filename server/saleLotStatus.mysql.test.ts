@@ -1424,6 +1424,25 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number((await q(`SELECT available_quantity + 0 AS a FROM h_inventory WHERE material_id = 700`))[0].a)).toBe(40);
     });
 
+    it("재고 차감 제외 원료(정제수 등, 회사 설정): 투입만 기록 — LOT·재고 거래·집계·수불부 없음, 다른 원료는 그대로 차감, 다시 실행해도 그대로", async () => {
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, unit_price, is_active, stock_exempt) VALUES (701, ?, 'M701', '정제수', 'kg', 0, 1, 1)`, [T]);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status) VALUES (9311, ?, 701, 'W-NEG', 0, -5, -5, 'kg', 'available')`, [T]);
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, planned_quantity, unit, inventory_deducted) VALUES (802, ?, 7301, 701, 30, 'kg', 0)`, [T]);
+      const r = await dispatch();
+      expect(r.errors).toEqual([]);
+      expect(await avail(9311)).toBe(-5); // 기존 음수 LOT 소급 없음
+      expect((await ledger()).filter((x) => x[2] === 802)).toEqual([]);
+      const w = (await q(`SELECT inventory_deducted, actual_quantity + 0 AS a, total_price + 0 AS tp, notes FROM h_batch_inputs WHERE id = 802`))[0];
+      expect([Number(w.inventory_deducted), Number(w.a), Number(w.tp), w.notes]).toEqual([1, 30, 0, "재고 차감 제외 원료"]);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM material_ledger_daily WHERE material_id = 701`))[0].n)).toBe(0);
+      expect(await ledger()).toEqual([[9302, 50, 801], [9301, 10, 801]]); // 멥쌀은 그대로 차감
+      await dispatch();
+      expect((await ledger()).length).toBe(2);
+      const { validateBatchStart } = await import("./lib/production/batchStartValidation");
+      await q(`UPDATE h_batch_inputs SET inventory_deducted = 0 WHERE id = 802`);
+      expect(((await validateBatchStart(7301, T)) as any).shortages.map((x: any) => x.materialId)).not.toContain(701);
+    });
+
     it("다시 실행·동시 3회 실행해도 한 번만 출고", async () => {
       const rs = await Promise.all([dispatch(), dispatch(), dispatch()]);
       expect(rs.filter((r) => r.busy).length).toBeGreaterThanOrEqual(0);

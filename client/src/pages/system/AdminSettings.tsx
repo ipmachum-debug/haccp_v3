@@ -7,6 +7,7 @@ import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 import WidgetSettingsPanel from "@/components/dashboard/WidgetSettingsPanel";
 import {
   AlertDialog,
@@ -88,6 +89,17 @@ export default function AdminSettings() {
     onSuccess: (r: { enabled: boolean }) => {
       toast.success(r.enabled ? "재고관리를 사용합니다 (입고·출고가 LOT·재고에 반영)" : "회계만 사용합니다 (LOT·재고 없이 전표만)");
       refetchInvTracking();
+    },
+    onError: (e: { message: string }) => toast.error(`변경 실패: ${e.message}`),
+  });
+  // ★ 2026-10-17 재고 차감 제외 원료 (CEO 결정 — 정제수 등): 자동출고가 투입만 기록하고 LOT·재고를 쓰지 않는다
+  const { data: exemptList = [], refetch: refetchExempt } = trpc.inbound.stockExemptMaterials.useQuery();
+  const [exemptPick, setExemptPick] = useState<{ id: number; name: string } | null>(null);
+  const setExemptMutation = trpc.inbound.setStockExempt.useMutation({
+    onSuccess: (r: { exempt: boolean }) => {
+      toast.success(r.exempt ? "재고 차감에서 제외했습니다 (다음 출고부터)" : "재고 차감에 다시 포함했습니다");
+      setExemptPick(null);
+      refetchExempt();
     },
     onError: (e: { message: string }) => toast.error(`변경 실패: ${e.message}`),
   });
@@ -340,6 +352,41 @@ export default function AdminSettings() {
                 setInvTrackingMutation.mutate({ enabled: v });
               }}
             />
+          </div>
+          <div className="rounded-md border p-3 space-y-2">
+            <div className="text-sm font-medium">재고 차감 제외 원료</div>
+            <div className="text-xs text-muted-foreground">
+              배치에 투입은 기록하지만 LOT·재고에서 빼지 않는 원료입니다 (예: 정제수). 다음 출고부터 적용되고, 지난 차감·남은 음수 LOT 은 바꾸지 않습니다.
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(exemptList as any[]).length === 0 && <span className="text-xs text-muted-foreground">없음</span>}
+              {(exemptList as any[]).map((m) => (
+                <span key={m.materialId} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs">
+                  {m.materialName}
+                  <button
+                    className="text-red-600"
+                    disabled={setExemptMutation.isPending}
+                    onClick={() => { if (confirm(`${m.materialName} 을(를) 재고 차감에 다시 포함할까요?`)) setExemptMutation.mutate({ materialId: m.materialId, exempt: false }); }}
+                  >×</button>
+                </span>
+              ))}
+            </div>
+            <div className="flex items-end gap-2">
+              <div className="flex-1">
+                <MaterialCombobox
+                  selectedId={exemptPick?.id ?? null}
+                  selectedName={exemptPick?.name}
+                  onSelect={(m) => setExemptPick({ id: Number(m.id), name: m.materialName })}
+                  onClear={() => setExemptPick(null)}
+                  placeholder="원료 검색"
+                />
+              </div>
+              <Button
+                size="sm"
+                disabled={!exemptPick || setExemptMutation.isPending}
+                onClick={() => exemptPick && confirm(`${exemptPick.name} 을(를) 재고 차감에서 제외할까요?`) && setExemptMutation.mutate({ materialId: exemptPick.id, exempt: true })}
+              >제외 추가</Button>
+            </div>
           </div>
         </CardContent>
       </Card>
