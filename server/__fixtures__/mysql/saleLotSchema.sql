@@ -1,4 +1,4 @@
--- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고·배치·투입·SKU 생산실적·제품·발주서) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
+-- 판매 확정·LOT 차감 실 MySQL 통합 테스트용 스키마 (+ 2026-10-16 accounting_sales.sku_id, h_stock_alerts, 매입·입고전표·거래처·도메인 이벤트·단가 이력·품목제조보고 원료·AR 원장·은행계좌·품목제조보고·배치·투입·SKU 생산실적·제품·발주서·회사) (운영 백업 2026-10-16 의 DDL 만 — 데이터 없음, FK 제거)
 
 SET FOREIGN_KEY_CHECKS=0;
 
@@ -829,3 +829,25 @@ CREATE TABLE `purchase_order_lines` (
   UNIQUE KEY `uq_po_line` (`po_id`,`line_number`),
   KEY `idx_pol_tenant_po` (`tenant_id`,`po_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+DROP TABLE IF EXISTS `tenants`;
+CREATE TABLE `tenants` (
+  `id` int NOT NULL AUTO_INCREMENT,
+  `name` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `slug` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL,
+  `status` enum('active','suspended','trial','expired') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'trial',
+  `created_at` timestamp NOT NULL DEFAULT (now()),
+  `updated_at` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+  `subscription_package` enum('starter','standard','enterprise','erp_basic') CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NOT NULL DEFAULT 'starter',
+  `subscription_start_date` date DEFAULT NULL,
+  `subscription_end_date` date DEFAULT NULL,
+  `subscription_days` int DEFAULT '0',
+  `grace_period_end_date` date DEFAULT NULL,
+  `is_read_only` tinyint(1) DEFAULT '0',
+  `industry_code` varchar(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT 'KSIC 업종코드 (ex: C10, C1011, C20)',
+  `industry_category` varchar(50) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL COMMENT '대분류 (food, cosmetics, supplement, pharma, general)',
+  `billing_key` varchar(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `card_company` varchar(100) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `tenants_slug_unique` (`slug`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
