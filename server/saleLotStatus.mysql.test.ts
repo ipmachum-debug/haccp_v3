@@ -2429,6 +2429,21 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       const fetched = await vi.fetchMaterialReceivingsForMonth(db, T, 2026, 10);
       expect(fetched.find((x: any) => x.inboundLineId === badLine)).toMatchObject({ compliance: "부적합", correctiveAction: "격리 후 재검수 합격" });
     });
+
+    it("R1(#568) 발주 입고: 불합격 → 전량 반품 뒤 같은 키로 다시 보내면 오류 없이 '반품·취소' 로 답함 (재고·전표·발주 입고량 그대로), 새 키는 새 입고", async () => {
+      const { purchaseOrderRouter } = await import("./routers/accounting/purchaseOrder.router");
+      const po = purchaseOrderRouter.createCaller({ user: { id: 4, role: "admin", tenantId: T, email: "t@t" } } as any);
+      const send = (key: string, inspectionResult?: "fail") => po.receive({ poId: 31, receiptDate: "2026-10-17", idempotencyKey: key, lines: [{ lineId: 311, receivedQty: 30, ...(inspectionResult ? { inspectionResult } : {}) }] });
+      const a = await send("po-r1-key-0001", "fail");
+      expect(a.quarantinedLineIds?.length).toBe(1);
+      expect((await send("po-r1-key-0001", "fail")).quarantinedLineIds?.length).toBe(1);
+      await svc.returnInboundLine(a.quarantinedLineIds![0], T, 4, "반품");
+      const again: any = await send("po-r1-key-0001", "fail");
+      expect([again.message, again.createdPurchaseIds, again.cancelledLineIds?.length, again.newStatus]).toEqual(["이 입고는 이미 전부 반품·취소됐습니다 — 다시 받으려면 새로 입고하세요.", [], 1, "approved"]);
+      expect([await received(), ...(await counts()), await nPurch()]).toEqual([0, 0, 0, 0, 0]);
+      await send("po-r1-key-0002");
+      expect([await received(), (await counts())[2]]).toEqual([30, 30]);
+    });
   });
 
   describe("발주 수량 변경 — 요청 → 승인 → 추가 입고, 초과 입고는 그대로 차단 (2026-10-17, CEO 결정 3)", () => {
