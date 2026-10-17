@@ -865,6 +865,8 @@ async function ensureInboundDocumentSchema(conn: any) {
   await addCol("h_inbound_lines", "ledger_date", "`ledger_date` date NULL");
   // 재고 차감 제외 원료 (CEO 결정 — 정제수 등). 회사·원료별 설정, 기본 0 (켜기는 관리자 설정 화면)
   await addCol("h_materials", "stock_exempt", "`stock_exempt` tinyint NOT NULL DEFAULT 0");
+  // 출고 당시 재고 차감 제외로 처리했는지 — 투입 줄에 고정 (설정을 나중에 바꿔도 과거 판정 유지, Codex #572 검증 P2)
+  await addCol("h_batch_inputs", "stock_exempt_at_issue", "`stock_exempt_at_issue` tinyint NULL");
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS h_inbound_inspections (
       id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -967,6 +969,7 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_inbound_lines", column: "tax_amount", why: "입고 줄 명시 세액 (매입 입력)" },
   { table: "h_inbound_lines", column: "ledger_date", why: "입고 줄 수불부 반영일 (취소 역처리)" },
   { table: "h_materials", column: "stock_exempt", why: "재고 차감 제외 원료 (자동출고·부족 판정)" },
+  { table: "h_batch_inputs", column: "stock_exempt_at_issue", why: "출고 당시 재고 차감 제외 처리 기록" },
   { table: "h_inbound_inspections", column: "seq", why: "검수 이력 (최초 불합격 보존)" },
 ];
 
