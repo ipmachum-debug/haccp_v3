@@ -49,7 +49,7 @@ const mockDb = {
   values: vi.fn().mockResolvedValue(undefined),
 };
 
-vi.mock("../../db", () => ({
+vi.mock("../../db/connection", () => ({
   getDb: vi.fn(() => Promise.resolve(mockDb)),
 }));
 

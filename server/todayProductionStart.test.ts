@@ -34,14 +34,13 @@ vi.mock("./lib/production/batchStartValidation", async (orig) => {
   return { ...real, validateBatchStart: vi.fn(async () => state.check) };
 });
 vi.mock("./lib/production/autoMaterialIssueDispatcher", () => ({
+  // 배치 잠금은 공통 진입점(dispatcher) 안에 있다 (2026-10-17) — 잠금을 못 잡으면 출고 없이 busy 를 돌려준다
   autoIssueMaterialsDispatch: vi.fn(async () => {
+    if (!state.locked) return { success: false, busy: true, issuedMaterials: [], totalCost: 0, warnings: [], errors: ["같은 배치의 원료 출고가 진행 중입니다."] };
     state.dispatchCalls++;
     if (state.dispatchThrows) throw new Error("DB 끊김");
     return state.dispatchResult;
   }),
-}));
-vi.mock("./lib/production/batchIssueLock", () => ({
-  withBatchIssueLock: vi.fn(async (_t: number, _b: number, fn: () => Promise<any>) => (state.locked ? { locked: true, value: await fn() } : { locked: false })),
 }));
 vi.mock("./db/system/auditApprovalSupplier", () => ({ createAuditLog: vi.fn(async (i: any) => { state.audits.push(i); }) }));
 vi.mock("./lib/production/autoProductionDaily", () => ({ autoRegenerateProductionDaily: vi.fn(async () => undefined) }));

@@ -963,8 +963,7 @@ export const batchCrudRouter = router({
         let autoIssueResult = null;
         if (input.status === 'in_progress') {
           try {
-            // 2026-04-29 (F2-2-d): dispatcher 경유 — env 기본값 v1 (운영 안전).
-            // USE_AUTO_ISSUE_V2 / USE_AUTO_ISSUE_V2_TENANTS 로 점진 v2 전환 가능.
+            // 자동출고 공통 진입점 (배치 잠금·회사 확인·줄 단위 트랜잭션, 2026-10-17)
             const { autoIssueMaterialsDispatch } = await import('../../lib/production/autoMaterialIssueDispatcher');
             autoIssueResult = await autoIssueMaterialsDispatch(input.id, batch.createdBy || ctx.user.id, ctx.tenantId) as any;
             if (!autoIssueResult?.success) {

@@ -66,29 +66,23 @@ async function alreadyStarted(batchId: number, tenantId: number, head: string) {
 
 type IssueRun = { busy: boolean; autoIssue: { success: boolean; warnings: string[]; errors: string[] }; unissuedLines: number };
 
-/** 자동출고를 배치 잠금 안에서 실행하고, 끝난 뒤 아직 출고 기록이 없는 줄 수를 다시 센다 */
+/** 자동출고(공통 진입점이 배치 잠금을 건다)를 실행하고, 끝난 뒤 아직 출고 기록이 없는 줄 수를 다시 센다 */
 async function runIssue(batchId: number, batch: any, ctx: any): Promise<IssueRun> {
-  const { withBatchIssueLock } = await import("../../lib/production/batchIssueLock");
   const { validateBatchStart } = await import("../../lib/production/batchStartValidation");
-  const locked = await withBatchIssueLock(ctx.tenantId, batchId, async () => {
-    try {
-      const { autoIssueMaterialsDispatch } = await import("../../lib/production/autoMaterialIssueDispatcher");
-      return (await autoIssueMaterialsDispatch(batchId, batch.createdBy || ctx.user.id, ctx.tenantId)) as any;
-    } catch (e: any) {
-      console.error("[todayProduction] 자동출고 오류:", e?.message || e);
-      return { success: false, errors: [String(e?.message || e)] };
-    }
-  }).catch((e: any) => {
-    // 잠금 연결 자체 실패 — 출고를 실행하지 않았으므로 미출고로 남는다 (재출고로 복구)
-    console.error("[todayProduction] 출고 잠금 실패:", e?.message || e);
-    return { locked: true as const, value: { success: false, errors: [`출고 잠금 실패: ${String(e?.message || e)}`] } };
-  });
+  let r: any;
+  try {
+    const { autoIssueMaterialsDispatch } = await import("../../lib/production/autoMaterialIssueDispatcher");
+    r = await autoIssueMaterialsDispatch(batchId, batch.createdBy || ctx.user.id, ctx.tenantId);
+  } catch (e: any) {
+    // 잠금 연결 실패 포함 — 출고를 실행하지 못했으면 미출고로 남는다 (재출고로 복구)
+    console.error("[todayProduction] 자동출고 오류:", e?.message || e);
+    r = { success: false, errors: [String(e?.message || e)] };
+  }
   let unissuedLines = 0;
   try { unissuedLines = (await validateBatchStart(batchId, ctx.tenantId)).unissuedLines; } catch { /* 재확인 실패 — 0 으로 두지 않고 아래 오류로 알림 */ unissuedLines = -1; }
-  if (!locked.locked) {
+  if (r?.busy) {
     return { busy: true, autoIssue: { success: false, warnings: [], errors: [] }, unissuedLines: Math.max(unissuedLines, 0) };
   }
-  const r = locked.value ?? {};
   const errors = [...((r.errors ?? []) as string[])];
   if (unissuedLines < 0) errors.push("출고 결과 재확인 실패 — 배치 상세에서 출고 내역을 확인해 주세요.");
   return {

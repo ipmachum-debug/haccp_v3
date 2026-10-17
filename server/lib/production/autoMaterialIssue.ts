@@ -11,19 +11,17 @@
  * 6. h_batch_inputs.inventory_deducted = 1 업데이트
  * 7. 수불부 반영 (material_ledger_daily)
  *
- * ★ 2026-04-14 Module 3 노트:
- *   재고 음수 방지: LOT/inventory 차감 모두 GREATEST(?, 0) 방어 이미 적용됨 ✅
- *
- *   Technical Debt (향후 개선 필요):
- *   - 현재 각 원재료별 처리가 독립적인 try-catch 패턴이라 "일부 원재료만 부분 차감"
- *     이 가능함. 이상적으로는 각 원재료당 withTransaction 래핑이 필요하지만,
- *     FEFO 할당 + 거래 기록 + 인벤토리 업데이트 + 수불부 반영이 복잡하게 얽혀
- *     있어 리팩터 시 운영 리스크가 큼. 실제 운영 데이터에서 문제 발견 시 도입.
- *   - completeBatch 와의 2중 차감 방지는 현재 inventory_deducted 플래그에 의존.
- *     FOR UPDATE 잠금으로 race condition 완전 차단 필요 (별도 세션).
+ * ★ 2026-10-17 (재고 쓰기 경로 PR-5·6): 원재료 한 줄 = 한 트랜잭션, 재고 관문 경유.
+ *   - 줄마다 withInventoryTx: 투입 행 FOR UPDATE → 이미 출고(플래그·원장)면 건너뜀 → FEFO(같은 conn) →
+ *     applyLotDelta(LOT·원장·집계) → 투입 행 갱신. 중간 실패면 그 줄 전체가 되돌아간다
+ *     (이전: 원장을 LOT 보다 먼저 INSERT, 문장마다 다른 풀 연결 — 유령 원장·부분 차감 가능).
+ *   - 집계(h_inventory) 증감식·'마스터 LOT 합 보정' 제거 — 관문이 LOT 합으로 재계산.
+ *   - 단위: LOT 단위와 투입 단위가 다르면 그 줄은 출고하지 않고 오류 (추정 환산 없음, 결정 D6).
+ *   - 배치 잠금은 공통 진입점(autoIssueMaterialsDispatch) 에서 — 어느 화면에서 들어와도 같은 배치는 한 번에 하나.
+ *   - 음수 허용 정책은 그대로 (0 으로 자르지 않음). 출고량 = 투입 실적(actual) 이 있으면 실적, 없으면 계획.
  */
 
-import { getDb } from "../../db";
+import { getDb } from "../../db/connection";
 import { getRawConnection } from "../../db/connection";
 import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
 import { resolveBatchBusinessDate } from "./batchBusinessDate";
@@ -82,7 +80,8 @@ interface AutoIssueResult {
 
 export async function autoIssueMaterialsForBatch(
   batchId: number,
-  userId: number
+  userId: number,
+  expectedTenantId?: number,
 ): Promise<AutoIssueResult> {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
@@ -110,6 +109,7 @@ export async function autoIssueMaterialsForBatch(
       FROM h_batches b
       LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
       WHERE b.id = ${batchId}
+        ${expectedTenantId ? sql`AND b.tenant_id = ${expectedTenantId}` : sql``}
       LIMIT 1
     `);
     
@@ -206,10 +206,15 @@ export async function autoIssueMaterialsForBatch(
       if (Number(input.inventory_deducted) === 1) continue; // 이미 출고된 건 건너뜀
 
       const rawMaterialId = Number(input.material_id);
-      const requiredQuantity = parseFloat(input.planned_quantity?.toString() || "0");
+      // 출고량 = 투입 실적이 기록돼 있으면 실적, 없으면 계획 (생산완료 때 미출고 줄도 이 함수로 — completeBatch 와 같은 기준)
+      const requiredQuantity = parseFloat((input.actual_quantity ?? input.planned_quantity)?.toString() || "0");
       const unit = input.unit || "kg";
       const materialName = input.material_name || `원재료 #${rawMaterialId}`;
       const isWater = isWaterMaterial(materialName);
+      if (!(requiredQuantity > 0)) {
+        result.warnings.push(`${materialName}: 출고량 0 — 건너뜀`);
+        continue;
+      }
 
       // ────────────────────────────────────────────────────────────────────
       // 2026-05-10 (PR #298): ID 네임스페이스 변환 + 4단 폴백 단가
@@ -270,314 +275,124 @@ export async function autoIssueMaterialsForBatch(
       const unitPrice = baseUnitPrice;
 
       try {
-        let issuedQuantity = requiredQuantity;
-        let materialCost = requiredQuantity * unitPrice; // 정제수: 0
-        let actuallyDeducted = false; // ★ 실제 lot 차감 성공 여부 (inventory_deducted 플래그 결정용)
+        const { withInventoryTx, applyLotDelta } = await import("../inventory/applyInventoryDelta");
+        const { allocateLotsFEFO } = await import("../inventory/fefoLotAllocation");
 
-        // FEFO 로트 할당 시도 (재고 로트가 있는 경우)
-        let lotAllocations: Array<{ lotId: number; quantity: number; unitCost: number }> = [];
-        
-        try {
-          // 음수 허용 모드: 입고 훅을 안 탄 경로의 안전망 — 이전 음수 LOT 를 먼저 상쇄
+        const line = await withInventoryTx(async (conn) => {
+          // (a) 줄 잠금 + 재확인 — 동시에 다른 실행이 출고했으면 건너뜀
+          const [bRows]: any = await conn.execute(
+            `SELECT inventory_deducted FROM h_batch_inputs WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
+            [input.id, tenantId],
+          );
+          if (!(bRows as any[])[0] || Number((bRows as any[])[0].inventory_deducted) === 1) return null;
+          const [led]: any = await conn.execute(
+            `SELECT COUNT(*) AS n FROM h_inventory_transactions
+              WHERE tenant_id = ? AND source_type = 'BATCH' AND source_id = ? AND source_line_id = ? AND transaction_type = 'usage'`,
+            [tenantId, batchId, input.id],
+          );
+          if (Number((led as any[])[0]?.n ?? 0) > 0) return null;
+
+          // (b) 음수 허용: 이전 음수 LOT 상쇄 (같은 트랜잭션)
           if (allowNegative) {
             try {
-              const rc = await getRawConnection();
-              await reconcileNegativeLots(rc, { materialId: canonicalId, tenantId, userId, transactionDate, source: "autoIssue" });
+              await reconcileNegativeLots(conn, { materialId: canonicalId, tenantId, userId, transactionDate, source: "autoIssue" });
             } catch (recErr: any) {
               console.warn(`[negative-stock] reconcile_failed material=${canonicalId} batch=${batchId}: ${recErr?.message || recErr}`);
             }
           }
 
-          // h_inventory에서 해당 원재료의 재고 확인 (canonicalId 사용)
-          let [invRows]: any = await db.execute(sql`
-            SELECT id, total_quantity, available_quantity
-            FROM h_inventory
-            WHERE material_id = ${canonicalId} AND tenant_id = ${tenantId}
-            LIMIT 1
-          `);
-
-          // 음수 허용 모드: 마스터 행이 없으면(입고 이력 전무) 0 으로 만들고 진행 → 음수로 내려간다
-          if (!(invRows as any[])?.[0] && allowNegative) {
-            await db.execute(sql`
-              INSERT INTO h_inventory
-                (tenant_id, material_id, item_name, unit, total_quantity, available_quantity, reserved_quantity, created_at, updated_at)
-              VALUES (${tenantId}, ${canonicalId}, ${materialName}, ${unit}, 0, 0, 0, NOW(), NOW())
-              ON DUPLICATE KEY UPDATE updated_at = NOW()
-            `);
-            [invRows] = await db.execute(sql`
-              SELECT id, total_quantity, available_quantity
-              FROM h_inventory
-              WHERE material_id = ${canonicalId} AND tenant_id = ${tenantId}
-              LIMIT 1
-            `) as any;
-            console.warn(`[negative-stock] master_created material=${canonicalId}/${materialName} batch=${batchId}`);
-          }
-
-          const inventory = (invRows as any[])?.[0];
-
-          if (inventory) {
-            const inventoryId = Number(inventory.id);
-            let availableQty = parseFloat(inventory.available_quantity?.toString() || "0");
-
-            // [lot0-trace] G2 자동 보정 (Phase 1, 2026-04-27):
-            // h_inventory 마스터의 available_quantity 가 LOT 합계와 어긋난 경우
-            // (마스터 < 요청량 BUT LOT 합계 ≥ 요청량) → LOT 합계로 재검증 후 마스터 동기화.
-            if (availableQty < requiredQuantity) {
-              const [lotSumRows]: any = await db.execute(sql`
-                SELECT COALESCE(SUM(available_quantity), 0) as total_lot_qty
-                FROM h_inventory_lots
-                WHERE material_id = ${canonicalId} AND tenant_id = ${tenantId}
-                  AND COALESCE(status, 'available') = 'available'
-              `);
-              const lotTotalQty = parseFloat(
-                (lotSumRows as any[])?.[0]?.total_lot_qty?.toString() || "0"
-              );
-
-              if (lotTotalQty >= requiredQuantity) {
-                console.warn(
-                  `[lot0-trace] master_lot_mismatch_recovery material=${canonicalId}/${materialName} ` +
-                  `master=${availableQty} lot_sum=${lotTotalQty} required=${requiredQuantity} ` +
-                  `batch=${batchId} input=${input.id}`
-                );
-                await db.execute(sql`
-                  UPDATE h_inventory
-                  SET available_quantity = ${lotTotalQty.toString()},
-                      total_quantity = GREATEST(total_quantity, ${lotTotalQty.toString()}),
-                      last_updated = NOW()
-                  WHERE id = ${inventoryId} AND tenant_id = ${tenantId}
-                `);
-                availableQty = lotTotalQty;
-              }
-            }
-
-            if (allowNegative || availableQty >= requiredQuantity) {
-              // FEFO 로트 할당 시도 (음수 허용 시 부족분은 최근 LOT 에 음수로)
-              try {
-                const { allocateLotsFEFO } = await import("../inventory/fefoLotAllocation");
-                let allocations: FefoAllocation[];
-                try {
-                  // 2026-10-13: 업무일자(transactionDate) 이후 입고 LOT 는 후보에서 제외 — 늦게 입력한 과거 생산은
-                  //   "그때 있던 LOT" 에서만 빠진다 (#457 업무일자 원칙의 재고 쪽 적용)
-                  allocations = await allocateLotsFEFO(inventoryId, requiredQuantity, unit, tenantId, canonicalId, undefined, { allowNegative, asOfDate: transactionDate });
-                } catch (fefoInner: any) {
-                  if (allowNegative && fefoInner instanceof NoLotsForNegativeError) {
-                    // LOT 가 하나도 없음 → 자리표시 LOT 를 만들어 전량 음수 차감
-                    const rc = await getRawConnection();
-                    const ph = await createNegativePlaceholderLot(rc, {
-                      materialId: canonicalId, tenantId, inventoryId, unit, unitPrice, receiptDate: transactionDate,
-                    });
-                    allocations = [{ lotId: ph.lotId, quantity: requiredQuantity, unitCost: unitPrice, expiryDate: null, negative: true }];
-                  } else {
-                    throw fefoInner;
-                  }
-                }
-
-                // ★ 2026-10-13 (원가 정합성): LOT 에 단가가 없으면(매입 등록 경로가 unit_price 를 안 넣던 153 LOT)
-                //   FEFO unitCost 가 0 으로 들어와 materialCost=0 → h_batch_inputs.unit_price=0 → 원가 화면이
-                //   마스터 단가(옛 값)로 폴백했다. 0 인 할당은 이 자재의 폴백 단가(최근 입고가 → 마스터)로 채운다.
-                allocations = allocations.map((a) =>
-                  a.unitCost > 0 ? a : { ...a, unitCost: unitPrice },
-                );
-
-                let totalAllocated = 0;
-                for (const alloc of allocations) {
-                  const amount = alloc.quantity * alloc.unitCost;
-                  
-                  // h_inventory_transactions에 출고 기록 (canonicalId 사용)
-                  // reference_type/reference_id 는 아래 폴백 경로와 동일하게 기록 — 정상 FEFO 경로만
-                  // 빠져 있어서 소모량/추적 리포트가 batch 를 역참조하지 못했음 (2026-09-22 감사).
-                  const negNote = alloc.negative
-                    ? `${materialName} 자동출고 — 재고 부족분 음수 차감 (입고 전 투입, 다음 입고 시 자동 상쇄)`
-                    : null;
-                  await db.execute(sql`
-                    INSERT INTO h_inventory_transactions
-                    (inventory_id, lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
-                     transaction_date, source_type, source_id, source_line_id,
-                     action_type, purpose, performed_by, created_by, tenant_id,
-                     reference_type, reference_id, notes)
-                    VALUES
-                    (${inventoryId}, ${alloc.lotId}, ${canonicalId}, 'usage', ${alloc.quantity.toString()}, ${unit},
-                     ${alloc.unitCost.toString()}, ${amount.toString()},
-                     ${transactionDate}, 'BATCH', ${batchId}, ${input.id},
-                     'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId},
-                     'batch', ${batchId}, ${negNote})
-                  `);
-
-                  // h_inventory_lots 가용 재고 차감 (음수 허용 시 0 클램프 없음)
-                  if (allowNegative) {
-                    await db.execute(sql`
-                      UPDATE h_inventory_lots
-                      SET available_quantity = available_quantity - ${alloc.quantity},
-                          current_quantity = COALESCE(current_quantity, quantity) - ${alloc.quantity},
-                          updated_at = NOW()
-                      WHERE id = ${alloc.lotId} AND tenant_id = ${tenantId}
-                    `);
-                  } else {
-                    await db.execute(sql`
-                      UPDATE h_inventory_lots
-                      SET available_quantity = GREATEST(available_quantity - ${alloc.quantity}, 0)
-                      WHERE id = ${alloc.lotId} AND tenant_id = ${tenantId}
-                    `);
-                  }
-
-                  totalAllocated += alloc.quantity;
-                  lotAllocations.push({
-                    lotId: alloc.lotId,
-                    quantity: alloc.quantity,
-                    unitCost: alloc.unitCost
-                  });
-                }
-                
-                if (totalAllocated > 0) {
-                  issuedQuantity = totalAllocated;
-                  materialCost = allocations.reduce((sum, a) => sum + a.quantity * a.unitCost, 0);
-                  actuallyDeducted = true; // ★ 실제 차감 성공
-                }
-
-                // h_inventory 총 재고 차감 (음수 허용 시 0 클램프 없음 — 음수 = 입고 누락 신호)
-                if (allowNegative) {
-                  await db.execute(sql`
-                    UPDATE h_inventory
-                    SET total_quantity = total_quantity - ${issuedQuantity},
-                        available_quantity = available_quantity - ${issuedQuantity},
-                        last_updated = NOW()
-                    WHERE id = ${inventoryId} AND tenant_id = ${tenantId}
-                  `);
-                } else {
-                  await db.execute(sql`
-                    UPDATE h_inventory
-                    SET total_quantity = GREATEST(total_quantity - ${issuedQuantity}, 0),
-                        available_quantity = GREATEST(available_quantity - ${issuedQuantity}, 0),
-                        last_updated = NOW()
-                    WHERE id = ${inventoryId} AND tenant_id = ${tenantId}
-                  `);
-                }
-              } catch (fefoErr: any) {
-                console.warn(
-                  `[lot0-trace] fefo_throw material=${canonicalId}/${materialName} ` +
-                  `batch=${batchId} input=${input.id} required=${requiredQuantity} ` +
-                  `err="${fefoErr.message}"`
-                );
-                result.warnings.push(`${materialName}: FEFO 할당 실패, 직접 출고 기록 생성 (${fefoErr.message})`);
-              }
-            } else {
-              console.warn(
-                `[lot0-trace] master_short material=${canonicalId}/${materialName} ` +
-                `batch=${batchId} input=${input.id} master=${availableQty} required=${requiredQuantity}`
-              );
-              result.warnings.push(`${materialName}: 재고 부족 (가용: ${availableQty}, 필요: ${requiredQuantity}). 출고 기록만 생성합니다.`);
-            }
-          } else {
-            // 재고 레코드가 없는 경우 - 출고 기록만 생성 (재고 시스템 미구축 상태 대응)
-            console.warn(
-              `[lot0-trace] no_master raw=${rawMaterialId} canonical=${canonicalId} ` +
-              `name="${materialName}" batch=${batchId} input=${input.id} required=${requiredQuantity} ` +
-              `resolve_src=${resolveSource}`
-            );
-            result.warnings.push(`${materialName}: 재고 레코드 없음. 출고 기록만 생성합니다.`);
-          }
-        } catch (invErr: any) {
-          console.warn(
-            `[lot0-trace] inventory_query_error material=${canonicalId}/${materialName} ` +
-            `batch=${batchId} input=${input.id} err="${invErr.message}"`
+          // (c) FEFO 배분 (같은 conn, 업무일자 이후 입고 LOT 제외)
+          const [invRows]: any = await conn.execute(
+            `SELECT id FROM h_inventory WHERE material_id = ? AND tenant_id = ? LIMIT 1`, [canonicalId, tenantId],
           );
-          result.warnings.push(`${materialName}: 재고 조회 실패 (${invErr.message}). 출고 기록만 생성합니다.`);
-        }
-
-        // 로트 할당이 안 되었으면 로트 없이 거래 기록만 생성
-        if (lotAllocations.length === 0) {
-          console.warn(
-            `[lot0-trace] fallback_lot0_insert material=${canonicalId}/${materialName} ` +
-            `batch=${batchId} input=${input.id} required=${requiredQuantity} ` +
-            `price=${unitPrice} price_src=${priceFallbackSource}`
-          );
+          const inventoryId = (invRows as any[])[0]?.id != null ? Number((invRows as any[])[0].id) : 0;
+          let allocations: FefoAllocation[];
           try {
-            // 2026-04-28 (근본 작업 A): sentinel lot_id=0 → NULL 로 전환.
-            // 의미: "LOT 매칭 실패" 를 sentinel 0 대신 NULL 로 표현.
-            await db.execute(sql`
-              INSERT INTO h_inventory_transactions
-              (lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount,
-               transaction_date, source_type, source_id, source_line_id,
-               action_type, purpose, performed_by, created_by, tenant_id,
-               reference_type, reference_id, notes)
-              VALUES
-              (NULL, ${canonicalId}, 'usage', ${requiredQuantity.toString()}, ${unit},
-               ${unitPrice.toString()}, ${materialCost.toString()},
-               ${transactionDate}, 'BATCH', ${batchId}, ${input.id},
-               'AUTO_ISSUE', 'production', ${userId}, ${userId}, ${tenantId},
-               'batch', ${batchId}, ${`${materialName} 자동출고 (재고미등록, price_src=${priceFallbackSource})`})
-            `);
-          } catch (txnErr: any) {
-            result.warnings.push(`${materialName}: 거래 기록 생성 실패 (${txnErr.message})`);
+            allocations = await allocateLotsFEFO(inventoryId, requiredQuantity, unit, tenantId, canonicalId, conn as any, { allowNegative, asOfDate: transactionDate });
+          } catch (fefoInner: any) {
+            if (allowNegative && fefoInner instanceof NoLotsForNegativeError) {
+              // LOT 가 하나도 없음 → 자리표시 LOT 를 만들어 전량 음수 차감
+              const ph = await createNegativePlaceholderLot(conn, {
+                materialId: canonicalId, tenantId, inventoryId: inventoryId || null, unit, unitPrice, receiptDate: transactionDate,
+              });
+              allocations = [{ lotId: ph.lotId, quantity: requiredQuantity, unitCost: unitPrice, expiryDate: null, negative: true }];
+            } else {
+              throw fefoInner; // 재고 부족(음수 금지) 등 — 이 줄은 출고하지 않음
+            }
           }
-        }
+          // LOT 에 단가가 없으면(0) 이 자재의 폴백 단가로 (2026-10-13 원가 정합성)
+          allocations = allocations.map((x) => (x.unitCost > 0 ? x : { ...x, unitCost: unitPrice }));
 
-        // h_batch_inputs 업데이트
-        // ★ inventory_deducted 는 actuallyDeducted (실제 lot 차감 성공) 인 경우에만 1
-        //   lot 매칭 실패해도 단가는 폴백 가격으로 채워서 원가 표시는 가능하게 함
-        const effectiveUnitPrice = isWater ? 0 : (
-          lotAllocations.length > 0 && issuedQuantity > 0
-            ? materialCost / issuedQuantity  // LOT 가중평균 단가
-            : unitPrice                       // 폴백: 마스터/마지막 입고가
-        );
-        const effectiveTotalPrice = isWater ? 0 : (
-          lotAllocations.length > 0 && issuedQuantity > 0
-            ? materialCost
-            : requiredQuantity * unitPrice
-        );
+          // (d) 단위 확인 — LOT 단위 ≠ 투입 단위면 거부 (결정 D6)
+          const lotIds = Array.from(new Set(allocations.map((x) => x.lotId)));
+          const [uRows]: any = await conn.execute(
+            `SELECT id, unit FROM h_inventory_lots WHERE tenant_id = ? AND id IN (${lotIds.map(() => "?").join(",")})`,
+            [tenantId, ...lotIds],
+          );
+          const norm = (u: any) => String(u ?? "").trim().toLowerCase();
+          for (const r of uRows as any[]) {
+            if (norm(r.unit) !== norm(unit)) {
+              throw new Error(`단위가 다릅니다: LOT#${r.id} ${r.unit}, 투입 ${unit} — 환산 근거 없이 출고하지 않습니다`);
+            }
+          }
 
-        await db.execute(sql`
-          UPDATE h_batch_inputs
-          SET inventory_deducted = ${actuallyDeducted ? 1 : 0},
-              actual_quantity = ${issuedQuantity},
-              unit_price = ${effectiveUnitPrice.toFixed(2)},
-              total_price = ${effectiveTotalPrice.toFixed(2)},
-              input_time = NOW(),
-              input_by = ${userId}
-          WHERE id = ${input.id} AND tenant_id = ${tenantId}
-        `);
+          // (e) 관문으로 차감 — LOT·원장·집계 한 번에
+          for (const alloc of allocations) {
+            await applyLotDelta(conn, {
+              tenantId,
+              lotId: alloc.lotId,
+              subject: { materialId: canonicalId },
+              quantity: alloc.quantity,
+              direction: "decrease",
+              transactionType: "usage",
+              unit,
+              unitCost: alloc.unitCost,
+              reference: { referenceType: "batch", referenceId: batchId, sourceType: "BATCH", sourceId: batchId, sourceLineId: Number(input.id), actionType: "AUTO_ISSUE" },
+              notes: alloc.negative ? `${materialName} 자동출고 — 재고 부족분 음수 차감 (입고 전 투입, 다음 입고 시 자동 상쇄)` : null,
+              createdBy: userId,
+              transactionDate,
+              allowNegative: allowNegative || !!alloc.negative,
+            });
+          }
+          const issued = allocations.reduce((a, x) => a + x.quantity, 0);
+          const cost = allocations.reduce((a, x) => a + x.quantity * x.unitCost, 0);
+          const effUnitPrice = isWater ? 0 : (issued > 0 ? cost / issued : unitPrice);
+          const effTotal = isWater ? 0 : cost;
+          await conn.execute(
+            `UPDATE h_batch_inputs
+                SET inventory_deducted = 1, actual_quantity = ?, unit_price = ?, total_price = ?, input_time = NOW(), input_by = ?
+              WHERE id = ? AND tenant_id = ?`,
+            [issued, effUnitPrice.toFixed(2), effTotal.toFixed(2), userId, input.id, tenantId],
+          );
+          // 수불부(material_ledger_daily) — 같은 트랜잭션 (실패해도 줄 출고는 유지: 보고용 집계)
+          try {
+            await conn.execute(
+              `INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, usage_qty, notes, source)
+               VALUES (?, ?, ?, ?, ?, 'auto')
+               ON DUPLICATE KEY UPDATE usage_qty = usage_qty + VALUES(usage_qty), notes = CONCAT(COALESCE(notes, ''), ', ', VALUES(notes))`,
+              [tenantId, canonicalId, transactionDate, issued, `배치#${batchId} 자동출고`],
+            );
+          } catch (ledgerErr: any) {
+            result.warnings.push(`${materialName}: 수불부 반영 실패 (${ledgerErr.message})`);
+          }
+          return { issued, cost, allocations };
+        }, `autoIssue.batch${batchId}.line${input.id}`);
 
-        // 수불부(material_ledger_daily) 반영 — canonicalId 사용 (lot 시스템과 정합)
-        try {
-          await db.execute(sql`
-            INSERT INTO material_ledger_daily 
-            (tenant_id, material_id, ledger_date, usage_qty, notes, source)
-            VALUES 
-            (${tenantId}, ${canonicalId}, ${transactionDate}, ${issuedQuantity},
-             ${`배치#${batchId} 자동출고`}, 'auto')
-            ON DUPLICATE KEY UPDATE
-              usage_qty = usage_qty + ${issuedQuantity},
-              notes = CONCAT(COALESCE(notes, ''), ', ', ${`배치#${batchId} 자동출고`})
-          `);
-        } catch (ledgerErr: any) {
-          result.warnings.push(`${materialName}: 수불부 반영 실패 (${ledgerErr.message})`);
-        }
+        if (!line) continue; // 다른 실행이 먼저 출고함
+        const issuedQuantity = line.issued;
+        const materialCost = isWater ? 0 : line.cost;
+        const lotAllocations = line.allocations.map((x) => ({ lotId: x.lotId, quantity: x.quantity, unitCost: x.unitCost }));
 
-        // ★ 2026-05-10 (PR #299 F5-4): h_inventory_deduction_log INSERT
-        //   조건: 실제 lot 차감 성공 + 수량 > 0 + 정제수 제외
-        //   실패해도 main flow 영향 없음 (best-effort).
-        if (
-          productionLogIdForDeduction &&
-          actuallyDeducted &&
-          issuedQuantity > 0 &&
-          !isWater
-        ) {
+        // h_inventory_deduction_log — best-effort 보고용 이력 (커밋 뒤)
+        if (productionLogIdForDeduction && issuedQuantity > 0 && !isWater) {
           try {
             const rawConn = await getRawConnection();
             await insertInventoryDeductionLog(
-              {
-                productionLogId: productionLogIdForDeduction,
-                materialId: canonicalId,
-                materialType: "raw_material",
-                deductedQuantity: issuedQuantity,
-                unit,
-              },
+              { productionLogId: productionLogIdForDeduction, materialId: canonicalId, materialType: "raw_material", deductedQuantity: issuedQuantity, unit },
               rawConn,
             );
           } catch (dlErr: any) {
-            console.warn(
-              `[deductionLog] insert 예외 batch=${batchId} material=${canonicalId}: ${dlErr?.message || dlErr}`,
-            );
+            console.warn(`[deductionLog] insert 예외 batch=${batchId} material=${canonicalId}: ${dlErr?.message || dlErr}`);
           }
         }
 

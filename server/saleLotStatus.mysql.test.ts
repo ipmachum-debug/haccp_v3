@@ -1253,4 +1253,73 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await lots()).toEqual([[0, "kg", 96, 96, 96, null, T]]);
     });
   });
+  describe("재고 쓰기 경로 PR-5·6 — 자동출고: 줄 단위 트랜잭션·관문·공통 잠금 (2026-10-17)", () => {
+    beforeEach(async () => {
+      await q(`DROP TRIGGER IF EXISTS trg_fail_bi_update`);
+      for (const t of ["h_materials", "h_batches", "h_batch_inputs", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "material_ledger_daily", "item_master"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, unit_price, is_active) VALUES (700, ?, 'M700', '멥쌀', 'kg', 2000, 1)`, [T]);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, unit_price, receipt_date, expiry_date, status) VALUES
+        (9301, ?, 700, 'R-1', 50, 50, 50, 'kg', 2000, '2026-10-01', '2026-12-01', 'available'),
+        (9302, ?, 700, 'R-2', 50, 50, 50, 'kg', 2100, '2026-10-02', '2026-11-01', 'available')`, [T, T]);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, created_by)
+        VALUES (7301, ?, 1, 'B7301', 90, 100, '2026-10-17', 'in_progress', 4)`, [T]);
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, planned_quantity, unit, inventory_deducted) VALUES (801, ?, 7301, 700, 60, 'kg', 0)`, [T]);
+    });
+    afterAll(async () => { await q(`DROP TRIGGER IF EXISTS trg_fail_bi_update`); });
+    const avail = async (id: number) => Number((await q(`SELECT available_quantity + 0 AS a FROM h_inventory_lots WHERE id = ?`, [id]))[0].a);
+    const ledger = async () => (await q(`SELECT lot_id, quantity + 0 AS q, source_line_id FROM h_inventory_transactions WHERE transaction_type = 'usage' ORDER BY id`))
+      .map((r: any) => [Number(r.lot_id), Number(r.q), Number(r.source_line_id)]);
+    const dispatch = async (t = T) => (await import("./lib/production/autoMaterialIssueDispatcher")).autoIssueMaterialsDispatch(7301, 4, t);
+
+    it("FEFO(소비기한 순) 로 관문 차감 — LOT·원장(투입 줄 id)·집계·투입 행 한 번에", async () => {
+      const r = await dispatch();
+      expect(r.errors).toEqual([]);
+      expect([await avail(9302), await avail(9301)]).toEqual([0, 40]);
+      expect(await ledger()).toEqual([[9302, 50, 801], [9301, 10, 801]]);
+      const bi = (await q(`SELECT inventory_deducted, actual_quantity + 0 AS a, total_price + 0 AS tp FROM h_batch_inputs WHERE id = 801`))[0];
+      expect([Number(bi.inventory_deducted), Number(bi.a), Number(bi.tp)]).toEqual([1, 60, 125000]);
+      expect(Number((await q(`SELECT available_quantity + 0 AS a FROM h_inventory WHERE material_id = 700`))[0].a)).toBe(40);
+    });
+
+    it("다시 실행·동시 3회 실행해도 한 번만 출고", async () => {
+      const rs = await Promise.all([dispatch(), dispatch(), dispatch()]);
+      expect(rs.filter((r) => r.busy).length).toBeGreaterThanOrEqual(0);
+      await dispatch();
+      expect(await ledger()).toEqual([[9302, 50, 801], [9301, 10, 801]]);
+      expect([await avail(9302), await avail(9301)]).toEqual([0, 40]);
+    });
+
+    it("투입 단위가 LOT 과 다르면 그 줄은 출고하지 않음 (D6)", async () => {
+      await q(`UPDATE h_batch_inputs SET unit = 'g', planned_quantity = 600 WHERE id = 801`);
+      const r = await dispatch();
+      expect(r.errors.join()).toMatch(/단위가 다릅니다/);
+      expect(await ledger()).toEqual([]);
+      expect([await avail(9301), await avail(9302)]).toEqual([50, 50]);
+      expect(Number((await q(`SELECT inventory_deducted FROM h_batch_inputs WHERE id = 801`))[0].inventory_deducted)).toBe(0);
+    });
+
+    it("재고보다 많이 쓰면 음수 그대로 (0 으로 자르지 않음, 음수 허용 정책)", async () => {
+      await q(`UPDATE h_batch_inputs SET planned_quantity = 130 WHERE id = 801`);
+      await dispatch();
+      const total = (await ledger()).reduce((a, x) => a + x[1], 0);
+      expect(total).toBe(130);
+      expect((await avail(9301)) + (await avail(9302))).toBe(-30);
+    });
+
+    it("줄 처리 중간에 실패하면 그 줄의 LOT·원장이 모두 되돌아감", async () => {
+      await admin.query(`CREATE TRIGGER trg_fail_bi_update BEFORE UPDATE ON h_batch_inputs FOR EACH ROW
+        BEGIN IF NEW.inventory_deducted = 1 THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'injected'; END IF; END`);
+      const r = await dispatch();
+      expect(r.errors.join()).toMatch(/injected/);
+      expect(await ledger()).toEqual([]);
+      expect([await avail(9301), await avail(9302)]).toEqual([50, 50]);
+    });
+
+    it("다른 회사로 호출하면 출고 없음 / 회사 없으면 거부", async () => {
+      const r = await dispatch(3);
+      expect(r.success).toBe(false);
+      expect(await ledger()).toEqual([]);
+      await expect(dispatch(0)).rejects.toThrow(/테넌트/);
+    });
+  });
 });
