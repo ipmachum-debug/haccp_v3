@@ -6,6 +6,7 @@ import { z } from "zod";
 import { router, requireCapability, adminProcedure, tenantRequiredProcedure } from "../../_core/trpc";
 import {
   createInboundDraft, confirmInbound, approveInbound, cancelInboundLine, getReceivableLines,
+  reinspectInboundLine, returnInboundLine, listQuarantinedLines,
 } from "../../lib/inventory/inbound/inboundService";
 import { listPackUnits, upsertPackUnit, deactivatePackUnit } from "../../lib/inventory/inbound/packUnits";
 import { getRawConnection } from "../../db/connection";
@@ -57,6 +58,22 @@ export const inboundRouter = router({
   cancelLine: cancelPurchase
     .input(z.object({ lineId: z.number().int().positive(), reason: z.string().max(500).optional() }))
     .mutation(({ ctx, input }) => cancelInboundLine(input.lineId, ctx.tenantId, ctx.user.id, input.reason)),
+
+  // 검수 불합격 격리 → 재검수·반품 (CEO 결정 4) — 최초 불합격은 덮어쓰지 않고 이력에 추가
+  quarantined: readInventory.query(({ ctx }) => listQuarantinedLines(ctx.tenantId)),
+
+  reinspect: requireCapability("ERP_INVENTORY", "APPROVE")
+    .input(z.object({
+      lineId: z.number().int().positive(),
+      result: z.enum(["pass", "fail"]),
+      notes: z.string().max(500).nullish(),
+      inspectionJson: z.record(z.string(), z.unknown()).nullish(),
+    }))
+    .mutation(({ ctx, input }) => reinspectInboundLine(input.lineId, ctx.tenantId, ctx.user.id, input)),
+
+  returnLine: cancelPurchase
+    .input(z.object({ lineId: z.number().int().positive(), reason: z.string().min(1).max(500) }))
+    .mutation(({ ctx, input }) => returnInboundLine(input.lineId, ctx.tenantId, ctx.user.id, input.reason)),
 
   receivableLines: readInventory
     .input(z.object({ poId: z.number().int().positive() }))

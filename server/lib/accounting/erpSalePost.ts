@@ -15,7 +15,7 @@ export async function erpPostSale(saleId: number, userId: number, expectedTenant
   return withTransaction(async (conn) => {
     // 매출 데이터 조회 + 잠금
     const [rows] = await conn.execute(
-      `SELECT id, tenant_id, item_name, quantity, unit_price, total_amount, tax_amount, status, partner_id, transaction_date, accounting_excluded
+      `SELECT id, tenant_id, item_name, quantity, unit_price, total_amount, tax_amount, status, partner_id, transaction_date, accounting_excluded, source_type
        FROM accounting_sales
        WHERE id = ? FOR UPDATE`,
       [saleId]
@@ -28,6 +28,10 @@ export async function erpPostSale(saleId: number, userId: number, expectedTenant
     // 확정·수금된 매출은 다시 확정하지 않는다 (2026-10-15). 확정은 pending 에서만.
     if (sale.status === "approved" || sale.status === "received") return { success: true, alreadyPosted: true };
     if (sale.status !== "pending") throw new Error(`확정할 수 없는 상태입니다: ${sale.status} (ID: ${saleId})`);
+    // 재고 출고 화면에서 자동 생성된 구형 매출은 재고 설정과 무관하게 확정하지 않는다 (Codex #565 검증 S4 — 재고 경로와 같은 정책)
+    if (sale.source_type === "inventory_usage") {
+      throw new Error(`[SALE-${saleId}] 재고 출고 화면에서 자동 생성된 매출입니다 — 확정하지 않습니다 (전표 취소 후 제품 출고로 등록하거나 별도 정정).`);
+    }
 
     const tenantId = sale.tenant_id;
     // 상태만 되돌린 매출의 이중 분개 방지 (2026-10-16, saleFootprint)
