@@ -137,7 +137,7 @@ export const scanChecklistRouter = router({
           try {
             const { findApiKeyWithDiagnostics } = await import("../../_core/env");
             const diag = findApiKeyWithDiagnostics();
-            const keyPreview = diag.key ? `${diag.key.slice(0, 7)}***(len=${diag.key.length})` : "(empty)";
+            const keyPreview = diag.key ? `설정됨(len=${diag.key.length})` : "(empty)"; // 2026-10-17 보안: 키 글자 미노출
             throw new TRPCError({
               code: "INTERNAL_SERVER_ERROR",
               message:

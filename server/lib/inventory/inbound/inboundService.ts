@@ -63,6 +63,39 @@ function requireTenant(tenantId: number): number {
   return t;
 }
 
+const normUnit = (u: unknown) => String(u ?? "").trim().toLowerCase();
+
+/**
+ * 재고 단위 = 회사 원료 기준 단위 (Codex #558 검증 F1). 환산 근거가 없으므로 다르면 거부 — kg 재고에 g 숫자를 더하지 않는다.
+ * 원료 기준 단위가 비어 있거나, 같은 원료의 사용 중 LOT 에 다른 단위가 있으면 역시 거부 (fail-closed).
+ */
+async function assertStockUnit(conn: any, tenantId: number, materialId: number, stockUnit: string, label: string): Promise<void> {
+  const [m]: any = await conn.execute(`SELECT unit FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [materialId, tenantId]);
+  const base = normUnit((m as any[])[0]?.unit);
+  if (!base) throw new Error(`${label}: 원재료 기준 단위가 비어 있어 입고할 수 없습니다 — 원재료 정보에 단위를 먼저 지정하세요.`);
+  if (normUnit(stockUnit) !== base) throw new Error(`${label}: 재고 단위(${stockUnit}) 가 원재료 기준 단위(${(m as any[])[0].unit}) 와 다릅니다 — 기준 단위로 환산해 입력하세요.`);
+  const [o]: any = await conn.execute(
+    `SELECT DISTINCT unit FROM h_inventory_lots WHERE tenant_id = ? AND material_id = ? AND status = 'available' AND LOWER(TRIM(unit)) <> ? LIMIT 3`,
+    [tenantId, materialId, base],
+  );
+  if ((o as any[]).length) throw new Error(`${label}: 이 원재료에 다른 단위(${(o as any[]).map((r) => r.unit).join(", ")}) 의 LOT 이 있어 합산할 수 없습니다 — 재고 단위를 먼저 정리하세요.`);
+}
+
+/** 발주 줄 = 요청 원료·단위인지 (Codex #558 검증 F2·F3) — 둘 다 회사 h_materials id 로 바꿔 비교, 단위는 발주 단위와 같아야 */
+async function assertPoLine(conn: any, tenantId: number, poId: number, poLineId: number, materialId: number, purchaseUnit: string, label: string, lock = false) {
+  const [pl]: any = await conn.execute(
+    `SELECT id, po_id, material_id, unit, ordered_qty, received_qty FROM purchase_order_lines WHERE id = ? AND tenant_id = ? LIMIT 1${lock ? " FOR UPDATE" : ""}`,
+    [poLineId, tenantId],
+  );
+  const line = (pl as any[])[0];
+  if (!line || Number(line.po_id) !== Number(poId)) throw new Error(`${label}: 이 발주서의 줄이 아닙니다.`);
+  if (line.material_id == null) throw new Error(`${label}: 발주 줄이 원재료와 연결되지 않았습니다.`);
+  const poMat = (await toInventoryMaterialId(Number(line.material_id), tenantId, conn)).id;
+  if (poMat !== Number(materialId)) throw new Error(`${label}: 발주 줄 원료와 입고 원료가 다릅니다.`);
+  if (normUnit(line.unit) !== normUnit(purchaseUnit)) throw new Error(`${label}: 매입 단위(${purchaseUnit}) 가 발주 단위(${line.unit}) 와 다릅니다 — 발주 단위로 입력하세요.`);
+  return line;
+}
+
 const isDup = (e: any) => e?.code === "ER_DUP_ENTRY" || /Duplicate entry/.test(String(e?.message));
 
 /** 입고 문서 (draft) 생성 — 재고는 아직 없음. 같은 키로 다시 부르면 기존 문서를 돌려준다. */
@@ -94,12 +127,13 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
         const { id } = await toInventoryMaterialId(Number(l.materialId), tenantId, conn);
         const [m]: any = await conn.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [id, tenantId]);
         if (!(m as any[])[0]) throw new Error(`${i + 1}번 줄: 원재료를 찾을 수 없습니다 (id=${l.materialId}).`);
+        await assertStockUnit(conn, tenantId, id, l.stockUnit, `${i + 1}번 줄`);
+        // 발주서 입고는 모든 줄이 그 발주의 줄이어야 한다 (Codex #558 검증 F5 — 발주 잔량 검사 우회 방지).
+        //   발주에 없는 품목은 직접 입고로 따로.
+        if (p.sourceType === "purchase_order" && !l.poLineId) throw new Error(`${i + 1}번 줄: 발주서 입고는 발주 줄을 지정해야 합니다 (발주에 없는 품목은 직접 입고로).`);
         if (l.poLineId) {
           if (!p.poId) throw new Error(`${i + 1}번 줄: 발주 줄은 발주서 입고에서만 지정할 수 있습니다.`);
-          const [pl]: any = await conn.execute(
-            `SELECT id FROM purchase_order_lines WHERE id = ? AND po_id = ? AND tenant_id = ? LIMIT 1`, [l.poLineId, p.poId, tenantId],
-          );
-          if (!(pl as any[])[0]) throw new Error(`${i + 1}번 줄: 이 발주서의 줄이 아닙니다.`);
+          await assertPoLine(conn, tenantId, Number(p.poId), Number(l.poLineId), id, l.purchaseUnit, `${i + 1}번 줄`);
         }
         resolved.push({ ...l, canonicalMaterialId: id });
       }
@@ -163,7 +197,8 @@ export async function confirmInbound(
 
   return withInventoryTx(async (conn) => {
     const [hRows]: any = await conn.execute(
-      `SELECT id, status, inbound_date, supplier_id, po_id, source_type FROM h_inbound_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
+      `SELECT id, status, DATE_FORMAT(inbound_date, '%Y-%m-%d') AS inbound_date, supplier_id, po_id, source_type
+         FROM h_inbound_headers WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`,
       [headerId, tenantId],
     );
     const header = (hRows as any[])[0];
@@ -198,8 +233,13 @@ export async function confirmInbound(
     const createVouchers = opts.createVoucherDrafts ?? header.source_type === "purchase_order";
     let poPartnerId: number | null = null;
     if (header.po_id) {
-      const [pp]: any = await conn.execute(`SELECT partner_id FROM purchase_orders WHERE id = ? AND tenant_id = ? LIMIT 1`, [header.po_id, tenantId]);
-      poPartnerId = (pp as any[])[0]?.partner_id != null ? Number((pp as any[])[0].partner_id) : null;
+      // 발주 헤더를 잠그고 지금 입고 가능한 상태인지 다시 본다 (Codex #558 검증 F4 — 초안 뒤 취소된 발주)
+      //   잠금 순서: 입고 문서 → 발주 헤더 → 발주 줄 (발주 취소는 발주 헤더 하나만 잠근다)
+      const [pp]: any = await conn.execute(`SELECT partner_id, status FROM purchase_orders WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`, [header.po_id, tenantId]);
+      const po = (pp as any[])[0];
+      if (!po) throw new Error(`발주서 #${header.po_id} 를 찾을 수 없습니다.`);
+      if (!["approved", "partial_received"].includes(po.status)) throw new Error(`입고할 수 없는 발주서 상태입니다 (현재: ${po.status}).`);
+      poPartnerId = po.partner_id != null ? Number(po.partner_id) : null;
     }
     const voucherIds: number[] = [];
     let supplierName: string | null = null;
@@ -207,10 +247,12 @@ export async function confirmInbound(
       const [ps]: any = await conn.execute(`SELECT company_name FROM partners WHERE id = ? AND tenant_id = ? LIMIT 1`, [header.supplier_id, tenantId]);
       supplierName = (ps as any[])[0]?.company_name ?? null;
     }
-    const inboundDate = typeof header.inbound_date === "string" ? header.inbound_date.slice(0, 10) : ymdOf(header.inbound_date);
+    const inboundDate = String(header.inbound_date);
 
+    // 날짜 전용 값은 'YYYY-MM-DD' 문자열로 (Codex #558 검증 F6 — Date 객체가 UTC 로 바뀌며 하루 앞당겨짐)
     const [lRows]: any = await conn.execute(
-      `SELECT * FROM h_inbound_lines WHERE header_id = ? AND tenant_id = ? ORDER BY line_number FOR UPDATE`, [headerId, tenantId],
+      `SELECT l.*, DATE_FORMAT(l.expiry_date, '%Y-%m-%d') AS expiry_ymd, DATE_FORMAT(l.production_date, '%Y-%m-%d') AS production_ymd
+         FROM h_inbound_lines l WHERE l.header_id = ? AND l.tenant_id = ? ORDER BY l.line_number FOR UPDATE`, [headerId, tenantId],
     );
     const lines = lRows as any[];
     if (lines.length === 0) throw new Error("입고 줄이 없습니다.");
@@ -220,13 +262,13 @@ export async function confirmInbound(
       if (line.inspection_result === "fail") throw new Error(`${line.line_number}번 줄: 검수 불합격 — 확정할 수 없습니다.`);
       const purchaseQty = Number(line.purchase_quantity);
       const stockQty = Number(line.stock_quantity);
-      // 발주 줄 잔량
+      const label = `${line.line_number}번 줄`;
+      await assertStockUnit(conn, tenantId, Number(line.material_id), line.stock_unit, label);
+      if (header.source_type === "purchase_order" && !line.po_line_id) throw new Error(`${label}: 발주서 입고는 발주 줄을 지정해야 합니다.`);
+      // 발주 줄 잔량 — 줄 소속·원료·단위도 확정 시점에 다시 (발주 단위 수량으로 비교·증가)
       if (line.po_line_id) {
-        const [pl]: any = await conn.execute(
-          `SELECT ordered_qty, received_qty FROM purchase_order_lines WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`, [line.po_line_id, tenantId],
-        );
-        const pol = (pl as any[])[0];
-        if (!pol) throw new Error(`${line.line_number}번 줄: 발주 줄을 찾을 수 없습니다.`);
+        if (!header.po_id) throw new Error(`${label}: 발주 없는 입고 문서에 발주 줄이 있습니다.`);
+        const pol = await assertPoLine(conn, tenantId, Number(header.po_id), Number(line.po_line_id), Number(line.material_id), line.purchase_unit, label, true);
         const remaining = Number(pol.ordered_qty) - Number(pol.received_qty);
         if (purchaseQty > remaining + EPS) {
           throw new Error(`${line.line_number}번 줄: 발주 잔량 ${round3(remaining)} 을 넘습니다 (입고 ${purchaseQty}).`);
@@ -242,8 +284,8 @@ export async function confirmInbound(
         unit: line.stock_unit,
         unitPrice: stockUnitPrice,
         receiptDate: inboundDate,
-        expiryDate: line.expiry_date ?? null,
-        productionDate: line.production_date ?? null,
+        expiryDate: line.expiry_ymd ?? null,
+        productionDate: line.production_ymd ?? null,
         supplierName,
         location: line.location ?? null,
         inboundLineId: Number(line.id),
@@ -328,7 +370,7 @@ export async function cancelInboundLine(lineId: number, tenantIdIn: number, user
   const tenantId = requireTenant(tenantIdIn);
   return withInventoryTx(async (conn) => {
     const [lRows]: any = await conn.execute(
-      `SELECT l.*, h.status AS header_status, h.po_id, h.inbound_date
+      `SELECT l.*, h.status AS header_status, h.po_id, DATE_FORMAT(h.inbound_date, '%Y-%m-%d') AS inbound_date
          FROM h_inbound_lines l JOIN h_inbound_headers h ON h.id = l.header_id AND h.tenant_id = l.tenant_id
         WHERE l.id = ? AND l.tenant_id = ? LIMIT 1 FOR UPDATE`,
       [lineId, tenantId],
@@ -355,7 +397,7 @@ export async function cancelInboundLine(lineId: number, tenantIdIn: number, user
       if (e instanceof InventoryShortageError) throw new Error("이 입고 LOT 은 이미 일부 사용돼 취소할 수 없습니다. 반품·재고 조정으로 처리하세요.");
       throw e;
     }
-    const inboundDate = typeof line.inbound_date === "string" ? line.inbound_date.slice(0, 10) : ymdOf(line.inbound_date);
+    const inboundDate = String(line.inbound_date);
     await conn.execute(`UPDATE h_inbound_lines SET cancelled_qty = cancelled_qty + ? WHERE id = ? AND tenant_id = ?`, [remaining, lineId, tenantId]);
     await conn.execute(
       `UPDATE material_ledger_daily SET receiving_qty = receiving_qty - ?, updated_at = NOW() WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
@@ -421,7 +463,3 @@ async function recomputePoStatus(conn: any, poId: number, tenantId: number): Pro
 }
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
-function ymdOf(d: any): string {
-  if (d instanceof Date) return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  return String(d ?? "").slice(0, 10);
-}

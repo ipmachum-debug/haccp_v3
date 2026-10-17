@@ -1127,10 +1127,9 @@ export async function enhancedOcrAndStructure(
     try {
       const diag = findApiKeyWithDiagnostics();
       const envCachedForgeUrl = (ENV.forgeApiUrl || "").trim();
-      const keyHead = diag.key ? diag.key.slice(0, 10) : "(empty)";
-      const keyTail = diag.key && diag.key.length > 4 ? diag.key.slice(-4) : "";
+      // 2026-10-17 보안: 키 앞·뒤 글자를 오류 메시지·로그에 남기지 않는다 (길이만)
       const keyLen = diag.key ? diag.key.length : 0;
-      const keyPreview = diag.key ? `${keyHead}***${keyTail}(len=${keyLen})` : "(empty)";
+      const keyPreview = diag.key ? `설정됨(len=${keyLen})` : "(empty)";
       const actualUrl = resolveOcrApiUrl();
       // 호출 시점에 실제 사용된 URL/org/version 은 error 객체에서 추출 (callOpenAIChatCompletions 에서 부착)
       const callUrl = error?.url || "(call-not-reached)";
