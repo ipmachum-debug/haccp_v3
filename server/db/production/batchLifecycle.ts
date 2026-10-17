@@ -512,138 +512,29 @@ export async function completeBatch(params: {
       }
     }
 
-    // 완제품 재고 입고 (tenantId 격리)
-    const tId = tenantId || existingBatch.tenantId;
-    const finishedGoodsInventory = await db
-      .select()
-      .from(hInventory)
-      .where(and(
-        eq(hInventory.productId, existingBatch.productId),
-        eq(hInventory.tenantId, tId)
-      ))
-      .limit(1);
-
-    if (finishedGoodsInventory.length > 0) {
-      await db
-        .update(hInventory)
-        .set({
-          totalQuantity: sql`total_quantity + ${actualQuantity}`,
-          availableQuantity: sql`available_quantity + ${actualQuantity}`
-        })
-        .where(and(
-          eq(hInventory.productId, existingBatch.productId),
-          eq(hInventory.tenantId, tId)
-        ));
-    }
+    // 완제품 재고는 제품 LOT 이 정본 — 제품 집계(h_inventory.product_id) 에 kg 를 더하지 않는다 (재고 결정 D2,
+    //   SKU LOT 은 box/pack 단위라 섞인다). 이전: total/available += actualQuantity(kg).
     // 완제품 입고 기록은 SKU LOT 생성에서 처리
   } catch (error) {
     console.error(`[배치 완료] 재고 정산 실패:`, error);
   }
 
-  // ★ 3-2. SKU별 제품 LOT 자동 생성 (production_sku_output 기반)
+  // ★ 3-2. 제품 LOT 생성 — ensureBatchLots 하나로 (2026-10-17, 재고 쓰기 경로 PR-4)
+  //   이전: 여기서 SKU LOT 을 직접 INSERT 하고, 이미 있으면 quantity·available 을 생산수량으로 **덮어써**
+  //   그사이 판매·출고한 양이 되살아났다 (원장 없음, tenant 조건 없음, 트랜잭션 없음, 'inbound' created_by=1).
+  //   지금: 관문 receiveNewLot·배치 잠금·이미 있으면 그대로 (완료를 다시 불러도 수량 복원 없음).
   try {
-    // getRawConnection is already available in this file
-    const pool = await getRawConnection();
     const tenantId = existingBatch.tenantId;
     if (!tenantId) throw new Error('[P0 보안] tenantId is required for completeBatch');
-
-    // production_sku_output에서 이 배치의 SKU 실적 조회
-    const [skuOutputRows] = await pool.execute(
-      `SELECT pso.sku_id, pso.quantity, pso.total_kg, pso.defective_qty,
-              ps.sku_code, ps.sku_name, ps.sales_unit, ps.unit_price, ps.kg_per_sales_unit,
-              COALESCE(im.item_name, p.product_name) as product_name
-       FROM production_sku_output pso
-       JOIN product_skus ps ON pso.sku_id = ps.id
-       LEFT JOIN item_master im ON ps.item_id = im.id AND im.tenant_id = ?
-       LEFT JOIN h_products_v2 p ON p.id = ? AND p.tenant_id = ?
-       WHERE pso.batch_id = ? AND pso.tenant_id = ?`,
-      [tenantId, existingBatch.productId, tenantId, batchId, tenantId]
-    );
-
-    const skuRows = skuOutputRows as any[];
-    if (skuRows.length > 0) {
-      const batchCode = existingBatch.batchCode || `B${batchId}`;
-      const todayStr = resolveBatchTransactionDate(existingBatch); // 생산일 (입력일 아님)
-
-      for (const sku of skuRows) {
-        const skuQty = parseInt(sku.quantity) || 0;
-        if (skuQty <= 0) continue;
-
-        const lotNumber = `${batchCode}-${sku.sku_code || sku.sku_id}`;
-        const salesUnit = sku.sales_unit || "box";
-        const unitPrice = sku.unit_price ? parseFloat(sku.unit_price) : 0;
-        const productName = sku.product_name || "제품";
-        const skuName = sku.sku_name || "";
-
-        // 이미 이 배치+SKU로 생성된 LOT가 있는지 확인
-        const [existingLots] = await pool.execute(
-          `SELECT id FROM h_inventory_lots WHERE batch_id = ? AND sku_id = ? AND tenant_id = ? LIMIT 1`,
-          [batchId, sku.sku_id, tenantId]
-        );
-
-        if ((existingLots as any[]).length > 0) {
-          await pool.execute(
-            `UPDATE h_inventory_lots SET quantity = ?, available_quantity = ? WHERE id = ?`,
-            [skuQty.toString(), skuQty.toString(), (existingLots as any[])[0].id]
-          );
-          continue;
-        }
-
-        // SKU별 LOT 생성
-        const [insertResult] = await pool.execute(
-          `INSERT INTO h_inventory_lots (
-            tenant_id, batch_id, product_id, sku_id, sku_name, lot_number,
-            quantity, available_quantity, unit, unit_price,
-            production_date, status
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'available')`,
-          [
-            tenantId, batchId, existingBatch.productId,
-            sku.sku_id, skuName, lotNumber,
-            skuQty.toString(), skuQty.toString(), salesUnit, unitPrice.toString(),
-            todayStr
-          ]
-        );
-
-        const lotId = (insertResult as any).insertId;
-
-        // SKU별 입고 트랜잭션 기록
-        const { hInventoryTransactions: hInvTxSchema } = await import("../../../drizzle/schema");
-        await db.insert(hInvTxSchema).values({
-          tenantId,
-          lotId,
-          transactionType: "inbound",
-          quantity: skuQty.toString(),
-          unit: salesUnit,
-          notes: `생산 완료 SKU 입고 (배치: ${batchCode}, SKU: ${skuName}, ${productName})`,
-          createdBy: 1,
-          performedBy: 1,
-          transactionDate: todayStr,
-        } as any);
-
-        console.log(`[completeBatch] SKU LOT 생성: ${lotNumber} (${skuName}, ${skuQty} ${salesUnit})`);
-      }
-      console.log(`[completeBatch] 배치 #${batchId}: ${skuRows.length}개 SKU LOT 생성 완료`);
+    const { ensureBatchLots } = await import("./productOutboundManagement");
+    const lotResult = await ensureBatchLots(batchId, tenantId);
+    if (lotResult.skipped) {
+      console.log(`[completeBatch] 배치 #${batchId}: 제품 LOT 생성 건너뜀 (${lotResult.reason})`);
     } else {
-      // SKU 실적 없으면 기존 방식으로 fallback (배치 단위 LOT 1개)
-      console.log(`[completeBatch] 배치 #${batchId}: SKU 실적 없음, fallback LOT 생성`);
-      const { createProductLotFromBatch } = await import("./productOutboundManagement");
-      const tenantId = existingBatch.tenantId;
-    if (!tenantId) throw new Error('[P0 보안] tenantId is required for completeBatch');
-      const batchCode = existingBatch.batchCode || `B${batchId}`;
-      await createProductLotFromBatch({
-        batchId,
-        batchCode,
-        productId: existingBatch.productId,
-        productName: "제품",
-        productionDate: resolveBatchTransactionDate(existingBatch),
-        quantity: actualQuantity,
-        unit: "kg",
-        lotNumber: `PROD-${batchCode}`,
-        userId: 1,
-      }, tenantId);
+      console.log(`[completeBatch] 배치 #${batchId}: 제품 LOT ${lotResult.created.length}개 생성${lotResult.warning ? ` — ${lotResult.warning}` : ""}`);
     }
   } catch (skuLotErr) {
-    console.error(`[completeBatch] SKU LOT 생성 실패:`, skuLotErr);
+    console.error(`[completeBatch] 제품 LOT 생성 실패:`, skuLotErr);
   }
 
   // 3-1. 원가 확정 업데이트

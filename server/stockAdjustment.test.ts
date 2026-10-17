@@ -61,7 +61,8 @@ describe("adjustLot", () => {
     expect(ledger.params[3]).toBe("adjustment");
     expect(ledger.params[4]).toBe(-3);                 // 감소분 음수
     expect(ledger.params[9]).toBe("adjustment");       // reference_type
-    expect(calls.some((c) => c.sql.startsWith("UPDATE h_inventory SET total_quantity"))).toBe(true); // 집계 재계산
+    // 제품 LOT — 제품 집계(h_inventory.product_id) 는 쓰지 않는다 (2026-10-17 재고 결정 D2: SKU 단위가 섞임)
+    expect(calls.some((c) => c.sql.startsWith("UPDATE h_inventory SET total_quantity"))).toBe(false);
   });
 
   it("증가: 원장 양수", async () => {
@@ -147,7 +148,7 @@ describe("applyPhysicalCount (실사 1품목)", () => {
     expect(r.affected).toEqual([{ lotId: 777, lotNumber: r.createdLotNumber, changeQty: 25.5, newAvailable: 25.5 }]);
     const lotIns = calls.find((c) => c.sql.startsWith("INSERT INTO h_inventory_lots"))!;
     expect(lotIns.params[2]).toBe(615);   // material_id
-    expect(lotIns.params[5]).toBe(25.5);  // quantity
+    expect(lotIns.params[7]).toBe(25.5);  // quantity (batch_id·sku_id·sku_name 뒤)
     const ledger = calls.find((c) => c.sql.startsWith("INSERT INTO h_inventory_transactions"))!;
     expect(ledger.params[3]).toBe("adjustment");
     expect(ledger.params[4]).toBe(25.5);

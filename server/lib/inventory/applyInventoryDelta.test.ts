@@ -75,16 +75,23 @@ describe("recomputeAggregateFromLots", () => {
     expect(upd!.params).toEqual([12, 10, 55]);
   });
 
-  it("집계 없음: reserved=0 으로 total=available INSERT", async () => {
+  it("집계 없음: reserved=0 으로 total=available INSERT (원재료)", async () => {
     const { conn, calls } = makeConn({ invRow: undefined, lotAvailSum: 7 });
     const r = await recomputeAggregateFromLots(conn, {
       tenantId: 2,
-      subject: { productId: 168 },
+      subject: { materialId: 168 },
     });
     expect(r).toEqual({ available: 7, total: 7, reserved: 0 });
     const ins = calls.find((c) => /^INSERT INTO h_inventory /i.test(c.sql));
     expect(ins).toBeTruthy();
-    expect(ins!.sql).toMatch(/product_id/);
+    expect(ins!.sql).toMatch(/material_id/);
+  });
+
+  it("제품은 집계를 쓰지 않고 LOT 합만 돌려준다 (2026-10-17 재고 결정 D2 — SKU 단위 혼합 방지)", async () => {
+    const { conn, calls } = makeConn({ invRow: undefined, lotAvailSum: 7 });
+    const r = await recomputeAggregateFromLots(conn, { tenantId: 2, subject: { productId: 168 } });
+    expect(r.available).toBe(7);
+    expect(calls.some((c) => /^(INSERT INTO|UPDATE) h_inventory /i.test(c.sql))).toBe(false);
   });
 });
 
