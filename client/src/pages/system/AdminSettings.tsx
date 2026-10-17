@@ -82,6 +82,15 @@ export default function AdminSettings() {
     },
     onError: (e: { message: string }) => toast.error(`변경 실패: ${e.message}`),
   });
+  // ★ 2026-10-17 재고관리 사용 여부 (회사 선택) — 회계만 쓰는 회사는 LOT·재고 없이 전표만
+  const { data: invTracking, refetch: refetchInvTracking } = trpc.inbound.inventoryTracking.useQuery();
+  const setInvTrackingMutation = trpc.inbound.setInventoryTracking.useMutation({
+    onSuccess: (r: { enabled: boolean }) => {
+      toast.success(r.enabled ? "재고관리를 사용합니다 (입고·출고가 LOT·재고에 반영)" : "회계만 사용합니다 (LOT·재고 없이 전표만)");
+      refetchInvTracking();
+    },
+    onError: (e: { message: string }) => toast.error(`변경 실패: ${e.message}`),
+  });
   const { data: retentionPolicy } = trpc.notification.getNotificationRetentionPolicy.useQuery();
   
   // 스케줄러 실행 이력 조회
@@ -301,6 +310,35 @@ export default function AdminSettings() {
               checked={!!massBasisFeature?.enabled}
               disabled={setMassBasisMutation.isPending || massBasisFeature === undefined}
               onCheckedChange={(v) => setMassBasisMutation.mutate({ enabled: v })}
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* 재고관리 사용 여부 (2026-10-17) */}
+      <Card className="md:col-span-2">
+        <CardHeader>
+          <CardTitle>재고관리 사용</CardTitle>
+          <CardDescription>
+            켜면 입고·매입 확정·매출 확정이 LOT·재고·수불부에 반영됩니다 (HACCP 사용 여부와 무관).
+            끄면 회계만 사용합니다 — LOT·재고 없이 전표(분개)만 만들고, 입고는 수량 기록만 남깁니다.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <div className="flex items-center justify-between rounded-md border p-3">
+            <div>
+              <div className="text-sm font-medium">재고관리 사용</div>
+              <div className="text-xs text-muted-foreground">
+                {invTracking?.source === "package" ? "아직 선택하지 않음 — 구독 패키지 기준으로 동작 중" : "회사 설정으로 동작 중"}
+              </div>
+            </div>
+            <Switch
+              checked={!!invTracking?.enabled}
+              disabled={setInvTrackingMutation.isPending || invTracking === undefined}
+              onCheckedChange={(v) => {
+                if (!v && !confirm("회계만 사용으로 바꾸면 이후 입고·매출에서 재고가 반영되지 않습니다. 계속할까요?")) return;
+                setInvTrackingMutation.mutate({ enabled: v });
+              }}
             />
           </div>
         </CardContent>

@@ -1804,6 +1804,41 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number((await q(`SELECT quantity + 0 AS q FROM h_inventory_lots WHERE id = ?`, [r.lotId]))[0].q)).toBe(40);
     });
 
+    it("재고관리 사용 여부 (CEO 결정 2): 설정 없으면 패키지(HACCP) 기준, 회계만 회사는 입고가 LOT·재고 없이 수량·전표만, 설정이 우선", async () => {
+      const pol = await import("./lib/inventory/inventoryTrackingPolicy");
+      await q(`DELETE FROM tenants WHERE id IN (2, 3)`);
+      await q(`INSERT INTO tenants (id, name, slug, subscription_package) VALUES (2, '단지', 'danji', 'standard')`).catch(async () => {
+        const cols = (await q(`SHOW COLUMNS FROM tenants`)).filter((c: any) => c.Null === "NO" && c.Default == null && c.Extra !== "auto_increment").map((c: any) => c.Field);
+        throw new Error(`tenants 필수 컬럼: ${cols.join(",")}`);
+      });
+      try {
+        expect(await pol.getInventoryTrackingSetting(T, admin)).toEqual({ enabled: false, source: "package" }); // standard = ERP 전용
+        // 회계만: 발주 입고 → LOT·원장·수불부 없음, 발주 입고량·전표 초안은 있음
+        await q(`UPDATE purchase_order_lines SET unit = 'kg' WHERE id = 311`);
+        const d = await fromPo("key-acct-only", 30);
+        const r = await svc.confirmInbound(d.headerId, T, 4);
+        expect([r.lots[0].lotId, r.voucherIds.length]).toEqual([0, 1]);
+        expect(await counts()).toEqual([0, 0, 0]);
+        expect([await received(), await poStatus()]).toEqual([30, "partial_received"]);
+        expect(Number((await q(`SELECT COUNT(*) AS n FROM material_ledger_daily`))[0].n)).toBe(0);
+        // 입고 줄 취소도 수량 기록만
+        await q(`UPDATE accounting_purchases SET status = 'cancelled'`);
+        await svc.cancelInboundLine(r.lots[0].lineId, T, 4);
+        expect(await received()).toBe(0);
+        // 회사 설정이 우선 — ERP 패키지라도 재고관리 사용
+        await q(`INSERT INTO tenant_feature_settings (tenant_id, feature_code, enabled) VALUES (?, 'INVENTORY_TRACKING', 1)`, [T]);
+        expect(await pol.getInventoryTrackingSetting(T, admin)).toEqual({ enabled: true, source: "setting" });
+        const r2 = await svc.receiveDirect({ tenantId: T, userId: 4, materialId: 700, quantity: 4, unit: "kg", receiptDate: "2026-10-17", createVoucherDraft: false });
+        expect(r2.lotId).toBeGreaterThan(0);
+        await q(`UPDATE tenant_feature_settings SET enabled = 0 WHERE feature_code = 'INVENTORY_TRACKING'`);
+        expect(await pol.isInventoryTrackingEnabled(T, admin)).toBe(false);
+      } finally {
+        await q(`DELETE FROM tenants WHERE id = 2`);
+        await q(`DELETE FROM tenant_feature_settings WHERE feature_code = 'INVENTORY_TRACKING'`);
+      }
+      expect(await pol.getInventoryTrackingSetting(T, admin)).toEqual({ enabled: true, source: "package" }); // 회사 행 없음 → 기존 기본(HACCP)
+    });
+
     // ── Codex #560 검증 N1~N6 회귀 ──
     it("N1 같은 입고 줄 전표 동시 3회 생성 → 전표 1장·분개 1벌, 취소 뒤 재발행은 새 1장", async () => {
       await q(`INSERT INTO accounting_accounts (id, tenant_id, category, code, system_code, name, is_active) VALUES

@@ -2,10 +2,11 @@
  * 매입/매출 확정(POST) 디스패처
  *
  * 테넌트의 구독 패키지에 따라 자동으로 적절한 코드 패스를 선택합니다.
- *   - HACCP 활성 → purchasePost / productSalePost (LOT, 재고, 수불부 + 회계)
- *   - HACCP 비활성 → erpPurchasePost / erpSalePost (순수 회계만)
+ *   - 재고관리 사용 회사 → purchasePost / productSalePost (LOT, 재고, 수불부 + 회계)
+ *   - 회계만 사용하는 회사 → erpPurchasePost / erpSalePost (순수 회계만)
+ *   (2026-10-17 CEO 결정 2: 회사 설정 INVENTORY_TRACKING, 없으면 구독 패키지의 HACCP 사용 여부 — 이전 동작)
  */
-import { isHaccpEnabled } from "./tenantModuleCheck";
+import { isInventoryTrackingEnabled } from "../inventory/inventoryTrackingPolicy";
 import { getDb } from "../../db/connection";
 import { sql } from "drizzle-orm";
 
@@ -42,7 +43,8 @@ function assertSameTenant(kind: "매입" | "매출", id: number, docTenantId: nu
 export async function dispatchPostPurchase(purchaseId: number, userId: number, callerTenantId: number) {
   const tenantId = await getTenantIdFromPurchase(purchaseId);
   assertSameTenant("매입", purchaseId, tenantId, callerTenantId);
-  const haccp = await isHaccpEnabled(tenantId);
+  // 2026-10-17 (CEO 결정 2): 재고관리 사용 여부(회사 설정, 없으면 HACCP 패키지 기준) 로 — HACCP 여부 자체가 아니라
+  const haccp = await isInventoryTrackingEnabled(tenantId);
 
   if (haccp) {
     const { postPurchase } = await import("./purchasePost");
@@ -56,7 +58,8 @@ export async function dispatchPostPurchase(purchaseId: number, userId: number, c
 export async function dispatchPostSale(saleId: number, userId: number, callerTenantId: number) {
   const tenantId = await getTenantIdFromSale(saleId);
   assertSameTenant("매출", saleId, tenantId, callerTenantId);
-  const haccp = await isHaccpEnabled(tenantId);
+  // 2026-10-17 (CEO 결정 2): 재고관리 사용 여부(회사 설정, 없으면 HACCP 패키지 기준) 로 — HACCP 여부 자체가 아니라
+  const haccp = await isInventoryTrackingEnabled(tenantId);
 
   if (haccp) {
     const { postProductSale } = await import("./productSalePost");

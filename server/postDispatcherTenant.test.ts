@@ -13,6 +13,8 @@ vi.mock("./db/connection", () => ({
   getDb: vi.fn(async () => ({ execute: vi.fn(async () => [[st.docTenant != null ? { tenant_id: st.docTenant } : undefined].filter(Boolean)]) })),
 }));
 vi.mock("./lib/accounting/tenantModuleCheck", () => ({ isHaccpEnabled: vi.fn(async () => true) }));
+// 2026-10-17: 디스패처는 재고관리 사용 여부(회사 설정, 없으면 HACCP 패키지) 로 가른다
+vi.mock("./lib/inventory/inventoryTrackingPolicy", () => ({ isInventoryTrackingEnabled: vi.fn(async () => true) }));
 vi.mock("./lib/accounting/productSalePost", () => ({ postProductSale: vi.fn(async (...a: any[]) => { st.calls.push(["sale", ...a]); return { alreadyProcessed: false }; }) }));
 vi.mock("./lib/accounting/purchasePost", () => ({ postPurchase: vi.fn(async (...a: any[]) => { st.calls.push(["purchase", ...a]); return { alreadyProcessed: false }; }) }));
 

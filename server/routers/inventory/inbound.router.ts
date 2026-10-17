@@ -3,7 +3,7 @@
  * 화면 연결(발주서에서 입고 / 발주 없이 직접 입고) 은 PR-3·4. 회사는 서버 ctx 의 tenantId 만 쓴다.
  */
 import { z } from "zod";
-import { router, requireCapability } from "../../_core/trpc";
+import { router, requireCapability, adminProcedure, tenantRequiredProcedure } from "../../_core/trpc";
 import {
   createInboundDraft, confirmInbound, approveInbound, cancelInboundLine, getReceivableLines,
 } from "../../lib/inventory/inbound/inboundService";
@@ -61,6 +61,27 @@ export const inboundRouter = router({
   receivableLines: readInventory
     .input(z.object({ poId: z.number().int().positive() }))
     .query(({ ctx, input }) => getReceivableLines(input.poId, ctx.tenantId)),
+
+  // 재고관리 사용 여부 (CEO 결정 2) — 설정이 없으면 구독 패키지의 HACCP 사용 여부(이전 동작)
+  inventoryTracking: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const { getInventoryTrackingSetting } = await import("../../lib/inventory/inventoryTrackingPolicy");
+    return getInventoryTrackingSetting(ctx.tenantId);
+  }),
+  setInventoryTracking: adminProcedure
+    .input(z.object({ enabled: z.boolean() }))
+    .mutation(async ({ ctx, input }) => {
+      const { setTenantFeature } = await import("../../lib/production/massBasisPolicy");
+      const { INVENTORY_TRACKING_FEATURE } = await import("../../lib/inventory/inventoryTrackingPolicy");
+      if (!ctx.tenantId) throw new Error("테넌트 정보가 필요합니다.");
+      await setTenantFeature(await getRawConnection(), ctx.tenantId, INVENTORY_TRACKING_FEATURE, input.enabled, ctx.user?.id ?? null);
+      const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
+      await createAuditLog({
+        action: "tenant_feature.update", entityType: "tenant_feature", userId: ctx.user?.id,
+        changes: { feature: INVENTORY_TRACKING_FEATURE, enabled: input.enabled },
+        description: `재고관리 ${input.enabled ? "사용" : "사용 안 함 (회계만)"}`,
+      } as any, ctx.tenantId);
+      return { enabled: input.enabled };
+    }),
 
   // 포장 단위 환산 (예: 쌀 1포대 = 20kg) — 없으면 그 단위로 입고할 수 없다
   packUnits: readInventory

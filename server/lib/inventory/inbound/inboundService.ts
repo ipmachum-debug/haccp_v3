@@ -24,6 +24,7 @@ import { toInventoryMaterialId } from "../../identity/itemIdentityService";
 import { isTenantFeatureEnabled } from "../../production/massBasisPolicy";
 import { publishEvent } from "../../../platform/event-bus";
 import { resolvePackConversion } from "./packUnits";
+import { isInventoryTrackingEnabled } from "../inventoryTrackingPolicy";
 
 export const INBOUND_APPROVAL_FEATURE = "INBOUND_APPROVAL";
 const EPS = 0.0005;
@@ -115,6 +116,8 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
 
   const existing = await findByKey(tenantId, key);
   if (existing) return { headerId: existing, created: false };
+  // 회계만 사용하는 회사 — 재고 단위·환산 없이 매입 수량만 기록 (CEO 결정 2)
+  const tracking = await isInventoryTrackingEnabled(tenantId);
 
   try {
     return await withInventoryTx(async (conn) => {
@@ -133,15 +136,17 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
         const { id } = await toInventoryMaterialId(Number(l.materialId), tenantId, conn);
         const [m]: any = await conn.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [id, tenantId]);
         if (!(m as any[])[0]) throw new Error(`${i + 1}번 줄: 원재료를 찾을 수 없습니다 (id=${l.materialId}).`);
-        // 포장 단위 환산 — 재고 수량은 서버가 설정으로 계산한다 (화면 값은 확인용)
-        const pack = await resolvePackConversion(conn, tenantId, id, l.purchaseUnit, l.purchaseQuantity, `${i + 1}번 줄`);
+        // 포장 단위 환산 — 재고 수량은 서버가 설정으로 계산한다 (화면 값은 확인용). 회계만 사용 회사는 재고가 없으니 매입 수량 그대로.
+        const pack = tracking
+          ? await resolvePackConversion(conn, tenantId, id, l.purchaseUnit, l.purchaseQuantity, `${i + 1}번 줄`)
+          : { baseUnit: l.purchaseUnit, factor: 1, conversionId: null, stockQuantity: Math.round(l.purchaseQuantity * 1000) / 1000 };
         if (l.stockUnit != null && normUnit(l.stockUnit) !== normUnit(pack.baseUnit)) {
           throw new Error(`${i + 1}번 줄: 재고 단위(${l.stockUnit}) 가 원재료 기준 단위(${pack.baseUnit}) 와 다릅니다 — 기준 단위로 환산해 입력하세요.`);
         }
         if (l.stockQuantity != null && Math.abs(Number(l.stockQuantity) - pack.stockQuantity) > EPS) {
           throw new Error(`${i + 1}번 줄: 재고 수량 ${l.stockQuantity} 이 환산 결과 ${pack.stockQuantity}${pack.baseUnit} 와 다릅니다 (${l.purchaseQuantity}${l.purchaseUnit} × ${pack.factor}).`);
         }
-        await assertStockUnit(conn, tenantId, id, pack.baseUnit, `${i + 1}번 줄`);
+        if (tracking) await assertStockUnit(conn, tenantId, id, pack.baseUnit, `${i + 1}번 줄`);
         // 발주서 입고는 모든 줄이 그 발주의 줄이어야 한다 (Codex #558 검증 F5 — 발주 잔량 검사 우회 방지).
         //   발주에 없는 품목은 직접 입고로 따로.
         if (p.sourceType === "purchase_order" && !l.poLineId) throw new Error(`${i + 1}번 줄: 발주서 입고는 발주 줄을 지정해야 합니다 (발주에 없는 품목은 직접 입고로).`);
@@ -221,6 +226,8 @@ export async function confirmInbound(
   const tenantId = requireTenant(tenantIdIn);
   const { getRawConnection } = await import("../../../db/connection");
   const needsApproval = await isTenantFeatureEnabled(await getRawConnection(), tenantId, INBOUND_APPROVAL_FEATURE);
+  // 회계만 사용하는 회사: LOT·재고·수불부를 만들지 않고 입고 수량(발주 입고량)·전표 초안만 (CEO 결정 2)
+  const tracking = await isInventoryTrackingEnabled(tenantId);
 
   return withInventoryTx(async (conn) => {
     const [hRows]: any = await conn.execute(
@@ -293,7 +300,7 @@ export async function confirmInbound(
       const purchaseQty = Number(line.purchase_quantity);
       const stockQty = Number(line.stock_quantity);
       const label = `${line.line_number}번 줄`;
-      await assertStockUnit(conn, tenantId, Number(line.material_id), line.stock_unit, label);
+      if (tracking) await assertStockUnit(conn, tenantId, Number(line.material_id), line.stock_unit, label);
       // 포장 환산 — 줄에 보존된 배율로 다시 확인 (같은 단위면 수량 동일, 아니면 매입 수량 × 배율)
       {
         const pq = Number(line.purchase_quantity);
@@ -316,39 +323,44 @@ export async function confirmInbound(
           throw new Error(`${line.line_number}번 줄: 발주 잔량 ${round3(remaining)} 을 넘습니다 (입고 ${purchaseQty}).`);
         }
       }
-      const lotNumber = line.lot_number || `IB${tenantId}-${headerId}-${line.line_number}`;
-      const stockUnitPrice = stockQty > 0 ? Math.round((Number(line.total_price) / stockQty) * 100) / 100 : null;
-      const r = await receiveNewLot(conn, {
-        tenantId,
-        subject: { materialId: Number(line.material_id) },
-        lotNumber,
-        quantity: stockQty,
-        unit: line.stock_unit,
-        unitPrice: stockUnitPrice,
-        receiptDate: inboundDate,
-        expiryDate: line.expiry_ymd ?? null,
-        productionDate: line.production_ymd ?? null,
-        supplierName,
-        location: line.location ?? null,
-        inboundLineId: Number(line.id),
-        reference: { referenceType: "inbound", referenceId: headerId, sourceType: "h_inbound_lines", sourceId: Number(line.id), sourceLineId: Number(line.id), actionType: "INBOUND_CONFIRM" },
-        notes: `입고 확정 ${headerId}-${line.line_number}`,
-        createdBy: userId,
-        transactionType: "receipt",
-      });
-      const [tx]: any = await conn.execute(
-        `SELECT id FROM h_inventory_transactions WHERE tenant_id = ? AND lot_id = ? AND transaction_type = 'receipt' ORDER BY id LIMIT 1`, [tenantId, r.lotId],
-      );
-      await conn.execute(
-        `UPDATE h_inbound_lines SET lot_id = ?, lot_number = ?, receipt_tx_id = ? WHERE id = ? AND tenant_id = ?`,
-        [r.lotId, lotNumber, (tx as any[])[0]?.id ?? null, line.id, tenantId],
-      );
-      await conn.execute(
-        `INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, receiving_qty, source, notes)
-         VALUES (?, ?, ?, ?, 'inbound', ?)
-         ON DUPLICATE KEY UPDATE receiving_qty = receiving_qty + VALUES(receiving_qty), updated_at = NOW()`,
-        [tenantId, line.material_id, inboundDate, stockQty, `입고 ${headerId}-${line.line_number}`],
-      );
+      let lotId = 0;
+      let lotNumber = "";
+      if (tracking) {
+        lotNumber = line.lot_number || `IB${tenantId}-${headerId}-${line.line_number}`;
+        const stockUnitPrice = stockQty > 0 ? Math.round((Number(line.total_price) / stockQty) * 100) / 100 : null;
+        const r = await receiveNewLot(conn, {
+          tenantId,
+          subject: { materialId: Number(line.material_id) },
+          lotNumber,
+          quantity: stockQty,
+          unit: line.stock_unit,
+          unitPrice: stockUnitPrice,
+          receiptDate: inboundDate,
+          expiryDate: line.expiry_ymd ?? null,
+          productionDate: line.production_ymd ?? null,
+          supplierName,
+          location: line.location ?? null,
+          inboundLineId: Number(line.id),
+          reference: { referenceType: "inbound", referenceId: headerId, sourceType: "h_inbound_lines", sourceId: Number(line.id), sourceLineId: Number(line.id), actionType: "INBOUND_CONFIRM" },
+          notes: `입고 확정 ${headerId}-${line.line_number}`,
+          createdBy: userId,
+          transactionType: "receipt",
+        });
+        const [tx]: any = await conn.execute(
+          `SELECT id FROM h_inventory_transactions WHERE tenant_id = ? AND lot_id = ? AND transaction_type = 'receipt' ORDER BY id LIMIT 1`, [tenantId, r.lotId],
+        );
+        await conn.execute(
+          `UPDATE h_inbound_lines SET lot_id = ?, lot_number = ?, receipt_tx_id = ? WHERE id = ? AND tenant_id = ?`,
+          [r.lotId, lotNumber, (tx as any[])[0]?.id ?? null, line.id, tenantId],
+        );
+        await conn.execute(
+          `INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, receiving_qty, source, notes)
+           VALUES (?, ?, ?, ?, 'inbound', ?)
+           ON DUPLICATE KEY UPDATE receiving_qty = receiving_qty + VALUES(receiving_qty), updated_at = NOW()`,
+          [tenantId, line.material_id, inboundDate, stockQty, `입고 ${headerId}-${line.line_number}`],
+        );
+        lotId = r.lotId;
+      }
       let taxRate = 10;
       if (line.po_line_id) {
         await conn.execute(
@@ -363,7 +375,7 @@ export async function confirmInbound(
           tenantId, lineId: Number(line.id), userId, partnerId: poPartnerId ?? (header.supplier_id != null ? Number(header.supplier_id) : null), taxRate,
         }));
       }
-      lots.push({ lineId: Number(line.id), lotId: r.lotId, lotNumber });
+      lots.push({ lineId: Number(line.id), lotId, lotNumber });
     }
     if (header.po_id) await recomputePoStatus(conn, Number(header.po_id), tenantId);
     await conn.execute(
@@ -403,13 +415,14 @@ export async function cancelInboundLine(lineId: number, tenantIdIn: number, user
     const line = (lRows as any[])[0];
     if (!line) throw new Error("입고 줄을 찾을 수 없습니다.");
     const remaining = round3(Number(line.stock_quantity) - Number(line.cancelled_qty));
-    if (line.lot_id && !(remaining > EPS)) throw new Error("이미 취소된 입고 줄입니다.");
-    if (line.header_status !== "confirmed" || !line.lot_id) throw new Error("확정된 입고 줄만 취소할 수 있습니다.");
+    if (!(remaining > EPS)) throw new Error("이미 취소된 입고 줄입니다.");
+    if (line.header_status !== "confirmed") throw new Error("확정된 입고 줄만 취소할 수 있습니다.");
     const [pv]: any = await conn.execute(
       `SELECT id FROM accounting_purchases WHERE tenant_id = ? AND inbound_line_id = ? AND status <> 'cancelled' LIMIT 1`, [tenantId, lineId],
     );
     if ((pv as any[])[0]) throw new Error(`연결된 매입전표 #${(pv as any[])[0].id} 를 먼저 취소하세요.`);
-    try {
+    // 회계만 사용하는 회사의 입고 줄은 LOT 이 없다 — 수량 기록(발주 입고량)만 되돌린다
+    if (line.lot_id) try {
       await applyLotDelta(conn, {
         tenantId, lotId: Number(line.lot_id), subject: { materialId: Number(line.material_id) },
         quantity: remaining, direction: "decrease", transactionType: "usage", unit: line.stock_unit,
@@ -424,7 +437,7 @@ export async function cancelInboundLine(lineId: number, tenantIdIn: number, user
     }
     const inboundDate = String(line.inbound_date);
     await conn.execute(`UPDATE h_inbound_lines SET cancelled_qty = cancelled_qty + ? WHERE id = ? AND tenant_id = ?`, [remaining, lineId, tenantId]);
-    await conn.execute(
+    if (line.lot_id) await conn.execute(
       `UPDATE material_ledger_daily SET receiving_qty = receiving_qty - ?, updated_at = NOW() WHERE tenant_id = ? AND material_id = ? AND ledger_date = ?`,
       [remaining, tenantId, line.material_id, inboundDate],
     );
@@ -446,7 +459,7 @@ export async function cancelInboundLine(lineId: number, tenantIdIn: number, user
     }
     await publishEvent({
       tenantId, eventType: "inbound.cancelled", aggregateType: "Inbound", aggregateId: Number(line.header_id),
-      payload: { headerId: Number(line.header_id), lineId, lotId: Number(line.lot_id), quantity: remaining, reason: reason ?? null }, createdBy: userId,
+      payload: { headerId: Number(line.header_id), lineId, lotId: line.lot_id != null ? Number(line.lot_id) : null, quantity: remaining, reason: reason ?? null }, createdBy: userId,
     }, conn);
     return { cancelledQty: remaining };
   }, `inbound.cancelLine:${lineId}`);
