@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { useLocation } from "wouter";
 import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
@@ -508,6 +509,14 @@ function PredictionTab() {
 }
 
 // 발주 제안 탭 컴포넌트
+/** 발주 제안 승인 → 발주서 작성 화면 (재고는 만들지 않음, 2026-10-17) */
+function purchaseOrderDraftUrl(d: { materialId: number | null; itemName: string; itemCode: string | null; unit: string; quantity: number }): string {
+  const p = new URLSearchParams({ name: d.itemName, unit: d.unit, qty: String(d.quantity) });
+  if (d.materialId) p.set("materialId", String(d.materialId));
+  if (d.itemCode) p.set("code", d.itemCode);
+  return `/dashboard/accounting/purchase-orders/create?${p.toString()}`;
+}
+
 function PurchaseOrderTab() {
   const L = useIndustryLabel();
   const [daysAhead, setDaysAhead] = useState(30);
@@ -515,10 +524,10 @@ function PurchaseOrderTab() {
   
   const { data: suggestions, isLoading } = trpc.inventory.getPurchaseOrderSuggestions.useQuery({ days: daysAhead });
   
+  const [, navigate] = useLocation();
   const approveMutation = trpc.inventory.approvePurchaseOrder.useMutation({
-    onSuccess: () => {
-      utils.inventory.getPurchaseOrderSuggestions.invalidate();
-      alert("발주 제안이 승인되었습니다.");
+    onSuccess: (r: { draft: Parameters<typeof purchaseOrderDraftUrl>[0] }) => {
+      navigate(purchaseOrderDraftUrl(r.draft));
     },
     onError: (error: { message: string }) => {
       alert(`오류: ${error.message}`);
@@ -536,7 +545,7 @@ function PurchaseOrderTab() {
   });
   
   const handleApprove = (materialId: number, quantity: number) => {
-    if (confirm("이 발주 제안을 승인하시겠습니까?")) {
+    if (confirm("이 발주 제안으로 발주서를 작성하시겠습니까? (재고는 실제 입고 때 잡힙니다)")) {
       approveMutation.mutate({ materialId, quantity });
     }
   };

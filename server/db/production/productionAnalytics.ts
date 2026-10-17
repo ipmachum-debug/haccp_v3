@@ -3,8 +3,8 @@
 // 생산 최적화(LLM), 스케줄 조정, 불량률 분석,
 // 재고 부족 예측, 발주 제안, 대시보드 통합 데이터
 // ═══════════════════════════════════════════════════════════════
-import { getDb } from "../connection";
-import { resolveBomProductIds } from "../../lib/identity/itemIdentityService";
+import { getDb, getRawConnection } from "../connection";
+import { resolveBomProductIds, toItemMasterIdFromMaterial } from "../../lib/identity/itemIdentityService";
 import { eq, and, or, lte, gte, gt, desc, asc, sql, lt, inArray, count, isNotNull, sum } from "drizzle-orm";
 import {
   hBatches,
@@ -625,59 +625,42 @@ export async function getDefectRateAnalysis(params: {
 // 발주 제안 승인/거부 워크플로
 // ═══════════════════════════════════════════════════════════════
 
-/** 발주 제안 승인 (LOT 자동 생성 + 입고 거래 기록) */
+/**
+ * 발주 제안 승인 = 발주서 작성으로 연결 (2026-10-17, 재고 쓰기 경로 PR-3 / CEO 확인 "발주서를 만드는 것")
+ *
+ * 이전: 승인만으로 '사용 가능' LOT + 입고 원장을 만들었다 — 물건이 오기 전 재고(판매·투입 가능), 소비기한 +90일 임의 생성,
+ *       tenant_id 없음. 실재고는 실제 입고(발주서 입고 처리·매입 확정) 때만 생긴다.
+ * 지금: 재고를 만들지 않고, 발주서 작성 화면에 미리 채울 품목(item_master id)·수량·단위만 돌려준다.
+ *       공급처·단가·납기는 발주서 화면에서 사람이 정한다 (원료에 공급처가 지정돼 있지 않다 — 10/16 사본 138개 중 0).
+ */
 export async function approvePurchaseOrderSuggestion(params: {
   materialId: number;
   quantity: number;
   approvedBy: number;
+  tenantId?: number;
 }) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  // 1. 원재료 정보 조회
-  const [material] = await db
-    .select()
-    .from(hMaterials)
-    .where(eq(hMaterials.id, params.materialId));
-
-  if (!material) {
-    throw new Error("원재료를 찾을 수 없습니다");
-  }
-
-  // 2. 발주 주문 생성 (간소화: 발주 테이블이 없으므로 재고 거래로 기록)
-  const now = new Date();
-
-  // 3. LOT 생성 (발주 승인 = 입고 예정)
-  const [newLot] = await db
-    .insert(hInventoryLots)
-    .values({
-      materialId: params.materialId,
-      lotNumber: `PO-${Date.now()}`,
-      quantity: params.quantity.toString(),
-      availableQuantity: params.quantity.toString(),
-      unit: material.unit || "kg",
-      expiryDate: new Date(now.getTime() + 90 * 24 * 60 * 60 * 1000), // 90일 후 유통기한
-      receiptDate: now,
-      status: "available"
-    } as any)
-    .$returningId();
-
-  // 4. 거래 내역 기록
-  // PR-§5.2-2: material_id 직접 작성
-  await db.insert(hInventoryTransactions).values({
-    lotId: newLot.id,
-    materialId: params.materialId,
-    transactionType: "receipt",
-    quantity: params.quantity.toString(),
-    unit: material.unit || "kg",
-    createdBy: params.approvedBy,
-    notes: `발주 제안 승인 - 자동 생성`
-  } as any);
+  const tenantId = Number(params.tenantId);
+  if (!Number.isFinite(tenantId) || tenantId <= 0) throw new Error("테넌트 정보가 필요합니다.");
+  if (!Number.isFinite(params.quantity) || params.quantity <= 0) throw new Error(`수량이 올바르지 않습니다: ${params.quantity}`);
+  const conn = await getRawConnection();
+  const [rows]: any = await conn.execute(
+    `SELECT id, material_code, material_name, unit FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`,
+    [params.materialId, tenantId],
+  );
+  const material = (rows as any[])[0];
+  if (!material) throw new Error("원재료를 찾을 수 없습니다");
+  const itemMasterId = await toItemMasterIdFromMaterial(Number(material.id), tenantId, conn);
 
   return {
     success: true,
-    lotId: newLot.id,
-    message: "발주 제안이 승인되었으며, 입고 예정 LOT가 생성되었습니다"
+    draft: {
+      materialId: itemMasterId,            // 발주서 품목 = item_master id (없으면 null — 화면에서 품목 선택)
+      itemName: String(material.material_name ?? ""),
+      itemCode: material.material_code ?? null,
+      unit: material.unit || "kg",
+      quantity: params.quantity,
+    },
+    message: "발주서 작성 화면에서 공급처·단가를 정해 저장하세요. 재고는 실제 입고 때 잡힙니다.",
   };
 }
 

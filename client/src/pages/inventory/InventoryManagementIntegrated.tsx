@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
+import { useLocation } from "wouter";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Tabs, TabsContent, TabsTrigger, TabsList } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -415,17 +416,23 @@ function TurnoverTablePaginated({ data }: { data: TurnoverRowDisplay[] }) {
 /* ═══════════════════════════════════════════════════
    발주 제안 (원재료 전용) - 현황 탭과 동일한 재고값 표시
    ═══════════════════════════════════════════════════ */
+/** 발주 제안 승인 → 발주서 작성 화면 (재고는 만들지 않음, 2026-10-17) */
+function purchaseOrderDraftUrl(d: { materialId: number | null; itemName: string; itemCode: string | null; unit: string; quantity: number }): string {
+  const p = new URLSearchParams({ name: d.itemName, unit: d.unit, qty: String(d.quantity) });
+  if (d.materialId) p.set("materialId", String(d.materialId));
+  if (d.itemCode) p.set("code", d.itemCode);
+  return `/dashboard/accounting/purchase-orders/create?${p.toString()}`;
+}
+
 function PurchaseOrderTab() {
   const L = useIndustryLabel();
   const [days, setDays] = useState(30);
   const utils = trpc.useUtils();
   const { data: suggs, isLoading } = trpc.inventory.getPurchaseOrderSuggestions.useQuery({ days });
+  const [, navigate] = useLocation();
   const approveMut = trpc.inventory.approvePurchaseOrder.useMutation({
-    onSuccess: () => {
-      utils.inventory.getPurchaseOrderSuggestions.invalidate();
-      utils.inventory.getDashboard.invalidate();
-      alert("승인됨");
-    },
+    onSuccess: (r: { draft: Parameters<typeof purchaseOrderDraftUrl>[0] }) => navigate(purchaseOrderDraftUrl(r.draft)),
+    onError: (e: { message: string }) => alert(`오류: ${e.message}`),
   });
   const rejectMut = trpc.inventory.rejectPurchaseOrder.useMutation({
     onSuccess: () => { utils.inventory.getPurchaseOrderSuggestions.invalidate(); alert("거부됨"); },
@@ -474,7 +481,7 @@ function PurchaseOrderTab() {
                   <TD className="text-center">
                     {s.needsOrder ? (
                       <div className="flex gap-2 justify-center">
-                        <Button size="sm" className="h-9 text-sm px-4" onClick={() => { if(confirm("승인?")) approveMut.mutate({ materialId: s.materialId, quantity: s.recommendedOrderQuantity }); }}>승인</Button>
+                        <Button size="sm" className="h-9 text-sm px-4" onClick={() => { if(confirm("이 제안으로 발주서를 작성하시겠습니까? (재고는 실제 입고 때 잡힙니다)")) approveMut.mutate({ materialId: s.materialId, quantity: s.recommendedOrderQuantity }); }}>승인</Button>
                         <Button size="sm" variant="ghost" className="h-9 text-sm px-4 text-muted-foreground" onClick={() => { const r = prompt("거부 사유:"); if(r !== null) rejectMut.mutate({ materialId: s.materialId, reason: r || undefined }); }}>거부</Button>
                       </div>
                     ) : (

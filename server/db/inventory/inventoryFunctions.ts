@@ -284,7 +284,7 @@ export async function addMaterialInputToBatch(data: {
 
 /**
  * 원재료 투입 수정 — 같은 회사 투입 행만 (2026-10-17 PR-1: 이전엔 id 로만 갱신, 없는 컬럼 quantity 를 쓰려 함)
- * 재고 수량은 바꾸지 않는다 (투입 기록만). 실투입 정정은 재고 조정으로.
+ * 재고를 아직 빼지 않은 투입만 수량·LOT 를 고칠 수 있다 (차감된 투입은 거부 — Codex #549 P1).
  */
 export async function updateMaterialInput(
   inputId: number,
@@ -296,11 +296,30 @@ export async function updateMaterialInput(
 ) {
   const t = requireTenantId(tenantId);
   const conn = await getRawConnection();
-  const [rows]: any = await conn.execute(`SELECT id FROM h_batch_inputs WHERE id = ? AND tenant_id = ? LIMIT 1`, [inputId, t]);
-  if (!(rows as any[])[0]) throw new Error("투입 내역을 찾을 수 없습니다");
+  const [rows]: any = await conn.execute(
+    `SELECT id, material_id, inventory_deducted FROM h_batch_inputs WHERE id = ? AND tenant_id = ? LIMIT 1`, [inputId, t],
+  );
+  const input = (rows as any[])[0];
+  if (!input) throw new Error("투입 내역을 찾을 수 없습니다");
+  // ★ Codex #549 검토 P1: 이미 재고를 뺀 투입의 수량·LOT 를 기록만 바꾸면 LOT·원장과 어긋난다 → 거부.
+  //   정정은 투입 삭제(원장 추적 복원) 후 다시 투입하거나 재고 조정으로.
+  if (data.quantity !== undefined || data.lotId !== undefined) {
+    const [led]: any = await conn.execute(
+      `SELECT COUNT(*) AS n FROM h_inventory_transactions
+        WHERE tenant_id = ? AND source_line_id = ? AND transaction_type = 'usage' AND source_type = 'BATCH'`,
+      [t, inputId],
+    );
+    if (Number(input.inventory_deducted) === 1 || Number((led as any[])[0]?.n ?? 0) > 0) {
+      throw new Error("재고가 이미 차감된 투입은 수량·LOT 를 직접 바꿀 수 없습니다. 투입을 삭제한 뒤 다시 투입하거나 재고 조정으로 처리하세요.");
+    }
+  }
   if (data.lotId !== undefined) {
-    const [l]: any = await conn.execute(`SELECT id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? LIMIT 1`, [data.lotId, t]);
-    if (!(l as any[])[0]) throw new Error("재고 LOT를 찾을 수 없습니다");
+    const [l]: any = await conn.execute(`SELECT id, material_id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? LIMIT 1`, [data.lotId, t]);
+    const lot = (l as any[])[0];
+    if (!lot) throw new Error("재고 LOT를 찾을 수 없습니다");
+    if (lot.material_id != null && Number(lot.material_id) !== Number(input.material_id)) {
+      throw new Error("다른 원료의 LOT 는 지정할 수 없습니다");
+    }
   }
   const sets: string[] = [];
   const args: any[] = [];
@@ -344,10 +363,17 @@ export async function deleteMaterialInput(inputId: number, tenantId?: number, us
     if (Number(input.inventory_deducted) === 1 && groups.length === 0) {
       throw new Error("이 투입의 재고 출고 기록을 찾을 수 없어 자동으로 되돌릴 수 없습니다. 재고 조정으로 처리하세요.");
     }
+    // ★ Codex #549 검토 P2: 되돌릴 LOT 을 알 수 없는 양수 잔량(LOT 없는 과거 출고 기록)이 하나라도 있으면 전체 거부.
+    //   일부만 복원하고 투입 행을 지우면 미복원분의 근거가 사라진다. 추정 LOT 복원은 하지 않는다.
+    const unknown = groups.filter((g) => g.lot_id == null && (parseFloat(g.net) || 0) > 0.0005);
+    if (unknown.length > 0) {
+      const qty = unknown.reduce((a, g) => a + (parseFloat(g.net) || 0), 0);
+      throw new Error(`이 투입의 출고 기록 중 LOT 가 없는 ${qty.toFixed(3)} 은 어느 LOT 으로 되돌릴지 알 수 없어 삭제할 수 없습니다. 재고 조정으로 처리하세요.`);
+    }
     let restored = 0;
     for (const g of groups) {
       const net = parseFloat(g.net) || 0;
-      if (g.lot_id == null || net <= 0.0005) continue; // LOT 없는 과거 출고 기록은 되돌릴 LOT 이 없다
+      if (g.lot_id == null || net <= 0.0005) continue; // 이미 모두 되돌린 그룹
       await applyLotDelta(conn, {
         tenantId: t,
         lotId: Number(g.lot_id),
