@@ -153,6 +153,11 @@ export async function postPurchase(purchaseId: number, userId: number, expectedT
       resolvedMaterialId = line.materialId;
       resolvedItemType = "raw_material";
     }
+    // ★ 2026-10-17 (Codex #563 검증 R8): 재고 입고에서 자동 생성된 구형 전표(입고 줄 연결 없음) — 재고는 그 입고 때 이미 들어왔다.
+    //   여기서 확정하면 새 LOT 이 생겨 재고가 다시 늘어난다 → 확정하지 않는다 (전표 취소 후 별도 정정 절차).
+    if (!inboundLinked && (purchase as any).sourceType === "inventory_receipt") {
+      throw new Error(`매입 ${purchaseId} 는 입고 문서 이전 방식의 재고 입고에서 만든 전표입니다 — 확정하면 재고가 다시 생겨 차단합니다 (전표 취소 후 별도 정정).`);
+    }
     // ★ 2026-10-17 (입고 정본화 PR-0): 입고 탭(lotManagement.createReceivingWithLot) 이 LOT 을 먼저 만들고
     //   이 대기 전표(source_type='material_receipt', source_id=LOT) 를 만든다 — 승인하면 LOT 이 한 벌 더 생겼다.
     //   그 LOT 을 재사용한다 (재고는 입고 때 이미 들어옴).

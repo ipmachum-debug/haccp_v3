@@ -140,7 +140,7 @@ export const accountingDocumentsRouter = router({
       .input(z.object({ transactionId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { createPurchaseFromReceipt } = await import("../../db/haccp/haccpAccountingIntegration");
-        return await createPurchaseFromReceipt(ctx.tenantId, input.transactionId);
+        return await createPurchaseFromReceipt(ctx.tenantId, input.transactionId, ctx.user.id);
       }),
 
     // HACCP 연동 자동화: 제품 출고 시 매출 거래 자동 생성
