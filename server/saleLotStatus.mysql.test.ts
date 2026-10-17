@@ -1985,4 +1985,89 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await counts()).toEqual([0, 0, 0]);
     });
   });
+
+  describe("발주 수량 변경 — 요청 → 승인 → 추가 입고, 초과 입고는 그대로 차단 (2026-10-17, CEO 결정 3)", () => {
+    let svc: any;
+    let qc: any;
+    beforeAll(async () => {
+      svc = await import("./lib/inventory/inbound/inboundService");
+      qc = await import("./lib/inventory/inbound/poQtyChange");
+    });
+    beforeEach(async () => {
+      for (const t of ["h_inbound_headers", "h_inbound_lines", "h_inventory_lots", "h_inventory_transactions", "h_inventory", "h_materials", "item_master", "material_ledger_daily", "purchase_orders", "purchase_order_lines", "purchase_order_line_changes", "accounting_purchases", "tenant_feature_settings", "domain_events", "partners", "expense_journal_entries", "expense_journal_lines", "material_pack_units"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (700, ?, 'M700', '멥쌀', 'kg', 1)`, [T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES (1700, ?, 'M700', '멥쌀', 'raw_material', 'kg', 1, 700)`, [T]);
+      await q(`INSERT INTO purchase_orders (id, tenant_id, po_number, partner_id, order_date, status, total_amount, tax_amount, grand_total, created_by) VALUES (41, ?, 'PO-41', 0, '2026-10-17', 'approved', 200000, 20000, 220000, 4)`, [T]);
+      await q(`INSERT INTO purchase_order_lines (id, tenant_id, po_id, line_number, material_id, item_name, ordered_qty, received_qty, unit, unit_price, amount, tax_amount) VALUES (411, ?, 41, 1, 1700, '멥쌀', 100, 0, 'kg', 2000, 200000, 20000)`, [T]);
+    });
+    const fromPo = (key: string, qty: number) => svc.createInboundDraft({
+      tenantId: T, userId: 4, idempotencyKey: key, sourceType: "purchase_order", poId: 41, inboundDate: "2026-10-17",
+      lines: [{ materialId: 700, poLineId: 411, purchaseQuantity: qty, purchaseUnit: "kg", stockQuantity: qty, stockUnit: "kg", unitPrice: 2000 }],
+    });
+    const poLine = async () => {
+      const r = (await q(`SELECT ordered_qty AS o, received_qty AS r, amount AS a, tax_amount AS t FROM purchase_order_lines WHERE id = 411`))[0];
+      return { o: Number(r.o), r: Number(r.r), a: Number(r.a), t: Number(r.t) };
+    };
+    const po = async () => {
+      const r = (await q(`SELECT status, total_amount AS a, tax_amount AS t, grand_total AS g FROM purchase_orders WHERE id = 41`))[0];
+      return { status: r.status, a: Number(r.a), t: Number(r.t), g: Number(r.g) };
+    };
+    const req = (newQty: number, extra: any = {}) => qc.requestPoLineQtyChange(admin, { tenantId: T, userId: 5, poLineId: 411, newQty, reason: "실입고 120kg", ...extra });
+    const decide = (changeId: number, approve: boolean) => qc.decidePoLineQtyChange(admin, { tenantId: T, userId: 4, changeId, approve, note: approve ? "확인" : "반려" });
+
+    it("입고 완료 뒤 20 더 들어옴: 초과 입고 거부 → 120 으로 변경 요청 → 요청만으로는 여전히 거부 → 승인 → 일부 입고로 되돌아감 → 20 추가 입고 → 입고 완료, 원래 수량·이력 남음", async () => {
+      await svc.confirmInbound((await fromPo("qc-100", 100)).headerId, T, 4);
+      expect((await po()).status).toBe("received");
+      // 입고 완료 발주에는 입고 문서부터 막힌다 (요청만으로도 그대로)
+      await expect(fromPo("qc-20", 20)).rejects.toThrow(/승인된 발주서만 입고/);
+      const { changeId } = await req(120);
+      await expect(fromPo("qc-20", 20)).rejects.toThrow(/승인된 발주서만 입고/);
+      expect(Number((await poLine()).o)).toBe(100);
+      expect(await decide(changeId, true)).toEqual({ status: "approved", poStatus: "partial_received", orderedQty: 120 });
+      expect(await poLine()).toMatchObject({ o: 120, r: 100, a: 240000, t: 24000 });
+      expect(await po()).toMatchObject({ status: "partial_received", a: 240000, t: 24000, g: 264000 });
+      await expect(svc.confirmInbound((await fromPo("qc-21", 21)).headerId, T, 4)).rejects.toThrow(/잔량 20/); // 승인된 만큼만
+      await svc.confirmInbound((await fromPo("qc-20", 20)).headerId, T, 4);
+      expect([Number((await poLine()).r), (await po()).status]).toEqual([120, "received"]);
+      const hist = await qc.listPoLineQtyChanges(admin, T, 41);
+      expect(hist.map((h: any) => [h.oldQty, h.newQty, h.status, h.requestedBy, h.decidedBy, h.reason])).toEqual([[100, 120, "approved", 5, 4, "실입고 120kg"]]);
+      expect(await qc.listPoLineQtyChanges(admin, 3, 41)).toEqual([]);
+    });
+
+    it("줄당 대기 요청 하나 (DB UNIQUE), 처리 뒤에는 새 요청 가능, 반려는 발주를 바꾸지 않음, 두 번 처리 거부", async () => {
+      const { changeId } = await req(120);
+      await expect(req(130)).rejects.toThrow(/승인 대기 중인 변경 요청이 이미/);
+      expect(await decide(changeId, false)).toEqual({ status: "rejected" });
+      expect(await poLine()).toMatchObject({ o: 100, a: 200000, t: 20000 });
+      expect((await po()).status).toBe("approved");
+      await expect(decide(changeId, true)).rejects.toThrow(/이미 처리된/);
+      const second = await req(130);
+      expect(second.changeId).not.toBe(changeId);
+      expect((await qc.listPoLineQtyChanges(admin, T, 41)).map((h: any) => h.status)).toEqual(["pending", "rejected"]);
+    });
+
+    it("요청 뒤 발주 수량이 바뀌면 승인 거부, 입고량보다 작게는 요청·승인 모두 거부", async () => {
+      await svc.confirmInbound((await fromPo("qc-60", 60)).headerId, T, 4);
+      await expect(req(50)).rejects.toThrow(/이미 입고된 수량\(60\)/);
+      const { changeId } = await req(70);
+      await q(`UPDATE purchase_order_lines SET ordered_qty = 90 WHERE id = 411`);
+      await expect(decide(changeId, true)).rejects.toThrow(/요청 뒤 발주 수량이 바뀌었습니다/);
+      expect(Number((await poLine()).o)).toBe(90);
+      await q(`UPDATE purchase_order_lines SET ordered_qty = 100 WHERE id = 411`);
+      await q(`UPDATE purchase_order_lines SET received_qty = 80 WHERE id = 411`);
+      await expect(decide(changeId, true)).rejects.toThrow(/이미 입고된 수량\(80\)/);
+      expect((await qc.listPoLineQtyChanges(admin, T, 41))[0].status).toBe("pending");
+    });
+
+    it("작성 중·취소 발주, 같은 수량, 사유 없음, 다른 회사는 요청 거부", async () => {
+      await expect(req(120, { reason: " " })).rejects.toThrow(/사유/);
+      await expect(req(100)).rejects.toThrow(/같습니다/);
+      await expect(req(120, { tenantId: 3 })).rejects.toThrow(/찾을 수 없습니다/);
+      await q(`UPDATE purchase_orders SET status = 'draft' WHERE id = 41`);
+      await expect(req(120)).rejects.toThrow(/직접 수정/);
+      await q(`UPDATE purchase_orders SET status = 'cancelled' WHERE id = 41`);
+      await expect(req(120)).rejects.toThrow(/바꿀 수 없는 발주서 상태/);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM purchase_order_line_changes`))[0].n)).toBe(0);
+    });
+  });
 });

@@ -849,6 +849,29 @@ async function ensureInboundDocumentSchema(conn: any) {
   await addCol("accounting_purchases", "active_inbound_line_id",
     "`active_inbound_line_id` bigint GENERATED ALWAYS AS (IF(`status` <> 'cancelled', `inbound_line_id`, NULL)) STORED");
   await addIndex("accounting_purchases", "uq_ap_tenant_active_inbound_line", "UNIQUE KEY `uq_ap_tenant_active_inbound_line` (`tenant_id`, `active_inbound_line_id`)");
+  // 발주 수량 변경 요청·승인 이력 (2026-10-17, CEO 결정 3 — 초과 입고는 자동 허용 없이 변경 승인 후 추가 입고)
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS purchase_order_line_changes (
+      id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      tenant_id int NOT NULL,
+      po_id bigint NOT NULL,
+      po_line_id bigint NOT NULL,
+      old_qty decimal(10,3) NOT NULL,
+      new_qty decimal(10,3) NOT NULL,
+      reason varchar(500) NOT NULL,
+      status enum('pending','approved','rejected') NOT NULL DEFAULT 'pending',
+      requested_by bigint NOT NULL,
+      requested_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      decided_by bigint NULL,
+      decided_at timestamp NULL,
+      decision_note varchar(500) NULL,
+      pending_line_id bigint GENERATED ALWAYS AS (IF(status = 'pending', po_line_id, NULL)) STORED,
+      KEY idx_polc_tenant_po (tenant_id, po_id),
+      UNIQUE KEY uq_polc_tenant_pending_line (tenant_id, pending_line_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  } catch (err: any) {
+    console.warn("[Migration] purchase_order_line_changes failed:", err.message);
+  }
 }
 
 /**
@@ -900,6 +923,7 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_inbound_headers", column: "create_voucher_drafts", why: "입고 문서의 전표 초안 정책 (승인 대기 보존)" },
   { table: "h_inbound_headers", column: "supplier_name", why: "자유 입력 공급자명" },
   { table: "accounting_purchases", column: "active_inbound_line_id", why: "입고 줄당 살아 있는 전표 하나" },
+  { table: "purchase_order_line_changes", column: "new_qty", why: "발주 수량 변경 승인 이력" },
 ];
 
 /** 입고 줄 하나에 LOT 하나 — DB 가 보장해야 하는 키 (없으면 서버를 시작하지 않는다) */
