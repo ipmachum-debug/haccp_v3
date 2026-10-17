@@ -11,7 +11,7 @@ import { todayKST } from "../../utils/timezone";
  * @param tenantId 테넌트 ID
  * @param transactionId h_inventory_transactions.id
  */
-export async function createPurchaseFromReceipt(tenantId: number, transactionId: number) {
+export async function createPurchaseFromReceipt(tenantId: number, transactionId: number, userId = 0) {
   const db = await getRawConnection();
 
   // tenant_id 필수 검증
@@ -29,10 +29,11 @@ export async function createPurchaseFromReceipt(tenantId: number, transactionId:
       t.notes,
       t.created_at,
       l.material_id,
+      l.inbound_line_id,
       l.unit_price,
       l.supplier_name,
       l.receipt_date,
-      m.name as material_name
+      m.material_name
     FROM h_inventory_transactions t
     JOIN h_inventory_lots l ON t.lot_id = l.id AND l.tenant_id = ?
     LEFT JOIN h_materials m ON l.material_id = m.id AND m.tenant_id = ?
@@ -48,59 +49,19 @@ export async function createPurchaseFromReceipt(tenantId: number, transactionId:
 
   const transaction = rows[0];
 
-  // 이미 매입 거래가 생성되었는지 확인 (tenant 필터 추가)
-  const [existingResult] = await db.execute(
-    `SELECT id FROM accounting_purchases 
-     WHERE source_type = 'inventory_receipt' AND source_id = ? AND tenant_id = ? LIMIT 1`,
-    [transactionId, tenantId]
-  );
-
-  if (existingResult && (existingResult as any[]).length > 0) {
-    console.log(`매입 거래가 이미 존재합니다 (transaction_id: ${transactionId})`);
-    return { alreadyExists: true };
+  // ★ 2026-10-17 (Codex #563 검증 R8): 입고 문서로 받은 입고면 그 입고 줄의 전표 (잠금 + '입고 줄당 전표 하나' 키, 승인 = 분개만).
+  //   입고 문서 이전 방식(입고 줄 연결 없음) 은 전표를 만들지 않는다 — 이 경로의 전표(source_type='inventory_receipt') 는
+  //   승인 때 재고 경로가 새 LOT 을 만들어 한 번 들어온 재고가 다시 늘었다. 이름·번호 추정 연결 없음, 과거 입고 일괄 연결 없음.
+  if (transaction.inbound_line_id == null) {
+    return { skipped: true, reason: "legacy_receipt" as const, message: "입고 문서 이전 방식의 입고 — 매입전표 자동 생성 안 함 (재고 중복 방지)" };
   }
-
-  // 매입 거래 자동 생성 (tenant_id 추가)
-  const quantity = parseFloat(transaction.quantity);
-  const unitPrice = transaction.unit_price ? parseFloat(transaction.unit_price) : 0;
-  const totalAmount = quantity * unitPrice;
-
-  const [insertResult] = await db.execute(
-    `INSERT INTO accounting_purchases (
-      tenant_id,
-      transaction_date,
-      partner_name,
-      item_name,
-      quantity,
-      unit_price,
-      total_amount,
-      status,
-      notes,
-      source_type,
-      source_id,
-      created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      tenantId,
-      transaction.receipt_date || todayKST(),
-      transaction.supplier_name || "미지정 공급업체",
-      transaction.material_name || "재료",
-      quantity,
-      unitPrice,
-      totalAmount,
-      "pending",  // ← 2026-04-22 fix: "completed" 는 enum 외 값. pending 으로 들어가 승인 플로우 경유
-      `재고 입고 자동 생성 (Lot ID: ${transaction.lot_id})${transaction.notes ? ` - ${transaction.notes}` : ""}`,
-      "inventory_receipt",
-      transactionId,
-      new Date(),
-    ]
-  );
-
-  return {
-    success: true,
-    purchaseId: (insertResult as any).insertId,
-    totalAmount
-  };
+  const { withTransaction } = await import("../connection");
+  const { ensureInboundLineVoucher } = await import("../../lib/inventory/inbound/inboundService");
+  const purchaseId = await withTransaction((conn: any) => ensureInboundLineVoucher(conn, {
+    tenantId, lineId: Number(transaction.inbound_line_id), userId,
+  }), "autoCreatePurchaseFromReceipt");
+  const [pr]: any = await db.execute(`SELECT total_amount FROM accounting_purchases WHERE id = ? AND tenant_id = ?`, [purchaseId, tenantId]);
+  return { success: true, purchaseId, totalAmount: Number((pr as any[])[0]?.total_amount ?? 0) };
 }
 
 /**
@@ -266,10 +227,10 @@ export async function batchCreateAccountingTransactions(tenantId: number) {
 
   const receiptRows = receiptResult as any[];
   for (const row of receiptRows) {
-    const result = await createPurchaseFromReceipt(tenantId, row.id);
+    const result: any = await createPurchaseFromReceipt(tenantId, row.id);
     if (result.success) {
       results.purchases.created++;
-    } else if (result.alreadyExists) {
+    } else if (result.alreadyExists || result.skipped) {
       results.purchases.skipped++;
     } else if ('error' in result && result.error) {
       results.purchases.errors++;

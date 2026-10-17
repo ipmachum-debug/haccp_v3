@@ -413,13 +413,6 @@ export async function createPurchaseFromReceipt(params: {
   notes?: string;
   createdBy: number;
 }, tenantId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  const transactionDate = todayKST(); // YYYY-MM-DD
-  const totalAmount = parseFloat(params.quantity) * parseFloat(params.unitPrice);
-  const taxAmount = totalAmount * (parseFloat(params.taxRate || "10") / 100);
-
   // ★ 2026-10-17 (입고 정본화 PR-4, Codex #560 검증 N1·N2 / #561·562 검증 R1): 입고 확정으로 만든 입고면 그 입고 줄의 전표로.
   //   번호 종류(입고 줄 / LOT / 재고거래) 를 명시적으로 구분해 한 경로로만 찾는다 — 같은 숫자의 우연 일치로 다른 입고를 잡지 않는다.
   //   R1: 모든 조회에 호출자 회사 조건. 명시한 번호가 이 회사의 입고가 아니면(없음·타사·입고 아닌 거래) 바로 거절 —
@@ -473,27 +466,14 @@ export async function createPurchaseFromReceipt(params: {
     const [rows]: any = await raw.execute(`SELECT * FROM accounting_purchases WHERE id = ? AND tenant_id = ?`, [id, tenantId]);
     return (rows as any[])[0];
   }
-
-  const [purchase] = await db.insert(accountingPurchases).values({
-    tenantId: tenantId,
-    transactionDate,
-    partnerId: params.partnerId,
-    materialId: resolvedMaterialId, // ★ 역방향 FK 연결
-    itemName: params.itemName,
-    quantity: params.quantity,
-    unit: params.unit,
-    unitPrice: params.unitPrice,
-    totalAmount: totalAmount.toFixed(2),
-    taxAmount: taxAmount.toFixed(2),
-    taxRate: params.taxRate || "10.00",
-    sourceType: "inventory_receipt",
-    sourceId: params.inventoryTransactionId,
-    notes: params.notes,
-    status: "pending",
-    createdBy: params.createdBy
-  } as any);
-
-  return purchase;
+  // 입고 문서 이전 방식(입고 줄 연결 없음) 의 LOT·거래, 또는 번호 없는 요청 — 전표를 만들지 않는다 (Codex #563 검증 R8).
+  //   이 전표는 입고 줄 잠금·'입고 줄당 전표 하나' 키를 거치지 않아 같은 입고로 여러 장이 만들어졌고,
+  //   승인하면 재고 경로가 새 LOT 을 만들어 한 번 들어온 재고가 전표 수만큼 늘었다. 이름·번호 추정 연결도 하지 않는다.
+  throw new Error(
+    params.lotId || params.inventoryTransactionId
+      ? "이 입고는 입고 문서 이전 방식이라 매입전표를 자동으로 만들 수 없습니다 (승인 시 재고가 다시 생기는 것을 막기 위해 차단). 회계 처리는 별도 정정 절차로 진행하세요."
+      : "입고 번호(입고 줄·LOT·재고거래) 가 필요합니다.",
+  );
 }
 
 /**

@@ -2161,6 +2161,48 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       const off = (await svc.getReceivableLines(31, T))[0];
       expect([off.inventoryTracking, off.conversion, off.conversionError, off.remainingQty]).toEqual([false, null, null, 100]);
     });
+
+    it("R8 입고 문서 이전 방식 입고: 전표 자동 생성 거부(두 경로·일괄), 남은 구형 전표 확정 거부 — 재고 25kg 그대로, 입고 문서 입고는 1장", async () => {
+      await accts();
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, unit_price, status, receipt_date)
+               VALUES (88101, ?, 700, 'OLD-1', 25, 25, 25, 'kg', 2000, 'available', '2026-10-01')`, [T]);
+      await q(`INSERT INTO h_inventory_transactions (id, tenant_id, lot_id, material_id, transaction_type, quantity, unit, created_by) VALUES (88101, ?, 88101, 700, 'receipt', 25, 'kg', 4)`, [T]);
+      const hi = await import("./db/haccp/haccpIntegration");
+      const hai = await import("./db/haccp/haccpAccountingIntegration");
+      const base = { itemName: "멥쌀", quantity: "25", unit: "kg", unitPrice: "2000", createdBy: 4 };
+      const rs = await Promise.allSettled([
+        hi.createPurchaseFromReceipt({ ...base, inventoryTransactionId: 88101 }, T),
+        hi.createPurchaseFromReceipt({ ...base, inventoryTransactionId: 88101 }, T),
+        hi.createPurchaseFromReceipt({ ...base, lotId: 88101 }, T),
+      ]);
+      expect(rs.map((r) => r.status)).toEqual(["rejected", "rejected", "rejected"]);
+      expect(String((rs[0] as any).reason?.message)).toMatch(/입고 문서 이전 방식/);
+      await expect(hi.createPurchaseFromReceipt({ ...base }, T)).rejects.toThrow(/입고 번호/);
+      expect(await hai.createPurchaseFromReceipt(T, 88101, 4)).toMatchObject({ skipped: true, reason: "legacy_receipt" });
+      const batch = await hai.batchCreateAccountingTransactions(T);
+      expect(batch.purchases).toMatchObject({ created: 0, errors: 0 });
+      expect(await nPurch()).toBe(0);
+      // 이미 있던 구형 전표(이 경로가 예전에 만든 것) 는 확정하지 않는다
+      const [old]: any = await admin.query(
+        `INSERT INTO accounting_purchases (tenant_id, transaction_date, item_name, material_id, quantity, unit, unit_price, total_amount, tax_amount, tax_rate, status, source_type, source_id, created_by)
+         VALUES (?, '2026-10-01', '멥쌀', 700, 25, 'kg', 2000, 50000, 5000, 10, 'pending', 'inventory_receipt', 88101, 4)`, [T]);
+      const { dispatchPostPurchase } = await import("./lib/accounting/postDispatcher");
+      await expect(dispatchPostPurchase(Number(old.insertId), 4, T)).rejects.toThrow(/입고 문서 이전 방식/);
+      expect(Number((await q(`SELECT COALESCE(SUM(available_quantity), 0) + 0 AS a FROM h_inventory_lots WHERE material_id = 700`))[0].a)).toBe(25);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_lots`))[0].n)).toBe(1);
+      expect(await debit1410()).toBe(0);
+      // 입고 문서로 받은 입고는 두 경로 모두 그 입고 줄 전표 하나 (동시에 불러도)
+      const nw = await svc.receiveDirect({ tenantId: T, userId: 4, materialId: 700, quantity: 25, unit: "kg", unitPrice: 2000, receiptDate: "2026-10-17", createVoucherDraft: false });
+      const [tx] = await q(`SELECT receipt_tx_id FROM h_inbound_lines WHERE id = ?`, [nw.lineId]);
+      const both: any[] = await Promise.all([
+        hai.createPurchaseFromReceipt(T, Number(tx.receipt_tx_id), 4),
+        hi.createPurchaseFromReceipt({ ...base, inventoryTransactionId: Number(tx.receipt_tx_id) }, T),
+      ]);
+      expect(Number(both[0].purchaseId)).toBe(Number(both[1].id));
+      await dispatchPostPurchase(Number(both[1].id), 4, T);
+      expect(Number((await q(`SELECT COALESCE(SUM(available_quantity), 0) + 0 AS a FROM h_inventory_lots WHERE material_id = 700`))[0].a)).toBe(50);
+      expect(await debit1410()).toBe(50000);
+    });
   });
 
   describe("발주 수량 변경 — 요청 → 승인 → 추가 입고, 초과 입고는 그대로 차단 (2026-10-17, CEO 결정 3)", () => {
