@@ -1,12 +1,15 @@
 /**
  * 원료 LOT 정합 분류 (읽기 전용, 2026-10-17 — 단지 재고 복구 2단계)
  *
- * LOT 마다 장부 값(입고 수량 + 조정 − 사용 거래 합)을 계산해 지금 값과 비교하고 원인별로 나눈다.
+ * LOT 마다 거래로 다시 세운 장부(입고 + 반품 + 조정 − 사용·출고·폐기)를 지금 값과 비교하고 원인별로 나눈다 (scripts/_lib/lotLedger).
+ * 입고 거래가 없거나 이동 거래가 있는 LOT 은 장부 판단 불가로 따로 (LOT.quantity 는 관문이 바꾸므로 기준으로 쓰지 않는다).
  * 고칠 근거가 분명한 것만 '제안' 으로 표시하고, 실물 확인이 필요한 것은 '실사' 로 남긴다. 쓰기 없음.
  *
  *   USED_REMAINING_LEDGER   상태 'used' 인데 가용 잔량 = 장부 잔량 → 장부상 남아 있음. 상태만 'used' (실사로 결정)
  *   USED_REMAINING_OTHER    상태 'used' 인데 잔량, 장부와도 다름 → 실사
- *   AVAILABLE_LEDGER_DIFF   사용 가능 LOT 의 가용 ≠ 장부 → 관문 밖 수량 변경 흔적 (실사 또는 근거 추적)
+ *   AVAILABLE_LEDGER_DIFF   장부 판단 가능 LOT 의 가용 ≠ 장부 → 관문 밖 수량 변경 후보 (실사 또는 근거 추적)
+ *   LEDGER_CLAMP_ZERO       가용 0 · 장부 음수 — 음수 금지 차감이 0 에서 멈춘 것 (오류 아님)
+ *   LEDGER_NO_RECEIPT / LEDGER_AMBIGUOUS  입고 거래 없음 / 이동 거래 있음 → 장부 판단 불가 (실사 대상)
  *   CURRENT_DIFF            현재수량 ≠ 가용 (예약 없음) — 가용이 장부와 같으면 '현재수량을 가용으로' 제안
  *   NEGATIVE_PLACEHOLDER    NEG- 자리표시 LOT (입고 전 투입 — 음수 정책대로, 입고 때 정산 대상)
  *   NEGATIVE_REAL           일반 LOT 이 음수 → 장부와 비교해 보고
@@ -16,49 +19,25 @@
  */
 import { writeFileSync } from "node:fs";
 import { getRawConnection } from "../server/db/connection";
+import { loadLotLedger, classifyLot, EPS, r3 } from "./_lib/lotLedger";
 
 const arg = (name: string) => process.argv.find((a) => a.startsWith(`--${name}=`))?.split("=")[1] ?? null;
 const TENANT = Number(arg("tenant"));
 const MATERIALS = (arg("material") ?? "").split(",").map((x) => Number(x)).filter((x) => Number.isSafeInteger(x) && x > 0);
 const JSON_OUT = arg("json");
-const EPS = 0.0005;
-const r3 = (n: number) => Math.round(n * 1000) / 1000;
-const eq = (a: number, b: number) => Math.abs(a - b) <= EPS;
 
 async function main() {
   if (!Number.isSafeInteger(TENANT) || TENANT <= 0) throw new Error("--tenant=<id> 필수");
   const conn = await getRawConnection();
-  const q = async (sql: string, p: any[]) => ((await conn.query(sql, p)) as any)[0] as any[];
-  const lots = await q(
-    `SELECT l.id, l.material_id, m.material_name, l.lot_number, l.status, l.unit,
-            l.quantity + 0 AS q, l.current_quantity + 0 AS c, l.available_quantity + 0 AS a,
-            DATE_FORMAT(l.updated_at, '%Y-%m-%d %H:%i') AS upd_min,
-            COALESCE(t.used, 0) + 0 AS used, COALESCE(t.adj, 0) + 0 AS adj, COALESCE(t.n, 0) AS ntx
-       FROM h_inventory_lots l
-       LEFT JOIN h_materials m ON m.id = l.material_id AND m.tenant_id = l.tenant_id
-       LEFT JOIN (SELECT lot_id,
-                         SUM(CASE WHEN transaction_type IN ('usage', 'outbound', 'disposal', 'transfer') THEN quantity ELSE 0 END) AS used,
-                         SUM(CASE WHEN transaction_type IN ('adjustment', 'return') THEN quantity ELSE 0 END) AS adj,
-                         COUNT(*) AS n
-                    FROM h_inventory_transactions WHERE tenant_id = ? GROUP BY lot_id) t ON t.lot_id = l.id
-      WHERE l.tenant_id = ? AND l.material_id IS NOT NULL ${MATERIALS.length ? `AND l.material_id IN (${MATERIALS.map(() => "?").join(",")})` : ""}
-      ORDER BY l.material_id, l.id`,
-    [TENANT, TENANT, ...MATERIALS],
-  );
+  const lots = await loadLotLedger(conn, TENANT, MATERIALS);
   const findings: any[] = [];
   for (const l of lots) {
-    const q0 = Number(l.q), a = Number(l.a), c = l.c == null ? null : Number(l.c);
-    const ledger = r3(q0 + Number(l.adj) - Number(l.used));
-    const isNeg = /^NEG-/.test(String(l.lot_number ?? ""));
-    const cats: Array<{ cat: string; proposal?: string }> = [];
-    if (l.status === "used" && a > EPS) cats.push({ cat: eq(a, ledger) ? "USED_REMAINING_LEDGER" : "USED_REMAINING_OTHER" });
-    if (l.status === "available" && !isNeg && !eq(a, ledger)) cats.push({ cat: "AVAILABLE_LEDGER_DIFF" });
-    if (c != null && !eq(c, a)) cats.push({ cat: "CURRENT_DIFF", ...(eq(a, ledger) ? { proposal: `현재수량 ${c} → ${a} (가용·장부와 같게)` } : {}) });
-    if (a < -EPS) cats.push({ cat: isNeg ? "NEGATIVE_PLACEHOLDER" : "NEGATIVE_REAL" });
+    const cats = classifyLot(l);
     if (!cats.length) continue;
     findings.push({
-      lotId: Number(l.id), materialId: Number(l.material_id), material: l.material_name, lot: l.lot_number, status: l.status, unit: l.unit,
-      quantity: q0, current: c, available: a, ledger, usedTx: r3(Number(l.used)), adjTx: r3(Number(l.adj)), txCount: Number(l.ntx), updatedMinute: l.upd_min, categories: cats,
+      lotId: l.id, materialId: l.materialId, material: l.material, lot: l.lot, status: l.status, unit: l.unit,
+      quantity: l.quantity, current: l.current, available: l.available, ledger: l.ledger, ledgerState: l.ledgerState, receiptTx: l.receiptTx, increaseTx: l.increaseTx, decreaseTx: l.decreaseTx, adjTx: l.adjTx, txCount: l.txCount,
+      updatedMinute: l.updatedMinute, categories: cats,
     });
   }
   // 원료별 요약
@@ -86,7 +65,7 @@ async function main() {
   if (MATERIALS.length) {
     console.log("");
     for (const f of findings) {
-      console.log(`  LOT#${f.lotId} ${f.lot} [${f.status}] 입고 ${f.quantity} / 현재 ${f.current ?? "-"} / 가용 ${f.available} / 장부 ${f.ledger} (사용 ${f.usedTx}, 조정 ${f.adjTx}, 거래 ${f.txCount}) 변경 ${f.updatedMinute} → ${f.categories.map((c: any) => c.cat + (c.proposal ? `(제안: ${c.proposal})` : "")).join(", ")}`);
+      console.log(`  LOT#${f.lotId} ${f.lot} [${f.status}] 입고 ${f.quantity} / 현재 ${f.current ?? "-"} / 가용 ${f.available} / 장부 ${f.ledger ?? `판단 불가(${f.ledgerState})`} (입고 ${f.receiptTx}, 반품 ${f.increaseTx}, 조정 ${f.adjTx}, 사용 ${f.decreaseTx}, 거래 ${f.txCount}) 변경 ${f.updatedMinute} → ${f.categories.map((c: any) => c.cat + (c.proposal ? `(제안: ${c.proposal})` : "")).join(", ")}`);
     }
   }
   if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ tenant: TENANT, generatedAt: new Date().toISOString(), totals, materials: [...byMat.values()], lots: findings, clusters: big }, null, 2));

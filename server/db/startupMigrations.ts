@@ -863,6 +863,8 @@ async function ensureInboundDocumentSchema(conn: any) {
   // 명시 세액 보존 (Codex #567 N3) · 수불부에 넣은 날짜 (Q1 — 재검수 합격분은 처리일)
   await addCol("h_inbound_lines", "tax_amount", "`tax_amount` decimal(15,2) NULL");
   await addCol("h_inbound_lines", "ledger_date", "`ledger_date` date NULL");
+  // 재고 차감 제외 원료 (CEO 결정 — 정제수 등). 회사·원료별 설정, 기본 0 (켜기는 관리자 설정 화면)
+  await addCol("h_materials", "stock_exempt", "`stock_exempt` tinyint NOT NULL DEFAULT 0");
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS h_inbound_inspections (
       id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -964,6 +966,7 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_inbound_lines", column: "tax_rate", why: "입고 줄 전표 세율 (매입 입력)" },
   { table: "h_inbound_lines", column: "tax_amount", why: "입고 줄 명시 세액 (매입 입력)" },
   { table: "h_inbound_lines", column: "ledger_date", why: "입고 줄 수불부 반영일 (취소 역처리)" },
+  { table: "h_materials", column: "stock_exempt", why: "재고 차감 제외 원료 (자동출고·부족 판정)" },
   { table: "h_inbound_inspections", column: "seq", why: "검수 이력 (최초 불합격 보존)" },
 ];
 
