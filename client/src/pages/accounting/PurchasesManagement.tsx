@@ -51,6 +51,8 @@ type PurchaseItem = {
   itemName: string;
   packagingSize?: number;
   packagingUnit?: string;
+  unit?: string;            // 매입 단위 (포장 단위 — 예: 개, 포, 20kg포). 기준 단위로의 환산은 원료별 포장 환산 설정
+  inspection?: "pass" | "fail" | "";
   quantity: number;
   unitPrice: number;
   amount: number;
@@ -83,6 +85,8 @@ function PurchasesManagementContent() {
   //   handleSave 가 모든 행을 일괄 처리한 뒤 success/fail 카운팅 + purchaseId 수집.
   const [savedPurchaseIds, setSavedPurchaseIds] = useState<number[]>([]);
   const [isPrinting, setIsPrinting] = useState(false);
+  // 행별 요청 키 — 다시 저장(Ctrl+S 두 번·재시도)해도 같은 입고·전표 (새 매입 등록에서 초기화)
+  const [saveKeys, setSaveKeys] = useState<Record<string, string>>({});
 
   const [items, setItems] = useState<PurchaseItem[]>([
     {
@@ -165,6 +169,8 @@ function PurchasesManagementContent() {
       }
     },
     onError: (error: { message: string }) => {
+      // 포장 환산 설정 없음은 저장 확인 창으로 처리한다 (오류 토스트 대신)
+      if (error.message.startsWith("PACK_UNIT_MISSING:")) return;
       toast({ title: "오류", description: error.message, variant: "destructive" });
     },
   });
@@ -180,6 +186,7 @@ function PurchasesManagementContent() {
     setTransactionDate(todayLocal());
     setMemo("");
     setSavedPurchaseIds([]);
+    setSaveKeys({});
     setItems([
       {
         id: `${Date.now()}-1`,
@@ -384,61 +391,68 @@ function PurchasesManagementContent() {
 
     setIsSaving(true);
     setSavedPurchaseIds([]); // 재저장 대비 초기화
+    const keys: Record<string, string> = { ...saveKeys };
+    for (const it of items) keys[it.id] ??= `pm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+    setSaveKeys(keys);
 
-    let successCount = 0;
-    let failCount = 0;
-    const newPurchaseIds: number[] = [];
-
-    items.forEach((item) => {
-      createMutation.mutate(
-        {
+    // 원재료 매입은 입고 문서로 처리된다 (재고·검수·전표). 포장 환산 설정이 없으면 확인 후 저장하고 다시 보낸다 (CEO 결정 1).
+    void (async () => {
+      let successCount = 0;
+      let failCount = 0;
+      let pendingCount = 0;
+      let quarantinedCount = 0;
+      const newPurchaseIds: number[] = [];
+      for (const item of items) {
+        const payload = {
           transactionDate,
           partnerId: Number(selectedPartnerId),
           itemName: item.itemName,
-          // ★ 2026-04-13 수정: itemMasterId 를 올바른 필드로 전달
-          //   createPurchase 가 itemMasterId → legacyMaterialId 자동 매핑
+          // itemMasterId → createPurchase 가 원재료 id 로 변환
           itemMasterId: item.itemMasterId,
           quantity: item.quantity,
+          unit: item.unit?.trim() || undefined,
           packagingSize: item.packagingSize,
+          packagingUnit: item.packagingUnit,
           unitPrice: item.unitPrice,
           amount: item.amount,
           taxAmount: item.taxAmount,
           memo: memo || undefined,
-        },
-        {
-          onSuccess: (data: any) => {
-            successCount++;
-            // ★ 2026-05-16 (PR-R): drizzle/mysql2 insert 결과에서 purchase.id 수집
-            //   createPurchase 는 result (id | insertId) 를 반환.
-            const insertedId = Number(data?.insertId ?? data?.id ?? 0);
-            if (insertedId > 0) newPurchaseIds.push(insertedId);
-
-            if (successCount + failCount === items.length) {
-              setIsSaving(false);
-              utils.haccpIntegration.getAllPurchases.invalidate();
-              setSavedPurchaseIds(newPurchaseIds);
-              toast({
-                title: `매입 등록 완료`,
-                description: `성공: ${successCount}건${failCount > 0 ? `, 실패: ${failCount}건` : ""}`,
-              });
-              // ★ 폼은 유지 — 거래명세표 출력 후 "새 매입 등록" 으로 수동 초기화.
-            }
-          },
-          onError: () => {
-            failCount++;
-            if (successCount + failCount === items.length) {
-              setIsSaving(false);
-              setSavedPurchaseIds(newPurchaseIds);
-              toast({
-                title: `매입 등록 완료`,
-                description: `성공: ${successCount}건, 실패: ${failCount}건`,
-                variant: failCount > 0 ? "destructive" : "default",
-              });
-            }
-          },
+          inspectionResult: item.inspection ? item.inspection : undefined,
+          idempotencyKey: keys[item.id],
+        };
+        try {
+          let data: any;
+          try {
+            data = await createMutation.mutateAsync(payload);
+          } catch (e: any) {
+            const msg = String(e?.message ?? "");
+            if (!msg.startsWith("PACK_UNIT_MISSING:")) throw e;
+            if (!window.confirm(`${msg.replace("PACK_UNIT_MISSING: ", "")}\n\n이 환산을 저장하고 등록할까요?`)) throw e;
+            data = await createMutation.mutateAsync({ ...payload, savePackUnit: true });
+          }
+          if (data?.pendingApproval) pendingCount++;
+          else if (data?.quarantined) quarantinedCount++;
+          else successCount++;
+          const insertedId = Number(data?.insertId ?? data?.id ?? 0);
+          if (insertedId > 0) newPurchaseIds.push(insertedId);
+        } catch {
+          failCount++;
         }
-      );
-    });
+      }
+      setIsSaving(false);
+      utils.haccpIntegration.getAllPurchases.invalidate();
+      setSavedPurchaseIds(newPurchaseIds);
+      toast({
+        title: `매입 등록 완료`,
+        description: [
+          `성공: ${successCount}건`,
+          pendingCount ? `입고 승인 대기: ${pendingCount}건` : "",
+          quarantinedCount ? `검수 불합격 격리: ${quarantinedCount}건 (재고·전표 없음 — 발주서 > 검수 불합격 격리에서 처리)` : "",
+          failCount ? `실패: ${failCount}건` : "",
+        ].filter(Boolean).join(", "),
+        variant: failCount > 0 ? "destructive" : "default",
+      });
+    })();
   };
 
   useEffect(() => {
@@ -540,11 +554,13 @@ function PurchasesManagementContent() {
                 <TableHead className="min-w-[160px] py-1.5 text-xs font-semibold">품목명</TableHead>
                 <TableHead className="w-[140px] py-1.5 text-xs font-semibold text-center">포장규격</TableHead>
                 <TableHead className="w-[80px] py-1.5 text-xs font-semibold text-right">수량</TableHead>
+                <TableHead className="w-[70px] py-1.5 text-xs font-semibold">단위</TableHead>
                 <TableHead className="w-[100px] py-1.5 text-xs font-semibold text-right">단가</TableHead>
                 <TableHead className="w-[100px] py-1.5 text-xs font-semibold">과세</TableHead>
                 <TableHead className="w-[90px] py-1.5 text-xs font-semibold text-right">공급가액</TableHead>
                 <TableHead className="w-[80px] py-1.5 text-xs font-semibold text-right">부가세</TableHead>
                 <TableHead className="w-[100px] py-1.5 text-xs font-semibold text-right">합계</TableHead>
+                <TableHead className="w-[90px] py-1.5 text-xs font-semibold">검수</TableHead>
                 <TableHead className="w-[36px] py-1.5"></TableHead>
               </TableRow>
             </TableHeader>
@@ -610,6 +626,10 @@ function PurchasesManagementContent() {
                     <Input type="number" value={item.quantity || ""} onChange={(e) => handleItemChange(item.id, "quantity", Number(e.target.value))} placeholder="0" className="h-7 text-sm text-right border-0 shadow-none focus-visible:ring-0 px-1" />
                   </TableCell>
                   <TableCell className="py-1">
+                    {/* 매입 단위 — 포장 규격이 다르면 단위 이름을 다르게 (예: 10kg포 / 20kg포) */}
+                    <Input value={item.unit ?? ""} onChange={(e) => handleItemChange(item.id, "unit", e.target.value)} placeholder="개" className="h-7 text-xs border-0 shadow-none focus-visible:ring-0 px-1" />
+                  </TableCell>
+                  <TableCell className="py-1">
                     <Input type="number" value={item.unitPrice || ""} onChange={(e) => handleItemChange(item.id, "unitPrice", Number(e.target.value))} placeholder="0" className="h-7 text-sm text-right border-0 shadow-none focus-visible:ring-0 px-1" />
                   </TableCell>
                   <TableCell className="py-1">
@@ -627,6 +647,17 @@ function PurchasesManagementContent() {
                   <TableCell className="py-1 text-right text-xs">{item.amount.toLocaleString()}</TableCell>
                   <TableCell className="py-1 text-right text-xs">{item.taxAmount.toLocaleString()}</TableCell>
                   <TableCell className="py-1 text-right text-xs font-semibold">{item.totalAmount.toLocaleString()}</TableCell>
+                  <TableCell className="py-1">
+                    {/* 원재료 입고 검수 — 불합격은 재고에 넣지 않고 격리 (CEO 결정 4) */}
+                    <Select value={item.inspection || "none"} onValueChange={(v) => handleItemChange(item.id, "inspection", v === "none" ? "" : v)}>
+                      <SelectTrigger className="h-7 text-xs border-0 shadow-none focus:ring-0"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none" className="text-xs">미기록</SelectItem>
+                        <SelectItem value="pass" className="text-xs">합격</SelectItem>
+                        <SelectItem value="fail" className="text-xs">불합격(격리)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
                   <TableCell className="py-1 text-center">
                     <Button
                       variant="ghost"
@@ -641,10 +672,11 @@ function PurchasesManagementContent() {
                 </TableRow>
               ))}
               <TableRow className="bg-blue-50 dark:bg-blue-950/20 font-semibold hover:bg-blue-50 dark:hover:bg-blue-950/20">
-                <TableCell colSpan={7} className="text-right py-2 text-sm">합계</TableCell>
+                <TableCell colSpan={8} className="text-right py-2 text-sm">합계</TableCell>
                 <TableCell className="text-right py-2 text-sm">{totalAmount.toLocaleString()}</TableCell>
                 <TableCell className="text-right py-2 text-sm">{totalTaxAmount.toLocaleString()}</TableCell>
                 <TableCell className="text-right py-2 text-sm text-blue-600 dark:text-blue-400">{grandTotal.toLocaleString()}</TableCell>
+                <TableCell></TableCell>
                 <TableCell></TableCell>
               </TableRow>
             </TableBody>

@@ -858,6 +858,8 @@ async function ensureInboundDocumentSchema(conn: any) {
   await addCol("h_inbound_lines", "valuation_purchase_id", "`valuation_purchase_id` bigint NULL");
   // 검수 불합격 → 격리·반품·재검수 (2026-10-17, CEO 결정 4) — 줄의 처리 상태 + 검수 이력(추가만, 최초 불합격을 덮어쓰지 않음)
   await addCol("h_inbound_lines", "disposition", "`disposition` varchar(20) NULL");
+  // 줄 전표 세율 (매입 입력의 면세·영세 — 생략하면 발주 줄 기준/10%)
+  await addCol("h_inbound_lines", "tax_rate", "`tax_rate` decimal(5,2) NULL");
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS h_inbound_inspections (
       id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
@@ -956,6 +958,7 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_inbound_lines", column: "valuation_amount", why: "무단가 입고 최초 평가액" },
   { table: "h_inbound_lines", column: "valuation_purchase_id", why: "무단가 입고 평가 전표" },
   { table: "h_inbound_lines", column: "disposition", why: "검수 불합격 격리·반품·재검수 상태" },
+  { table: "h_inbound_lines", column: "tax_rate", why: "입고 줄 전표 세율 (매입 입력)" },
   { table: "h_inbound_inspections", column: "seq", why: "검수 이력 (최초 불합격 보존)" },
 ];
 

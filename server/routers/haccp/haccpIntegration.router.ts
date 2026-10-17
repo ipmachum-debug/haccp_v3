@@ -140,7 +140,12 @@ export const haccpIntegrationRouter = router({
           accountCategoryId: z.number().optional(),
           expiryDate: z.string().optional(), // 소비기한
           productionDate: z.string().optional(), // 생산일자
-          unit: z.string().optional(), // 단위
+          unit: z.string().max(20).optional(), // 매입 단위 (포장 단위)
+          packagingUnit: z.string().max(20).optional(), // 포장규격의 단위 — 원재료 기준 단위여야 한다
+          // 원재료 매입은 입고 문서로 (2026-10-17): 요청 키·포장 환산 저장 확인·입고 검수
+          idempotencyKey: z.string().min(8).max(64).optional(),
+          savePackUnit: z.boolean().optional(),
+          inspectionResult: z.enum(["pass", "fail"]).optional(),
         })
       )
       .mutation(async ({ input, ctx }) => {

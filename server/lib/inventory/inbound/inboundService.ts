@@ -39,6 +39,10 @@ export interface InboundLineInput {
   stockQuantity?: number | null;
   stockUnit?: string | null;
   unitPrice: number;
+  /** 줄 공급가 — 생략하면 수량 × 단가 (매입 입력의 금액이 따로 있을 때) */
+  totalPrice?: number | null;
+  /** 전표 세율(%) — 생략하면 발주 줄 기준, 없으면 10 */
+  taxRate?: number | null;
   lotNumber?: string | null;
   expiryDate?: string | null;
   productionDate?: string | null;
@@ -183,13 +187,14 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
           `INSERT INTO h_inbound_lines
              (tenant_id, header_id, line_number, material_id, po_line_id, purchase_quantity, purchase_unit, stock_quantity, stock_unit,
               unit_price, total_price, lot_number, expiry_date, production_date, location, inspection_result, inspection_json, notes,
-              pack_conversion_id, pack_factor)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              pack_conversion_id, pack_factor, tax_rate)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [tenantId, headerId, i + 1, l.canonicalMaterialId, l.poLineId ?? null, l.purchaseQuantity, l.purchaseUnit, l.stockQuantity, l.stockUnit,
-           l.unitPrice, Math.round(l.purchaseQuantity * l.unitPrice * 100) / 100, l.lotNumber ?? null, l.expiryDate ?? null,
+           l.unitPrice, l.totalPrice != null ? Math.round(Number(l.totalPrice) * 100) / 100 : Math.round(l.purchaseQuantity * l.unitPrice * 100) / 100,
+           l.lotNumber ?? null, l.expiryDate ?? null,
            l.productionDate ?? null, l.location ?? null, l.inspectionResult ?? null,
            l.inspectionJson ? JSON.stringify(l.inspectionJson) : null, l.notes ?? null,
-           l.packConversionId, l.packFactor],
+           l.packConversionId, l.packFactor, l.taxRate ?? null],
         );
       }
       return { headerId, created: true };
@@ -528,8 +533,8 @@ async function stockInLine(conn: any, p: {
 
 /** 입고 줄의 매입전표 초안 — 세율은 발주 줄 기준 (없으면 10%) */
 async function createLineVoucher(conn: any, p: { tenantId: number; line: any; userId: number; partnerId: number | null; duringConfirm: boolean }): Promise<number> {
-  let taxRate = 10;
-  if (p.line.po_line_id) {
+  let taxRate = p.line.tax_rate != null ? Number(p.line.tax_rate) : 10;
+  if (p.line.tax_rate == null && p.line.po_line_id) {
     const [tr]: any = await conn.execute(`SELECT amount, tax_amount FROM purchase_order_lines WHERE id = ? AND tenant_id = ?`, [p.line.po_line_id, p.tenantId]);
     const amt = Number((tr as any[])[0]?.amount ?? 0);
     if (amt > 0) taxRate = Math.round((Number((tr as any[])[0]?.tax_amount ?? 0) / amt) * 10000) / 100;

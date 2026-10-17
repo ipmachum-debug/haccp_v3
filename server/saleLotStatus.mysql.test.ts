@@ -628,103 +628,115 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     });
   });
 
-  describe("매입 등록·확정 — 수불부 한 번, 입고전표는 실제 LOT (2026-10-16, Codex DB 감사: 원료 605·635 이중 가산, 매입 422~427)", () => {
-    let createPurchase: any;
-    beforeAll(async () => {
-      ({ createPurchase } = await import("./db/haccp/haccpIntegration"));
-    });
-    beforeEach(async () => {
-      for (const t of ["accounting_purchases", "h_inbound_headers", "h_inbound_lines", "partners", "h_materials", "material_ledger_daily"]) await q(`DELETE FROM ${t}`);
-      await q(`INSERT INTO accounting_accounts (id, tenant_id, category, code, system_code, name, is_active) VALUES
-        (70, ?, 'liabilities', '2010', 'ACCOUNTS_PAYABLE', '외상매입금', 'Y'), (71, ?, 'assets', '1350', 'VAT_INPUT', '부가세대급금', 'Y')`, [T, T]);
-      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (635, ?, 'M635', '우유(국내산)', 'kg', 1)`, [T]);
-    });
-
-    it("우유 6개 × 0.9kg: LOT 5.4kg, 수불부 입고 5.4 (이전 11.4 = 5.4kg + 6개), 입고전표 LOT 번호·재고 수량 = 실제 LOT", async () => {
-      const res = await createPurchase({
-        transactionDate: "2026-10-12", partnerId: 0, itemName: "우유(국내산)", materialId: 635,
-        quantity: 6, packagingSize: 0.9, unit: "개", unitPrice: 3000, amount: 18000, taxAmount: 0, taxRate: 0, createdBy: 4,
-      }, T);
-      expect(res.posted).toBe(true);
-      const lots = await q(`SELECT id, lot_number, quantity + 0 AS q, unit FROM h_inventory_lots WHERE material_id = 635`);
-      expect(lots).toHaveLength(1);
-      expect([Number(lots[0].q), lots[0].unit]).toEqual([5.4, "kg"]);
-      const led = await q(`SELECT receiving_qty + 0 AS r FROM material_ledger_daily WHERE material_id = 635 AND ledger_date = '2026-10-12'`);
-      expect(led.map((r: any) => Number(r.r))).toEqual([5.4]);
-      const line = (await q(`SELECT lot_number, purchase_quantity + 0 AS pq, purchase_unit, stock_quantity + 0 AS sq, stock_unit FROM h_inbound_lines`))[0];
-      expect([line.lot_number, Number(line.pq), line.purchase_unit, Number(line.sq), line.stock_unit]).toEqual([lots[0].lot_number, 6, "개", 5.4, "kg"]);
-      // 재고 이동도 한 벌 (등록 receipt 만, 확정은 LOT 재사용)
-      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE lot_id = ?`, [lots[0].id]))[0].n)).toBe(1);
-    });
-  });
-
-  describe("매입 취소 — 등록·확정이 남긴 것을 LOT 단위로 되돌림 (2026-10-16, Codex DB 감사: 취소 대칭)", () => {
+  describe("매입 입력 → 입고 문서 경유 (2026-10-17) — 포장 환산 설정, 수불부·LOT 한 번, 전표 확정 = 분개만", () => {
     let createPurchase: any;
     let cancelPurchase: any;
+    let svc: any;
     beforeAll(async () => {
       ({ createPurchase } = await import("./db/haccp/haccpIntegration"));
       ({ cancelPurchase } = await import("./lib/accounting/purchaseCancel"));
+      svc = await import("./lib/inventory/inbound/inboundService");
     });
     beforeEach(async () => {
-      for (const t of ["accounting_purchases", "h_inbound_headers", "h_inbound_lines", "partners", "h_materials", "material_ledger_daily"]) await q(`DELETE FROM ${t}`);
+      for (const t of ["accounting_purchases", "h_inbound_headers", "h_inbound_lines", "h_inbound_inspections", "partners", "h_materials", "material_ledger_daily", "material_pack_units", "tenant_feature_settings"]) await q(`DELETE FROM ${t}`);
       await q(`INSERT INTO accounting_accounts (id, tenant_id, category, code, system_code, name, is_active) VALUES
         (70, ?, 'liabilities', '2010', 'ACCOUNTS_PAYABLE', '외상매입금', 'Y'), (71, ?, 'assets', '1350', 'VAT_INPUT', '부가세대급금', 'Y')`, [T, T]);
       await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (635, ?, 'M635', '우유(국내산)', 'kg', 1)`, [T]);
+      await q(`INSERT INTO partners (id, tenant_id, company_name) VALUES (21, ?, '서울우유')`, [T]).catch(async () => q(`INSERT INTO partners (id, tenant_id, company_name, partner_type) VALUES (21, ?, '서울우유', 'supplier')`, [T]));
     });
-    const milk = () => createPurchase({
-      transactionDate: "2026-10-12", partnerId: 0, itemName: "우유(국내산)", materialId: 635,
-      quantity: 6, packagingSize: 0.9, unit: "개", unitPrice: 3000, amount: 18000, taxAmount: 1800, taxRate: 10, createdBy: 4,
+    const milk = (extra: any = {}) => createPurchase({
+      transactionDate: "2026-10-12", partnerId: 21, itemName: "우유(국내산)", materialId: 635,
+      quantity: 6, packagingSize: 0.9, packagingUnit: "kg", unit: "개", unitPrice: 3000, amount: 18000, taxAmount: 1800, createdBy: 4, ...extra,
     }, T);
-    const purchaseId = async () => Number((await q(`SELECT id FROM accounting_purchases ORDER BY id DESC LIMIT 1`))[0].id);
     const lotOf = async () => {
-      const r = (await q(`SELECT available_quantity AS a, status FROM h_inventory_lots WHERE material_id = 635`))[0];
-      return { a: Number(r.a), status: r.status };
+      const r = (await q(`SELECT id, lot_number, quantity AS q, available_quantity AS a, unit, status FROM h_inventory_lots WHERE material_id = 635`));
+      return r.map((x: any) => ({ id: Number(x.id), lot: x.lot_number, q: Number(x.q), a: Number(x.a), unit: x.unit, status: x.status }));
     };
+    const ledger = async () => Number((await q(`SELECT COALESCE(SUM(receiving_qty), 0) + 0 AS r FROM material_ledger_daily WHERE material_id = 635`))[0].r);
     const net = async (pid: number) => {
       const r = await q(`SELECT e.description, SUM(l.debit_amount) d, SUM(l.credit_amount) c FROM expense_journal_entries e JOIN expense_journal_lines l ON l.journal_entry_id = e.id
         WHERE e.description LIKE ? OR e.description LIKE ? GROUP BY e.id`, [`[매입] PURCHASE-${pid} %`, `[매입취소] PURCHASE-${pid} %`]);
       return r.map((x: any) => [String(x.description).split(" ")[0], Number(x.d), Number(x.c)]);
     };
 
-    it("승인 매입 취소: LOT 5.4kg 전부(개수 6 아님) 되돌림, 수불부 0, 입고전표 취소, 원 전표 그대로 역분개, 두 번째 취소는 무변경", async () => {
-      expect((await milk()).posted).toBe(true);
-      const pid = await purchaseId();
-      expect((await q(`SELECT status FROM accounting_purchases WHERE id = ?`, [pid]))[0].status).toBe("approved");
-      await cancelPurchase(pid, 4, T);
-      expect(await lotOf()).toMatchObject({ a: 0, status: "disposed" });
-      const tx = await q(`SELECT quantity + 0 AS qty, unit FROM h_inventory_transactions WHERE source_type = 'PURCHASE_CANCEL' AND source_id = ?`, [pid]);
-      expect(tx.map((t: any) => [Number(t.qty), t.unit])).toEqual([[5.4, "kg"]]);
-      expect(Number((await q(`SELECT receiving_qty + 0 AS r FROM material_ledger_daily WHERE material_id = 635`))[0].r)).toBe(0);
-      expect((await q(`SELECT status FROM h_inbound_headers WHERE inbound_number = ?`, [`INB-PURCHASE-${pid}`]))[0].status).toBe("cancelled");
-      expect(await net(pid)).toEqual([["[매입]", 19800, 19800], ["[매입취소]", 19800, 19800]]);
-      expect(await cancelPurchase(pid, 4, T)).toEqual({ alreadyProcessed: true });
-      expect((await net(pid)).length).toBe(2);
+    it("우유 6개 × 0.9kg: 환산 설정 없으면 확인 요청(쓰기 없음) → 저장 확인 → LOT 5.4kg·수불부 5.4·입고 줄(6개→5.4kg)·전표 확정 분개 1벌, 다음부터 설정 사용", async () => {
+      await expect(milk()).rejects.toThrow(/^PACK_UNIT_MISSING: 우유\(국내산\) — '개' → kg/);
+      expect([(await lotOf()).length, Number((await q(`SELECT COUNT(*) AS n FROM h_inbound_headers`))[0].n), Number((await q(`SELECT COUNT(*) AS n FROM accounting_purchases`))[0].n)]).toEqual([0, 0, 0]);
+      const res = await milk({ savePackUnit: true, idempotencyKey: "pm-milk-0001" });
+      expect([res.posted, res.status]).toEqual([true, "confirmed"]);
+      const [lot] = await lotOf();
+      expect([lot.q, lot.unit, lot.status]).toEqual([5.4, "kg", "available"]);
+      expect(await ledger()).toBe(5.4);
+      const line = (await q(`SELECT id, lot_id, lot_number, purchase_quantity + 0 AS pq, purchase_unit, stock_quantity + 0 AS sq, stock_unit, pack_factor + 0 AS f FROM h_inbound_lines`))[0];
+      expect([Number(line.lot_id), line.lot_number, Number(line.pq), line.purchase_unit, Number(line.sq), line.stock_unit, Number(line.f)]).toEqual([lot.id, lot.lot, 6, "개", 5.4, "kg", 0.9]);
+      const v = (await q(`SELECT id, status, inbound_line_id, partner_id, total_amount + 0 AS a, tax_amount + 0 AS t, DATE_FORMAT(transaction_date, '%Y-%m-%d') AS d FROM accounting_purchases`));
+      expect(v.map((x: any) => [x.status, Number(x.inbound_line_id), Number(x.partner_id), Number(x.a), Number(x.t), x.d])).toEqual([["approved", Number(line.id), 21, 18000, 1800, "2026-10-12"]]);
+      expect(res.id).toBe(Number(v[0].id));
+      expect(await net(res.id)).toEqual([["[매입]", 19800, 19800]]);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE lot_id = ?`, [lot.id]))[0].n)).toBe(1);
+      // 같은 요청 키로 다시 → 같은 입고·전표 (재고·분개 그대로)
+      expect((await milk({ idempotencyKey: "pm-milk-0001" })).id).toBe(res.id);
+      expect([(await lotOf()).length, await ledger(), (await net(res.id)).length]).toEqual([1, 5.4, 1]);
+      // 다음 입력은 저장된 설정으로, 다른 포장규격은 거부 (다른 규격이면 단위 이름을 달리)
+      await milk({ idempotencyKey: "pm-milk-0002" });
+      expect(await ledger()).toBe(10.8);
+      await expect(milk({ packagingSize: 1, idempotencyKey: "pm-milk-0003" })).rejects.toThrow(/환산 결과 5\.4kg/);
+      await expect(milk({ packagingUnit: "g", idempotencyKey: "pm-milk-0004" })).rejects.toThrow(/포장규격 단위\(g\)/);
     });
 
-    it("확정 실패로 대기인 수기 매입: 등록 때 만든 LOT 은 되돌리고, 없던 분개·수불부는 건드리지 않음", async () => {
-      await q(`RENAME TABLE domain_events TO domain_events_off`); // 확정(postPurchase) 실패 재현
+    it("검수 불합격 입력은 격리(재고·전표 없음), 회계 전용 회사는 LOT 없이 전표만, 승인 필요 회사는 대기", async () => {
+      const f = await milk({ savePackUnit: true, inspectionResult: "fail", idempotencyKey: "pm-milk-fail" });
+      expect([f.status, f.quarantined, f.posted]).toEqual(["quarantined", true, false]);
+      expect([(await lotOf()).length, await ledger(), Number((await q(`SELECT COUNT(*) AS n FROM accounting_purchases`))[0].n)]).toEqual([0, 0, 0]);
+      expect((await svc.listQuarantinedLines(T)).length).toBe(1);
+      await q(`INSERT INTO tenant_feature_settings (tenant_id, feature_code, enabled) VALUES (?, 'INVENTORY_TRACKING', 0)`, [T]);
+      const acct = await milk({ idempotencyKey: "pm-milk-acct" });
+      expect([acct.status, acct.posted, acct.lotId]).toEqual(["confirmed", true, null]);
+      expect((await lotOf()).length).toBe(0);
+      expect(await net(acct.id)).toEqual([["[매입]", 19800, 19800]]);
+      await q(`UPDATE tenant_feature_settings SET enabled = 1 WHERE feature_code = 'INVENTORY_TRACKING'`);
+      await q(`INSERT INTO tenant_feature_settings (tenant_id, feature_code, enabled) VALUES (?, 'INBOUND_APPROVAL', 1)`, [T]);
+      const pend = await milk({ idempotencyKey: "pm-milk-pend" });
+      expect([pend.status, pend.pendingApproval, (await lotOf()).length]).toEqual(["pending_approval", true, 0]);
+      await svc.approveInbound(pend.inboundHeaderId, T, 4);
+      expect((await lotOf()).length).toBe(1);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM accounting_purchases WHERE status = 'pending'`))[0].n)).toBe(1); // 승인 뒤 전표 초안(대기)
+    });
+
+    it("취소: 전표 취소는 분개만(재고 그대로) → 입고 줄 취소가 재고·수불부를 한 번 되돌림, 일부 사용 LOT 은 입고 취소 거부, 지급 완료 전표 취소 거부", async () => {
+      const r = await milk({ savePackUnit: true, idempotencyKey: "pm-milk-c1" });
+      await cancelPurchase(r.id, 4, T);
+      expect(await net(r.id)).toEqual([["[매입]", 19800, 19800], ["[매입취소]", 19800, 19800]]);
+      expect([(await lotOf())[0].a, await ledger()]).toEqual([5.4, 5.4]);
+      expect(await cancelPurchase(r.id, 4, T)).toEqual({ alreadyProcessed: true });
+      const lineId = Number((await q(`SELECT id FROM h_inbound_lines`))[0].id);
+      await svc.cancelInboundLine(lineId, T, 4);
+      expect([(await lotOf())[0].a, await ledger()]).toEqual([0, 0]);
+      // 일부 사용 / 지급 완료
+      const r2 = await milk({ idempotencyKey: "pm-milk-c2" });
+      const lot2 = (await lotOf()).find((x) => x.a > 0)!;
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, created_by) VALUES (?, ?, 635, 'usage', 1, 'kg', 4)`, [T, lot2.id]);
+      await q(`UPDATE h_inventory_lots SET available_quantity = 4.4 WHERE id = ?`, [lot2.id]);
+      await cancelPurchase(r2.id, 4, T);
+      const line2 = Number((await q(`SELECT id FROM h_inbound_lines WHERE lot_id = ?`, [lot2.id]))[0].id);
+      await expect(svc.cancelInboundLine(line2, T, 4)).rejects.toThrow(/이미 일부 사용/);
+      const r3 = await milk({ idempotencyKey: "pm-milk-c3" });
+      await q(`UPDATE accounting_purchases SET status = 'paid' WHERE id = ?`, [r3.id]);
+      await expect(cancelPurchase(r3.id, 4, T)).rejects.toThrow(/지급을 먼저 취소/);
+    });
+
+    it("입고 확정이 실패하면 재고·전표 모두 없음(부분 성공 없음), 같은 요청 키로 다시 보내면 한 번만 반영", async () => {
+      await milk({ savePackUnit: true, idempotencyKey: "pm-milk-warm" });
+      await q(`DELETE FROM accounting_purchases`); await q(`DELETE FROM h_inventory_lots`); await q(`DELETE FROM material_ledger_daily`);
+      await q(`RENAME TABLE domain_events TO domain_events_off`); // 입고 확정 이벤트 실패 재현
       try {
-        expect((await milk()).posted).toBe(false);
+        await expect(milk({ idempotencyKey: "pm-milk-retry" })).rejects.toThrow();
       } finally {
         await q(`RENAME TABLE domain_events_off TO domain_events`);
       }
-      const pid = await purchaseId();
-      expect((await q(`SELECT status FROM accounting_purchases WHERE id = ?`, [pid]))[0].status).toBe("pending");
-      await cancelPurchase(pid, 4, T);
-      expect(Number((await lotOf()).a)).toBe(0);
-      expect(await net(pid)).toEqual([]);
-      expect(Number((await q(`SELECT COUNT(*) AS n FROM material_ledger_daily`))[0].n)).toBe(0);
-      expect((await q(`SELECT status FROM accounting_purchases WHERE id = ?`, [pid]))[0].status).toBe("cancelled");
-    });
-
-    it("일부 소비된 LOT 은 취소 거부(무변경), 지급 완료는 거부", async () => {
-      await milk();
-      const pid = await purchaseId();
-      await q(`UPDATE h_inventory_lots SET available_quantity = 2 WHERE material_id = 635`);
-      await expect(cancelPurchase(pid, 4, T)).rejects.toThrow(/일부 소비/);
-      expect((await q(`SELECT status FROM accounting_purchases WHERE id = ?`, [pid]))[0].status).toBe("approved");
-      await q(`UPDATE accounting_purchases SET status = 'paid' WHERE id = ?`, [pid]);
-      await expect(cancelPurchase(pid, 4, T)).rejects.toThrow(/지급을 먼저 취소/);
+      expect([(await lotOf()).length, await ledger(), Number((await q(`SELECT COUNT(*) AS n FROM accounting_purchases`))[0].n)]).toEqual([0, 0, 0]);
+      const ok = await milk({ idempotencyKey: "pm-milk-retry" });
+      expect([ok.posted, (await lotOf()).length, await ledger()]).toEqual([true, 1, 5.4]);
     });
   });
 
