@@ -271,7 +271,10 @@ export async function deleteTrainingSchedule(id: number, tenantId: number) {
 // ✅ P0 FIX: tenantId 추가 (참가자 등록 시 스케줄 소속 검증)
 export async function registerTrainingParticipant(data: {
   scheduleId: number;
-  userId: number;
+  /** 구성원 (교육 대상 명단) — 있으면 이 기준 */
+  employeeId?: number;
+  /** 구성원 없이 계정만 (본인 등록 등 이전 방식) */
+  userId?: number;
 }, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
@@ -281,13 +284,33 @@ export async function registerTrainingParticipant(data: {
   if (!schedule) {
     throw new Error("교육 일정을 찾을 수 없습니다. (테넌트 소속 아님)");
   }
-  // 같은 회사 사용자인지 · 중복 · 정원 (2026-10-18, Codex 교육 점검 — 이전: tenant_id 없이 INSERT 해 늘 실패)
   const conn = await getRawConnection();
-  const [us]: any = await conn.execute(`SELECT id FROM users WHERE id = ? AND tenant_id = ? LIMIT 1`, [data.userId, tenantId]);
-  if (!(us as any[]).length) throw new Error("이 회사 사용자가 아닙니다.");
+  // 참가자 = 구성원 명단 (EDU-06). 로그인 계정이 연결된 구성원이면 계정도 함께 남긴다.
+  let employeeId: number | null = null;
+  let userId: number | null = null;
+  if (data.employeeId) {
+    const [es]: any = await conn.execute(
+      `SELECT id, user_id FROM h_employees WHERE id = ? AND tenant_id = ? AND is_active = 1 LIMIT 1`,
+      [data.employeeId, tenantId],
+    );
+    const e = (es as any[])[0];
+    if (!e) throw new Error("이 회사 구성원이 아니거나 비활성 구성원입니다.");
+    employeeId = Number(e.id);
+    userId = e.user_id != null ? Number(e.user_id) : null;
+  } else if (data.userId) {
+    const [us]: any = await conn.execute(`SELECT id FROM users WHERE id = ? AND tenant_id = ? LIMIT 1`, [data.userId, tenantId]);
+    if (!(us as any[]).length) throw new Error("이 회사 사용자가 아닙니다.");
+    userId = data.userId;
+    const [es]: any = await conn.execute(`SELECT id FROM h_employees WHERE user_id = ? AND tenant_id = ? LIMIT 1`, [userId, tenantId]);
+    if ((es as any[])[0]) employeeId = Number((es as any[])[0].id);
+  } else {
+    throw new Error("참가자(구성원)를 선택하세요.");
+  }
+  // 중복 — 같은 구성원 또는 같은 계정
   const [dup]: any = await conn.execute(
-    `SELECT id FROM h_training_participants WHERE schedule_id = ? AND user_id = ? AND tenant_id = ? LIMIT 1`,
-    [data.scheduleId, data.userId, tenantId],
+    `SELECT id FROM h_training_participants
+      WHERE schedule_id = ? AND tenant_id = ? AND ((? IS NOT NULL AND employee_id = ?) OR (? IS NOT NULL AND user_id = ?)) LIMIT 1`,
+    [data.scheduleId, tenantId, employeeId, employeeId, userId, userId],
   );
   if ((dup as any[]).length) throw new Error("이미 이 교육 일정에 등록된 참가자입니다.");
   const [[cnt]]: any = await conn.execute(
@@ -298,7 +321,7 @@ export async function registerTrainingParticipant(data: {
     throw new Error(`정원(${schedule.maxParticipants}명)이 찼습니다.`);
   }
 
-  const [result] = await db.insert(hTrainingParticipants).values({ ...data, tenantId } as any);
+  const [result] = await db.insert(hTrainingParticipants).values({ scheduleId: data.scheduleId, employeeId, userId, tenantId } as any);
 
   // 등록 인원 = 실제 참가자 수
   await updateTrainingSchedule(data.scheduleId, { registeredCount: Number(cnt.n) + 1 }, tenantId);
@@ -589,7 +612,8 @@ export async function getAllTrainingSchedules(tenantId: number) {
 export async function getTrainingParticipantsDetailed(tenantId: number, scheduleId?: number) {
   const conn = await getRawConnection();
   const [rows]: any = await conn.execute(
-    `SELECT tp.id, tp.schedule_id AS scheduleId, tp.user_id AS userId, u.name AS userName,
+    `SELECT tp.id, tp.schedule_id AS scheduleId, tp.user_id AS userId, tp.employee_id AS employeeId,
+            COALESCE(e.name, u.name) AS userName, e.employee_code AS employeeCode,
             tp.attendance_status AS attendanceStatus, tp.assessment_score AS assessmentScore, tp.passed,
             tp.certificate_issued AS certificateIssued, tp.certificate_number AS certificateNumber,
             DATE_FORMAT(tp.expiry_date, '%Y-%m-%d') AS expiryDate,
@@ -599,23 +623,25 @@ export async function getTrainingParticipantsDetailed(tenantId: number, schedule
        JOIN h_training_schedules s ON s.id = tp.schedule_id AND s.tenant_id = tp.tenant_id
        LEFT JOIN h_training_courses c ON c.id = s.course_id AND c.tenant_id = s.tenant_id
        LEFT JOIN users u ON u.id = tp.user_id AND u.tenant_id = tp.tenant_id
+       LEFT JOIN h_employees e ON e.id = tp.employee_id AND e.tenant_id = tp.tenant_id
       WHERE tp.tenant_id = ?${scheduleId ? " AND tp.schedule_id = ?" : ""}
       ORDER BY s.scheduled_date DESC, tp.id`,
     scheduleId ? [tenantId, scheduleId] : [tenantId],
   );
   return rows as Array<{
-    id: number; scheduleId: number; userId: number; userName: string | null; attendanceStatus: string | null;
+    id: number; scheduleId: number; userId: number | null; employeeId: number | null; employeeCode: string | null; userName: string | null; attendanceStatus: string | null;
     assessmentScore: string | null; passed: number | null; certificateIssued: number | null; certificateNumber: string | null;
     expiryDate: string | null; scheduledDate: string | null; courseId: number; courseName: string | null; passingScore: string | null;
   }>;
 }
 
-/** 참가자로 고를 수 있는 이 회사 사용자 (승인·활성) */
-export async function getTrainingUserOptions(tenantId: number) {
+/** 참가자로 고를 수 있는 이 회사 구성원 (구성원 관리 명단, 활성) — 로그인 계정이 없어도 된다 (EDU-06) */
+export async function getTrainingMemberOptions(tenantId: number) {
   const conn = await getRawConnection();
   const [rows]: any = await conn.execute(
-    `SELECT id, name FROM users WHERE tenant_id = ? AND is_active = 1 AND approval_status = 'approved' ORDER BY name`,
+    `SELECT e.id, e.name, e.employee_code AS employeeCode, e.user_id AS userId
+       FROM h_employees e WHERE e.tenant_id = ? AND e.is_active = 1 ORDER BY e.name, e.id`,
     [tenantId],
   );
-  return rows as Array<{ id: number; name: string }>;
+  return rows as Array<{ id: number; name: string; employeeCode: string | null; userId: number | null }>;
 }

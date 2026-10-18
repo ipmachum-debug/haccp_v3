@@ -935,6 +935,23 @@ async function ensureInboundDocumentSchema(conn: any) {
   await addCol("h_ccp_form_records", "confirmed_rows_version", "`confirmed_rows_version` int NULL");
   // 금속검출 통과량 단위 — 통과량 = 생산량(SKU 판매단위 또는 kg), 인쇄에 단위 표기 (2026-10-18)
   await addCol("h_ccp_form_rows", "pass_unit", "`pass_unit` varchar(20) NULL");
+  // 교육 참가자 = 구성원(h_employees) 명단 (Codex #592 EDU-06, 2026-10-18) — 로그인 계정 없는 직원도 참석 기록
+  await addCol("h_training_participants", "employee_id", "`employee_id` bigint NULL");
+  try {
+    const [c]: any = await conn.query(
+      `SELECT IS_NULLABLE AS n FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'h_training_participants' AND COLUMN_NAME = 'user_id'`,
+    );
+    if ((c as any[])[0]?.n === "NO") {
+      await conn.query("ALTER TABLE `h_training_participants` MODIFY COLUMN `user_id` bigint NULL");
+      console.log("[Migration] h_training_participants.user_id → NULL 허용 (구성원만 있는 참가자)");
+    }
+  } catch (err: any) {
+    if (err.code !== "ER_NO_SUCH_TABLE") console.warn("[Migration] h_training_participants.user_id nullable failed:", err.message);
+  }
+  // 가열공정 계획 스냅샷 (PR-B, 2026-10-18) — 배치 생성 때 계산한 예정 시작/끝·예정 투입량. 미리보기와 같은 계산(planDay)
+  await addCol("h_ccp_rows", "planned_start", "`planned_start` varchar(5) NULL");
+  await addCol("h_ccp_rows", "planned_end", "`planned_end` varchar(5) NULL");
+  await addCol("h_ccp_rows", "planned_input_kg", "`planned_input_kg` decimal(10,2) NULL");
   // 원재료·제품 코드는 회사별 유일 (지티컴퍼니 QA F01, 2026-10-18) — 전역 UNIQUE 때문에 다른 회사가 쓴 코드(RM-001 등)를
   //   새 회사가 못 써서 등록이 DB 오류로 실패했다. 회사별 키를 먼저 만들고, 만들어진 것을 확인한 뒤에만 전역 키를 지운다.
   for (const [table, col, name, legacy] of [

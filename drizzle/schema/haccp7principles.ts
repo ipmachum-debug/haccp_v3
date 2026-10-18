@@ -277,7 +277,10 @@ export const hTrainingParticipants = mysqlTable("h_training_participants", {
   id: bigint("id", { mode: "number" }).primaryKey().autoincrement(),
   tenantId: int('tenant_id').notNull().references(() => tenants.id),
   scheduleId: bigint("schedule_id", { mode: "number" }).notNull(),
-  userId: bigint("user_id", { mode: "number" }).notNull(),
+  // 로그인 계정 (구성원에 연결된 경우만) — 참가자 기준은 employeeId (2026-10-18 EDU-06)
+  userId: bigint("user_id", { mode: "number" }),
+  /** 구성원(h_employees) — 교육 대상 명단 */
+  employeeId: bigint("employee_id", { mode: "number" }),
   
   registrationDate: timestamp("registration_date").defaultNow().notNull(),
   attendanceStatus: mysqlEnum("attendance_status", [

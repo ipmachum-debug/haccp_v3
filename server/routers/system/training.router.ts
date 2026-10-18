@@ -224,13 +224,15 @@ export const trainingRouter = router({
     .input(
       z.object({
         scheduleId: z.number(),
-        userId: z.number().optional(), // 없으면 현재 사용자
+        employeeId: z.number().optional(), // 구성원 (교육 대상 명단)
+        userId: z.number().optional(), // 구성원 없이 계정으로 — 둘 다 없으면 현재 사용자
       })
     )
     .mutation(async ({ input, ctx }) => {
       const id = await trainingDb.registerTrainingParticipant({
         scheduleId: input.scheduleId,
-        userId: input.userId || ctx.user.id,
+        employeeId: input.employeeId,
+        userId: input.employeeId ? undefined : (input.userId || ctx.user.id),
       }, ctx.tenantId);
       return { id };
     }),
@@ -256,9 +258,9 @@ export const trainingRouter = router({
       return trainingDb.getTrainingParticipantsDetailed(ctx.tenantId, input.scheduleId);
     }),
 
-  // 참가자로 고를 수 있는 이 회사 사용자
-  listUserOptions: tenantRequiredProcedure.query(async ({ ctx }) => {
-    return trainingDb.getTrainingUserOptions(ctx.tenantId);
+  // 참가자로 고를 수 있는 이 회사 구성원 (구성원 관리 명단 — 로그인 계정 없어도 됨, EDU-06)
+  listMemberOptions: tenantRequiredProcedure.query(async ({ ctx }) => {
+    return trainingDb.getTrainingMemberOptions(ctx.tenantId);
   }),
 
   // 사용자별 교육 이력

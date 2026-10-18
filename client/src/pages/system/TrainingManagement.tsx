@@ -68,24 +68,58 @@ function todayLocalOf(d: Date) {
 }
 
 type ParticipantRow = {
-  id: number; scheduleId: number; userId: number; userName: string | null; attendanceStatus: string | null;
+  id: number; scheduleId: number; userId: number | null; employeeId: number | null; employeeCode: string | null; userName: string | null; attendanceStatus: string | null;
   assessmentScore: string | null; passed: number | null; certificateIssued: number | null; certificateNumber: string | null;
   expiryDate: string | null; scheduledDate: string | null; courseName: string | null; passingScore: string | null;
 };
 
 /** 참가자 표 — 참가자 탭과 일정 관리 창이 같이 쓴다 */
 function ParticipantTable({ rows, showSchedule, onChanged }: { rows: ParticipantRow[]; showSchedule: boolean; onChanged: () => void }) {
+  // 평가 점수 입력 — 앱 안 창 (window.prompt 는 앱 안 브라우저에서 열리지 않음, Codex #592 검증)
+  const [scoring, setScoring] = useState<ParticipantRow | null>(null);
+  const [scoreText, setScoreText] = useState("");
   const done = (msg: string) => { toast.success(msg); onChanged(); };
   const fail = (e: { message: string }) => toast.error(e.message);
   const attendance = trpc.haccpTraining.recordAttendance.useMutation({ onSuccess: () => done("출석 상태를 저장했습니다."), onError: fail });
   const assessment = trpc.haccpTraining.recordAssessment.useMutation({
-    onSuccess: (r: { passed: 0 | 1 | null }) => done(r.passed == null ? "평가 점수를 저장했습니다 (과정에 합격 점수가 없어 합격 판정은 하지 않음)." : r.passed ? "평가 점수 저장 — 합격" : "평가 점수 저장 — 불합격"),
+    onSuccess: (r: { passed: 0 | 1 | null }) => { setScoring(null); done(r.passed == null ? "평가 점수를 저장했습니다 (과정에 합격 점수가 없어 합격 판정은 하지 않음)." : r.passed ? "평가 점수 저장 — 합격" : "평가 점수 저장 — 불합격"); },
     onError: fail,
   });
   const certificate = trpc.haccpTraining.issueCertificate.useMutation({ onSuccess: (r: { certificateNumber: string; expiryDate: string | null }) => done(`수료증 ${r.certificateNumber} 발급${r.expiryDate ? ` · 재교육 기한 ${r.expiryDate}` : ""}`), onError: fail });
   const cancel = trpc.haccpTraining.cancelParticipant.useMutation({ onSuccess: () => done("참가 등록을 취소했습니다."), onError: fail });
 
+  const scoreNum = scoreText.trim() === "" ? NaN : Number(scoreText);
+  const scoreValid = Number.isFinite(scoreNum) && scoreNum >= 0 && scoreNum <= 100;
+  const passLine = scoring?.passingScore != null ? Number(scoring.passingScore) : null;
   return (
+    <>
+    <Dialog open={!!scoring} onOpenChange={(o) => { if (!o) setScoring(null); }}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>평가 점수 — {scoring?.userName ?? ""}</DialogTitle>
+          <DialogDescription>
+            {scoring?.courseName ?? ""} {passLine != null ? `· 합격 ${passLine}점 이상` : "· 이 과정은 합격 점수가 없어 합격 판정을 하지 않습니다"}
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={(e) => { e.preventDefault(); if (scoring && scoreValid) assessment.mutate({ id: scoring.id, assessmentScore: scoreNum }); }}>
+          <div className="grid gap-2">
+            <Label htmlFor="assessmentScore">점수 (0~100)</Label>
+            <Input id="assessmentScore" type="number" inputMode="decimal" min={0} max={100} step="0.5" autoFocus
+              value={scoreText} onChange={(e) => setScoreText(e.target.value)} className="h-12 text-lg" />
+            <p className="text-sm min-h-5">
+              {!scoreText.trim() ? "" : !scoreValid ? <span className="text-red-600">0~100 사이로 입력하세요.</span>
+                : passLine == null ? <span className="text-muted-foreground">점수만 기록합니다.</span>
+                : scoreNum >= passLine ? <span className="text-emerald-700 font-medium">합격 예정</span>
+                : <span className="text-red-600 font-medium">불합격 예정</span>}
+            </p>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button type="button" variant="outline" onClick={() => setScoring(null)}>취소</Button>
+            <Button type="submit" disabled={!scoreValid || assessment.isPending}>{assessment.isPending ? "저장 중..." : "저장"}</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
     <Table>
       <TableHeader>
         <TableRow>
@@ -103,7 +137,10 @@ function ParticipantTable({ rows, showSchedule, onChanged }: { rows: Participant
           const attended = p.attendanceStatus === "attended";
           return (
             <TableRow key={p.id}>
-              <TableCell className="font-medium">{p.userName ?? `사용자 #${p.userId}`}</TableCell>
+              <TableCell className="font-medium">
+                {p.userName ?? (p.employeeId ? `구성원 #${p.employeeId}` : `사용자 #${p.userId}`)}
+                {p.employeeCode && <span className="ml-1 text-xs text-muted-foreground">{p.employeeCode}</span>}
+              </TableCell>
               {showSchedule && <TableCell className="text-xs">{p.courseName ?? "-"} · {p.scheduledDate ?? "-"}</TableCell>}
               <TableCell>
                 <Badge variant={attended ? "default" : "secondary"}>{TRAINING_ATTENDANCE_LABELS[p.attendanceStatus ?? "registered"] ?? p.attendanceStatus}</Badge>
@@ -131,9 +168,8 @@ function ParticipantTable({ rows, showSchedule, onChanged }: { rows: Participant
                   )}
                   {attended && Number(p.certificateIssued) !== 1 && (
                     <Button size="sm" variant="outline" onClick={() => {
-                      const v = prompt(`평가 점수 (0~100)${p.passingScore != null ? ` — 합격 ${Number(p.passingScore)}점 이상` : ""}`, p.assessmentScore != null ? String(Number(p.assessmentScore)) : "");
-                      if (v == null || v.trim() === "") return;
-                      assessment.mutate({ id: p.id, assessmentScore: Number(v) });
+                      setScoring(p);
+                      setScoreText(p.assessmentScore != null ? String(Number(p.assessmentScore)) : "");
                     }}>평가</Button>
                   )}
                   {attended && Number(p.certificateIssued) !== 1 && (p.passingScore == null || Number(p.passed) === 1) && (
@@ -153,6 +189,7 @@ function ParticipantTable({ rows, showSchedule, onChanged }: { rows: Participant
         )}
       </TableBody>
     </Table>
+    </>
   );
 }
 
@@ -160,19 +197,22 @@ function ParticipantTable({ rows, showSchedule, onChanged }: { rows: Participant
 function ScheduleManageDialog({ schedule, courseName, onClose, onChanged }: { schedule: any; courseName: string; onClose: () => void; onChanged: () => void }) {
   const utils = trpc.useUtils();
   const { data: rows = [], refetch } = trpc.haccpTraining.listParticipants.useQuery({ scheduleId: schedule.id });
-  const { data: users = [] } = trpc.haccpTraining.listUserOptions.useQuery();
-  const [userId, setUserId] = useState<string>("");
+  // 참가자 = 구성원 관리 명단 (로그인 계정 없는 직원 포함, Codex #592 EDU-06)
+  const { data: members = [] } = trpc.haccpTraining.listMemberOptions.useQuery();
+  const [memberId, setMemberId] = useState<string>("");
   const changed = () => { refetch(); onChanged(); utils.haccpTraining.listParticipants.invalidate(); };
   const register = trpc.haccpTraining.registerParticipant.useMutation({
-    onSuccess: () => { toast.success("참가자를 등록했습니다."); setUserId(""); changed(); },
+    onSuccess: () => { toast.success("참가자를 등록했습니다."); setMemberId(""); changed(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
   const updateSchedule = trpc.haccpTraining.updateSchedule.useMutation({
     onSuccess: () => { toast.success("일정 상태를 저장했습니다."); onChanged(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
-  const registered = new Set((rows as ParticipantRow[]).map((r) => r.userId));
-  const choices = (users as Array<{ id: number; name: string }>).filter((u) => !registered.has(u.id));
+  const registeredEmp = new Set((rows as ParticipantRow[]).map((r) => r.employeeId).filter((x) => x != null));
+  const registeredUser = new Set((rows as ParticipantRow[]).map((r) => r.userId).filter((x) => x != null));
+  const choices = (members as Array<{ id: number; name: string; employeeCode: string | null; userId: number | null }>)
+    .filter((m) => !registeredEmp.has(m.id) && !(m.userId != null && registeredUser.has(m.userId)));
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
@@ -198,16 +238,20 @@ function ScheduleManageDialog({ schedule, courseName, onClose, onChanged }: { sc
             </Select>
           </div>
           <div className="grid gap-1 flex-1 min-w-[220px]">
-            <Label className="text-xs">참가자 추가</Label>
+            <Label className="text-xs">참가자 추가 (구성원 명단)</Label>
             <div className="flex gap-2">
-              <Select value={userId} onValueChange={setUserId}>
-                <SelectTrigger className="h-9"><SelectValue placeholder={choices.length ? "사용자 선택" : "추가할 사용자가 없습니다"} /></SelectTrigger>
+              <Select value={memberId} onValueChange={setMemberId}>
+                <SelectTrigger className="h-9"><SelectValue placeholder={choices.length ? "구성원 선택" : "추가할 구성원이 없습니다 (구성원 관리에서 등록)"} /></SelectTrigger>
                 <SelectContent>
-                  {choices.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                  {choices.map((m) => (
+                    <SelectItem key={m.id} value={String(m.id)}>
+                      {m.name}{m.employeeCode ? ` (${m.employeeCode})` : ""}{m.userId == null ? " · 계정 없음" : ""}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              <Button size="sm" className="h-9" disabled={!userId || register.isPending}
-                onClick={() => register.mutate({ scheduleId: schedule.id, userId: Number(userId) })}>
+              <Button size="sm" className="h-9" disabled={!memberId || register.isPending}
+                onClick={() => register.mutate({ scheduleId: schedule.id, employeeId: Number(memberId) })}>
                 <Users className="mr-1 h-4 w-4" />등록
               </Button>
             </div>
