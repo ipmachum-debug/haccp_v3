@@ -552,8 +552,8 @@ export async function approveRequest(requestId: number, approvedBy: number, note
 
   // 1-1. CCP 기록지 단독 요청이면 작업자 제출(시트 확인) 확인 — 상태를 바꾸기 전에 (2026-10-18)
   if (request && (request as any).referenceType === "ccp_form_record" && (request as any).referenceId && (request as any).tenantId) {
-    const { assertSheetConfirmedForApproval } = await import("../../lib/haccp/ccpSheetConfirm");
-    await assertSheetConfirmedForApproval(Number((request as any).referenceId), Number((request as any).tenantId));
+    const { approveCcpFormRecord } = await import("../../lib/haccp/ccpSheetConfirm");
+    await approveCcpFormRecord(Number((request as any).referenceId), Number((request as any).tenantId), approvedBy);
   }
 
   // 2. 승인 상태 업데이트

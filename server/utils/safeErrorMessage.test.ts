@@ -27,3 +27,21 @@ describe("toSafeErrorMessage", () => {
     expect(src).toMatch(/errorFormatter\(\{ shape, error \}\)[\s\S]*toSafeErrorMessage\(error\)/);
   });
 });
+
+describe("toValidationMessage — 입력 검증 오류를 업무 문장으로 (Codex #590 UX)", () => {
+  it("zod 검증 오류 → 항목·이유 한국어, JSON 원문 없음", async () => {
+    const { z } = await import("zod");
+    const { toValidationMessage } = await import("./safeErrorMessage");
+    const r = z.object({ workDate: z.string(), quantity: z.number().min(1), name: z.string().min(2, "이름은 2자 이상 입력하세요") })
+      .safeParse({ workDate: new Date(), quantity: 0, name: "x" });
+    const msg = toValidationMessage({ cause: r.error });
+    expect(msg).toBe("입력값을 확인하세요 — 작업일: 형식이 맞지 않습니다 (글자 필요). / 수량: 1 이상이어야 합니다. / 이름: 이름은 2자 이상 입력하세요");
+    expect(msg).not.toMatch(/expected|received|\[\{/);
+  });
+  it("검증 오류가 아니면 null, 포매터에 연결", async () => {
+    const { toValidationMessage } = await import("./safeErrorMessage");
+    expect(toValidationMessage(new Error("업무 오류"))).toBeNull();
+    const src = readFileSync(join(__dirname, "../_core/trpc.ts"), "utf-8");
+    expect(src).toMatch(/BAD_REQUEST" \? toValidationMessage\(error\)/);
+  });
+});

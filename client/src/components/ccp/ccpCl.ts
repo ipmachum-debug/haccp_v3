@@ -16,7 +16,7 @@ export type ClRecord = {
   clSusMm?: string | number | null;
 };
 
-// CL 값 모양. 기본값은 없다 — 특정 회사 기준서 숫자(10~15분·0.12MPa·90℃·150℃·감도 130·Fe 2.0·SUS 3.0)를
+// CL 값 모양. 기본값은 없다 — 특정 회사 기준서 숫자(가열시간·압력·온도·금속 감도·Fe·SUS 시편 크기)를
 //   코드에 두지 않는다 (2026-10-18 CEO: 단지 전용 금지). 기준은 공정그룹 → 기록지 스냅샷에서만 온다.
 export type ClValues = {
   heatTimeMinLo?: number; heatTimeMinHi?: number;

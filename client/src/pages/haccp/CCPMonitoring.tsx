@@ -737,24 +737,24 @@ function EquipmentCcpSettingsForm({
               금속검출 운영 기준값
             </h4>
 
-            {/* 한계기준 안내 (PDF 기준) */}
+            {/* 한계기준 안내 — 기록지 CL 과 같은 출처(이 설비의 Fe·SUS 값). 비어 있으면 '미설정' — 코드 기본값 없음 (Codex #590 UX) */}
             <div className="p-3 bg-red-50 dark:bg-red-950/30 rounded-lg border border-red-200 dark:border-red-800">
               <h5 className="text-xs font-semibold text-red-700 dark:text-red-300 mb-2 flex items-center gap-1.5">
                 <AlertTriangle className="h-3.5 w-3.5" />
-                CCP-4P 한계기준 (CL)
+                CCP-4P 한계기준 (CL) — 기록지에 이 값으로 들어갑니다
               </h5>
-              <div className="grid grid-cols-3 gap-2 text-xs">
-                <div className="bg-white dark:bg-gray-900 p-2 rounded border">
-                  <span className="text-muted-foreground">감도</span>
-                  <p className="font-semibold text-red-600">130</p>
-                </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
                 <div className="bg-white dark:bg-gray-900 p-2 rounded border">
                   <span className="text-muted-foreground">Fe</span>
-                  <p className="font-semibold text-red-600">2.0mmΦ 이상 불검출</p>
+                  <p className={`font-semibold ${settings.sensitivityFe ? "text-red-600" : "text-muted-foreground"}`}>
+                    {settings.sensitivityFe ? `${settings.sensitivityFe}mmΦ 이상 불검출` : "미설정 — 아래 Fe 감도를 입력하세요"}
+                  </p>
                 </div>
                 <div className="bg-white dark:bg-gray-900 p-2 rounded border">
                   <span className="text-muted-foreground">SUS</span>
-                  <p className="font-semibold text-red-600">3.0mmΦ 이상 불검출</p>
+                  <p className={`font-semibold ${settings.sensitivitySts ? "text-red-600" : "text-muted-foreground"}`}>
+                    {settings.sensitivitySts ? `${settings.sensitivitySts}mmΦ 이상 불검출` : "미설정 — 아래 STS 감도를 입력하세요"}
+                  </p>
                 </div>
               </div>
             </div>

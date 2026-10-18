@@ -24,6 +24,7 @@ import { toast } from "sonner";
 const STATUS_BADGE: Record<string, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
   draft: { label: "작성중", variant: "outline" },
   submitted: { label: "제출됨", variant: "secondary" },
+  unconfirmed: { label: "미확인 (제출 필요)", variant: "outline" },
   approved: { label: "승인됨", variant: "default" },
   rejected: { label: "반려됨", variant: "destructive" },
 };
@@ -215,7 +216,10 @@ export function CCPRecordsList() {
             {filteredRecords.map((record: any) => {
               // 공식 기록지 상태 우선 (인스턴스 status 는 설비행 사본의 상태)
               const effectiveStatus: string = record.formStatus ?? record.status;
-              const statusInfo = STATUS_BADGE[effectiveStatus] || STATUS_BADGE.draft;
+              // 제출됐지만 작업자 시트 확인 전이면 '미확인' — 검토중과 구분 (Codex #590 UX)
+              const statusInfo = effectiveStatus === "submitted" && record.formConfirmed === false
+                ? STATUS_BADGE.unconfirmed
+                : STATUS_BADGE[effectiveStatus] || STATUS_BADGE.draft;
               const ccpColor = CCP_TYPE_COLORS[record.ccpType] || "";
               const workDate = record.workDate
                 ? new Date(record.workDate).toLocaleDateString("ko-KR", { year: "numeric", month: "numeric", day: "numeric" })

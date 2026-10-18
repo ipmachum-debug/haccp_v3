@@ -68,14 +68,21 @@ export function validateSheetForConfirm(rec: SheetRecord, rows: SheetRow[], now:
     if (!has(r.result)) problems.push(`${label(r)}: 판정이 없습니다.`);
 
     if (kind === "heat") {
+      // 필수 실측값 — 기준(CL)이 정해진 항목은 값이 있어야 한다. 0 은 값, 빈칸(NULL)은 없음. '적합' 판정 글자는 실측을 대신하지 않는다 (Codex #590 R590-03)
       if (!has(r.measurementTime)) problems.push(`${label(r)}: 측정시각이 없습니다.`);
       if (r.heatTimeMin == null) problems.push(`${label(r)}: 가열시간이 없습니다.`);
+      const prodLo = rec.ccpType === "CCP-1B" ? (rec.clProductTempLo ?? rec.clHeatTempLo) : null;
+      if (prodLo != null) {
+        if (r.tempCenterC == null) problems.push(`${label(r)}: 중심 품온이 없습니다.`);
+        if (r.tempEdgeC == null) problems.push(`${label(r)}: 모서리 품온이 없습니다.`);
+      }
+      if (rec.ccpType === "CCP-1B" && rec.clPressureMpaLo != null && r.pressureMpa == null) problems.push(`${label(r)}: 압력이 없습니다.`);
+      if (rec.ccpType === "CCP-2B" && rec.clHeatTempLo != null && r.heatTempC == null) problems.push(`${label(r)}: 가열온도가 없습니다.`);
       // 한계기준 이탈 판정 — 정한 기준만 본다
       const out: string[] = [];
       if (r.heatTimeMin != null && rec.clHeatTimeMinLo != null && r.heatTimeMin < rec.clHeatTimeMinLo) out.push(`가열시간 ${r.heatTimeMin} < ${rec.clHeatTimeMinLo}분`);
       if (r.heatTimeMin != null && rec.clHeatTimeMinHi != null && r.heatTimeMin > rec.clHeatTimeMinHi) out.push(`가열시간 ${r.heatTimeMin} > ${rec.clHeatTimeMinHi}분`);
       if (r.pressureMpa != null && rec.clPressureMpaLo != null && r.pressureMpa < rec.clPressureMpaLo) out.push(`압력 ${r.pressureMpa} < ${rec.clPressureMpaLo}MPa`);
-      const prodLo = rec.ccpType === "CCP-1B" ? (rec.clProductTempLo ?? rec.clHeatTempLo) : null;
       if (prodLo != null) {
         for (const [nm, v] of [["중심 품온", r.tempCenterC], ["모서리 품온", r.tempEdgeC]] as const) if (v != null && v < prodLo) out.push(`${nm} ${v} < ${prodLo}℃`);
       }
@@ -85,14 +92,22 @@ export function validateSheetForConfirm(rec: SheetRecord, rows: SheetRow[], now:
     if (kind === "sensitivity") {
       if (!has(r.metalPassTime)) problems.push(`${label(r)}: 점검 시각이 없습니다.`);
       const expect = { metalFeMid: "O", metalSusMid: "O", metalProductOnly: "X", metalFeProduct: "O", metalSusProduct: "O" } as const;
-      const bad = (Object.keys(expect) as Array<keyof typeof expect>).filter((k) => has(r[k]) && String(r[k]).toUpperCase() !== expect[k]);
+      const SENS_LABEL = { metalFeMid: "Fe 단독", metalSusMid: "SUS 단독", metalProductOnly: "제품 단독", metalFeProduct: "Fe+제품", metalSusProduct: "SUS+제품" } as const;
+      const keys = Object.keys(expect) as Array<keyof typeof expect>;
+      const blank = keys.filter((k) => !has(r[k]));
+      if (blank.length) problems.push(`${label(r)}: 감도 점검 결과(${blank.map((k) => SENS_LABEL[k]).join("·")})가 없습니다.`);
+      const bad = keys.filter((k) => has(r[k]) && String(r[k]).toUpperCase() !== expect[k]);
       if (bad.length && r.result === "적합") problems.push(`${label(r)}: 감도 점검 결과가 기준과 다른데 '적합' 입니다.`);
     }
     if (kind === "passage") {
       if (!has(r.passTimeStart) || !has(r.passTimeEnd)) problems.push(`${label(r)}: 통과 시작·종료 시각이 없습니다.`);
       if (r.passQty == null) problems.push(`${label(r)}: 통과량이 없습니다.`);
     }
-    if (r.result === "부적합" && !has(r.deviationNote) && !has(r.correctiveAction)) problems.push(`${label(r)}: 부적합인데 이탈내용·개선조치가 없습니다.`);
+    // 부적합(이탈)은 이탈내용과 개선조치 둘 다 있어야 한다 (Codex #590 R590-04)
+    if (r.result === "부적합" || r.isDeviation === 1) {
+      if (!has(r.deviationNote)) problems.push(`${label(r)}: 부적합인데 이탈내용이 없습니다.`);
+      if (!has(r.correctiveAction)) problems.push(`${label(r)}: 부적합인데 개선조치가 없습니다.`);
+    }
   }
   return problems;
 }
@@ -185,4 +200,54 @@ export async function assertSheetConfirmedForApproval(formRecordId: number, tena
   if (!isConfirmed({ confirmedAt: r.confirmed_at, confirmedRowsVersion: r.confirmed_rows_version, rowsVersion: r.rows_version })) {
     throw new Error("CCP 기록지가 작업자 제출(시트 확인) 전이거나 확인 뒤 수정됐습니다 — 기록지에서 제출한 뒤 승인하세요.");
   }
+}
+
+/**
+ * CCP 기록지 단독 요청(ccp_form_record) 승인 — 모든 승인 경로 공통 (2026-10-18, Codex #590 R590-02)
+ *   개별·바로·일괄 승인(genericChecklist)·최종 승인(finalApproveRequest)·approveRequest 가 요청 상태를 바꾸기 **전에** 부른다.
+ *   확인 관문 → 기록지 approved(+ 인쇄 문구 고정) → 실제로 approved 가 됐는지 다시 읽어 확인. 실패하면 오류 → 요청도 승인되지 않는다.
+ *   (이전: 바로 승인이 요청만 approved 로 바꾸고 기록지는 submitted·미확인 그대로 — 요청 3644 / 기록지 1847)
+ */
+export async function approveCcpFormRecord(formRecordId: number, tenantId: number, userId: number): Promise<void> {
+  await assertSheetConfirmedForApproval(formRecordId, tenantId);
+  const { applyCcpFormDecision } = await import("../../db/haccp/ccpStatusSync");
+  await applyCcpFormDecision({ formRecordId, decision: "approved", userId, tenantId });
+  const conn = await getRawConnection();
+  const [rs]: any = await conn.execute(`SELECT status FROM h_ccp_form_records WHERE id = ? AND tenant_id = ? LIMIT 1`, [formRecordId, tenantId]);
+  if ((rs as any[])[0]?.status !== "approved") throw new Error(`CCP 기록지 #${formRecordId} 승인 반영에 실패했습니다 — 요청을 승인하지 않았습니다.`);
+}
+
+/** CCP 기록지 단독 요청 반려 — 기록지도 반려(고정 문구 해제) */
+export async function rejectCcpFormRecord(formRecordId: number, tenantId: number, userId: number, reason?: string): Promise<void> {
+  const { applyCcpFormDecision } = await import("../../db/haccp/ccpStatusSync");
+  await applyCcpFormDecision({ formRecordId, decision: "rejected", userId, tenantId, reason });
+}
+
+/**
+ * 승인관리 목록용 — CCP 기록지 단독 요청에 작업자 시트 확인 여부를 붙인다 (Codex #590 UX: '검토중'과 '미확인' 구분)
+ *   ccpSheetConfirmed: true(확인됨) / false(미확인) / 없음(CCP 기록지 요청이 아니거나 확인 컬럼 생성 전 DB)
+ */
+export async function attachCcpSheetConfirmState<T extends { referenceType?: unknown; referenceId?: unknown }>(
+  items: T[],
+  tenantId: number,
+): Promise<Array<T & { ccpSheetConfirmed?: boolean }>> {
+  const ids = Array.from(new Set(
+    items.filter((it) => it.referenceType === "ccp_form_record").map((it) => Number(it.referenceId)).filter((n) => Number.isSafeInteger(n) && n > 0),
+  ));
+  if (!ids.length) return items;
+  const state = new Map<number, boolean>();
+  try {
+    const conn = await getRawConnection();
+    for (let i = 0; i < ids.length; i += 500) {
+      const [rs]: any = await conn.query(
+        `SELECT id, rows_version, confirmed_at, confirmed_rows_version FROM h_ccp_form_records WHERE tenant_id = ? AND id IN (?)`,
+        [tenantId, ids.slice(i, i + 500)],
+      );
+      for (const r of rs as any[]) state.set(Number(r.id), isConfirmed({ confirmedAt: r.confirmed_at, confirmedRowsVersion: r.confirmed_rows_version, rowsVersion: r.rows_version }));
+    }
+  } catch (e: any) {
+    if (e?.code === "ER_BAD_FIELD_ERROR") return items;
+    throw e;
+  }
+  return items.map((it) => (it.referenceType === "ccp_form_record" && state.has(Number(it.referenceId)) ? { ...it, ccpSheetConfirmed: state.get(Number(it.referenceId)) } : it));
 }

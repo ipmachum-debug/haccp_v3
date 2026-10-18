@@ -222,6 +222,11 @@ export async function finalApproveRequest(
       const { prepareBatchForApproval } = await import("./batchApprovalGate");
       await prepareBatchForApproval(Number(p0.reference_id), tenantId, approverId);
     }
+    // CCP 기록지 단독 요청 — 공통 승인 서비스 (확인 관문·기록지 승인), 요청 승인 전에 (Codex #590 R590-02)
+    if (p0?.reference_type === "ccp_form_record" && p0.reference_id) {
+      const { approveCcpFormRecord } = await import("../haccp/ccpSheetConfirm");
+      await approveCcpFormRecord(Number(p0.reference_id), tenantId, approverId);
+    }
   }
   let postWarnings: string[] = [];
 

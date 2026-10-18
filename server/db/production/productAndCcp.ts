@@ -566,10 +566,15 @@ export async function getAllCcpRecords(filters?: {
       batchCode: hBatches.batchCode,
       // 공식 기록지 상태 (같은 배치·CCP 유형 최신 1건). 목록 배지는 이 값을 우선 사용 — 인스턴스 status 는
       // 설비행 사본의 상태라 기록지가 제출됐어도 draft 로 남는다 (2026-10-12 실측 735건).
+      //   같은 CCP 유형 공정이 둘(교반 + 증숙)이면 이 인스턴스의 공정그룹 기록지를 먼저 (2026-10-18)
       formStatus: sql<string | null>`(SELECT fr.status FROM h_ccp_form_records fr
         WHERE fr.batch_id = ${hCcpInstances.batchId} AND fr.ccp_type = ${hCcpInstances.ccpType}
           AND fr.tenant_id = ${hCcpInstances.tenantId}
-        ORDER BY fr.id DESC LIMIT 1)`,
+        ORDER BY (fr.process_group_id <=> ${hCcpInstances.processGroupId}) DESC, fr.id DESC LIMIT 1)`,
+      formRecordId: sql<number | null>`(SELECT fr.id FROM h_ccp_form_records fr
+        WHERE fr.batch_id = ${hCcpInstances.batchId} AND fr.ccp_type = ${hCcpInstances.ccpType}
+          AND fr.tenant_id = ${hCcpInstances.tenantId}
+        ORDER BY (fr.process_group_id <=> ${hCcpInstances.processGroupId}) DESC, fr.id DESC LIMIT 1)`,
     })
     .from(hCcpInstances)
     .leftJoin(hBatches, eq(hCcpInstances.batchId, hBatches.id))
@@ -577,7 +582,31 @@ export async function getAllCcpRecords(filters?: {
     .where(whereClause)
     .orderBy(sql`${hCcpInstances.workDate} DESC, ${hCcpInstances.id} DESC`);
 
-  return records;
+  // 제출(submitted)됐지만 작업자 시트 확인 전이면 '미확인' 으로 보이게 — 확인 컬럼은 Drizzle 밖 (Codex #590 UX)
+  const confirmedById = new Map<number, boolean>();
+  const formIds = Array.from(new Set(records.map((r) => Number(r.formRecordId)).filter((n) => Number.isSafeInteger(n) && n > 0)));
+  if (formIds.length && filters?.tenantId) {
+    try {
+      const { isConfirmed } = await import("../../lib/haccp/ccpSheetConfirm");
+      const conn = await getRawConnection();
+      for (let i = 0; i < formIds.length; i += 500) {
+        const chunk = formIds.slice(i, i + 500);
+        const [rs]: any = await conn.query(
+          `SELECT id, rows_version, confirmed_at, confirmed_rows_version FROM h_ccp_form_records WHERE tenant_id = ? AND id IN (?)`,
+          [filters.tenantId, chunk],
+        );
+        for (const r of rs as any[]) {
+          confirmedById.set(Number(r.id), isConfirmed({ confirmedAt: r.confirmed_at, confirmedRowsVersion: r.confirmed_rows_version, rowsVersion: r.rows_version }));
+        }
+      }
+    } catch (e: any) {
+      if (e?.code !== "ER_BAD_FIELD_ERROR") throw e; // 컬럼 생성 전 DB — 확인 상태 표시 없음
+    }
+  }
+  return records.map((r) => ({
+    ...r,
+    formConfirmed: r.formRecordId != null && confirmedById.has(Number(r.formRecordId)) ? confirmedById.get(Number(r.formRecordId))! : null,
+  }));
 }
 
 // CCP 일괄 삭제

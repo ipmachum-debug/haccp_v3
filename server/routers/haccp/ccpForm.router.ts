@@ -368,7 +368,8 @@ export const ccpFormRouter = router({
         batchNumber: z.string(),
         productName: z.string().optional(),
         ccpType: z.string(),
-        workDate: z.string(),
+        // 작업일은 서버가 기록지에서 읽는다 — 화면이 보낸 값(문자열·Date)은 쓰지 않음 (Codex #590 R590-01: Date 를 보내 늘 입력 검증에서 막힘)
+        workDate: z.union([z.string(), z.date()]).optional(),
       }))
       .mutation(async ({ input, ctx }) => {
         // 제출 = 시트 확인 (2026-10-18): 사람이 누른 제출만 확인 이력. 막을 이유가 있으면 상태를 바꾸기 전에 거부.
@@ -391,7 +392,7 @@ export const ccpFormRouter = router({
           batchNumber: input.batchNumber,
           productName: input.productName ?? "",
           ccpType: input.ccpType,
-          workDate: input.workDate,
+          workDate: pre.record.workDate,
         });
         await confirmSheet(input.formRecordId, ctx.tenantId, ctx.user.id);
         return { success: true, approvalRequestId: approvalId, confirmedOnly: false };

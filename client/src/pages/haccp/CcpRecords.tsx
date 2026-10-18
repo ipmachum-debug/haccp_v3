@@ -23,6 +23,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 const STATUS_BADGE: Record<string, { label: string; color: string }> = {
   draft: { label: "작성중", color: "bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-400" },
   submitted: { label: "제출됨", color: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
+  unconfirmed: { label: "미확인 (제출 필요)", color: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300" },
   approved: { label: "승인됨", color: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400" },
   rejected: { label: "반려됨", color: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400" },
 };
@@ -271,7 +272,11 @@ export default function CcpRecords() {
               ) : filteredRecords.length > 0 ? (
                 filteredRecords.map((record: any) => {
                   const isSelected = selectedIds.includes(record.id);
-                  const status = STATUS_BADGE[record.status] || STATUS_BADGE.draft;
+                  // 공식 기록지 상태 우선, 제출됐지만 시트 확인 전이면 '미확인' (Codex #590 UX)
+                  const effectiveStatus: string = record.formStatus ?? record.status;
+                  const status = effectiveStatus === "submitted" && record.formConfirmed === false
+                    ? STATUS_BADGE.unconfirmed
+                    : STATUS_BADGE[effectiveStatus] || STATUS_BADGE.draft;
                   const ccpColor = CCP_TYPE_COLORS[record.ccpType] || "bg-gray-100 text-gray-700";
                   const workDate = record.workDate ? new Date(record.workDate).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }) : "-";
                   const createdDate = record.createdAt ? new Date(record.createdAt).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }) : "-";

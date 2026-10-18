@@ -14,7 +14,7 @@
  * 기준서 CL 값:
  * CCP-2B: 가열시간 10~15분, 가열온도 150°C 이상
  * CCP-1B: 가열시간 10~15분 (교반기1: 0.16MPa, 교반기2,3: 0.12MPa), 품온 90°C 이상
- * CCP-4P: 감도 130, Fe 2.0mmΦ 이상 불검출, SUS 3.0mmΦ 이상 불검출
+ * CCP-4P: 설비의 Fe·SUS 시편 크기 이상 불검출 (설비 설정)
  */
 import React, { useState, useEffect, useCallback } from "react";
 import { trpc } from "../../lib/trpc";
@@ -202,7 +202,7 @@ function BatchCountCalc({
         <div className="font-semibold text-blue-800">배치수 자동계산</div>
         <div className="text-xs text-blue-600 mt-0.5">
           {bomBatchKg
-            ? `BOM 배치량 ${bomBatchKg}kg × 계획 ${plannedQtyKg ?? "?"}kg → `
+            ? `계획 ${plannedQtyKg ?? "?"}kg ÷ BOM 배치량 ${bomBatchKg}kg (올림) → `
             : "BOM 배치량 조회 중... "}
           <span className="font-bold text-blue-800">
             {autoBatchCount ? `${autoBatchCount}배치` : "-"}
@@ -804,14 +804,15 @@ function CcpFormPanel({
       >
         <div className="flex items-center gap-2">
           <Badge variant="outline" className="text-xs font-bold">{formRecord.ccpType}</Badge>
-          <span className="text-sm font-semibold">{CCP_TYPE_LABELS[formRecord.ccpType] ?? formRecord.ccpType}</span>
+          {/* 같은 CCP 유형 공정이 둘(교반 + 증숙)일 수 있어 공정그룹 이름을 먼저 보인다 (Codex #590 UX) */}
+          <span className="text-sm font-semibold">{formRecord.processGroupName || ccpGroup?.processGroupName || CCP_TYPE_LABELS[formRecord.ccpType] || formRecord.ccpType}</span>
           <Badge variant={
             formRecord.status === "approved" ? "default" :
             formRecord.status === "submitted" ? "secondary" :
             formRecord.status === "rejected" ? "destructive" : "outline"
           } className="text-xs">
             {formRecord.status === "approved" ? "✅ 승인완료" :
-             formRecord.status === "submitted" ? "⏳ 검토중" :
+             formRecord.status === "submitted" ? ((formRecord as any).confirmed ? "⏳ 검토중" : "⚠️ 미확인 (제출 필요)") :
              formRecord.status === "rejected" ? "❌ 반려" : "✏️ 작성중"}
           </Badge>
           <span className="text-xs text-muted-foreground">
@@ -832,7 +833,6 @@ function CcpFormPanel({
                   batchNumber: `배치 #${batchId}`,
                   productName: formRecord.productName ?? undefined,
                   ccpType: formRecord.ccpType,
-                  workDate: formRecord.workDate,
                 });
               }}
               disabled={submitMutation.isPending}>
@@ -1181,7 +1181,7 @@ export function CcpMonitoringForms({
       <div className="flex items-start gap-2 p-3 bg-green-50 border border-green-200 rounded text-xs text-green-800">
         <Calculator className="h-4 w-4 flex-shrink-0 mt-0.5 text-green-600" />
         <div>
-          <strong>배치수 자동계산:</strong> BOM 배치목표량(kg) ÷ 계획생산량(kg) = 배치수
+          <strong>배치수 자동계산:</strong> 계획생산량(kg) ÷ BOM 배치량(kg), 소수점은 올림 = 배치수
           <br />
           <strong>설비 순차할당:</strong> 배치1→설비1, 배치2→설비2, 배치3→설비3 (순환)
           <br />
