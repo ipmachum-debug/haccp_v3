@@ -5,7 +5,7 @@
  *   새 권한을 만들지 않는다 — 레이아웃이 계산한 '보이는 메뉴' 만 받는다.
  * HeaderProfileMenu: 이름·이메일·역할 + 로그아웃 (사이드바 하단 프로필은 그대로 둔다 — 대표 지시).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Command as CommandPrimitive } from "cmdk";
 import { Search, LogOut, CornerDownLeft, ArrowLeft, ArrowRight, History, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -34,6 +34,9 @@ const Kbd = ({ children }: { children: React.ReactNode }) => (
 );
 
 const GROUP = "[&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pb-1.5 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:text-[13px] [&_[cmdk-group-heading]]:text-muted-foreground";
+const FOOT_BTN = "inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 -mx-1.5 transition-colors hover:bg-muted hover:text-foreground";
+// 버튼을 눌러도 검색 입력에 포커스 유지 — 이어서 키보드로 고를 수 있게
+const keepFocus = (e: React.MouseEvent) => e.preventDefault();
 const ITEM = "group flex h-10 cursor-pointer select-none items-center gap-3 rounded-xl px-3 text-[14px] outline-none data-[selected=true]:bg-muted";
 
 /**
@@ -50,6 +53,7 @@ export function GlobalMenuSearch({ sections, onNavigate, compact = false }: {
   const [query, setQuery] = useState("");
   const [scope, setScope] = useState<string>("all");
   const [recent, setRecent] = useState<string[]>([]);
+  const listRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setOpen((o) => !o); }
@@ -119,7 +123,7 @@ export function GlobalMenuSearch({ sections, onNavigate, compact = false }: {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="flex gap-1 overflow-x-auto px-5 pb-2 [scrollbar-width:none]">
+            <div className="flex gap-1 overflow-x-auto px-5 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               {scopes.map((s) => (
                 <button key={s.id} type="button" onClick={() => setScope(s.id)}
                   className={cn("h-8 shrink-0 rounded-lg px-2.5 text-[14px] transition-colors",
@@ -129,7 +133,7 @@ export function GlobalMenuSearch({ sections, onNavigate, compact = false }: {
               ))}
             </div>
             {/* 결과 영역 높이 고정 — 입력해도 창 크기가 변하지 않는다 */}
-            <CommandPrimitive.List className="h-[min(400px,55vh)] overflow-y-auto overscroll-contain scroll-py-2 px-3 pb-3">
+            <CommandPrimitive.List ref={listRef} className="h-[min(400px,55vh)] overflow-y-auto overscroll-contain scroll-py-2 px-3 pb-3">
               <CommandPrimitive.Empty className="flex h-[min(380px,52vh)] items-center justify-center text-[14px] text-muted-foreground">
                 찾는 화면이 없습니다
               </CommandPrimitive.Empty>
@@ -159,9 +163,16 @@ export function GlobalMenuSearch({ sections, onNavigate, compact = false }: {
               ))}
             </CommandPrimitive.List>
             <div className="flex h-12 items-center gap-5 border-t border-border/60 px-6 text-[13px] text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5">닫기 <Kbd>Esc</Kbd></span>
-              <span className="inline-flex items-center gap-1.5">범위 변경 <Kbd><ArrowLeft className="h-3 w-3" /></Kbd><Kbd><ArrowRight className="h-3 w-3" /></Kbd></span>
-              <span className="ml-auto inline-flex items-center gap-1.5">열기 <Kbd><CornerDownLeft className="h-3 w-3" /></Kbd></span>
+              {/* 키 안내이자 버튼 — 눌러도 같은 동작 (2026-10-18 대표: 눌러도 아무 동작 안 함) */}
+              <button type="button" onMouseDown={keepFocus} onClick={() => setOpen(false)} className={FOOT_BTN}>닫기 <Kbd>Esc</Kbd></button>
+              <span className="inline-flex items-center gap-1.5">
+                범위 변경
+                <button type="button" aria-label="이전 범위" onMouseDown={keepFocus} onClick={() => moveScope(-1)} className="rounded hover:ring-1 hover:ring-border"><Kbd><ArrowLeft className="h-3 w-3" /></Kbd></button>
+                <button type="button" aria-label="다음 범위" onMouseDown={keepFocus} onClick={() => moveScope(1)} className="rounded hover:ring-1 hover:ring-border"><Kbd><ArrowRight className="h-3 w-3" /></Kbd></button>
+              </span>
+              <button type="button" onMouseDown={keepFocus}
+                onClick={() => listRef.current?.querySelector<HTMLElement>('[cmdk-item][data-selected="true"]')?.click()}
+                className={cn(FOOT_BTN, "ml-auto")}>열기 <Kbd><CornerDownLeft className="h-3 w-3" /></Kbd></button>
             </div>
           </CommandPrimitive>
         </DialogContent>
