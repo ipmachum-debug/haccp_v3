@@ -23,7 +23,7 @@ const conn = {
   release: vi.fn(() => { state.log.push("RELEASE"); }),
   execute: vi.fn(async (sql: string, params: any[]) => {
     state.executed.push({ sql, params });
-    if (/SELECT id, status, form_data FROM h_generic_checklist_records/.test(sql)) return [state.record ? [{ id: params[0], ...state.record }] : []];
+    if (/SELECT id, status, (form_type, )?form_data FROM h_generic_checklist_records/.test(sql)) return [state.record ? [{ id: params[0], ...state.record }] : []];
     if (/SELECT status FROM h_generic_checklist_records/.test(sql)) return [state.record ? [{ status: state.record.status }] : []];
     if (/SELECT id FROM h_approval_requests/.test(sql)) return [state.active];
     if (/INSERT INTO h_approval_requests/.test(sql)) {

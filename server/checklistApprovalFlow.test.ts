@@ -24,7 +24,7 @@ const conn = {
   execute: vi.fn(async (sql: string, params: any[]) => {
     state.raw.push({ sql, params });
     if (/SELECT form_data FROM h_generic_checklist_records/.test(sql)) return [state.record ? [state.record] : []];
-    if (/SELECT id, status, form_data FROM h_generic_checklist_records/.test(sql)) return [state.record ? [{ id: params[0], ...state.record }] : []];
+    if (/SELECT id, status, (form_type, )?form_data FROM h_generic_checklist_records/.test(sql)) return [state.record ? [{ id: params[0], ...state.record }] : []];
     if (/SELECT status FROM h_generic_checklist_records/.test(sql)) return [state.record ? [{ status: state.record.status }] : []];
     if (/status = 'approved'/.test(sql) && /SELECT id FROM h_approval_requests/.test(sql)) return [state.approved];
     if (/SELECT id FROM h_approval_requests/.test(sql)) return [state.active];

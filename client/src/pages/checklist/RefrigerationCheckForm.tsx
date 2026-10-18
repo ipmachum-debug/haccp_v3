@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { checklistSubmitProblems } from "@shared/checklist/submitChecks";
 
 const config: ChecklistFormConfig = {
   formType: "refrigeration_check",
@@ -19,14 +20,15 @@ export default function RefrigerationCheckForm() {
   const [checkDate, setCheckDate] = useState(todayLocal());
   const [equipmentName, setEquipmentName] = useState("");
   const [equipmentType, setEquipmentType] = useState("freezer");
-  const [temperature, setTemperature] = useState(0);
+  // 실측 온도 — 빈칸은 빈칸 그대로 (이전: 비우면 0 으로 바뀌어 0℃ 로 저장·제출, Codex 위생 점검 SAN-02)
+  const [temperature, setTemperature] = useState<string>("");
   const [checkResult, setCheckResult] = useState("pass");
 
   const collectFormData = () => ({
     checkDate,
     equipmentName,
     equipmentType,
-    temperature,
+    temperature: temperature.trim() === "" ? null : Number(temperature),
     checkResult,
   });
 
@@ -34,7 +36,7 @@ export default function RefrigerationCheckForm() {
     if (data.checkDate) setCheckDate(data.checkDate.split("T")[0]);
     if (data.equipmentName) setEquipmentName(data.equipmentName);
     if (data.equipmentType) setEquipmentType(data.equipmentType);
-    if (data.temperature) setTemperature(data.temperature);
+    if (data.temperature !== null && data.temperature !== undefined && data.temperature !== "") setTemperature(String(data.temperature));
     if (data.checkResult) setCheckResult(data.checkResult);
   };
 
@@ -43,6 +45,7 @@ export default function RefrigerationCheckForm() {
       config={config}
       collectFormData={collectFormData}
       onDataRestore={onDataRestore}
+      validateBeforeSubmit={(fd) => checklistSubmitProblems(config.formType, fd)}
     >
       <div className="p-6 space-y-6">
         <div className="grid grid-cols-2 gap-4">
@@ -76,9 +79,9 @@ export default function RefrigerationCheckForm() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="freezer">freezer</SelectItem>
-                <SelectItem value="refrigerator">refrigerator</SelectItem>
-                <SelectItem value="cold_storage">cold_storage</SelectItem>
+                <SelectItem value="freezer">냉동고</SelectItem>
+                <SelectItem value="refrigerator">냉장고</SelectItem>
+                <SelectItem value="cold_storage">저온창고</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -88,8 +91,10 @@ export default function RefrigerationCheckForm() {
               id="temperature"
               type="number"
               step="0.01"
+              inputMode="decimal"
               value={temperature}
-              onChange={(e) => setTemperature(parseFloat(e.target.value) || 0)}
+              placeholder="실측 온도"
+              onChange={(e) => setTemperature(e.target.value)}
               required
             />
           </div>
@@ -103,8 +108,8 @@ export default function RefrigerationCheckForm() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="pass">pass</SelectItem>
-                <SelectItem value="fail">fail</SelectItem>
+                <SelectItem value="pass">적합</SelectItem>
+                <SelectItem value="fail">부적합</SelectItem>
               </SelectContent>
             </Select>
           </div>

@@ -1,4 +1,5 @@
 import { judgeTemp } from "../../lib/checklist/tempJudge";
+import { checklistSubmitProblems } from "@shared/checklist/submitChecks";
 import { useState, useCallback } from "react";
 import ChecklistFormLayout from "@/components/checklist/ChecklistFormLayout";
 import type { ChecklistFormConfig } from "@/components/checklist/ChecklistFormLayout";
@@ -121,7 +122,13 @@ export default function TemperatureHumidityCheckForm() {
 
   const updateSpaceRow = useCallback(() => {
     if (!editingRow) return;
-    setSpaceRows(prev => prev.map(r => r.id === editingRow.id ? editingRow : r));
+    // 기준을 바꾸면 판정도 새 기준으로 다시 — 이전 판정이 남지 않게 (Codex 위생 점검 SAN-01)
+    setSpaceRows(prev => prev.map(r => {
+      if (r.id !== editingRow.id) return r;
+      return editingRow.tempStandard !== r.tempStandard
+        ? { ...editingRow, judgment: judgeTemp(editingRow.tempResult, editingRow.tempStandard) }
+        : editingRow;
+    }));
     setEditingRow(null);
   }, [editingRow]);
 
@@ -212,6 +219,7 @@ export default function TemperatureHumidityCheckForm() {
 
   return (
     <ChecklistFormLayout
+      validateBeforeSubmit={(fd) => checklistSubmitProblems(config.formType, fd)}
       config={config}
       collectFormData={collectFormData}
       onDataRestore={onDataRestore}
