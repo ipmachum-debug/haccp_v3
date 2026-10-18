@@ -36,6 +36,8 @@ export interface ProcessGroupInfo {
   temperature_max: number | null;
   time_min: number | null;
   time_max: number | null;
+  /** 공정 가열 운전시간 — ccp_time_profiles (활성 1개일 때만, 여러 개면 null = 확인 필요) */
+  profile_time_min?: number | null;
   pressure_min: number | null;
   pressure_max: number | null;
   mapping_source: "BOM" | "MANUAL" | "ALWAYS";
@@ -130,6 +132,7 @@ export async function getProcessGroupsForProduct(args: {
     temperature_max: r.temperature_max != null ? Number(r.temperature_max) : null,
     time_min:        r.time_min        != null ? Number(r.time_min)        : null,
     time_max:        r.time_max        != null ? Number(r.time_max)        : null,
+    profile_time_min: Number(r.profile_count) === 1 && r.profile_time_min != null ? Number(r.profile_time_min) : null,
     pressure_min:    r.pressure_min    != null ? Number(r.pressure_min)    : null,
     pressure_max:    r.pressure_max    != null ? Number(r.pressure_max)    : null,
     mapping_source:  source,
@@ -158,6 +161,8 @@ export async function getProcessGroupsForProduct(args: {
        g.id, g.name, g.ccp_type,
        g.temperature_min, g.temperature_max,
        g.time_min, g.time_max,
+       (SELECT COUNT(*) FROM ccp_time_profiles tp WHERE tp.tenant_id = g.tenant_id AND tp.ccp_process_group_id = g.id AND tp.is_active = 1) AS profile_count,
+       (SELECT MAX(tp.time_minutes) FROM ccp_time_profiles tp WHERE tp.tenant_id = g.tenant_id AND tp.ccp_process_group_id = g.id AND tp.is_active = 1) AS profile_time_min,
        g.pressure_min, g.pressure_max,
        ${equipSelect}
        COUNT(i.id) AS ingredient_count
@@ -180,6 +185,8 @@ export async function getProcessGroupsForProduct(args: {
        g.id, g.name, g.ccp_type,
        g.temperature_min, g.temperature_max,
        g.time_min, g.time_max,
+       (SELECT COUNT(*) FROM ccp_time_profiles tp WHERE tp.tenant_id = g.tenant_id AND tp.ccp_process_group_id = g.id AND tp.is_active = 1) AS profile_count,
+       (SELECT MAX(tp.time_minutes) FROM ccp_time_profiles tp WHERE tp.tenant_id = g.tenant_id AND tp.ccp_process_group_id = g.id AND tp.is_active = 1) AS profile_time_min,
        g.pressure_min, g.pressure_max,
        ${equipSelect}
        NULL AS ingredient_count
@@ -201,6 +208,8 @@ export async function getProcessGroupsForProduct(args: {
        g.id, g.name, g.ccp_type,
        g.temperature_min, g.temperature_max,
        g.time_min, g.time_max,
+       (SELECT COUNT(*) FROM ccp_time_profiles tp WHERE tp.tenant_id = g.tenant_id AND tp.ccp_process_group_id = g.id AND tp.is_active = 1) AS profile_count,
+       (SELECT MAX(tp.time_minutes) FROM ccp_time_profiles tp WHERE tp.tenant_id = g.tenant_id AND tp.ccp_process_group_id = g.id AND tp.is_active = 1) AS profile_time_min,
        g.pressure_min, g.pressure_max,
        ${equipSelect}
        NULL AS ingredient_count
@@ -251,12 +260,12 @@ async function checkEquipColumns(conn: any): Promise<boolean> {
  * 공정그룹 × 설비 → h_ccp_rows 자동 생성
  *
  * ── 시간 계산 원칙 ─────────────────────────────────────────────────
- *  ★ 2026-10-18 (CEO 검토): 한계기준(time_min, 하한)과 표준 운영시간(설비 default_time)은 다른 값이다.
- *    행에 미리 채우는 가열시간은 **운영값** — 설비 default_time. 공정 time_min 은 적합 판정 기준으로만 쓰고
- *    운영값 자리에 넣지 않는다. 운영값이 없으면 비워 둔다 (코드 기본 10분 없음).
- *  heating_min    = equipments.default_time (설비 표준 운영 가열시간) — 없으면 NULL
- *  cycle_total    = equipments.batch_operation_time (설비 유휴포함 사이클)
- *  duration_min   = cycle_total (없으면 heating_min)
+ *  ★ 2026-10-18: 한계기준(time_min, 하한)은 가열 운전시간이 아니다 — 판정에만 쓴다.
+ *    가열 운전시간 = 공정 시간 프로필(ccp_time_profiles, 약식35·설기10·교반10·오븐10) → 없으면 설비 default_time → 없으면 비움.
+ *    한 공정에 활성 프로필이 여러 개면 임의로 고르지 않고 비운다 (확인 필요).
+ *  heating_min    = profile_time_min ?? equipments.default_time ?? NULL
+ *  cycle_total    = equipments.batch_operation_time (설비 기본 가열을 포함한 1사이클)
+ *  duration_min   = cycle_total + (heating_min − 설비 default_time)   (설비 점유시간; 값이 모자라면 cycle_total ?? heating_min)
  *
  *  예) 교반기(사이클70, 기본가열10) + 교반-가열공정(가열10)
  *      → 70 + (10 - 10) = 70분
@@ -301,7 +310,7 @@ async function createCcpRowsForGroup(
     const tempC        = group.temperature_min != null ? group.temperature_min.toString() : null;
     // MPa → bar
     const pressureBar  = group.pressure_min != null ? (group.pressure_min * 10).toFixed(2) : null;
-    const heatingMin: number | null = null; // 설비가 없으면 운영 가열시간을 알 수 없다 — 비워 둔다 (한계 하한을 넣지 않음)
+    const heatingMin: number | null = group.profile_time_min ?? null; // 공정 시간 프로필만 — 한계 하한을 넣지 않음
 
     let sortIdx = 0;
     for (let bn = 1; bn <= batchCount; bn++) {
@@ -354,9 +363,13 @@ async function createCcpRowsForGroup(
             : null;
 
       // 시간 계산
-      const heatingMin: number | null = eq.default_time ?? null;
+      const heatingMin: number | null = group.profile_time_min ?? eq.default_time ?? null;
       const cycleTotalMin  = eq.batch_operation_time ?? null;
-      const durationMin    = cycleTotalMin ?? heatingMin;
+      // 설비 점유 = 기본 사이클 + (이 공정 가열 − 설비 기본 가열). 예: 약식 34 + (35 − 10) = 59
+      const durationMin    =
+        cycleTotalMin != null && heatingMin != null && eq.default_time != null
+          ? cycleTotalMin + (heatingMin - eq.default_time)
+          : (cycleTotalMin ?? heatingMin);
 
       await conn.execute(
         `INSERT INTO h_ccp_rows

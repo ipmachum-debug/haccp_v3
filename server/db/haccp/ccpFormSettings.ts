@@ -474,8 +474,10 @@ export async function syncCcpRowsToFormRows(params: {
           const [equipRows] = await rawConn.execute<any[]>(
             `SELECT pge.equipment_id, e.name as equipment_name,
                     e.default_temperature as temp_c,
-                    e.batch_operation_time as duration_min,
-                    e.default_time as heating_min,
+                    e.batch_operation_time as cycle_min,
+                    e.default_time as eq_heat_min,
+                    (SELECT COUNT(*) FROM ccp_time_profiles tp WHERE tp.tenant_id = pge.tenant_id AND tp.ccp_process_group_id = pge.process_group_id AND tp.is_active = 1) as profile_count,
+                    (SELECT MAX(tp.time_minutes) FROM ccp_time_profiles tp WHERE tp.tenant_id = pge.tenant_id AND tp.ccp_process_group_id = pge.process_group_id AND tp.is_active = 1) as profile_time_min,
                     (e.default_pressure * 10) as pressure_bar
              FROM ccp_process_group_equipments pge
              JOIN equipments e ON e.id = pge.equipment_id AND e.tenant_id = pge.tenant_id
@@ -484,17 +486,24 @@ export async function syncCcpRowsToFormRows(params: {
             [processGroupId, tenantId],
           );
           if ((equipRows as any[]).length > 0) {
-            ccpRows = (equipRows as any[]).map((eq: any, idx: number) => ({
-              sort_order: idx + 1,
-              equipment_id: eq.equipment_id,
-              equipment_name: eq.equipment_name,
-              temp_c: eq.temp_c,
-              duration_min: eq.duration_min,
-              heating_min: eq.heating_min,
-              pressure_bar: eq.pressure_bar,
-              result: "PASS",
-              note: null,
-            }));
+            // 가열 운전시간 = 공정 시간 프로필(1개일 때) → 설비 기본 → 비움, 점유 = 사이클 + (가열 − 설비 기본) — ccp-batch 와 같은 규칙
+            ccpRows = (equipRows as any[]).map((eq: any, idx: number) => {
+              const n = (v: any) => (v == null ? null : Number(v));
+              const heat = (Number(eq.profile_count) === 1 ? n(eq.profile_time_min) : null) ?? n(eq.eq_heat_min);
+              const cycle = n(eq.cycle_min), eqHeat = n(eq.eq_heat_min);
+              const duration = cycle != null && heat != null && eqHeat != null ? cycle + (heat - eqHeat) : (cycle ?? heat);
+              return {
+                sort_order: idx + 1,
+                equipment_id: eq.equipment_id,
+                equipment_name: eq.equipment_name,
+                temp_c: eq.temp_c,
+                duration_min: duration,
+                heating_min: heat,
+                pressure_bar: eq.pressure_bar,
+                result: "PASS",
+                note: null,
+              };
+            });
           }
         } catch (eqErr) {
           console.error(`[syncCcpRowsToFormRows] ${ccpType} equipment fallback failed:`, eqErr);
