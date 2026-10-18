@@ -16,6 +16,7 @@
 // ═══════════════════════════════════════════════════════════════
 import { selectBomVersion } from "../../lib/identity/itemIdentityService";
 import { ccpInputKgByGroup, CCP_BOM_ROWS_SQL, ccpInputKgFromSnapshot } from "../../lib/production/ccpBomInput";
+import { WRITE_METAL_PLAN_TABLES } from "../../lib/haccp/metalRecordSource";
 import { getDb, getRawConnection } from "../connection";
 import { loadBatchMassBasis } from "../production/batchMassBasis";
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
@@ -396,7 +397,27 @@ export async function syncCcpRowsToFormRows(params: {
         expectedProductNames.size > 0 &&
         Array.from(expectedProductNames).every((nm) => existingProductNames.has(nm));
 
-      if (linkedBatchExists && allProductsCovered) {
+      // ★ 2026-10-18: 이름만 보면 같은 날 같은 제품의 두 번째 배치, 나중에 저장된 SKU 실적(통과량 = 생산량)이 반영되지 않았다.
+      //   통과행 수와 통과량 합도 당일 배치·SKU 실적과 같아야 건너뛴다.
+      let passageMatches = false;
+      try {
+        const [[ex]]: any = await rawConn.execute(
+          `SELECT COUNT(*) AS n, COALESCE(SUM(pass_qty), 0) AS q FROM h_ccp_form_rows
+            WHERE form_record_id = ? AND tenant_id = ? AND equipment_type = 'passage'`,
+          [formRecordId, tenantId],
+        );
+        const [[want]]: any = await rawConn.execute(
+          `SELECT COUNT(*) AS n,
+                  COALESCE(SUM(CASE WHEN pso.id IS NOT NULL AND pso.quantity > 0 THEN ROUND(pso.quantity) ELSE ROUND(COALESCE(pso.total_kg, b.planned_quantity, 0)) END), 0) AS q
+             FROM h_batches b
+             LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
+            WHERE b.tenant_id = ? AND b.planned_date = ?`,
+          [tenantId, fr.work_date],
+        );
+        passageMatches = Number(ex.n) === Number(want.n) && Number(ex.q) === Number(want.q);
+      } catch { /* 판정 불가 → 재생성 */ }
+
+      if (linkedBatchExists && allProductsCovered && passageMatches) {
         console.log(
           `[syncCcpRowsToFormRows] CCP-4P skip: formRecord=${formRecordId}, ` +
             `existing=[${Array.from(existingProductNames).join(",")}], ` +
@@ -872,6 +893,7 @@ export async function syncCcpRowsToFormRows(params: {
         skuName: string;
         plannedQty: number;
         passQty: number;
+        passUnit: string;
         allocatedMin: number;
         workStart: number;
         workEnd: number;
@@ -883,7 +905,7 @@ export async function syncCcpRowsToFormRows(params: {
         const [skuRows] = await rawConn.execute<any[]>(
           `SELECT b.id as batch_id, b.product_id, b.planned_quantity,
                   COALESCE(p.product_name, fr2.product_name) as product_name,
-                  pso.sku_id, ps.sku_name, ps.sku_code,
+                  pso.sku_id, ps.sku_name, ps.sku_code, ps.sales_unit,
                   COALESCE(pso.quantity, 0) as sku_quantity,
                   COALESCE(pso.total_kg, b.planned_quantity) as sku_kg
            FROM h_batches b
@@ -905,6 +927,8 @@ export async function syncCcpRowsToFormRows(params: {
             skuName: r.sku_name || r.product_name || frProductName || "",
             plannedQty: parseFloat(r.sku_kg) || parseFloat(r.planned_quantity) || 0,
             passQty: parseInt(r.sku_quantity) || Math.round(parseFloat(r.sku_kg) || parseFloat(r.planned_quantity) || 0),
+            // 통과량 = 생산량. SKU 실적이 있으면 그 판매단위(팩·상자…), 없으면 kg (2026-10-18 — 같은 '개' 칸에 단위가 섞이던 문제)
+            passUnit: parseInt(r.sku_quantity) ? (r.sales_unit || "ea") : "kg",
             allocatedMin: 0,
             workStart: 0,
             workEnd: 0,
@@ -922,6 +946,7 @@ export async function syncCcpRowsToFormRows(params: {
           skuName: frProductName || "",
           plannedQty: batchPlannedKg || 0,
           passQty: Math.round(batchPlannedKg || 0),
+          passUnit: "kg",
           allocatedMin: totalWorkMin,
           workStart: workStartMin,
           workEnd: workEndMin,
@@ -1063,8 +1088,8 @@ export async function syncCcpRowsToFormRows(params: {
         [formRecordId, tenantId],
       );
 
-      // 4.1 새 테이블 기록 (일일 통합: 전체 skuSlots 기준)
-      try {
+      // 4.1 계획 전용 표 기록 — 꺼짐. 금속검출 정본은 form rows (server/lib/haccp/metalRecordSource.ts)
+      if (WRITE_METAL_PLAN_TABLES) try {
         await rawConn.execute(
           `DELETE FROM h_ccp_batch_process_runs WHERE tenant_id = ? AND work_date = ?`,
           [tenantId, batchWorkDate],
@@ -1324,7 +1349,7 @@ export async function syncCcpRowsToFormRows(params: {
             } catch { /* fallback */ }
           }
 
-          await rawConn.execute(
+          const [ins]: any = await rawConn.execute(
             `INSERT INTO h_ccp_form_rows
                (tenant_id, form_record_id, batch_seq, equipment_type,
                 product_name, pass_time_start, pass_time_end,
@@ -1342,6 +1367,10 @@ export async function syncCcpRowsToFormRows(params: {
               actualPassQty,
             ],
           );
+          // 통과량 단위 — 컬럼이 아직 없는 DB 에서는 건너뜀
+          try {
+            await rawConn.execute(`UPDATE h_ccp_form_rows SET pass_unit = ? WHERE id = ? AND tenant_id = ?`, [slot.passUnit, Number(ins?.insertId), tenantId]);
+          } catch (e: any) { if (e?.code !== "ER_BAD_FIELD_ERROR") throw e; }
           seqNum++;
           totalSynced++;
         }

@@ -681,7 +681,7 @@ function Ccp4pDailyTables({
                 <TableHead className="py-1 text-xs">제품명</TableHead>
                 <TableHead className="py-1 text-xs">최초통과</TableHead>
                 <TableHead className="py-1 text-xs">통과종료</TableHead>
-                <TableHead className="py-1 text-xs text-right">통과량(개)</TableHead>
+                <TableHead className="py-1 text-xs text-right">통과량</TableHead>
                 <TableHead className="py-1 text-xs text-right">검출량(개)</TableHead>
                 <TableHead className="py-1 text-xs">특이사항</TableHead>
                 <TableHead className="py-1 text-xs">판정</TableHead>
@@ -694,7 +694,7 @@ function Ccp4pDailyTables({
                   <TableCell className="py-1">{r.productName || "-"}</TableCell>
                   <TableCell className="py-1 font-mono">{r.passTimeStart || "-"}</TableCell>
                   <TableCell className="py-1 font-mono">{r.passTimeEnd || "-"}</TableCell>
-                  <TableCell className="py-1 text-right font-mono">{r.passQty ?? "-"}</TableCell>
+                  <TableCell className="py-1 text-right font-mono">{r.passQty != null ? `${r.passQty}${({ pack: "팩", box: "상자", ea: "개", kg: "kg", bag: "봉", tray: "판" } as Record<string, string>)[String((r as any).passUnit)] ?? ((r as any).passUnit ?? "")}` : "-"}</TableCell>
                   <TableCell className="py-1 text-right font-mono">{r.detectedQty ?? 0}</TableCell>
                   <TableCell className="py-1 text-muted-foreground">{r.specialNote || "-"}</TableCell>
                   <TableCell className="py-1"><ResultBadge result={r.result} /></TableCell>

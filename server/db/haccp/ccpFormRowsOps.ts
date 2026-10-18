@@ -49,11 +49,24 @@ export async function getCcpFormRows(formRecordId: number, tenantId?: number) {
   const conditions = tenantId
     ? and(eq(hCcpFormRows.formRecordId, formRecordId), eq(hCcpFormRows.tenantId, tenantId))
     : eq(hCcpFormRows.formRecordId, formRecordId);
-  return db
+  const rows = await db
     .select()
     .from(hCcpFormRows)
     .where(conditions)
     .orderBy(hCcpFormRows.batchSeq);
+  // 통과량 단위(pass_unit) — Drizzle 스키마 밖 컬럼이라 따로 읽는다 (마이그레이션 전 DB 에서도 깨지지 않게, 2026-10-18)
+  try {
+    const conn = await getRawConnection();
+    const [u]: any = await conn.execute(
+      `SELECT id, pass_unit FROM h_ccp_form_rows WHERE form_record_id = ?${tenantId ? " AND tenant_id = ?" : ""} AND pass_unit IS NOT NULL`,
+      tenantId ? [formRecordId, tenantId] : [formRecordId],
+    );
+    const unit = new Map((u as any[]).map((r) => [Number(r.id), String(r.pass_unit)]));
+    if (unit.size) return rows.map((r: any) => ({ ...r, passUnit: unit.get(Number(r.id)) ?? null }));
+  } catch (e: any) {
+    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+  }
+  return rows;
 }
 
 /**
