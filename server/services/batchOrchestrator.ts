@@ -42,6 +42,10 @@ export interface SingleBatchInput {
   userRole?: string;
   /** true = skip daily report + approval (caller handles at group level) */
   skipGroupActions?: boolean;
+  /** 오늘만 바꾼 시작시각 — CCP 계획에서 설비 작업 시작보다 우선 (PR-B) */
+  startTimeOverride?: string | null;
+  /** 오늘만 쓰지 않는 설비 (PR-B) */
+  excludedEquipmentIds?: number[];
 }
 
 export interface SingleBatchResult {
@@ -139,29 +143,8 @@ export async function createSingleBatch(
   let ccpGroups: Array<{ id: number; name: string; ccp_type: string }> = [];
   let ccpGroupNames: string[] = [];
 
-  // BOM batch_target_kg 선행 조회 → CCP 인스턴스 생성 + form records 모두에서 사용
+  // 회차 기준량은 ccp-batch 가 배치가 쓰는 BOM 버전에서 읽는다 (결함 #11 — 이전: 여기서 '최신 승인' 버전을 따로 읽어 넘김)
   let bomBatchKg: number | undefined = undefined;
-  try {
-    const bomPool = await getRawConnection();
-    const [bomRows] = await bomPool.execute<any[]>(
-      `SELECT rv.batch_target_kg
-       FROM h_mf_report_versions rv
-       JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
-       WHERE mr.product_id = ? AND mr.tenant_id = ?
-         AND rv.approval_status = 'APPROVED'
-       ORDER BY rv.id DESC LIMIT 1`,
-      [input.productId, input.tenantId]
-    );
-    const btkVal = (bomRows as any[])[0]?.batch_target_kg;
-    if (btkVal) {
-      bomBatchKg = parseFloat(btkVal);
-    }
-    if (bomBatchKg) {
-      console.log(`[batchOrchestrator] BOM batch_target_kg=${bomBatchKg}kg, planned=${input.plannedQuantityKg}kg → batchCount=${Math.ceil(input.plannedQuantityKg / bomBatchKg)}`);
-    }
-  } catch (bomErr) {
-    console.error("[batchOrchestrator] BOM batch_target_kg 조회 실패:", bomErr);
-  }
 
   try {
     const result = await autoCreateCcpInstancesForBatch({
@@ -173,12 +156,14 @@ export async function createSingleBatch(
       createdBy: input.userId,
       tenantId: input.tenantId,
       plannedQuantity: input.plannedQuantityKg,
-      bomBatchKg: bomBatchKg ?? undefined, // 선행 조회된 값 전달
+      startTimeOverride: input.startTimeOverride ?? null,
+      excludedEquipmentIds: input.excludedEquipmentIds,
     });
     // ★ 2026-04-15: ccpCreated 판정 기준을 "그룹 존재 여부" 로 변경
     //   이전 버그: instanceIds.length > 0 로만 판정하면, 이미 인스턴스가 존재하는
     //   배치(복구/재시도)는 instanceIds=[] 반환 → form_record 생성 스킵
     //   수정: result.groups 에 신규 + 기존 그룹 전부 포함되므로 groups 기준 판정
+    bomBatchKg = result.subBatchKg ?? undefined; // 기록지 1행 기준량 = 계획과 같은 BOM 버전
     ccpCreated = (result.groups || []).length > 0;
     ccpCount = result.groups?.length || 0;
     ccpGroups = (result.groups || []).map((g: any) => ({

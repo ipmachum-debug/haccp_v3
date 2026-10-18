@@ -26,7 +26,9 @@
  */
 
 import { getRawConnection } from "../db";
-import { resolveBomProductIds, inPlaceholders, selectBomVersion } from "../lib/identity/itemIdentityService";
+import { selectBomVersion } from "../lib/identity/itemIdentityService";
+import { planDay, type PlannedItem, type PlannerGroup, type PlannerItem } from "../lib/production/ccpDayPlanner";
+import { loadPlanBom, loadDayBusy, type PlanBom } from "../lib/production/ccpPlanContext";
 
 export interface ProcessGroupInfo {
   id: number;
@@ -63,6 +65,8 @@ export interface EquipmentAssignment {
   batch_operation_time: number | null;
   /** 설비 기본 가열(작업)시간(분) */
   default_time: number | null;
+  /** 설비 작업 시작시각 HH:MM */
+  work_start_time?: string | null;
 }
 
 /**
@@ -84,7 +88,8 @@ export async function getEquipmentsForProcessGroup(
        eq.default_temperature,
        eq.default_pressure,
        eq.batch_operation_time,
-       eq.default_time
+       eq.default_time,
+       eq.work_start_time
      FROM ccp_process_group_equipments ge
      JOIN equipments eq
        ON eq.id = ge.equipment_id
@@ -105,6 +110,7 @@ export async function getEquipmentsForProcessGroup(
     default_pressure:    r.default_pressure    != null ? Number(r.default_pressure)    : null,
     batch_operation_time:r.batch_operation_time != null ? Number(r.batch_operation_time) : null,
     default_time:        r.default_time        != null ? Number(r.default_time)        : null,
+    work_start_time:     r.work_start_time ? String(r.work_start_time).slice(0, 5) : null,
   }));
 }
 
@@ -256,144 +262,119 @@ async function checkEquipColumns(conn: any): Promise<boolean> {
   return _equipColsChecked;
 }
 
+/** CCP-4P: 감도 시편 Fe + SUS 2행 (하루 통과 배분은 기록지 동기화가 따로) */
+async function createMetalTestRows(instanceId: number, conn: any, tenantId: number): Promise<void> {
+  const tests = [
+    { sortOrder: 1, note: "Fe (철) 기준 시편 검출 테스트" },
+    { sortOrder: 2, note: "SUS (스테인리스) 기준 시편 검출 테스트" },
+  ];
+  for (const t of tests) {
+    await conn.execute(
+      `INSERT INTO h_ccp_rows
+         (instance_id, sort_order, row_type, result, note, auto_generated, tenant_id)
+       VALUES (?, ?, 'measurement', 'PASS', ?, 1, ?)`,
+      [instanceId, t.sortOrder, t.note, tenantId],
+    );
+  }
+}
+
 /**
- * 공정그룹 × 설비 → h_ccp_rows 자동 생성
+ * 가열공정(1B/2B) h_ccp_rows — 하루 계획(planDay) 그대로 (2026-10-18, PR-B)
  *
- * ── 시간 계산 원칙 ─────────────────────────────────────────────────
- *  ★ 2026-10-18: 한계기준(time_min, 하한)은 가열 운전시간이 아니다 — 판정에만 쓴다.
- *    가열 운전시간 = 공정 시간 프로필(ccp_time_profiles, 약식35·설기10·교반10·오븐10) → 없으면 설비 default_time → 없으면 비움.
- *    한 공정에 활성 프로필이 여러 개면 임의로 고르지 않고 비운다 (확인 필요).
- *  heating_min    = profile_time_min ?? equipments.default_time ?? NULL
- *  cycle_total    = equipments.batch_operation_time (설비 기본 가열을 포함한 1사이클)
- *  duration_min   = cycle_total + (heating_min − 설비 default_time)   (설비 점유시간; 값이 모자라면 cycle_total ?? heating_min)
- *
- *  예) 교반기(사이클70, 기본가열10) + 교반-가열공정(가열10)
- *      → 70 + (10 - 10) = 70분
- *  예) 증숙기(사이클22, 기본가열10) + 증숙(약식류)공정(가열35)
- *      → 22 + (35 - 10) = 47분
- * ────────────────────────────────────────────────────────────────────
- *
- * ── 압력 단위 변환 ───────────────────────────────────────────────
- *  설비기준: equipments.default_pressure (MPa 단위)
- *  공정기준: ccp_process_groups.pressure_min (MPa 단위)
- *  h_ccp_rows.pressure_bar 컬럼 → bar 로 저장
- *  MPa → bar: × 10
- * ────────────────────────────────────────────────────────────────────
+ *  행 = 회차. 설비·가열 운전시간·설비 점유·설정온도·설정압력(MPa→bar ×10)·예정 시작/끝·예정 투입량을 계획에서 받는다.
+ *  예정 시작/끝·예정 투입량(planned_*)은 계획 스냅샷이다 — 기록지 동기화가 그대로 읽어 미리보기와 같은 값이 된다.
+ *  한계기준(CL)은 판정용 — 설정값 칸을 한계기준 하한으로 채우지 않는다 (이전: 설비 값이 없으면 CL 하한).
+ *  계획 컬럼이 없는 DB 에서는 planned_* 없이 저장한다.
  */
-async function createCcpRowsForGroup(
-  instanceId: number,
-  group: ProcessGroupInfo,
-  equipments: EquipmentAssignment[],
-  conn: any,
-  tenantId: number,
-  batchCount: number = 1,
-): Promise<void> {
-  // ── CCP-4P: Fe + SUS 2행
-  if (group.ccp_type === "CCP-4P") {
-    const tests = [
-      { sortOrder: 1, note: "Fe (철) 기준 시편 검출 테스트" },
-      { sortOrder: 2, note: "SUS (스테인리스) 기준 시편 검출 테스트" },
-    ];
-    for (const t of tests) {
+async function insertPlannedRows(instanceId: number, process: PlannedItem["processes"][number], conn: any, tenantId: number): Promise<void> {
+  for (const r of process.rounds) {
+    const base = [instanceId, r.roundNo, r.equipmentId, r.equipmentName, r.seq, r.tempC, r.occupancyMin, r.heatingMin, r.cycleTotalMin, r.pressureBar];
+    try {
       await conn.execute(
         `INSERT INTO h_ccp_rows
-           (instance_id, sort_order, row_type, result, note, auto_generated, tenant_id)
-         VALUES (?, ?, 'measurement', 'PASS', ?, 1, ?)`,
-        [instanceId, t.sortOrder, t.note, tenantId],
+           (instance_id, batch_no, equipment_id, equipment_name, sort_order,
+            row_type, temp_c, duration_min, heating_min, cycle_total_min,
+            pressure_bar, result, auto_generated, tenant_id, planned_start, planned_end, planned_input_kg)
+         VALUES (?, ?, ?, ?, ?, 'measurement', ?, ?, ?, ?, ?, 'PASS', 1, ?, ?, ?, ?)`,
+        [...base, tenantId, r.plannedStart, r.plannedEnd, r.inputKg],
       );
-    }
-    return;
-  }
-
-  // ── CCP-1B / CCP-2B: 설비 없으면 공정 한계기준으로 3행 생성 (폴백)
-  if (equipments.length === 0) {
-    const tempC        = group.temperature_min != null ? group.temperature_min.toString() : null;
-    // MPa → bar
-    const pressureBar  = group.pressure_min != null ? (group.pressure_min * 10).toFixed(2) : null;
-    const heatingMin: number | null = group.profile_time_min ?? null; // 공정 시간 프로필만 — 한계 하한을 넣지 않음
-
-    let sortIdx = 0;
-    for (let bn = 1; bn <= batchCount; bn++) {
-      for (let i = 1; i <= 3; i++) {
-        sortIdx++;
-        await conn.execute(
-          `INSERT INTO h_ccp_rows
-             (instance_id, batch_no, sort_order, row_type, temp_c, duration_min,
-              heating_min, cycle_total_min, pressure_bar,
-              result, auto_generated, tenant_id)
-           VALUES (?, ?, ?, 'measurement', ?, ?,
-                   ?, NULL, ?, 'PASS', 1, ?)`,
-          [instanceId, bn, sortIdx, tempC, heatingMin, heatingMin, pressureBar, tenantId],
-        );
-      }
-    }
-    return;
-  }
-
-  // ── 배치수 × 묶음크기 = 행 수 (설비는 라운드로빈 순환)
-  // equip_batch_size: 1배치에 동시 가동하는 설비 수
-  //   묶음크기=1 (순차): 배치1→설비1, 배치2→설비2, 배치3→설비1...
-  //   묶음크기=3 (묶음순차): 배치1→설비1,2,3 동시, 배치2→설비4,5,6 동시
-  // 총 행 수 = batchCount × equipBatchSize
-  const equipBatchSize = group.equip_batch_size ?? 1;
-  let sortIdx = 0;
-  for (let bn = 1; bn <= batchCount; bn++) {
-    // 이 배치에 할당할 설비들 (묶음크기만큼)
-    const startEqIdx = ((bn - 1) * equipBatchSize) % equipments.length;
-    for (let g = 0; g < equipBatchSize; g++) {
-      const eqIdx = (startEqIdx + g) % equipments.length;
-      const eq = equipments[eqIdx];
-      sortIdx++;
-
-      // 온도: 설비기준 우선 → 공정 한계기준 폴백
-      const tempC =
-        eq.default_temperature != null
-          ? eq.default_temperature.toString()
-          : group.temperature_min != null
-            ? group.temperature_min.toString()
-            : null;
-
-      // 압력: 설비기준(MPa→bar) 우선 → 공정기준(MPa→bar) 폴백
-      // equipments.default_pressure는 MPa 단위이므로 ×10 으로 bar 변환
-      const pressureBar =
-        eq.default_pressure != null
-          ? (eq.default_pressure * 10).toFixed(2)
-          : group.pressure_min != null
-            ? (group.pressure_min * 10).toFixed(2)
-            : null;
-
-      // 시간 계산
-      const heatingMin: number | null = group.profile_time_min ?? eq.default_time ?? null;
-      const cycleTotalMin  = eq.batch_operation_time ?? null;
-      // 설비 점유 = 기본 사이클 + (이 공정 가열 − 설비 기본 가열). 예: 약식 34 + (35 − 10) = 59
-      const durationMin    =
-        cycleTotalMin != null && heatingMin != null && eq.default_time != null
-          ? cycleTotalMin + (heatingMin - eq.default_time)
-          : (cycleTotalMin ?? heatingMin);
-
+    } catch (e: any) {
+      if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
       await conn.execute(
         `INSERT INTO h_ccp_rows
            (instance_id, batch_no, equipment_id, equipment_name, sort_order,
             row_type, temp_c, duration_min, heating_min, cycle_total_min,
             pressure_bar, result, auto_generated, tenant_id)
-         VALUES (?, ?, ?, ?, ?, 'measurement', ?, ?, ?, ?,
-                 ?, 'PASS', 1, ?)`,
-        [
-          instanceId,
-          bn,
-          eq.equipment_id,
-          eq.equipment_name,
-          sortIdx,
-          tempC,
-          durationMin,
-          heatingMin,
-          cycleTotalMin,
-          pressureBar,
-          tenantId,
-        ],
+         VALUES (?, ?, ?, ?, ?, 'measurement', ?, ?, ?, ?, ?, 'PASS', 1, ?)`,
+        [...base, tenantId],
       );
-    } // end for g (묶음 내 설비)
-  } // end for bn (배치)
+    }
+  }
+}
+
+/** 공정그룹 정보 → 계획 입력 (가열공정만) */
+export function toPlannerGroup(g: ProcessGroupInfo, equipments: EquipmentAssignment[]): PlannerGroup {
+  const mode = g.equip_group_mode === "concurrent" || g.equip_group_mode === "grouped" ? g.equip_group_mode : "sequential";
+  return {
+    id: g.id, name: g.name, ccpType: g.ccp_type, mappingSource: g.mapping_source, mode,
+    intervalMin: g.equip_interval_min ?? 10,
+    batchSize: Math.max(1, g.equip_batch_size ?? 1),
+    profileTimeMin: g.profile_time_min ?? null,
+    equipments: equipments.map((e) => ({
+      id: e.equipment_id, name: e.equipment_name, sortOrder: e.sort_order,
+      defaultTemperature: e.default_temperature, defaultPressureMpa: e.default_pressure,
+      cycleTotalMin: e.batch_operation_time, defaultTimeMin: e.default_time,
+    })),
+    workStartTime: equipments[0]?.work_start_time ?? null,
+  };
+}
+
+export interface PlanRowInput {
+  rowKey: string;
+  productId: number;
+  plannedKg: number;
+  /** 배치 시작시각 HH:MM */
+  startTime: string;
+  /** 오늘만 바꾼 시작시각 (설비 작업 시작보다 우선) */
+  startTimeOverride?: string | null;
+}
+
+export interface PlanRowMeta {
+  rowKey: string;
+  groups: ProcessGroupInfo[];
+  bom: PlanBom;
+}
+
+/**
+ * 하루 계획 — 미리보기와 배치 생성이 같이 쓴다. 읽기만 한다.
+ *   rows 순서대로 설비를 배정하고, 오늘 이미 저장된 배치(excludeBatchId 제외)가 쓰는 설비 시각을 피한다.
+ */
+export async function planCcpForDay(args: {
+  tenantId: number;
+  workDate: string;
+  rows: PlanRowInput[];
+  excludedEquipmentIds?: number[];
+  excludeBatchId?: number | null;
+}): Promise<{ plans: PlannedItem[]; meta: PlanRowMeta[] }> {
+  const conn = await getRawConnection();
+  const items: PlannerItem[] = [];
+  const meta: PlanRowMeta[] = [];
+  for (const row of args.rows) {
+    const groups = await getProcessGroupsForProduct({ productId: row.productId, tenantId: args.tenantId });
+    const bom = await loadPlanBom(conn, args.tenantId, row.productId, row.plannedKg);
+    const heat: PlannerGroup[] = [];
+    for (const g of groups) {
+      if (g.ccp_type === "CCP-4P") continue;
+      heat.push(toPlannerGroup(g, await getEquipmentsForProcessGroup(g.id, args.tenantId)));
+    }
+    items.push({
+      rowKey: row.rowKey, productId: row.productId, plannedKg: row.plannedKg, startTime: row.startTime,
+      startTimeOverride: row.startTimeOverride ?? null, subBatchKg: bom.subBatchKg, inputByGroup: bom.inputByGroup, groups: heat,
+    });
+    meta.push({ rowKey: row.rowKey, groups, bom });
+  }
+  const busy = await loadDayBusy(conn, args.tenantId, args.workDate, args.excludeBatchId ?? null);
+  return { plans: planDay(items, { busy, excludedEquipmentIds: args.excludedEquipmentIds }), meta };
 }
 
 /**
@@ -412,58 +393,34 @@ export async function autoCreateCcpInstancesForBatch(args: {
   createdBy?: number;
   tenantId?: number;
   plannedQuantity?: number;
+  /** @deprecated 회차 기준량은 배치가 쓰는 BOM 버전에서 읽는다 (결함 #11). 넘겨도 쓰지 않는다. */
   bomBatchKg?: number;
-}): Promise<{ instanceIds: number[]; groups: ProcessGroupInfo[] }> {
+  /** 오늘만 바꾼 시작시각 (설비 작업 시작보다 우선) */
+  startTimeOverride?: string | null;
+  /** 오늘만 쓰지 않는 설비 */
+  excludedEquipmentIds?: number[];
+}): Promise<{ instanceIds: number[]; groups: ProcessGroupInfo[]; plan: PlannedItem | null; subBatchKg: number | null }> {
   const {
     siteId, workDate, batchId,
     productId, productName,
     createdBy, tenantId = 1,
-    plannedQuantity, bomBatchKg,
+    plannedQuantity,
   } = args;
-
-  // batch_count 계산: 총생산량 / BOM 1배치 기준 중량
-  let batchCount = 1;
-  let _plannedQty = plannedQuantity;
-  let _bomBatchKg = bomBatchKg;
 
   const conn = await getRawConnection();
 
-  // plannedQuantity 미전달 시 h_batches에서 조회
-  if (!_plannedQty && batchId) {
-    try {
-      const [bRows] = await conn.execute<any[]>(
-        `SELECT planned_quantity FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`,
-        [batchId, tenantId],
-      );
-      if ((bRows as any[]).length > 0 && (bRows as any[])[0]?.planned_quantity) {
-        _plannedQty = parseFloat((bRows as any[])[0].planned_quantity);
-      }
-    } catch { /* ignore */ }
-  }
-
-  // bomBatchKg 미전달 시 BOM에서 조회
-  if (!_bomBatchKg && productId) {
-    try {
-      const bomPids = await resolveBomProductIds(productId, tenantId, conn);
-      const [vRows] = await conn.execute<any[]>(
-        `SELECT v.batch_target_kg
-         FROM h_mf_reports r
-         JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
-         WHERE r.product_id IN (${inPlaceholders(bomPids)}) AND r.tenant_id = ?
-         ORDER BY (r.product_id = ?) DESC, v.id DESC LIMIT 1`,
-        [...bomPids, tenantId, productId],
-      );
-      if ((vRows as any[]).length > 0 && (vRows as any[])[0]?.batch_target_kg) {
-        _bomBatchKg = parseFloat((vRows as any[])[0].batch_target_kg);
-      }
-    } catch { /* ignore */ }
-  }
-
-  if (_bomBatchKg && _bomBatchKg > 0 && _plannedQty && _plannedQty > 0) {
-    batchCount = Math.ceil(_plannedQty / _bomBatchKg);
-    if (batchCount < 1) batchCount = 1;
-  }
-  console.log(`[ccp-batch] batchCount=${batchCount} (planned=${_plannedQty}kg, bomBatch=${_bomBatchKg}kg)`);
+  // 계획량 · 배치 시작시각 (배치에 저장된 값)
+  let plannedKg = plannedQuantity ?? 0;
+  let startTime = "09:00";
+  try {
+    const [bRows] = await conn.execute<any[]>(
+      `SELECT planned_quantity, DATE_FORMAT(start_time, '%H:%i') AS st FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [batchId, tenantId],
+    );
+    const b = (bRows as any[])[0];
+    if (!plannedKg && b?.planned_quantity) plannedKg = parseFloat(b.planned_quantity);
+    if (b?.st) startTime = String(b.st);
+  } catch { /* ignore */ }
 
   // ── 1. 이미 생성된 공정그룹 ID 조회 (dedup)
   const [existingRows] = await conn.execute<any[]>(
@@ -475,14 +432,25 @@ export async function autoCreateCcpInstancesForBatch(args: {
     (existingRows as any[]).map(r => Number(r.process_group_id)),
   );
 
-  // ── 2. 공정그룹 목록 결정
+  // ── 2. 공정그룹 + 하루 계획 (미리보기와 같은 함수 — planCcpForDay). 오늘 이미 저장된 다른 배치의 설비 시각을 피한다.
   let groups: ProcessGroupInfo[] = [];
+  let plan: PlannedItem | null = null;
+  let subBatchKg: number | null = null;
 
   if (productId) {
     try {
-      groups = await getProcessGroupsForProduct({ productId, tenantId });
+      const day = await planCcpForDay({
+        tenantId, workDate,
+        rows: [{ rowKey: `batch-${batchId}`, productId, plannedKg, startTime, startTimeOverride: args.startTimeOverride ?? null }],
+        excludedEquipmentIds: args.excludedEquipmentIds,
+        excludeBatchId: batchId,
+      });
+      groups = day.meta[0]?.groups ?? [];
+      plan = day.plans[0] ?? null;
+      subBatchKg = day.meta[0]?.bom.subBatchKg ?? null;
+      console.log(`[ccp-batch] 계획: batch=${batchId} 회차=${plan?.roundsCount} (planned=${plannedKg}kg, BOM 버전=${day.meta[0]?.bom.versionId ?? "-"}, 1회차=${day.meta[0]?.bom.subBatchKg ?? "-"}kg)`);
     } catch (err: any) {
-      console.error(`[ccp-batch] ★ 공정그룹 조회 실패 (productId=${productId}, tenantId=${tenantId}):`, err?.message || err);
+      console.error(`[ccp-batch] ★ 공정그룹·계획 조회 실패 (productId=${productId}, tenantId=${tenantId}):`, err?.message || err);
       console.error("[ccp-batch] SQL 오류 시 ccp_process_groups 테이블 스키마를 확인하세요 (equip_group_mode, equip_interval_min, equip_batch_size 컬럼 필요)");
     }
   }
@@ -527,10 +495,7 @@ export async function autoCreateCcpInstancesForBatch(args: {
     }
 
     try {
-      // ── 4. 설비 목록 조회
-      const equipments = await getEquipmentsForProcessGroup(group.id, tenantId);
-
-      // ── 5. CCP 인스턴스 생성
+      // ── 4. CCP 인스턴스 생성
       const [ins] = await conn.execute(
         `INSERT INTO h_ccp_instances
            (site_id, work_date, ccp_type, process_group_id,
@@ -548,26 +513,15 @@ export async function autoCreateCcpInstancesForBatch(args: {
       instanceIds.push(instanceId);
       existingGroupIds.add(group.id); // 다음 반복에서 중복 방지
 
-      // ── 6. 배치수 × 설비별 기본 행 생성 (CCP-4P 제외: batch_count 무시)
-      // grouped 모드: 1배치에 equip_batch_size 대가 병렬 → 실제 배치수 축소
-      // 예) 87kg, BOM 5kg, equip_batch_size=3 → 기본 batchCount=18 → grouped: ceil(18/3)=6
-      let groupBatchCount = 1;
-      if (group.ccp_type === 'CCP-4P') {
-        groupBatchCount = 1;
-      } else if (group.equip_group_mode === 'grouped' && (group.equip_batch_size ?? 1) > 1) {
-        groupBatchCount = Math.ceil(batchCount / (group.equip_batch_size ?? 1));
-        if (groupBatchCount < 1) groupBatchCount = 1;
+      // ── 5. 행: 금속검출은 감도 시편 2행, 가열공정은 계획 그대로
+      if (group.ccp_type === "CCP-4P") {
+        await createMetalTestRows(instanceId, conn, tenantId);
       } else {
-        groupBatchCount = batchCount;
+        const proc = plan?.processes.find((p) => p.processGroupId === group.id);
+        if (proc) await insertPlannedRows(instanceId, proc, conn, tenantId);
+        else console.warn(`[ccp-batch] 계획 없음 — 행 없이 인스턴스만: group="${group.name}" batchId=${batchId}`);
+        console.log(`[ccp-batch] ✓ "${group.name}"(${group.ccp_type}) instanceId=${instanceId} rows=${proc?.rounds.length ?? 0} [${group.mapping_source}] batchId=${batchId}`);
       }
-      await createCcpRowsForGroup(instanceId, group, equipments, conn, tenantId, groupBatchCount);
-
-      console.log(
-        `[ccp-batch] ✓ "${group.name}"(${group.ccp_type}) ` +
-        `instanceId=${instanceId} equipments=${equipments.length}대 ` +
-        `batchCount=${groupBatchCount} rows=${groupBatchCount * (group.ccp_type === 'CCP-4P' ? 2 : equipments.length || 3)} ` +
-        `[${group.mapping_source}] batchId=${batchId}`,
-      );
 
       createdGroups.push(group);
     } catch (err) {
@@ -580,5 +534,5 @@ export async function autoCreateCcpInstancesForBatch(args: {
   //   이전 버그: 배치 재생성 / recovery 후 instance 만 존재하면 groups=[] 반환 → form_record 생성 스킵
   const allGroups = [...createdGroups, ...skippedGroups];
   console.log(`[ccp-batch] 리턴: new instances=${instanceIds.length}, all groups=${allGroups.length} (created=${createdGroups.length}, existing=${skippedGroups.length})`);
-  return { instanceIds, groups: allGroups };
+  return { instanceIds, groups: allGroups, plan, subBatchKg };
 }
