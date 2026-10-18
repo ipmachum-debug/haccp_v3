@@ -85,3 +85,33 @@ describe("planDay — 설비 시간표", () => {
     expect(planDay([item(), item({ rowKey: "r2" })])).toEqual(planDay([item(), item({ rowKey: "r2" })]));
   });
 });
+
+describe("묶음 설비 일부 제외 — 같은 설비 동시 이중 배정 없음 (2026-10-19, Codex 단지 회귀)", () => {
+  const overlaps = (p: ReturnType<typeof planDay>) => {
+    const rows = p.flatMap((x) => x.processes.flatMap((g) => g.rounds)).filter((r) => r.equipmentId != null && r.plannedStart);
+    const m = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+    const bad: string[] = [];
+    rows.forEach((a, i) => rows.slice(i + 1).forEach((b) => {
+      if (a.equipmentId !== b.equipmentId) return;
+      const [as, ae, bs, be] = [m(a.plannedStart!), m(a.plannedEnd ?? a.plannedStart!), m(b.plannedStart!), m(b.plannedEnd ?? b.plannedStart!)];
+      if (as === bs || (as < be && bs < ae)) bad.push(`${a.equipmentName} ${a.plannedStart}/${b.plannedStart}`);
+    }));
+    return bad;
+  };
+  it("3대 묶음에서 1대 제외 → 2대 묶음으로 계산, 같은 설비가 같은 시각에 두 번 나오지 않음", () => {
+    const g = group({ mode: "grouped", batchSize: 3, equipments: [eq(1), eq(2), eq(3)] });
+    const p = planDay([item({ plannedKg: 60, groups: [g] })], { excludedEquipmentIds: [3] });
+    const rounds = p[0].processes[0].rounds;
+    expect(rounds.map((r) => r.equipmentId)).not.toContain(3);
+    expect(times(p[0])).toEqual(["교반기1@05:00", "교반기2@05:00", "교반기1@06:10", "교반기2@06:10", "교반기1@07:20", "교반기2@07:20"]);
+    expect(p[0].processes[0].warnings.join()).toMatch(/2대라 묶음을 3대에서 2대로/);
+    expect(overlaps(p)).toEqual([]);
+  });
+  it("제외 없이 3대 묶음은 이전과 같음, 두 제품을 이어서 계획해도 설비 점유가 겹치지 않음", () => {
+    const g = group({ mode: "grouped", batchSize: 3, equipments: [eq(1), eq(2), eq(3)] });
+    const p = planDay([item({ plannedKg: 30, groups: [g] })]);
+    expect(times(p[0])).toEqual(["교반기1@05:00", "교반기2@05:00", "교반기3@05:00"]);
+    const two = planDay([item({ plannedKg: 50, groups: [g] }), item({ rowKey: "r2", productId: 11, plannedKg: 30, groups: [g] })], { excludedEquipmentIds: [2] });
+    expect(overlaps(two)).toEqual([]);
+  });
+});

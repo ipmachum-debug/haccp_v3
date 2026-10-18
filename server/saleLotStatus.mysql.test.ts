@@ -2699,4 +2699,54 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`DELETE FROM h_materials WHERE id IN (99401, 99402)`);
     });
   });
+
+  describe("하루 생산 입력 회귀 — 시작시각 유지·같은 제품 생산 건 중복 막기 (2026-10-19, Codex 단지 F-PROD-01·02)", () => {
+    let updateBatchStatus: any; let guard: any;
+    beforeAll(async () => {
+      ({ updateBatchStatus } = await import("./db/production/batchCRUD"));
+      guard = await import("./lib/production/dayProductionGuard");
+    });
+    beforeEach(async () => {
+      await q(`DELETE FROM h_batches WHERE id BETWEEN 1990 AND 1999`);
+      const { todayKstDateStr } = await import("./lib/production/batchBusinessDate");
+      const today = todayKstDateStr();
+      const rows: Array<[number, string, string | null, string, string | null]> = [
+        [1991, "2026-10-15", "2026-10-15 09:00:00", "planned", "DAY-20261015-001"], // 과거 업무일 — 오늘 입력·시작
+        [1992, today, `${today} 09:00:00`, "planned", null],                          // 오늘, 자동 시작
+        [1993, today, `${today} 09:00:00`, "planned", null],                          // 오늘, 사람이 시작
+        [1994, "2026-10-15", null, "planned", null],                                   // 시작시각 없음
+        [1995, "2026-10-15", "2026-10-15 09:00:00", "cancelled", null],               // 취소 — 중복 판단 제외
+      ];
+      for (const [id, d, st, status, grp] of rows) {
+        await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, start_time, status, day_batch_group, created_by)
+          VALUES (?, ?, 1, ?, 91, 475, ?, ?, ?, ?, 4)`, [id, T, `FP${id}`, d, st, status, grp]);
+      }
+    });
+    const startOf = async (id: number) => ((await q(`SELECT DATE_FORMAT(start_time, '%Y-%m-%d %H:%i') AS s, status FROM h_batches WHERE id = ?`, [id])) as any[])[0];
+
+    it("과거 업무일 배치를 오늘 시작해도 계획 시작시각(10/15 09:00) 유지", async () => {
+      await updateBatchStatus(1991, "in_progress", T);
+      expect(await startOf(1991)).toEqual({ s: "2026-10-15 09:00", status: "in_progress" });
+    });
+    it("자동 시작(keepPlannedStart)은 오늘 배치도 계획 시작시각 유지, 사람이 오늘 시작하면 실제 시각", async () => {
+      await updateBatchStatus(1992, "in_progress", T, { keepPlannedStart: true });
+      expect((await startOf(1992)).s.endsWith("09:00")).toBe(true);
+      await updateBatchStatus(1993, "in_progress", T);
+      // 사람이 오늘 시작 = 실제 시작 시각으로 바뀜 (저장 시각대 규칙은 기존 그대로라 값 자체는 비교하지 않음)
+      expect((await startOf(1993)).s.endsWith("09:00")).toBe(false);
+    });
+    it("시작시각이 없으면 이전처럼 지금", async () => {
+      await updateBatchStatus(1994, "in_progress", T);
+      expect((await startOf(1994)).s).not.toBeNull();
+    });
+    it("같은 업무일 같은 제품 생산 건 — 취소 제외, 같은 요청(일일 그룹) 재시도는 제외", async () => {
+      const { getRawConnection } = await import("./db/connection");
+      const conn = await getRawConnection();
+      const all = await guard.existingSameDayRuns(conn, T, "2026-10-15", [91, 92], null);
+      expect(all.get(91)).toEqual(["FP1991", "FP1994"]);
+      expect(all.has(92)).toBe(false);
+      const retry = await guard.existingSameDayRuns(conn, T, "2026-10-15", [91], "DAY-20261015-001");
+      expect(retry.get(91)).toEqual(["FP1994"]);
+    });
+  });
 });

@@ -593,7 +593,7 @@ export async function updateBatchSchedule(
     .where(and(...conditions));
 }
 
-export async function updateBatchStatus(batchId: number, status: string, tenantId?: number) {
+export async function updateBatchStatus(batchId: number, status: string, tenantId?: number, opts: { keepPlannedStart?: boolean } = {}) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
@@ -614,7 +614,19 @@ export async function updateBatchStatus(batchId: number, status: string, tenantI
   let batchRow: any = null;
   let shouldEnsureLot = false;
   if (status === "in_progress") {
-    updateData.startTime = now;
+    // 계획 시작시각 유지 (Codex 단지 생산 입력 회귀 F-PROD-02): 자동 시작이거나 업무일이 오늘이 아니면
+    //   '지금' 으로 덮어쓰지 않는다 — 과거 업무일 입력 때 시작시각이 입력 시각(다른 날)으로 바뀌었다. 입력 시각은 created_at.
+    const { shouldStampStartNow } = await import("../../lib/production/dayProductionGuard");
+    const { todayKstDateStr } = await import("../../lib/production/batchBusinessDate");
+    const rc: any = await getRawConnection();
+    const [cur]: any = await rc.execute(
+      `SELECT start_time IS NOT NULL AS has_start, DATE_FORMAT(planned_date, '%Y-%m-%d') AS pd FROM h_batches WHERE id = ?${tenantId ? " AND tenant_id = ?" : ""} LIMIT 1`,
+      tenantId ? [batchId, tenantId] : [batchId],
+    );
+    const c = (cur as any[])[0];
+    if (shouldStampStartNow({ hasStartTime: !!Number(c?.has_start ?? 0), plannedDate: c?.pd ?? null, todayKst: todayKstDateStr(), keepPlanned: opts.keepPlannedStart })) {
+      updateData.startTime = now;
+    }
   } else if (status === "completed") {
     updateData.endTime = now;
     updateData.completedAt = now;

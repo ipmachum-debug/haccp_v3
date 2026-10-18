@@ -476,6 +476,8 @@ export const batchCrudRouter = router({
           batchCode: z.string().optional(),
           /** 입력 줄 키 — requestKey 와 함께 같은 줄은 한 번만 생성 (PR-B) */
           rowKey: z.string().min(1).max(64).optional(),
+          /** 같은 날 같은 제품을 실제로 따로 만드는 생산 건 (LOT·생산지시 분리) — 명시할 때만 (F-PROD-01) */
+          separateRun: z.boolean().optional(),
         });
         return z.object({
           /** 요청 키 — 재시도·더블클릭에도 같은 줄은 한 번만, 실패 줄만 다시 (PR-B) */
@@ -518,12 +520,29 @@ export const batchCrudRouter = router({
         const useKeys = !!input.requestKey && (await reqKeys.requestKeysAvailable(conn));
         if (useKeys) dayBatchGroup = (await reqKeys.existingDayGroup(conn, ctx.tenantId, input.requestKey!)) ?? dayBatchGroup;
 
+        // 입력량 = 제품의 하루 총생산량 — 같은 제품을 여러 줄·다시 보내 생산 건·원료 차감이 불어나지 않게 (F-PROD-01)
+        const guard = await import("../../lib/production/dayProductionGuard");
+        const dupLines = guard.duplicateLineProblems(input.items);
+        if (dupLines.size) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: `같은 제품이 여러 줄입니다 — ${Array.from(dupLines.entries()).map(([i, m]) => `${i + 1}번 줄: ${m}`).join(" / ")}` });
+        }
+        const sameDay = await guard.existingSameDayRuns(conn, ctx.tenantId, input.workDate, input.items.map((i) => i.productId), dayBatchGroup);
+
         const results: any[] = [];
 
         // === 2. 품목별 배치 순차 생성 (그룹코드 공유, 승인/일지는 그룹 레벨에서) ===
         for (let idx = 0; idx < input.items.length; idx++) {
           const item = input.items[idx];
           const rowKey = item.rowKey ?? `row-${idx + 1}`;
+          const already = sameDay.get(item.productId);
+          if (already && !item.separateRun) {
+            results.push({
+              rowKey, status: "failed", batchId: 0, batchCode: "", productId: item.productId, productName: "",
+              ccpCreated: false, ccpCount: 0, ccpGroups: [], approvalRequestId: null, scheduleCreated: false, dailyReportCreated: false,
+              error: guard.existingRunProblem(`제품 #${item.productId}`, already),
+            });
+            continue;
+          }
           if (useKeys) {
             const claim = await reqKeys.claimRow(conn, ctx.tenantId, input.requestKey!, rowKey, dayBatchGroup);
             if (claim.state === "done") {

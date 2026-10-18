@@ -24,6 +24,8 @@ export const batchPlanRouter = router({
         plannedQuantityKg: z.number().positive(),
         startTime: z.string().regex(HHMM).optional(),
         startTimeOverride: z.string().regex(HHMM).optional(),
+        /** 같은 날 같은 제품을 실제로 따로 만드는 생산 건 — 명시할 때만 (F-PROD-01) */
+        separateRun: z.boolean().optional(),
       })).min(1).max(50),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -46,6 +48,11 @@ export const batchPlanRouter = router({
       );
       const names = new Map((pRows as any[]).map((r) => [Number(r.id), String(r.product_name)]));
 
+      // 입력량 = 하루 총생산량 — 같은 제품 여러 줄·이미 있는 생산 건은 생성 때 막힌다 (F-PROD-01)
+      const guard = await import("../../lib/production/dayProductionGuard");
+      const dupLines = guard.duplicateLineProblems(input.items, (id) => names.get(id) ?? `제품 #${id}`);
+      const sameDay = await guard.existingSameDayRuns(conn, ctx.tenantId, input.workDate, ids, null);
+
       const rows = [];
       for (const [i, it] of input.items.entries()) {
         const plan = day.plans[i];
@@ -59,6 +66,9 @@ export const batchPlanRouter = router({
           if (!v.valid) blocking.push(v.message);
         }
         if (meta.bom.massBasis === "error") blocking.push(`원물·공정 기준 계산 불가 — ${meta.bom.error}`);
+        if (dupLines.has(i)) blocking.push(dupLines.get(i)!);
+        const already = sameDay.get(it.productId);
+        if (already && !it.separateRun) blocking.push(guard.existingRunProblem(productName ?? `제품 #${it.productId}`, already));
         rows.push({
           rowKey: it.rowKey,
           productId: it.productId,

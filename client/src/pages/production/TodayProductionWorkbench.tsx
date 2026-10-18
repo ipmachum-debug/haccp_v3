@@ -1,9 +1,13 @@
 /**
  * 오늘 생산 작업대 (2026-10-18, PR-B — CEO 설계 '오늘 생산 작업대: 현장 중심 설계 기준')
  *
- * 하루의 여러 제품·여러 배치를 한 입력표로 준비한다. 같은 제품 여러 배치, 줄마다 자동/수동.
- *   1) 입력표: 제품 / 배치당 kg / 배치 수 / 총 kg / 처리방식 / 오늘만 시작시각 / 배치당 SKU 예상수량. AI 입력도 같은 표를 채운다.
- *   2) 미리보기: 배치별 행으로 펼쳐 BOM 버전·회차·공정별 설비·예정시각·예정 투입량 확인. 서버 계산 = 실제 생성과 같은 함수, 저장 없음.
+ * 하루의 여러 제품을 한 입력표로 준비한다. 줄마다 자동/수동.
+ *   1) 입력표: 제품 / **하루 총생산량(kg)** / 처리방식 / 오늘만 시작시각 / SKU 예상수량. AI 입력도 같은 표(같은 총량 의미)를 채운다.
+ *      한 줄 = 한 생산 건. 증숙·교반·굽기 회차는 BOM 1회 기준량으로 그 생산 건 안에서 자동 계산 — 회차 수만큼 줄·생산 건을 늘리지 않는다.
+ *      (2026-10-19 Codex 단지 회귀 F-PROD-01: '배치당 kg × 배치 수' 입력표에서 총량 475kg 이 5건 × 475kg 으로 생성·원료 차감됐다)
+ *      PR #593 이전 일괄 생성 화면(DailyBatchCreate)과 같은 흐름: 같은 제품은 다시 고를 수 없고, AI 입력의 같은 제품은 수량을 더한다.
+ *      서버도 같은 제품 중복·같은 업무일 재입력을 막는다 (작업자 실수를 프로그램이 막는다).
+ *   2) 미리보기: 생산 건별 BOM 버전·회차·공정별 설비·예정시각·예정 투입량 확인. 서버 계산 = 실제 생성과 같은 함수, 저장 없음.
  *   3) 생성: 요청 키로 한 번만. 일부 실패하면 성공 줄은 빠지고 실패 줄만 남아 같은 키로 다시.
  *   4) 아래: 서버에 저장된 오늘 배치 — '지금 할 일' 한 가지.
  * 생성 뒤 다른 화면으로 강제 이동하지 않는다. 축하 효과 없음.
@@ -32,9 +36,10 @@ type Mode = "auto" | "manual";
 interface Line {
   id: string;
   productId: number | null;
-  batchKg: string;
-  /** 줄의 배치마다 하나 — 요청 키와 함께 같은 배치는 한 번만 생성 */
-  rowKeys: string[];
+  /** 이 제품의 하루 총생산량 (kg) — 회차 수로 곱하지 않는다 */
+  totalKg: string;
+  /** 요청 키와 함께 이 생산 건은 한 번만 생성 */
+  rowKey: string;
   mode: Mode;
   startOverride: string;
   sku: Record<number, string>;
@@ -46,12 +51,7 @@ let keySeq = 0;
 const newRowKey = (lineId: string) => `${lineId}-${++keySeq}`;
 const emptyLine = (mode: Mode): Line => {
   const id = rid();
-  return { id, productId: null, batchKg: "", rowKeys: [newRowKey(id)], mode, startOverride: "", sku: {} };
-};
-const resize = (l: Line, n: number): Line => {
-  const k = Math.max(1, Math.min(30, Math.floor(n) || 1));
-  if (k === l.rowKeys.length) return l;
-  return { ...l, rowKeys: k < l.rowKeys.length ? l.rowKeys.slice(0, k) : [...l.rowKeys, ...Array.from({ length: k - l.rowKeys.length }, () => newRowKey(l.id))] };
+  return { id, productId: null, totalKg: "", rowKey: newRowKey(id), mode, startOverride: "", sku: {} };
 };
 
 type PreviewRow = {
@@ -59,12 +59,12 @@ type PreviewRow = {
   bom: { versionNo: string | null; approved: boolean; subBatchKg: number | null; massBasis: string };
   roundsCount: number; metal: boolean; warnings: string[]; blocking: string[];
   processes: Array<{ processGroupId: number; name: string; ccpType: string; warnings: string[];
-    rounds: Array<{ seq: number; roundNo: number; equipmentId: number | null; equipmentName: string | null; plannedStart: string | null; plannedEnd: string | null; heatingMin: number | null; inputKg: number | null }> }>;
+    rounds: Array<{ seq: number; roundNo: number; equipmentId: number | null; equipmentName: string | null; plannedStart: string | null; plannedEnd: string | null; heatingMin: number | null; inputKg: number | null; tempC?: number | null; pressureBar?: number | null }> }>;
 };
 type Preview = { rows: PreviewRow[]; existing: Array<{ batchCode: string; productName: string | null; processName: string | null; equipmentId: number; equipmentName: string | null; start: string; end: string | null }> };
 type RowResult = { status: string; batchId: number; batchCode?: string; error?: string };
 
-function ProductPicker({ products, value, onChange }: { products: Array<{ id: number; productName: string; productCode?: string }>; value: number | null; onChange: (id: number) => void }) {
+function ProductPicker({ products, value, onChange, used = [] }: { products: Array<{ id: number; productName: string; productCode?: string }>; value: number | null; onChange: (id: number) => void; used?: number[] }) {
   const [open, setOpen] = useState(false);
   const selected = products.find((p) => p.id === value);
   return (
@@ -81,13 +81,17 @@ function ProductPicker({ products, value, onChange }: { products: Array<{ id: nu
           <CommandList>
             <CommandEmpty>제품이 없습니다.</CommandEmpty>
             <CommandGroup>
-              {products.map((p) => (
-                <CommandItem key={p.id} value={`${p.productName} ${p.productCode ?? ""} ${p.id}`} onSelect={() => { onChange(p.id); setOpen(false); }}>
+              {products.map((p) => {
+                // 다른 줄에서 이미 고른 제품 — 하루 총생산량은 한 줄에 (원래 일괄 생성 화면과 같은 규칙)
+                const isUsed = used.includes(p.id) && p.id !== value;
+                return (
+                <CommandItem key={p.id} value={`${p.productName} ${p.productCode ?? ""} ${p.id}`} disabled={isUsed} onSelect={() => { if (isUsed) return; onChange(p.id); setOpen(false); }}>
                   <Check className={cn("mr-2 h-4 w-4", value === p.id ? "opacity-100" : "opacity-0")} />
-                  {p.productName}
+                  {p.productName}{isUsed && <span className="ml-1 text-xs text-muted-foreground">(이미 선택됨)</span>}
                   {p.productCode && <span className="ml-auto text-xs text-muted-foreground">{p.productCode}</span>}
                 </CommandItem>
-              ))}
+                );
+              })}
             </CommandGroup>
           </CommandList>
         </Command>
@@ -96,7 +100,7 @@ function ProductPicker({ products, value, onChange }: { products: Array<{ id: nu
   );
 }
 
-/** 배치당 SKU 예상수량 — 제품 id 로 연결된 SKU (이름으로 맞추지 않는다) */
+/** SKU 예상수량 (이 생산 건 전체) — 제품 id 로 연결된 SKU (이름으로 맞추지 않는다) */
 function SkuInputs({ productId, value, onChange }: { productId: number; value: Record<number, string>; onChange: (v: Record<number, string>) => void }) {
   const { data: skus = [] } = trpc.productSku.listByProduct.useQuery({ productId });
   if (!(skus as any[]).length) return <p className="text-xs text-muted-foreground">이 제품에 연결된 SKU가 없습니다.</p>;
@@ -144,10 +148,20 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
   const { data: equipments = [] } = trpc.batch.planEquipments.useQuery();
   const board = trpc.batch.todayBoard.useQuery({ workDate });
 
-  // 배치별 행으로 펼침 — 같은 제품 여러 배치도 한 줄씩
-  const expanded = useMemo(() => lines.flatMap((l) => l.rowKeys.map((rowKey, i) => ({ rowKey, line: l, n: i + 1 }))), [lines]);
-  const filled = expanded.filter((e) => e.line.productId && parseFloat(e.line.batchKg) > 0);
-  const inputKey = JSON.stringify({ workDate, dayStartTime, excluded, rows: filled.map((e) => [e.rowKey, e.line.productId, e.line.batchKg, e.line.startOverride]) });
+  // 한 줄 = 한 생산 건 (회차는 그 안에서)
+  const filled = useMemo(() => lines.filter((l) => l.productId && parseFloat(l.totalKg) > 0).map((l) => ({ rowKey: l.rowKey, line: l })), [lines]);
+  // 같은 제품이 다른 줄에도 있는 줄 — 생성 전에 고치게 한다 (제품 선택에서 막지만 AI·이전 상태 대비, 서버도 막음)
+  const dupLineIds = useMemo(() => {
+    const seen = new Set<number>();
+    const out = new Set<string>();
+    for (const l of lines) {
+      if (!l.productId) continue;
+      if (seen.has(l.productId)) out.add(l.id);
+      seen.add(l.productId);
+    }
+    return out;
+  }, [lines]);
+  const inputKey = JSON.stringify({ workDate, dayStartTime, excluded, rows: filled.map((e) => [e.rowKey, e.line.productId, e.line.totalKg, e.line.startOverride]) });
   const previewStale = !!preview && previewKey !== inputKey;
 
   const update = (id: string, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
@@ -165,9 +179,9 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
       const ok = Object.entries(map).filter(([, r]) => r.status === "created" || r.status === "reused").map(([k]) => k);
       const failed = Object.values(map).filter((r) => r.status === "failed" || r.status === "in_progress").length;
       setSummary(`생성 ${data.createdCount ?? 0}건${data.reusedCount ? ` · 이미 생성 ${data.reusedCount}건` : ""}${failed ? ` · 실패 ${failed}건` : ""}`);
-      // 만든 배치는 입력표에서 빼고, 실패한 배치만 남긴다 (같은 요청 키로 다시 보내면 실패 줄만 처리)
+      // 만든 생산 건은 입력표에서 빼고, 실패한 줄만 남긴다 (같은 요청 키로 다시 보내면 실패 줄만 처리)
       setLines((ls) => {
-        const left = ls.map((l) => ({ ...l, rowKeys: l.rowKeys.filter((k) => !ok.includes(k)) })).filter((l) => l.rowKeys.length > 0 && l.productId);
+        const left = ls.filter((l) => !ok.includes(l.rowKey) && l.productId);
         return left.length ? left : [emptyLine(defaultMode)];
       });
       if (!failed) { setRequestKey(newRequestKey()); setPreview(null); }
@@ -180,29 +194,38 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
   });
 
   const runPreview = () => {
-    if (!filled.length) { toast.error("제품과 배치당 kg 을 입력하세요."); return; }
+    if (!filled.length) { toast.error("제품과 하루 총생산량(kg)을 입력하세요."); return; }
     previewMut.mutate({
       workDate, dayStartTime, excludedEquipmentIds: excluded,
-      items: filled.map((e) => ({ rowKey: e.rowKey, productId: e.line.productId!, plannedQuantityKg: parseFloat(e.line.batchKg), startTimeOverride: e.line.startOverride || undefined })),
+      items: filled.map((e) => ({ rowKey: e.rowKey, productId: e.line.productId!, plannedQuantityKg: parseFloat(e.line.totalKg), startTimeOverride: e.line.startOverride || undefined })),
     });
   };
   const runCreate = () => {
     if (!filled.length) return;
+    if (dupLineIds.size) { toast.error("같은 제품이 여러 줄입니다 — 하루 총생산량을 한 줄에 입력하세요."); return; }
     createMut.mutate({
       requestKey, siteId: (user as any)?.siteId || 1, workDate, dayStartTime, defaultMode, excludedEquipmentIds: excluded,
       items: filled.map((e) => {
         const skuOutputs = Object.entries(e.line.sku).filter(([, q]) => parseInt(q) > 0).map(([skuId, q]) => ({ skuId: Number(skuId), plannedQty: parseInt(q) }));
         return {
-          rowKey: e.rowKey, productId: e.line.productId!, plannedQuantityKg: parseFloat(e.line.batchKg), mode: e.line.mode,
+          rowKey: e.rowKey, productId: e.line.productId!, plannedQuantityKg: parseFloat(e.line.totalKg), mode: e.line.mode,
           startTimeOverride: e.line.startOverride || undefined, ...(skuOutputs.length ? { skuOutputs } : {}),
         };
       }),
     } as any);
   };
 
-  // AI 입력 — 같은 입력표에 줄로 추가 (같은 제품도 합치지 않는다)
+  // AI 입력 — 같은 의미(하루 총생산량). 같은 제품은 수량을 더해 한 줄로 (원래 일괄 생성 화면과 같게)
   const onAI = (items: Array<{ productId: number; quantityKg: number; skuOutputs?: Record<number, string> }>) => {
-    setLines((ls) => [...ls.filter((l) => l.productId), ...items.map((it) => ({ ...emptyLine(defaultMode), productId: it.productId, batchKg: String(it.quantityKg), sku: it.skuOutputs ?? {} }))]);
+    setLines((ls) => {
+      const merged = ls.filter((l) => l.productId).map((l) => ({ ...l }));
+      for (const it of items) {
+        const ex = merged.find((m) => m.productId === it.productId);
+        if (ex) ex.totalKg = String((parseFloat(ex.totalKg) || 0) + (Number(it.quantityKg) || 0));
+        else merged.push({ ...emptyLine(defaultMode), productId: it.productId, totalKg: String(it.quantityKg), sku: it.skuOutputs ?? {} });
+      }
+      return merged.length ? merged : [emptyLine(defaultMode)];
+    });
     setShowAI(false);
   };
 
@@ -221,7 +244,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
     return Array.from(m.entries()).map(([eq, slots]) => ({ eq, slots: slots.sort((a, b) => a.start.localeCompare(b.start)) }));
   }, [preview]);
 
-  const totalKg = filled.reduce((s, e) => s + (parseFloat(e.line.batchKg) || 0), 0);
+  const totalKg = filled.reduce((s, e) => s + (parseFloat(e.line.totalKg) || 0), 0);
   const blockedCount = preview?.rows.filter((r) => r.blocking.length).length ?? 0;
 
   const content = (
@@ -229,7 +252,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold">오늘 생산</h1>
-          <p className="text-sm text-muted-foreground">여러 제품·여러 배치를 한 번에 준비하고, 미리보기로 설비·시각을 확인한 뒤 생성합니다.</p>
+          <p className="text-sm text-muted-foreground">제품별 하루 총생산량을 입력하면 증숙·교반·굽기 회차와 설비·시각을 자동으로 계산합니다. 미리보기로 확인한 뒤 생성합니다.</p>
         </div>
         <Button variant={showAI ? "default" : "outline"} onClick={() => setShowAI((v) => !v)}>
           <Sparkles className="h-4 w-4 mr-1.5" />AI로 입력표 채우기
@@ -255,9 +278,10 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
             </div>
           </div>
           {(equipments as any[]).length > 0 && (
-            <div className="space-y-1">
-              <Label>오늘 쓰지 않는 설비 <span className="text-xs text-muted-foreground font-normal">(이번 생산에만 적용 — 설비 설정은 바뀌지 않습니다)</span></Label>
-              <div className="flex flex-wrap gap-2">
+            // 설비는 자동 배정이 기본 — 고장·정비로 오늘 못 쓰는 설비가 있을 때만 펼쳐서 뺀다 (F-PROD-04)
+            <details className="space-y-1" open={excluded.length > 0}>
+              <summary className="text-sm cursor-pointer select-none py-1">설비 예외 (선택) — 오늘 못 쓰는 설비{excluded.length ? ` ${excluded.length}대 제외 중` : ""} <span className="text-xs text-muted-foreground">(이번 생산에만 적용 — 설비 설정은 바뀌지 않습니다)</span></summary>
+              <div className="flex flex-wrap gap-2 pt-1">
                 {(equipments as Array<{ id: number; name: string; processes: string }>).map((e) => {
                   const on = excluded.includes(e.id);
                   return (
@@ -269,7 +293,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
                   );
                 })}
               </div>
-            </div>
+            </details>
           )}
         </CardContent>
       </Card>
@@ -277,30 +301,22 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">입력표</CardTitle>
-          <CardDescription>같은 제품을 여러 배치로 만들 때는 '배치 수'를 늘리거나 줄을 더 추가하세요. 줄마다 자동/수동을 고를 수 있습니다.</CardDescription>
+          <CardDescription>한 줄에 제품 하나 — 그 제품의 <b>하루 총생산량</b>을 입력하세요. 증숙·교반·굽기 회차는 BOM 1회 기준량으로 자동 계산되며 줄을 늘리지 않습니다.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           {lines.map((l, idx) => {
-            const failed = l.rowKeys.map((k) => results[k]).filter((r) => r && r.status !== "created" && r.status !== "reused");
+            const failed = [results[l.rowKey]].filter((r) => r && r.status !== "created" && r.status !== "reused");
+            const dup = dupLineIds.has(l.id);
             return (
-              <div key={l.id} className={cn("rounded-lg border p-3 space-y-2", failed.length ? "border-red-300 bg-red-50/40" : "")}>
+              <div key={l.id} className={cn("rounded-lg border p-3 space-y-2", failed.length || dup ? "border-red-300 bg-red-50/40" : "")}>
                 <div className="grid grid-cols-2 md:grid-cols-12 gap-2 items-end">
                   <div className="col-span-2 md:col-span-3 space-y-1">
                     <Label className="text-xs">{idx + 1}. 제품</Label>
-                    <ProductPicker products={products} value={l.productId} onChange={(id) => update(l.id, { productId: id, sku: {} })} />
+                    <ProductPicker products={products} value={l.productId} used={lines.map((x) => x.productId).filter((x): x is number => !!x)} onChange={(id) => update(l.id, { productId: id, sku: {} })} />
                   </div>
-                  <div className="md:col-span-2 space-y-1">
-                    <Label className="text-xs">배치당 kg</Label>
-                    <Input type="number" inputMode="decimal" min={0} step="0.1" className="h-11" value={l.batchKg} onChange={(e) => update(l.id, { batchKg: e.target.value })} />
-                  </div>
-                  <div className="md:col-span-1 space-y-1">
-                    <Label className="text-xs">배치 수</Label>
-                    <Input type="number" inputMode="numeric" min={1} max={30} className="h-11" value={l.rowKeys.length}
-                      onChange={(e) => setLines((ls) => ls.map((x) => (x.id === l.id ? resize(x, Number(e.target.value)) : x)))} />
-                  </div>
-                  <div className="md:col-span-1 space-y-1">
-                    <Label className="text-xs">총 kg</Label>
-                    <div className="h-11 flex items-center text-sm font-medium">{((parseFloat(l.batchKg) || 0) * l.rowKeys.length).toLocaleString()}</div>
+                  <div className="md:col-span-3 space-y-1">
+                    <Label className="text-xs">하루 총생산량 (kg)</Label>
+                    <Input type="number" inputMode="decimal" min={0} step="0.1" className="h-11" data-testid="total-kg" value={l.totalKg} onChange={(e) => update(l.id, { totalKg: e.target.value })} />
                   </div>
                   <div className="md:col-span-2 space-y-1">
                     <Label className="text-xs">처리방식</Label>
@@ -320,9 +336,10 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
                     </Button>
                   </div>
                 </div>
+                {dup && <p className="text-xs text-red-700">같은 제품이 다른 줄에도 있습니다 — 하루 총생산량은 한 줄에 입력하세요 (회차는 자동 계산). 이 줄을 지우거나 수량을 앞 줄에 합치세요.</p>}
                 {l.productId && (
                   <details>
-                    <summary className="text-xs text-muted-foreground cursor-pointer select-none py-1">배치당 SKU 예상수량</summary>
+                    <summary className="text-xs text-muted-foreground cursor-pointer select-none py-1">SKU 예상수량 (이 생산 건 전체)</summary>
                     <div className="pt-2"><SkuInputs productId={l.productId} value={l.sku} onChange={(v) => update(l.id, { sku: v })} /></div>
                   </details>
                 )}
@@ -332,7 +349,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
           })}
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" className="h-11" onClick={() => setLines((ls) => [...ls, emptyLine(defaultMode)])}><Plus className="h-4 w-4 mr-1" />줄 추가</Button>
-            <span className="text-sm text-muted-foreground ml-auto">배치 {filled.length}개 · 총 {totalKg.toLocaleString()} kg</span>
+            <span className="text-sm text-muted-foreground ml-auto">생산 건 {filled.length}개 · 하루 총 {totalKg.toLocaleString()} kg</span>
           </div>
         </CardContent>
       </Card>
@@ -347,18 +364,18 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
             <Button variant="outline" className="h-11" onClick={runPreview} disabled={previewMut.isPending || !filled.length}>
               {previewMut.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Eye className="h-4 w-4 mr-1" />}미리보기
             </Button>
-            <Button className="h-11" onClick={runCreate} disabled={createMut.isPending || !preview || previewStale || !filled.length}>
+            <Button className="h-11" onClick={runCreate} disabled={createMut.isPending || !preview || previewStale || !filled.length || dupLineIds.size > 0 || (!!preview && blockedCount >= preview.rows.length)}>
               {createMut.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
-              {Object.keys(results).length && Object.values(results).some((r) => r.status === "failed") ? "실패한 배치 다시 생성" : `배치 ${filled.length}개 생성`}
+              {Object.keys(results).length && Object.values(results).some((r) => r.status === "failed") ? "실패한 생산 건 다시 생성" : `생산 건 ${filled.length}개 생성`}
             </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {summary && <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">{summary}</div>}
-          {!preview && <p className="text-sm text-muted-foreground">입력표를 채운 뒤 '미리보기'를 누르면 배치별 설비·시각·투입량을 보여 줍니다. 생성은 미리보기 뒤에 할 수 있습니다.</p>}
+          {!preview && <p className="text-sm text-muted-foreground">입력표를 채운 뒤 '미리보기'를 누르면 생산 건별 회차·설비·시각·투입량을 보여 줍니다. 생성은 미리보기 뒤에 할 수 있습니다.</p>}
           {previewStale && <p className="text-sm text-amber-700 flex items-center gap-1"><RefreshCw className="h-4 w-4" />입력이 바뀌었습니다 — 미리보기를 다시 하세요.</p>}
           {preview && !previewStale && blockedCount > 0 && (
-            <p className="text-sm text-red-700 flex items-center gap-1"><AlertTriangle className="h-4 w-4" />{blockedCount}개 배치는 이대로 생성되지 않습니다 (아래 사유). 나머지는 생성됩니다.</p>
+            <p className="text-sm text-red-700 flex items-center gap-1"><AlertTriangle className="h-4 w-4" />{blockedCount}개 생산 건은 이대로 생성되지 않습니다 (아래 사유). 나머지는 생성됩니다.</p>
           )}
           {preview && (
             <div className="space-y-2">
@@ -366,7 +383,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
                 <div key={r.rowKey} className={cn("rounded-md border p-2 text-sm", r.blocking.length ? "border-red-300 bg-red-50/40" : "")}>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{i + 1}. {r.productName ?? nameOf(r.productId)}</span>
-                    <span>{r.plannedKg} kg</span>
+                    <span>하루 총 {r.plannedKg} kg</span>
                     <Badge variant="outline">BOM {r.bom.versionNo ? `v${r.bom.versionNo}` : "없음"}{r.bom.approved ? "" : " (미승인)"}</Badge>
                     <Badge variant="outline">회차 {r.roundsCount}{r.bom.subBatchKg ? ` (1회 ${r.bom.subBatchKg}kg)` : ""}</Badge>
                     {r.bom.massBasis === "basis" && <Badge variant="outline">원물 기준</Badge>}
@@ -379,6 +396,12 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
                       <span className="text-muted-foreground">
                         {p.rounds.map((rd) => `${rd.equipmentName ?? "설비 없음"} ${rd.plannedStart ?? "--:--"}${rd.inputKg != null ? ` ${rd.inputKg}kg` : ""}`).join(" · ")}
                       </span>
+                      {/* 운영 기본값 — 설비·공정 설정에서 계산된 값 (현장은 다를 때만 기록지에서 고친다) */}
+                      {(() => {
+                        const r0 = p.rounds.find((rd) => rd.tempC != null || rd.pressureBar != null || rd.heatingMin != null);
+                        if (!r0) return null;
+                        return <p className="text-muted-foreground">기본값: {[r0.tempC != null ? `${r0.tempC}℃` : null, r0.pressureBar != null ? `${r0.pressureBar} bar` : null, r0.heatingMin != null ? `가열 ${r0.heatingMin}분` : null].filter(Boolean).join(" · ")}</p>;
+                      })()}
                       {p.warnings.map((w, k) => <p key={k} className="text-amber-700">{w}</p>)}
                     </div>
                   ))}
