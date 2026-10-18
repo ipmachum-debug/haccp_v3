@@ -1,5 +1,6 @@
 import { useState } from "react";
 import ChecklistFormLayout from "@/components/checklist/ChecklistFormLayout";
+import DailyLogV2Notice from "@/components/production/DailyLogV2Notice";
 import type { ChecklistFormConfig } from "@/components/checklist/ChecklistFormLayout";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -47,6 +48,7 @@ export default function RefrigerationCheckForm() {
       onDataRestore={onDataRestore}
       validateBeforeSubmit={(fd) => checklistSubmitProblems(config.formType, fd)}
     >
+      <DailyLogV2Notice section={equipmentType === "freezer" ? "freezer" : "refrigerator"} date={checkDate} />
       <div className="p-6 space-y-6">
         <div className="grid grid-cols-2 gap-4">
           <div>

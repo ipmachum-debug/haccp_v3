@@ -47,6 +47,8 @@
  */
 
 export const ROUTES = {
+  // 일일일지 회사별 설정 (구역·대상·회차·기준) — docs/architecture/17 D1
+  DAILY_LOG_SETTINGS: "/daily-log/settings",
   // ── 회계 탭 / 기준정보 그룹 ──
   ACCOUNTING_PARTNERS: "/dashboard/accounting/partners",
   // PR #248 — 중간재 관리

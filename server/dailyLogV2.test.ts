@@ -131,6 +131,15 @@ describe("저장·제출·승인 검사 — 정의 스냅샷 기준", () => {
     expect(p).toMatch(/19:30 이 아직 오지 않았습니다/);
     expect(p).toMatch(/'대상외' 사유/);
   });
+  it("예/아니오 미선택은 미기록 — 제출 불가 (미리 채우지 않음)", () => {
+    const r = filled();
+    r.answers.find((a) => a.itemId === "H01")!.value = null;
+    r.answers.find((a) => a.itemId === "F03")!.value = null;
+    const p = v2SubmitIssues(r, NOW).join("\n");
+    expect(p).toMatch(/위생 1번: 예\/아니오를 선택하세요/);
+    expect(p).toMatch(/이물 3번: 예\/아니오를 선택하세요/);
+    expect(newRecordV2(khaccpDefinition(), "2026-11-20", 7).answers.every((a) => a.value === null)).toBe(true);
+  });
   it("기준 이탈·'아니오' 는 발생내용과 대응 필요, 미해결 이탈은 승인 불가", () => {
     const r = filled();
     const fr = r.measurements.find((m) => m.pointId === "kh.fridge")!;

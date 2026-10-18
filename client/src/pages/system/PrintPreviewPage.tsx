@@ -15,6 +15,8 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { FORM_TYPE_LABELS, DAILY_LOG_PAGE_TITLES, ApprovalHeader } from "@/components/print/PrintHelpers";
 import { renderDailyLogPages } from "@/components/print/DailyLogRenderers";
+import { renderDailyLogV2Pages } from "@/components/print/DailyLogV2Renderers";
+import { isV2Record } from "@shared/dailyLog/recordV2";
 import { renderWeeklyLogPages, renderMonthlyLogPages, renderYearlyLog } from "@/components/print/WeeklyYearlyRenderers";
 import { renderCcpBatchSummary, renderCcpFormRecord } from "@/components/print/CcpRenderers";
 import { renderFormContent } from "@/components/print/renderFormContent";
@@ -233,7 +235,14 @@ export default function PrintPreviewPage() {
         updatedAt: toDateStr(doc.updatedAt),
       };
 
-      if (doc.formType === "daily_log") {
+      if (doc.formType === "daily_log" && isV2Record(doc.formData)) {
+        // v2 일지 — 기록의 정의 스냅샷으로 영역마다 한 쪽 (docs/architecture/17 D2)
+        const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
+        const v2Pages = renderDailyLogV2Pages(doc.formData, enrichedDoc);
+        v2Pages.forEach((p, idx) => {
+          pages.push({ doc: enrichedDoc, pageContent: p.content, pageTitle: p.title, pageIndex: idx, totalPages: v2Pages.length });
+        });
+      } else if (doc.formType === "daily_log") {
         const enrichedDoc = { ...doc, ...safeDocDates, authorName, reviewerName, approverName };
         const dailyPages = renderDailyLogPages(doc.formData, enrichedDoc);
         dailyPages.forEach((pageContent, idx) => {

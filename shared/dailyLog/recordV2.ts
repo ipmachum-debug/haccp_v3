@@ -238,6 +238,8 @@ export function v2SubmitIssues(rec: DailyLogRecordV2, now: { date: string; time:
       if (a.notApplicable) { if (!a.notApplicableReason.trim()) out.push(`${label}: '운송 없음' 사유를 입력하세요.`); }
       else if (a.numericValue === null) out.push(`${label}: 온도(℃)를 입력하거나 '운송 없음'과 사유를 선택하세요.`);
     }
+    // 예/아니오 미선택 = 미기록 — 미리 채우지 않으므로 제출 전에 사람이 고른다
+    if (q.responseType === "check" && a.value === null) out.push(`${label}: 예/아니오를 선택하세요.`);
     if (q.responseType === "check_temperature" && !a.notApplicable && a.value === null) out.push(`${label}: 예/아니오를 선택하세요.`);
     if (a.value === "no" && !rec.deviations.some((d) => d.itemId === q.itemId && d.description.trim() && d.action.trim())) {
       out.push(`${label}: '아니오' — 발생내용과 대응을 기록하세요.`);
