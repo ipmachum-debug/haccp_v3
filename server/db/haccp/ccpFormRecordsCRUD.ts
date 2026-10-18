@@ -109,7 +109,10 @@ export async function getOrCreateCcpFormRecord(params: {
     // 존재하지 않으면 아래 일반 생성 로직으로 진행 (product_name을 '금속검출 통합'으로 설정)
   }
 
-  // 이미 존재하는지 확인 (CCP-1B, CCP-2B: 배치별 기록)
+  // 이미 존재하는지 확인 (CCP-1B, CCP-2B: 배치 × 공정 별 기록)
+  //   ★ 2026-10-18: 이전엔 batch_id + ccp_type 만 봐서, 한 배치가 CCP-1B 공정 두 개(교반 + 증숙)를 거치면
+  //     두 번째 공정 기록지가 만들어지지 않았다 (단지 48배치 중 32배치 — 예: 10/14 #1113 증숙(설기) 기록지 없음).
+  //     공정그룹이 있으면 그 공정 기록지만 같은 것으로 본다.
   const existing = await db
     .select()
     .from(hCcpFormRecords)
@@ -117,7 +120,8 @@ export async function getOrCreateCcpFormRecord(params: {
       and(
         eq(hCcpFormRecords.tenantId, params.tenantId),
         eq(hCcpFormRecords.batchId, params.batchId),
-        eq(hCcpFormRecords.ccpType, params.ccpType)
+        eq(hCcpFormRecords.ccpType, params.ccpType),
+        ...(params.processGroupId ? [eq(hCcpFormRecords.processGroupId, params.processGroupId)] : []),
       )
     )
     .limit(1);

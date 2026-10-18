@@ -170,12 +170,13 @@ export const batchCrudRouter = router({
             }
             for (const grp of ccpGroups) {
               // CCP-4P는 날짜별 1건 통합 → batch_id가 아닌 work_date로 중복 체크
+              // 1B/2B 는 배치 × 공정 별 기록지 (2026-10-18: 공정 두 개인 배치의 두 번째 기록지 누락 수정)
               const existQuery = grp.ccp_type === 'CCP-4P'
                 ? 'SELECT id FROM h_ccp_form_records WHERE ccp_type=? AND work_date=? AND tenant_id=? LIMIT 1'
-                : 'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND tenant_id=? LIMIT 1';
+                : 'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND process_group_id=? AND tenant_id=? LIMIT 1';
               const existParams = grp.ccp_type === 'CCP-4P'
                 ? [grp.ccp_type, workDate, tenantId]
-                : [batchId, grp.ccp_type, tenantId];
+                : [batchId, grp.ccp_type, grp.id, tenantId];
               const [existFR] = await _pool3.execute(existQuery, existParams);
               if ((existFR as any[]).length > 0) continue;
               const clHeatTimeMinLo = grp.time_min ?? null;
