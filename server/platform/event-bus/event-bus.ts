@@ -59,7 +59,7 @@ export async function processPendingEvents(batchSize = 50): Promise<{
         AND processing_attempts < ?
       ORDER BY id ASC
       LIMIT ?`,
-    [MAX_ATTEMPTS, batchSize],
+    [MAX_ATTEMPTS, String(batchSize)],
   );
 
   const pending = rows as Array<{

@@ -476,6 +476,18 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     await ensureRequiredSchema(admin, { allowDdl: true }); // 뒷정리
   });
 
+  it("원재료·제품 코드는 회사별 유일 — 전역 키를 회사별 키로 바꾸고, 다른 회사는 같은 코드 가능·같은 회사는 거부 (지티 QA F01)", async () => {
+    const { ensureRequiredSchema } = await import("./db/startupMigrations");
+    await ensureRequiredSchema(admin, { allowDdl: true });
+    for (const [table, mine, legacy] of [["h_materials", "uq_hm_tenant_code", "h_materials_material_code_unique"], ["h_products_v2", "uq_hp2_tenant_code", "h_products_v2_product_code_unique"]]) {
+      const ix = (await q(`SELECT DISTINCT INDEX_NAME AS n FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME IN (?, ?)`, [table, mine, legacy])).map((r: any) => r.n);
+      expect(ix).toEqual([mine]);
+    }
+    await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (98001, 2, 'F01-DUP', 'A'), (98002, 14, 'F01-DUP', 'B')`);
+    await expect(q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (98003, 14, 'F01-DUP', 'C')`)).rejects.toThrow(/Duplicate/);
+    await q(`DELETE FROM h_materials WHERE id IN (98001, 98002)`);
+  });
+
   // ── Codex 운영 DB 점검 P1 (2026-10-16) ─────────────────────────────────
   it("확정은 호출자 회사의 전표만 — 다른 회사(9) 로 부르면 '찾을 수 없음', 아무것도 바뀌지 않음", async () => {
     await insertSale(10700, "2026-10-15", 10, 10000, 1000);

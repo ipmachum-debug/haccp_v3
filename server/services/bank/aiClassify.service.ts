@@ -150,7 +150,7 @@ export async function classifyUnmatchedTransactions(
        FROM bank_transactions
        WHERE tenant_id = ? AND matching_status = 'unmatched'
        ORDER BY transaction_date DESC LIMIT ?`,
-      [tenantId, limit],
+      [tenantId, String(limit)],
     );
 
     const results: Array<{ transactionId: number; description: string; result: AIClassifyResult }> = [];

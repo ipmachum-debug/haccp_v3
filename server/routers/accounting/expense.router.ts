@@ -1,4 +1,5 @@
 import { router, tenantRequiredProcedure, workerProcedure } from "../../_core/trpc";
+import { limitOffsetSql } from "../../utils/dbHelpers";
 import { z } from "zod";
 import { getDb, getRawConnection } from "../../db";
 import {
@@ -87,8 +88,8 @@ export const expenseRouter = router({
          LEFT JOIN users u ON v.created_by = u.id AND u.tenant_id = v.tenant_id
          WHERE ${where}
          ORDER BY v.expense_date DESC, v.id DESC
-         LIMIT ? OFFSET ?`,
-        [...params, limit, offset],
+         ${limitOffsetSql(limit, offset)}`,
+        params,
       );
 
       return { items: rows as any[], total, page, limit };
@@ -755,8 +756,8 @@ export const expenseRouter = router({
          LEFT JOIN users u ON v.created_by = u.id AND u.tenant_id = v.tenant_id
          WHERE ${where}
          ORDER BY v.expense_date DESC
-         LIMIT ? OFFSET ?`,
-        [...params, p.limit || 30, offset],
+         ${limitOffsetSql(p.limit || 30, offset)}`,
+        params,
       );
 
       return { items: rows as any[], total };

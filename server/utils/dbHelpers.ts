@@ -43,3 +43,14 @@ export function safeFloat(value: unknown, decimals: number = 2): number {
   const n = safeNumber(value);
   return parseFloat(n.toFixed(decimals));
 }
+
+/**
+ * LIMIT/OFFSET 절 — 검증한 정수를 SQL 에 직접 넣는다 (2026-10-17, 지티 브라우저 검증 F11).
+ * mysql2 execute(prepared) 에 숫자 LIMIT ? OFFSET ? 를 넘기면 MySQL 8 에서 "Incorrect arguments to mysqld_stmt_execute" 로
+ * 실패했다 (전표 목록이 0건으로 보임). 바인딩하지 않고 0 이상 정수로 고정해 넣는다 (상한 maxLimit).
+ */
+export function limitOffsetSql(limit: unknown, offset: unknown, maxLimit = 1000): string {
+  const l = Math.min(Math.max(Math.trunc(Number(limit) || 0), 1), maxLimit);
+  const o = Math.max(Math.trunc(Number(offset) || 0), 0);
+  return `LIMIT ${l} OFFSET ${o}`;
+}

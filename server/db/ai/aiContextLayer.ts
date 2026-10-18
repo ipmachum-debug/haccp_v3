@@ -115,7 +115,7 @@ export async function getBatchSummary(
      WHERE ${conditions.join(" AND ")}
      ORDER BY b.created_at DESC
      LIMIT ?`,
-    [tenantId, tenantId, tenantId, tenantId, ...params, limit]
+    [tenantId, tenantId, tenantId, tenantId, ...params, String(limit)]
   );
 
   return (rows as any[]).map((row) => {
@@ -349,7 +349,7 @@ export async function getDeviationHistory(
      LEFT JOIN h_batches b ON b.id = d.batch_id
      WHERE d.tenant_id = ? AND d.deviation_date BETWEEN ? AND ?
      ORDER BY d.deviation_date DESC LIMIT ?`,
-    [tenantId, startDate, endDate, limit]
+    [tenantId, startDate, endDate, String(limit)]
   );
 
   // 시정조치 요청
@@ -363,7 +363,7 @@ export async function getDeviationHistory(
      FROM h_corrective_action_requests
      WHERE tenant_id = ? AND created_at BETWEEN ? AND ?
      ORDER BY created_at DESC LIMIT ?`,
-    [tenantId, startDate, endDate + " 23:59:59", limit]
+    [tenantId, startDate, endDate + " 23:59:59", String(limit)]
   );
 
   // 부적합 — 정본은 공통 부적합(h_nonconformings, 전 업종). 2026-10-14 식품도 공통 화면으로 이전.
@@ -377,7 +377,7 @@ export async function getDeviationHistory(
      FROM h_nonconformings
      WHERE tenant_id = ? AND created_at BETWEEN ? AND ?
      ORDER BY created_at DESC LIMIT ?`,
-    [tenantId, startDate, endDate + " 23:59:59", limit]
+    [tenantId, startDate, endDate + " 23:59:59", String(limit)]
   );
 
   const all = [...(ccpDevs as any[]), ...(cars as any[]), ...(ncs as any[])];

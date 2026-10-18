@@ -651,7 +651,7 @@ export const aiRouter = router({
            WHERE ${conditions.join(" AND ")}
            ORDER BY FIELD(severity, 'critical', 'high', 'medium', 'low'), created_at DESC
            LIMIT ? OFFSET ?`,
-          [...params, limit, offset]
+          [...params, String(limit), String(offset)]
         );
 
         const [countResult] = await conn.execute(
@@ -970,7 +970,7 @@ export const aiRouter = router({
            WHERE ${conditions.join(" AND ")}
            ORDER BY created_at DESC
            LIMIT ? OFFSET ?`,
-          [...params, input?.limit || 50, input?.offset || 0]
+          [...params, String(input?.limit || 50), String(input?.offset || 0)]
         );
 
         return { success: true, logs: rows as any[] };

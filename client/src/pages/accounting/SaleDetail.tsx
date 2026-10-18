@@ -156,9 +156,9 @@ export default function SaleDetail() {
                       <td colSpan={3} className="py-2 px-4 text-right">
                         총 합계
                       </td>
-                      <td className="text-right py-2 px-4">{sale.totalAmount.toLocaleString()}원</td>
-                      <td className="text-right py-2 px-4">{sale.totalTax.toLocaleString()}원</td>
-                      <td className="text-right py-2 px-4">{sale.grandTotal.toLocaleString()}원</td>
+                      <td className="text-right py-2 px-4">{Number(sale.supplyAmount ?? 0).toLocaleString()}원</td>
+                      <td className="text-right py-2 px-4">{Number(sale.totalTax ?? 0).toLocaleString()}원</td>
+                      <td className="text-right py-2 px-4">{Number(sale.grandTotal ?? 0).toLocaleString()}원</td>
                     </tr>
                   </tfoot>
                 </table>

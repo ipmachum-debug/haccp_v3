@@ -2,6 +2,7 @@
  * 변경이력 로그 라우터 — ERP 감사 추적
  * 전표/거래/급여 등 수정 이력 기록 + 조회
  */
+import { limitOffsetSql } from "../../utils/dbHelpers";
 import { z } from "zod";
 import { router, tenantRequiredProcedure, adminProcedure } from "../../_core/trpc";
 import { getPool } from "../../db/pool";
@@ -43,8 +44,8 @@ export const changeLogRouter = router({
            LEFT JOIN users u ON cl.user_id = u.id AND u.tenant_id = cl.tenant_id
            ${where}
            ORDER BY cl.created_at DESC
-           LIMIT ? OFFSET ?`,
-          [...params, limit, (page - 1) * limit],
+           ${limitOffsetSql(limit, (page - 1) * limit)}`,
+          params,
         );
 
         return {
@@ -57,7 +58,9 @@ export const changeLogRouter = router({
           total: Number(countRows[0]?.cnt || 0),
           page, limit,
         };
-      } catch (_) {
+      } catch (err: any) {
+        // 변경이력 표가 없는 회사는 빈 목록 — 그 밖의 실패는 로그로 남긴다 (지티 브라우저 검증 F11: 조회 실패를 조용히 숨기지 않기)
+        if (err?.code !== "ER_NO_SUCH_TABLE") console.error("[changeLog.list] 쿼리 실패:", err?.message || err);
         return { items: [], total: 0, page, limit };
       }
     }),

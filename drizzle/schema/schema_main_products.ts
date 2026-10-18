@@ -3,7 +3,7 @@
  */
 import {
   bigint, boolean, date, decimal, int, json,
-  mysqlEnum, mysqlTable, text, timestamp, tinyint, varchar
+  mysqlEnum, mysqlTable, text, timestamp, tinyint, uniqueIndex, varchar
 } from "drizzle-orm/mysql-core";
 import { tenants } from "./schema_main_core";
 
@@ -27,7 +27,7 @@ export const hProducts = mysqlTable("h_products", {
 export const hMaterials = mysqlTable("h_materials", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
-  materialCode: varchar("material_code", { length: 50 }).notNull().unique(),
+  materialCode: varchar("material_code", { length: 50 }).notNull(), // 회사별 유일 (uq_hm_tenant_code)
   materialName: varchar("material_name", { length: 100 }).notNull(),
   kind: varchar("kind", { length: 20 }).default("RAW").notNull(), // RAW, MIXED
   category: varchar("category", { length: 100 }), // 레거시 필드 (문자열 카테고리)
@@ -46,7 +46,9 @@ export const hMaterials = mysqlTable("h_materials", {
   isActive: tinyint("is_active").default(1).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().onUpdateNow().notNull(),
-});
+}, (t) => ({
+  uqTenantCode: uniqueIndex("uq_hm_tenant_code").on(t.tenantId, t.materialCode),
+}));
 
 /**
  * 원재료 단가 이력 테이블
@@ -83,7 +85,7 @@ export const hInventoryTurnoverSettings = mysqlTable("h_inventory_turnover_setti
 export const hProductsV2 = mysqlTable("h_products_v2", {
   id: bigint("id", { mode: "number" }).autoincrement().primaryKey(),
   tenantId: int('tenant_id').notNull().default(1).references(() => tenants.id),
-  productCode: varchar("product_code", { length: 50 }).notNull().unique(),
+  productCode: varchar("product_code", { length: 50 }).notNull(), // 회사별 유일 (uq_hp2_tenant_code)
   productName: varchar("product_name", { length: 100 }).notNull(),
   version: int("version").default(1).notNull(),
   category: varchar("category", { length: 100 }),
@@ -92,7 +94,9 @@ export const hProductsV2 = mysqlTable("h_products_v2", {
   description: text("description"),
   isActive: tinyint("is_active").default(1).notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  uqTenantCode: uniqueIndex("uq_hp2_tenant_code").on(t.tenantId, t.productCode),
+}));
 
 
 export const hProductVersions = mysqlTable("h_product_versions", {

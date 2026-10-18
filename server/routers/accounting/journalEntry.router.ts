@@ -2,6 +2,8 @@
  * 전표(분개) 직접 입력 라우터 — ERP 핵심 기능
  * ★ 모든 쿼리 try/catch — 테이블 부재 시에도 안전
  */
+import { TRPCError } from "@trpc/server";
+import { limitOffsetSql } from "../../utils/dbHelpers";
 import { z } from "zod";
 import { router, tenantRequiredProcedure, adminProcedure } from "../../_core/trpc";
 import { withTransaction } from "../../db";
@@ -57,8 +59,8 @@ export const journalEntryRouter = router({
            LEFT JOIN users u ON e.posted_by = u.id AND u.tenant_id = e.tenant_id
            ${where}
            ORDER BY e.entry_date DESC, e.id DESC
-           LIMIT ? OFFSET ?`,
-          [...params, limit, offset],
+           ${limitOffsetSql(limit, offset)}`,
+          params,
         );
 
         return {
@@ -71,8 +73,9 @@ export const journalEntryRouter = router({
           total, page, limit,
         };
       } catch (err: any) {
+        // 조회 실패를 '전표 0건' 으로 숨기지 않는다 (지티 브라우저 검증 F11)
         console.error("[journalEntry.list] 쿼리 실패:", err.message);
-        return { items: [], total: 0, page, limit };
+        throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "전표 목록을 불러오지 못했습니다 — 잠시 후 다시 시도하세요." });
       }
     }),
 

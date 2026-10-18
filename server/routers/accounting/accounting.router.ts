@@ -233,11 +233,11 @@ export const accountingRouter = router({
 
       if (input.limit) {
         sql += ` LIMIT ?`;
-        params.push(input.limit);
+        params.push(String(input.limit));
       }
       if (input.offset) {
         sql += ` OFFSET ?`;
-        params.push(input.offset);
+        params.push(String(input.offset));
       }
 
       const [rows] = await conn.execute(sql, params);

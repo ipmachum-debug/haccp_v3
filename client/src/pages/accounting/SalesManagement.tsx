@@ -316,7 +316,8 @@ function SalesManagementContent() {
     if (!materialSearchItemId) return;
 
     // Phase B: 거래처(고객)별 단가 조회 (매출)
-    let resolvedUnitPrice = selectedMasterItem.defaultUnitPrice || 0;
+    // 품목 기본 단가는 DB decimal 이라 문자열로 온다 — 숫자로 (지티 브라우저 검증 F02: 그대로 저장하면 unitPrice 형식 오류)
+    let resolvedUnitPrice = Number(selectedMasterItem.defaultUnitPrice) || 0;
     if (selectedPartnerId && selectedMasterItem.id) {
       try {
         // itemType 이 'own_product' 이면 product, 아니면 material
@@ -329,7 +330,7 @@ function SalesManagementContent() {
             : { materialId: selectedMasterItem.id }),
         });
         if (price && price.unitPrice > 0) {
-          resolvedUnitPrice = price.unitPrice;
+          resolvedUnitPrice = Number(price.unitPrice) || 0;
           toast({
             title: "거래처 단가 자동 적용",
             description: `${selectedMasterItem.itemName}: ${price.unitPrice.toLocaleString()}원`,
@@ -422,7 +423,7 @@ function SalesManagementContent() {
               utils.haccpIntegration.getAllSales.invalidate();
               setSavedSaleIds(newSaleIds);
               toast({
-                title: `매출 등록 완료`,
+                title: successCount === 0 ? `매출 등록 실패` : failCount > 0 ? `매출 일부 등록` : `매출 등록 완료`,
                 description: `성공: ${successCount}건${failCount > 0 ? `, 실패: ${failCount}건` : ""}`,
               });
               // ★ 폼은 유지 — 거래명세표 출력 후 "새 매출 등록" 으로 수동 초기화.
@@ -434,7 +435,7 @@ function SalesManagementContent() {
               setIsSaving(false);
               setSavedSaleIds(newSaleIds);
               toast({
-                title: `매출 등록 완료`,
+                title: successCount === 0 ? `매출 등록 실패` : failCount > 0 ? `매출 일부 등록` : `매출 등록 완료`,
                 description: `성공: ${successCount}건, 실패: ${failCount}건`,
                 variant: failCount > 0 ? "destructive" : "default",
               });

@@ -332,7 +332,8 @@ function PurchasesManagementContent() {
     if (!materialSearchItemId) return;
 
     // Phase B: 거래처별 단가 조회
-    let resolvedUnitPrice = selectedMasterItem.defaultUnitPrice || 0;
+    // 품목 기본 단가는 DB decimal 이라 문자열로 온다 — 숫자로 (지티 브라우저 검증 F02: 그대로 저장하면 unitPrice 형식 오류)
+    let resolvedUnitPrice = Number(selectedMasterItem.defaultUnitPrice) || 0;
     if (selectedPartnerId && selectedMasterItem.id) {
       try {
         const price = await utils.partnerPrice.resolvePrice.fetch({
@@ -341,7 +342,7 @@ function PurchasesManagementContent() {
           materialId: selectedMasterItem.id,
         });
         if (price && price.unitPrice > 0) {
-          resolvedUnitPrice = price.unitPrice;
+          resolvedUnitPrice = Number(price.unitPrice) || 0;
           toast({
             title: "거래처 단가 자동 적용",
             description: `${selectedMasterItem.itemName}: ${price.unitPrice.toLocaleString()}원`,
@@ -448,7 +449,8 @@ function PurchasesManagementContent() {
       utils.haccpIntegration.getAllPurchases.invalidate();
       setSavedPurchaseIds(newPurchaseIds);
       toast({
-        title: `매입 등록 완료`,
+        // 전부 실패면 '완료' 라고 하지 않는다 (지티 브라우저 검증 F02)
+        title: successCount + pendingCount + quarantinedCount + postFailedCount + cancelledCount === 0 ? `매입 등록 실패` : failCount > 0 ? `매입 일부 등록` : `매입 등록 완료`,
         description: [
           `성공: ${successCount}건`,
           pendingCount ? `입고 승인 대기: ${pendingCount}건` : "",

@@ -24,19 +24,23 @@ const SEVERITY_DOT = {
 
 
 
+// '확인' 한 날은 그날(한국 시각) 다시 띄우지 않는다.
+//   이전: sessionStorage(탭·창을 새로 열면 사라짐) + UTC 날짜(오전 9시 전에는 전날로 계산) → 확인해도 계속 다시 떴다.
+const DISMISS_KEY = "ai-briefing-dismissed";
+const kstToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date()); // YYYY-MM-DD
+const dismissedToday = () => {
+  try {
+    return localStorage.getItem(DISMISS_KEY) === kstToday();
+  } catch {
+    return false;
+  }
+};
+
 export default function FloatingAIBriefing() {
   const [, navigate] = useLocation();
   const [visible, setVisible] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(dismissedToday);
   const [animateIn, setAnimateIn] = useState(false);
-
-  useEffect(() => {
-    const today = new Date().toISOString().split("T")[0];
-    const lastDismissed = sessionStorage.getItem("ai-briefing-dismissed");
-    if (lastDismissed === today) {
-      setDismissed(true);
-    }
-  }, []);
 
   const { data: briefing, isLoading } = trpc.ai.briefing.useQuery(undefined, {
     enabled: !dismissed,
@@ -59,8 +63,11 @@ export default function FloatingAIBriefing() {
     setTimeout(() => {
       setVisible(false);
       setDismissed(true);
-      const today = new Date().toISOString().split("T")[0];
-      sessionStorage.setItem("ai-briefing-dismissed", today);
+      try {
+        localStorage.setItem(DISMISS_KEY, kstToday());
+      } catch {
+        /* 저장할 수 없는 브라우저(사생활 모드 등) — 이번 화면에서만 닫힘 */
+      }
     }, 300);
   };
 

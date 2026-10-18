@@ -557,7 +557,7 @@ export const dailyTrainingRouter = router({
          WHERE a.tenant_id = ? AND a.assignment_date < ? AND l.id IS NULL
          ORDER BY a.assignment_date DESC
          LIMIT ?`,
-        [tenantId, userId, tenantId, tenantId, today, limit]
+        [tenantId, userId, tenantId, tenantId, today, String(limit)]
       );
 
       return rows.map((r: any) => ({
