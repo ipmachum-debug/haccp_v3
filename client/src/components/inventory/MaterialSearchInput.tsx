@@ -35,17 +35,17 @@ export function MaterialSearchInput({ selectedId, selectedName, onSelect, onClea
         </div>
       )}
       {open && !selectedId && (
-        <div className="absolute z-[9999] top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border rounded-md shadow-lg max-h-52 overflow-y-auto">
-          {mats.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground text-center">{search ? "검색 결과 없음" : "원재료를 검색하세요"}</div>}
+        <div className="search-dropdown search-dropdown-scroll">
+          {mats.length === 0 && <div className="search-dropdown-empty">{search ? "검색 결과 없음" : "원재료를 검색하세요"}</div>}
           {mats.slice(0, 20).map((m: any) => (
             <button key={m.id} type="button"
-              className="w-full text-left px-3 py-2 hover:bg-muted text-xs flex items-center gap-2 border-b last:border-0"
+              className="search-dropdown-item"
               onMouseDown={e => e.preventDefault()}
               onClick={() => { onSelect(m.id, m.materialName || m.itemName || `M${m.id}`, m); setSearch(""); setOpen(false); }}>
-              <Package className="w-3 h-3 text-muted-foreground shrink-0" />
+              <Package className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.6} />
               <span className="font-medium truncate">{m.materialName || m.itemName}</span>
-              <span className="text-[10px] text-muted-foreground shrink-0">{m.materialCode || m.itemCode || `M${m.id}`}</span>
-              {m.unit && <span className="text-[10px] text-muted-foreground shrink-0 ml-auto">{m.unit}</span>}
+              <span className="search-dropdown-meta">{m.materialCode || m.itemCode || `M${m.id}`}</span>
+              {m.unit && <span className="search-dropdown-meta ml-auto rounded bg-muted px-1.5 py-0.5">{m.unit}</span>}
             </button>
           ))}
         </div>
