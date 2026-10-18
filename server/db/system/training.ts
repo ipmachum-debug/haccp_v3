@@ -1,5 +1,5 @@
 import { eq, and, desc, gte, lte, or } from "drizzle-orm";
-import { getDb } from "../connection";
+import { getDb, getRawConnection } from "../connection";
 import { formatLocalDate } from "../../utils/timezone";
 
 import {
@@ -281,13 +281,27 @@ export async function registerTrainingParticipant(data: {
   if (!schedule) {
     throw new Error("교육 일정을 찾을 수 없습니다. (테넌트 소속 아님)");
   }
+  // 같은 회사 사용자인지 · 중복 · 정원 (2026-10-18, Codex 교육 점검 — 이전: tenant_id 없이 INSERT 해 늘 실패)
+  const conn = await getRawConnection();
+  const [us]: any = await conn.execute(`SELECT id FROM users WHERE id = ? AND tenant_id = ? LIMIT 1`, [data.userId, tenantId]);
+  if (!(us as any[]).length) throw new Error("이 회사 사용자가 아닙니다.");
+  const [dup]: any = await conn.execute(
+    `SELECT id FROM h_training_participants WHERE schedule_id = ? AND user_id = ? AND tenant_id = ? LIMIT 1`,
+    [data.scheduleId, data.userId, tenantId],
+  );
+  if ((dup as any[]).length) throw new Error("이미 이 교육 일정에 등록된 참가자입니다.");
+  const [[cnt]]: any = await conn.execute(
+    `SELECT COUNT(*) AS n FROM h_training_participants WHERE schedule_id = ? AND tenant_id = ?`,
+    [data.scheduleId, tenantId],
+  );
+  if (schedule.maxParticipants && Number(cnt.n) >= schedule.maxParticipants) {
+    throw new Error(`정원(${schedule.maxParticipants}명)이 찼습니다.`);
+  }
 
-  const [result] = await db.insert(hTrainingParticipants).values(data as any);
+  const [result] = await db.insert(hTrainingParticipants).values({ ...data, tenantId } as any);
 
-  // 등록 인원 증가
-  await updateTrainingSchedule(data.scheduleId, {
-    registeredCount: (schedule.registeredCount || 0) + 1
-  }, tenantId);
+  // 등록 인원 = 실제 참가자 수
+  await updateTrainingSchedule(data.scheduleId, { registeredCount: Number(cnt.n) + 1 }, tenantId);
 
   return result.insertId;
 }
@@ -513,7 +527,7 @@ export async function markTrainingReminderAsSent(id: number, tenantId?: number) 
 // ============================================================================
 
 // ✅ P0 FIX: tenantId 필수 추가
-export async function issueCertificate(participantId: number, certificateUrl: string, tenantId: number) {
+export async function issueCertificate(participantId: number, certificateUrl: string | undefined, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
@@ -521,23 +535,87 @@ export async function issueCertificate(participantId: number, certificateUrl: st
   if (!participant) {
     throw new Error("참가자 정보를 찾을 수 없습니다. (테넌트 소속 아님)");
   }
+  // 과정은 일정을 거쳐 찾는다 (이전: 일정 번호를 과정 번호로 조회 — 엉뚱한 과정의 유효기간으로 만료일 계산)
+  const schedule = await getTrainingScheduleById(participant.scheduleId, tenantId);
+  const course = schedule ? await getTrainingCourseById(schedule.courseId, tenantId) : null;
+  const { certificateBlockers, expiryFromTrainingDate } = await import("../../lib/training/trainingParticipantPolicy");
+  const blockers = certificateBlockers(participant as any, course as any);
+  if (blockers.length) throw new Error(`수료증을 발급할 수 없습니다 — ${blockers.join(" / ")}`);
 
   const certificateNumber = `CERT-${Date.now()}-${participantId}`;
-
-  const course = await getTrainingCourseById(participant.scheduleId, tenantId);
-  let expiryDate: Date | undefined;
-  
-  if (course && course.validityPeriod) {
-    expiryDate = new Date();
-    expiryDate.setMonth(expiryDate.getMonth() + course.validityPeriod);
-  }
+  // 재교육 기한 = 교육일 + 유효기간 (발급일 기준 아님)
+  const trainingDate = schedule?.scheduledDate
+    ? (schedule.scheduledDate instanceof Date ? formatLocalDate(schedule.scheduledDate) : String(schedule.scheduledDate).slice(0, 10))
+    : formatLocalDate(new Date());
+  const expiryDate = expiryFromTrainingDate(trainingDate, course?.validityPeriod ?? null);
 
   await updateTrainingParticipant(participantId, {
     certificateIssued: 1,
     certificateNumber,
-    certificateUrl,
-    expiryDate: expiryDate ? formatLocalDate(expiryDate) : undefined
+    certificateUrl: certificateUrl || undefined,
+    expiryDate: expiryDate ?? undefined,
   }, tenantId);
 
   return { certificateNumber, expiryDate };
+}
+
+/** 평가 점수 등록 — 출석한 참가자만, 합격 여부는 과정 합격 점수로 서버가 판정 */
+export async function recordTrainingAssessment(participantId: number, score: number, tenantId: number) {
+  const participant = await getTrainingParticipantById(participantId, tenantId);
+  if (!participant) throw new Error("참가자 정보를 찾을 수 없습니다. (테넌트 소속 아님)");
+  if (participant.attendanceStatus !== "attended") throw new Error("출석 처리된 참가자만 평가 점수를 등록할 수 있습니다.");
+  if (!Number.isFinite(score) || score < 0 || score > 100) throw new Error("평가 점수는 0~100 사이로 입력하세요.");
+  const schedule = await getTrainingScheduleById(participant.scheduleId, tenantId);
+  const course = schedule ? await getTrainingCourseById(schedule.courseId, tenantId) : null;
+  const { decidePassed } = await import("../../lib/training/trainingParticipantPolicy");
+  const passed = decidePassed(score, course?.passingScore);
+  await updateTrainingParticipant(participantId, { assessmentScore: score, ...(passed == null ? {} : { passed }) }, tenantId);
+  return { passed };
+}
+
+/** 회사의 교육 일정 전체 (최근 순) — 지난·진행 중 일정도 관리할 수 있게 */
+export async function getAllTrainingSchedules(tenantId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+  return db
+    .select()
+    .from(hTrainingSchedules)
+    .where(eq(hTrainingSchedules.tenantId, tenantId))
+    .orderBy(desc(hTrainingSchedules.scheduledDate))
+    .limit(300);
+}
+
+/** 참가자 목록 — 이름·과정·교육일 포함 (일정 지정 시 그 일정만) */
+export async function getTrainingParticipantsDetailed(tenantId: number, scheduleId?: number) {
+  const conn = await getRawConnection();
+  const [rows]: any = await conn.execute(
+    `SELECT tp.id, tp.schedule_id AS scheduleId, tp.user_id AS userId, u.name AS userName,
+            tp.attendance_status AS attendanceStatus, tp.assessment_score AS assessmentScore, tp.passed,
+            tp.certificate_issued AS certificateIssued, tp.certificate_number AS certificateNumber,
+            DATE_FORMAT(tp.expiry_date, '%Y-%m-%d') AS expiryDate,
+            DATE_FORMAT(s.scheduled_date, '%Y-%m-%d') AS scheduledDate, s.course_id AS courseId,
+            c.course_name AS courseName, c.passing_score AS passingScore
+       FROM h_training_participants tp
+       JOIN h_training_schedules s ON s.id = tp.schedule_id AND s.tenant_id = tp.tenant_id
+       LEFT JOIN h_training_courses c ON c.id = s.course_id AND c.tenant_id = s.tenant_id
+       LEFT JOIN users u ON u.id = tp.user_id AND u.tenant_id = tp.tenant_id
+      WHERE tp.tenant_id = ?${scheduleId ? " AND tp.schedule_id = ?" : ""}
+      ORDER BY s.scheduled_date DESC, tp.id`,
+    scheduleId ? [tenantId, scheduleId] : [tenantId],
+  );
+  return rows as Array<{
+    id: number; scheduleId: number; userId: number; userName: string | null; attendanceStatus: string | null;
+    assessmentScore: string | null; passed: number | null; certificateIssued: number | null; certificateNumber: string | null;
+    expiryDate: string | null; scheduledDate: string | null; courseId: number; courseName: string | null; passingScore: string | null;
+  }>;
+}
+
+/** 참가자로 고를 수 있는 이 회사 사용자 (승인·활성) */
+export async function getTrainingUserOptions(tenantId: number) {
+  const conn = await getRawConnection();
+  const [rows]: any = await conn.execute(
+    `SELECT id, name FROM users WHERE tenant_id = ? AND is_active = 1 AND approval_status = 'approved' ORDER BY name`,
+    [tenantId],
+  );
+  return rows as Array<{ id: number; name: string }>;
 }

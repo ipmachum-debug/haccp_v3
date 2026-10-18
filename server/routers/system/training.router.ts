@@ -179,6 +179,11 @@ export const trainingRouter = router({
       return trainingDb.getUpcomingTrainingSchedules(input.siteId, ctx.tenantId);
     }),
 
+  // 전체 교육 일정 (지난·진행 중 포함, 최근 순) — 일정 탭·관리 화면용
+  listSchedules: tenantRequiredProcedure.query(async ({ ctx }) => {
+    return trainingDb.getAllTrainingSchedules(ctx.tenantId);
+  }),
+
   // 교육 일정 수정
   updateSchedule: tenantRequiredProcedure
     .input(
@@ -244,6 +249,18 @@ export const trainingRouter = router({
       return trainingDb.getTrainingParticipantsBySchedule(input.scheduleId, ctx.tenantId);
     }),
 
+  // 참가자 목록 (이름·과정·교육일 포함). scheduleId 를 주면 그 일정만
+  listParticipants: tenantRequiredProcedure
+    .input(z.object({ scheduleId: z.number().optional() }))
+    .query(async ({ input, ctx }) => {
+      return trainingDb.getTrainingParticipantsDetailed(ctx.tenantId, input.scheduleId);
+    }),
+
+  // 참가자로 고를 수 있는 이 회사 사용자
+  listUserOptions: tenantRequiredProcedure.query(async ({ ctx }) => {
+    return trainingDb.getTrainingUserOptions(ctx.tenantId);
+  }),
+
   // 사용자별 교육 이력
   listParticipantsByUser: tenantRequiredProcedure
     .input(z.object({ userId: z.number().optional() }))
@@ -266,21 +283,18 @@ export const trainingRouter = router({
       return { success: true };
     }),
 
-  // 평가 점수 등록
+  // 평가 점수 등록 — 출석한 참가자만, 합격 여부는 과정 합격 점수로 서버가 판정 (화면이 보낸 passed 는 쓰지 않음)
   recordAssessment: tenantRequiredProcedure
     .input(
       z.object({
         id: z.number(),
         assessmentScore: z.number(),
-        passed: z.number(),
+        passed: z.number().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
-      await trainingDb.updateTrainingParticipant(input.id, {
-        assessmentScore: input.assessmentScore,
-        passed: input.passed,
-      }, ctx.tenantId);
-      return { success: true };
+      const r = await trainingDb.recordTrainingAssessment(input.id, input.assessmentScore, ctx.tenantId);
+      return { success: true, passed: r.passed };
     }),
 
   // 수료증 발급
@@ -288,7 +302,7 @@ export const trainingRouter = router({
     .input(
       z.object({
         participantId: z.number(),
-        certificateUrl: z.string(),
+        certificateUrl: z.string().optional(),
       })
     )
     .mutation(async ({ input, ctx }) => {
@@ -320,6 +334,17 @@ export const trainingRouter = router({
       await trainingDb.updateTrainingParticipant(id, data, ctx.tenantId);
       return { success: true };
     }),
+
+  // 교육 과정 보고서 PDF (한글 폰트, 서버 생성) — base64
+  courseReportPdf: tenantRequiredProcedure.mutation(async ({ ctx }) => {
+    const courses = await trainingDb.getAllTrainingCourses(ctx.tenantId);
+    if (!courses.length) throw new Error("보고서를 만들 교육 과정이 없습니다.");
+    const schedules = await trainingDb.getAllTrainingSchedules(ctx.tenantId);
+    const participants = await trainingDb.getTrainingParticipantsDetailed(ctx.tenantId);
+    const { generateTrainingReportPdf } = await import("../../lib/trainingReportPdf");
+    const buf = await generateTrainingReportPdf({ courses: courses as any, schedules: schedules as any, participants });
+    return { base64: buf.toString("base64") };
+  }),
 
   // 참가 취소
   cancelParticipant: tenantRequiredProcedure
