@@ -681,7 +681,7 @@ function Ccp4pDailyTables({
                 <TableHead className="py-1 text-xs">제품명</TableHead>
                 <TableHead className="py-1 text-xs">최초통과</TableHead>
                 <TableHead className="py-1 text-xs">통과종료</TableHead>
-                <TableHead className="py-1 text-xs text-right">통과량(개)</TableHead>
+                <TableHead className="py-1 text-xs text-right">통과량</TableHead>
                 <TableHead className="py-1 text-xs text-right">검출량(개)</TableHead>
                 <TableHead className="py-1 text-xs">특이사항</TableHead>
                 <TableHead className="py-1 text-xs">판정</TableHead>
@@ -694,7 +694,7 @@ function Ccp4pDailyTables({
                   <TableCell className="py-1">{r.productName || "-"}</TableCell>
                   <TableCell className="py-1 font-mono">{r.passTimeStart || "-"}</TableCell>
                   <TableCell className="py-1 font-mono">{r.passTimeEnd || "-"}</TableCell>
-                  <TableCell className="py-1 text-right font-mono">{r.passQty ?? "-"}</TableCell>
+                  <TableCell className="py-1 text-right font-mono">{r.passQty != null ? `${r.passQty}${({ pack: "팩", box: "상자", ea: "개", kg: "kg", bag: "봉", tray: "판" } as Record<string, string>)[String((r as any).passUnit)] ?? ((r as any).passUnit ?? "")}` : "-"}</TableCell>
                   <TableCell className="py-1 text-right font-mono">{r.detectedQty ?? 0}</TableCell>
                   <TableCell className="py-1 text-muted-foreground">{r.specialNote || "-"}</TableCell>
                   <TableCell className="py-1"><ResultBadge result={r.result} /></TableCell>
@@ -749,13 +749,20 @@ function CcpFormPanel({
 
   const submitMutation = trpc.ccpForm.submit.useMutation({
     onSuccess: (data: any) => {
-      toast({ title: "승인 요청 완료", description: "CCP 기록지가 승인관리로 이동되었습니다." });
+      if (data?.confirmedOnly) {
+        toast({ title: "시트 확인 완료", description: "확인자·시각이 기록되었습니다." });
+        onRefresh?.();
+        return;
+      }
+      toast({ title: "제출 완료", description: "시트 확인이 기록되고 승인관리로 이동합니다." });
       setTimeout(() => setLocation("/dashboard/approval"), 1200);
     },
     onError: (err: { message: string }) => toast({ title: "제출 실패", description: err.message, variant: "destructive" }),
   });
 
-  const ccpGroup = equipmentGroups.find(g => g.ccpType === formRecord.ccpType);
+  // 같은 CCP 유형 공정이 둘(교반 + 증숙)일 수 있다 — 기록지의 공정그룹으로 먼저 찾는다 (2026-10-18)
+  const ccpGroup = equipmentGroups.find(g => formRecord.processGroupId != null && g.processGroupId === formRecord.processGroupId)
+    ?? equipmentGroups.find(g => g.ccpType === formRecord.ccpType);
   const equipmentList: EquipmentInfo[] = ccpGroup?.equipment ?? [];
   const clDefaults = clFromRecord(formRecord);
   // CCP-4P 는 일일 통합 기록지 — 배치 단위가 아니라 감도 체크 + 통과 기록 (BOM 배치수·설비 할당 해당 없음)
@@ -812,7 +819,11 @@ function CcpFormPanel({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {formRecord.status === "draft" && rows.length > 0 && (
+          {/* 제출 = 시트 확인 (2026-10-18): 작성중 또는 자동 제출만 되고 아직 사람 확인이 없는 기록지 */}
+          {(formRecord as any).confirmed && (
+            <span className="text-[11px] text-emerald-700">확인 {(formRecord as any).confirmedByName ?? ""} {(formRecord as any).confirmedAt ?? ""}</span>
+          )}
+          {(formRecord.status === "draft" || (formRecord.status === "submitted" && !(formRecord as any).confirmed)) && rows.length > 0 && (
             <Button size="sm" variant="default" className="h-7 text-xs bg-green-600 hover:bg-green-700"
               onClick={e => {
                 e.stopPropagation();
@@ -826,7 +837,7 @@ function CcpFormPanel({
               }}
               disabled={submitMutation.isPending}>
               <Send className="h-3 w-3 mr-1" />
-              승인요청 → 승인관리
+              {formRecord.status === "submitted" ? "확인 제출" : "제출(시트 확인) → 승인관리"}
             </Button>
           )}
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
@@ -1090,14 +1101,17 @@ export function CcpMonitoringForms({
       toast({ title: "CCP 인스턴스 없음", description: "먼저 CCP를 자동 생성해주세요.", variant: "destructive" });
       return;
     }
-    const uniqueTypes = Array.from(new Set((ccpInstances as any[]).map((c: any) => c.ccpType as string)));
-    for (const ccpType of uniqueTypes) {
-      const inst = (ccpInstances as any[]).find((c: any) => c.ccpType === ccpType);
+    // 공정마다 기록지 하나 — 같은 CCP 유형 공정이 둘이면 둘 다 (2026-10-18), 금속검출은 하루 한 장이라 유형당 한 번
+    const seen = new Set<string>();
+    for (const inst of ccpInstances as any[]) {
+      const key = inst.ccpType === "CCP-4P" ? "CCP-4P" : `${inst.ccpType}|${inst.processGroupId ?? ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
       // CL 은 보내지 않는다 — 서버가 공정그룹(금속검출은 설비 감도)에서 스냅샷한다 (회사별 값)
       getOrCreateMutation.mutate({
-        batchId, ccpType, workDate: today,
+        batchId, ccpType: inst.ccpType, workDate: today,
         productId, productName,
-        processGroupId: inst?.processGroupId ?? undefined,
+        processGroupId: inst.processGroupId ?? undefined,
         plannedQtyKg,
       });
     }

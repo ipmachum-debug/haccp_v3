@@ -109,7 +109,10 @@ export async function getOrCreateCcpFormRecord(params: {
     // 존재하지 않으면 아래 일반 생성 로직으로 진행 (product_name을 '금속검출 통합'으로 설정)
   }
 
-  // 이미 존재하는지 확인 (CCP-1B, CCP-2B: 배치별 기록)
+  // 이미 존재하는지 확인 (CCP-1B, CCP-2B: 배치 × 공정 별 기록)
+  //   ★ 2026-10-18: 이전엔 batch_id + ccp_type 만 봐서, 한 배치가 CCP-1B 공정 두 개(교반 + 증숙)를 거치면
+  //     두 번째 공정 기록지가 만들어지지 않았다 (단지 48배치 중 32배치 — 예: 10/14 #1113 증숙(설기) 기록지 없음).
+  //     공정그룹이 있으면 그 공정 기록지만 같은 것으로 본다.
   const existing = await db
     .select()
     .from(hCcpFormRecords)
@@ -117,7 +120,8 @@ export async function getOrCreateCcpFormRecord(params: {
       and(
         eq(hCcpFormRecords.tenantId, params.tenantId),
         eq(hCcpFormRecords.batchId, params.batchId),
-        eq(hCcpFormRecords.ccpType, params.ccpType)
+        eq(hCcpFormRecords.ccpType, params.ccpType),
+        ...(params.processGroupId ? [eq(hCcpFormRecords.processGroupId, params.processGroupId)] : []),
       )
     )
     .limit(1);
@@ -298,6 +302,38 @@ export async function updateCcpFormRecord(
  *    같은 날짜의 다른 배치에서도 해당 CCP-4P 기록지를 표시해야 함.
  */
 export async function getCcpFormRecordsByBatch(batchId: number, tenantId?: number) {
+  return attachConfirmState(await loadCcpFormRecordsByBatch(batchId, tenantId), tenantId);
+}
+
+/**
+ * 기록지 확인 상태 (제출 = 시트 확인, 2026-10-18) — Drizzle 스키마 밖 컬럼이라 따로 읽는다 (마이그레이션 전 DB 에서도 동작)
+ *   confirmed: 사람이 제출(확인)했고 그 뒤 행이 바뀌지 않았는가 · confirmedByName·confirmedAt: 확인자·시각
+ */
+async function attachConfirmState<T extends { id: number }>(records: T[], tenantId?: number): Promise<Array<T & { confirmed: boolean; confirmedAt: string | null; confirmedByName: string | null }>> {
+  if (!records.length || tenantId == null) return records.map((r) => ({ ...r, confirmed: false, confirmedAt: null, confirmedByName: null }));
+  try {
+    const conn = await getRawConnection();
+    const ids = records.map((r) => Number(r.id));
+    const [rs]: any = await conn.execute(
+      `SELECT f.id, f.rows_version, f.confirmed_rows_version, DATE_FORMAT(f.confirmed_at, '%Y-%m-%d %H:%i') AS confirmed_at, u.name AS confirmed_by_name
+         FROM h_ccp_form_records f LEFT JOIN users u ON u.id = f.confirmed_by
+        WHERE f.tenant_id = ? AND f.id IN (${ids.map(() => "?").join(",")})`,
+      [tenantId, ...ids],
+    );
+    const { isConfirmed } = await import("../../lib/haccp/ccpSheetConfirm");
+    const m = new Map((rs as any[]).map((x) => [Number(x.id), x]));
+    return records.map((r) => {
+      const x = m.get(Number(r.id));
+      const ok = !!x && isConfirmed({ confirmedAt: x.confirmed_at, confirmedRowsVersion: x.confirmed_rows_version, rowsVersion: x.rows_version });
+      return { ...r, confirmed: ok, confirmedAt: ok ? x.confirmed_at : null, confirmedByName: ok ? (x.confirmed_by_name ?? null) : null };
+    });
+  } catch (e: any) {
+    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+    return records.map((r) => ({ ...r, confirmed: false, confirmedAt: null, confirmedByName: null }));
+  }
+}
+
+async function loadCcpFormRecordsByBatch(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
@@ -444,7 +480,8 @@ export async function getCcpFormRecordById(id: number, tenantId?: number) {
     .limit(1);
   if (!records.length) return null;
   const rows = await getCcpFormRows(id, tenantId);
-  const record = await enrichWithGroupText(records[0] as any, tenantId);
+  const [withState] = await attachConfirmState(records as any[], tenantId);
+  const record = await enrichWithGroupText(withState as any, tenantId);
   return { record, rows };
 }
 

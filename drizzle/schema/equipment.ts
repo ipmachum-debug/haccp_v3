@@ -14,7 +14,7 @@ export const equipments = mysqlTable("equipments", {
   defaultTemperature: decimal("default_temperature", { precision: 5, scale: 2 }),
   edgeTemperature: decimal("edge_temperature", { precision: 10, scale: 2 }),
   centerTemperature: decimal("center_temperature", { precision: 10, scale: 2 }),
-  defaultPressure: decimal("default_pressure", { precision: 5, scale: 2 }),
+  defaultPressure: decimal("default_pressure", { precision: 6, scale: 3 }), // MPa, 소수 3자리 (2026-10-18)
   defaultTime: int("default_time"), // 분 단위
   batchOperationTime: int("batch_operation_time"), // 1배치당 운영시간 (분)
   

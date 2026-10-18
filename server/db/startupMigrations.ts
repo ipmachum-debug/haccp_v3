@@ -912,6 +912,29 @@ async function ensureInboundDocumentSchema(conn: any) {
   await addCol("ccp_process_groups", "monitoring_cycle", "`monitoring_cycle` text NULL");
   // 승인된 CCP 기록지의 인쇄 문구 고정 — 공정그룹 문구를 나중에 개정해도 승인 당시 문구 보존 (2026-10-18)
   await addCol("h_ccp_form_records", "print_snapshot", "`print_snapshot` json NULL");
+  // 압력(MPa) 소수 3자리로 넓힘 — 0.115MPa 같은 기준을 저장할 수 있게 (기존 값 그대로, 2026-10-18)
+  for (const [table, col] of [["ccp_process_groups", "pressure_min"], ["ccp_process_groups", "pressure_max"], ["equipments", "default_pressure"]] as const) {
+    try {
+      const [c]: any = await conn.query(
+        `SELECT NUMERIC_SCALE AS s, IS_NULLABLE AS n FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ? LIMIT 1`,
+        [table, col],
+      );
+      const r = (c as any[])[0];
+      if (r && Number(r.s) < 3) {
+        await conn.query(`ALTER TABLE \`${table}\` MODIFY COLUMN \`${col}\` decimal(6,3) ${r.n === "NO" ? "NOT NULL" : "NULL"}`);
+        console.log(`[Migration] ${table}.${col} → decimal(6,3)`);
+      }
+    } catch (err: any) {
+      if (err.code !== "ER_NO_SUCH_TABLE") console.warn(`[Migration] ${table}.${col} widen failed:`, err.message);
+    }
+  }
+  // 제출 = 시트 확인 (2026-10-18) — 행 버전 · 사람 확인자·시각·확인한 버전
+  await addCol("h_ccp_form_records", "rows_version", "`rows_version` int NOT NULL DEFAULT 0");
+  await addCol("h_ccp_form_records", "confirmed_by", "`confirmed_by` bigint NULL");
+  await addCol("h_ccp_form_records", "confirmed_at", "`confirmed_at` timestamp NULL");
+  await addCol("h_ccp_form_records", "confirmed_rows_version", "`confirmed_rows_version` int NULL");
+  // 금속검출 통과량 단위 — 통과량 = 생산량(SKU 판매단위 또는 kg), 인쇄에 단위 표기 (2026-10-18)
+  await addCol("h_ccp_form_rows", "pass_unit", "`pass_unit` varchar(20) NULL");
   // 원재료·제품 코드는 회사별 유일 (지티컴퍼니 QA F01, 2026-10-18) — 전역 UNIQUE 때문에 다른 회사가 쓴 코드(RM-001 등)를
   //   새 회사가 못 써서 등록이 DB 오류로 실패했다. 회사별 키를 먼저 만들고, 만들어진 것을 확인한 뒤에만 전역 키를 지운다.
   for (const [table, col, name, legacy] of [

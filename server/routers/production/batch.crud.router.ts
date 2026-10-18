@@ -170,12 +170,13 @@ export const batchCrudRouter = router({
             }
             for (const grp of ccpGroups) {
               // CCP-4P는 날짜별 1건 통합 → batch_id가 아닌 work_date로 중복 체크
+              // 1B/2B 는 배치 × 공정 별 기록지 (2026-10-18: 공정 두 개인 배치의 두 번째 기록지 누락 수정)
               const existQuery = grp.ccp_type === 'CCP-4P'
                 ? 'SELECT id FROM h_ccp_form_records WHERE ccp_type=? AND work_date=? AND tenant_id=? LIMIT 1'
-                : 'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND tenant_id=? LIMIT 1';
+                : 'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND process_group_id=? AND tenant_id=? LIMIT 1';
               const existParams = grp.ccp_type === 'CCP-4P'
                 ? [grp.ccp_type, workDate, tenantId]
-                : [batchId, grp.ccp_type, tenantId];
+                : [batchId, grp.ccp_type, grp.id, tenantId];
               const [existFR] = await _pool3.execute(existQuery, existParams);
               if ((existFR as any[]).length > 0) continue;
               const clHeatTimeMinLo = grp.time_min ?? null;
@@ -188,20 +189,34 @@ export const batchCrudRouter = router({
               // CCP-4P: 일일 통합 기록지 (product_id=NULL, product_name='금속검출 통합')
               const frProductId = grp.ccp_type === 'CCP-4P' ? null : input.productId;
               const frProductName = grp.ccp_type === 'CCP-4P' ? '금속검출 통합' : (finalProductName || productName || null);
+              // 금속검출 감도 기준은 이 회사 금속검출기 설정 — 쓰지 않으면 DB 기본값(2.0/3.0/130)이 들어갔다 (2026-10-18)
+              let clFe: string | null = null, clSus: string | null = null;
+              if (grp.ccp_type === 'CCP-4P') {
+                const [eqm]: any = await _pool3.execute(
+                  `SELECT fe_sensitivity, sts_sensitivity FROM equipments WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND status = 'active' ORDER BY id LIMIT 1`,
+                  [tenantId],
+                );
+                const e0 = (eqm as any[])[0];
+                if (e0) { clFe = e0.fe_sensitivity != null ? String(e0.fe_sensitivity) : null; clSus = e0.sts_sensitivity != null ? String(e0.sts_sensitivity) : null; }
+              }
+              // 1B 품온 기준 = 공정 온도 하한 (getOrCreate 와 같게)
+              const clProductTempLo = grp.ccp_type === 'CCP-1B' ? clHeatTempLo : null;
               await _pool3.execute(
                 `INSERT INTO h_ccp_form_records
                    (tenant_id, site_id, batch_id, ccp_type, work_date,
                     product_id, product_name, process_group_id, process_group_name,
                     planned_qty_kg, writer_id, status,
                     cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo, cl_pressure_mpa_lo,
+                    cl_product_temp_lo, cl_fe_mm, cl_sus_mm, cl_metal_sensitivity,
                     equip_group_mode, equip_interval_min,
                     bom_batch_kg, batch_count)
-                 VALUES (?,?,?,?,?, ?,?,?,?, ?,?,'draft', ?,?,?,?, ?,?, ?,?)`,
+                 VALUES (?,?,?,?,?, ?,?,?,?, ?,?,'draft', ?,?,?,?, ?,?,?,NULL, ?,?, ?,?)`,
                 [
                   tenantId, input.siteId || ctx.user.siteId || ctx.tenantId, batchId, grp.ccp_type, workDate,
                   frProductId, frProductName, grp.id, grp.name,
                   input.plannedQuantity, ctx.user.id,
                   clHeatTimeMinLo, clHeatTimeMinHi, clHeatTempLo, clPressureMpaLo,
+                  clProductTempLo, clFe, clSus,
                   equipGroupMode, equipIntervalMin,
                   bomBatchKg, batchCount,
                 ]
@@ -363,6 +378,13 @@ export const batchCrudRouter = router({
             }
           } catch (skuErr) {
             console.error("[파이프라인] SKU 저장 실패 (배치 생성 유지):", skuErr);
+          }
+          // SKU 실적이 CCP 동기화 뒤에 저장되므로 한 번 더 동기화 — 금속검출 통과량 = 생산량(SKU 판매단위) (2026-10-18)
+          try {
+            const { syncCcpRowsToFormRows } = await import("../../db/haccp/ccpFormSettings");
+            await syncCcpRowsToFormRows({ batchId, tenantId });
+          } catch (resyncErr) {
+            console.error("[파이프라인] SKU 반영 재동기화 실패 (계속):", resyncErr);
           }
         }
 
@@ -709,9 +731,10 @@ export const batchCrudRouter = router({
           }
         }
 
-        // === 4. 금속탐지 배정 ===
+        // === 4. 금속탐지 배정 — 계획 전용 표 쓰기라 꺼짐 (정본은 기록지 행, server/lib/haccp/metalRecordSource.ts) ===
         let metalPassResult = null;
-        if (successResults.length > 0) {
+        const { WRITE_METAL_PLAN_TABLES } = await import("../../lib/haccp/metalRecordSource");
+        if (WRITE_METAL_PLAN_TABLES && successResults.length > 0) {
           try {
             metalPassResult = await allocateMetalPassLogsForDay({
               tenantId: ctx.tenantId, siteId: input.siteId,

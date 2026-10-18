@@ -371,6 +371,17 @@ export const ccpFormRouter = router({
         workDate: z.string(),
       }))
       .mutation(async ({ input, ctx }) => {
+        // 제출 = 시트 확인 (2026-10-18): 사람이 누른 제출만 확인 이력. 막을 이유가 있으면 상태를 바꾸기 전에 거부.
+        //   배치 생성 때 자동으로 submitted 가 된 기록지는 승인요청을 새로 만들지 않고 확인만 남긴다.
+        const { checkSheet, confirmSheet } = await import("../../lib/haccp/ccpSheetConfirm");
+        const pre = await checkSheet(input.formRecordId, ctx.tenantId);
+        if (pre.problems.length) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: `제출할 수 없습니다 — ${pre.problems.slice(0, 5).join(" / ")}${pre.problems.length > 5 ? ` 외 ${pre.problems.length - 5}건` : ""}` });
+        }
+        if (pre.record.status === "submitted") {
+          await confirmSheet(input.formRecordId, ctx.tenantId, ctx.user.id);
+          return { success: true, approvalRequestId: null, confirmedOnly: true };
+        }
         const { submitCcpFormRecord } = await import("../../db/haccp/ccpFormRecords");
         const approvalId = await submitCcpFormRecord({
           formRecordId: input.formRecordId,
@@ -382,7 +393,8 @@ export const ccpFormRouter = router({
           ccpType: input.ccpType,
           workDate: input.workDate,
         });
-        return { success: true, approvalRequestId: approvalId };
+        await confirmSheet(input.formRecordId, ctx.tenantId, ctx.user.id);
+        return { success: true, approvalRequestId: approvalId, confirmedOnly: false };
       }),
 
     /** 설비 배치 간격 설정 저장 */

@@ -294,6 +294,13 @@ export async function createSingleBatch(
     } catch (skuErr) {
       console.error("[batchOrchestrator] SKU 기록 실패:", skuErr);
     }
+    // SKU 실적이 CCP 동기화 뒤에 저장되므로 한 번 더 동기화 — 금속검출 통과량 = 생산량(SKU 판매단위) (2026-10-18)
+    try {
+      const { syncCcpRowsToFormRows: resync } = await import("../db/haccp/ccpFormRecords");
+      await resync({ batchId, tenantId: input.tenantId });
+    } catch (resyncErr) {
+      console.error("[batchOrchestrator] SKU 반영 재동기화 실패 (계속):", resyncErr);
+    }
   }
 
   // === 5. 배치 스케줄 생성 ===

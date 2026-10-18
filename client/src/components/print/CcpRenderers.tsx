@@ -517,6 +517,9 @@ export function renderCcpFormRecord(fr: any, doc: any) {
       : Array.from({ length: PASSAGE_MIN }, () => ({}));
 
     // 시간 포맷 헬퍼 (HH:mm:ss → HH:mm)
+    // 통과량 = 생산량, 단위는 행에 저장된 것 (SKU 판매단위 또는 kg) — 단위 없는 과거 행은 숫자만
+    const PASS_UNIT_LABEL: Record<string, string> = { pack: "팩", box: "상자", ea: "개", kg: "kg", bag: "봉", tray: "판" };
+    const fmtPassQty = (q: any, u: any) => (q == null || q === "" ? "" : u ? `${q}${PASS_UNIT_LABEL[String(u)] ?? String(u)}` : String(q));
     const fmtTime = (v: any) => {
       if (!v) return "";
       const ts = String(v);
@@ -565,7 +568,8 @@ export function renderCcpFormRecord(fr: any, doc: any) {
             <tr>
               <td className={`${bCls} px-1 py-0 font-medium bg-gray-50 text-center align-top text-[7px]`} rowSpan={1} style={{ width: "6%" }}>모니터링<br/>방 법</td>
               <td className={`${bCls} px-1 py-0 text-[6.5px] leading-[1.1]`}>
-                <span>&#9675; 감도확인 / &#9675; 벨트 중간 테스트피스(Fe,SUS) 통과→검출여부 확인,기록 / &#9675; 제품강도측정-제품통과→이물없음 확인, 테스트피스+제품 통과 확인,기록 / &#9675; 통과량·검출량 확인,기록</span>
+                {/* 회사 공정그룹 문구 (2026-10-18 — 이전엔 특정 회사 문구 고정) */}
+                {monitoringMethodText ? renderMultiline(monitoringMethodText) : EMPTY_TEXT("모니터링 방법")}
               </td>
             </tr>
           </tbody>
@@ -632,7 +636,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
               <th className={thCls} style={{ width: "18%" }}>제품명</th>
               <th className={thCls} style={{ width: "14%" }}>최초통과시간</th>
               <th className={thCls} style={{ width: "14%" }}>통과종료시간</th>
-              <th className={thCls} style={{ width: "12%" }}>통과량(개)</th>
+              <th className={thCls} style={{ width: "12%" }}>통과량</th>
               <th className={thCls} style={{ width: "12%" }}>검출량(개)</th>
               <th className={thCls} style={{ width: "30%" }}>특이사항</th>
             </tr>
@@ -643,7 +647,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 <td className={`${tdCls} text-[10px]`}>{s(row.productName || row.product_name) || ""}</td>
                 <td className={tdCls}>{fmtTime(row.passTimeStart || row.pass_time_start)}</td>
                 <td className={tdCls}>{fmtTime(row.passTimeEnd || row.pass_time_end)}</td>
-                <td className={tdCls}>{row.passQty ?? row.pass_qty ?? ""}</td>
+                <td className={tdCls}>{fmtPassQty(row.passQty ?? row.pass_qty, row.passUnit ?? row.pass_unit)}</td>
                 <td className={tdCls}>{row.detectedQty ?? row.detected_qty ?? ""}</td>
                 <td className={`${tdCls} text-left text-[10px]`}>{s(row.specialNote || row.special_note) || ""}</td>
               </tr>
@@ -658,7 +662,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
             <tr>
               <td className={`${bCls} px-1 py-0 font-medium bg-gray-50 text-center align-top text-[7px]`} rowSpan={1} style={{ width: "6%" }}>개선<br/>조치<br/>방법</td>
               <td className={`${bCls} px-1 py-0 text-[6.5px] leading-[1.1]`}>
-                <span>&#9675; 이물검출→작업중지,보류,제거,출처조사,기록 / &#9675; 감도이상→중지,재조정,재가동,재검사,기록 / &#9675; 고장→중지,수리재가동,불가시업체의뢰,미통과품재검사 / &#9675; 공통:HACCP팀장보고,조치기록,승인</span>
+                {correctiveActionText ? renderMultiline(correctiveActionText) : EMPTY_TEXT("개선조치 방법")}
               </td>
             </tr>
           </tbody>
