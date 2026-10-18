@@ -468,7 +468,8 @@ export default function DailyBatchCreate() {
                               <PopoverContent className="w-[300px] p-0" align="start">
                                 <Command>
                                   <CommandInput placeholder={`${L("product")}명 검색...`} />
-                                  <CommandList>
+                                  {/* 높이 고정 — 검색어를 쳐도 창 크기가 변하지 않게 */}
+                                  <CommandList className="max-h-none" style={{ height: Math.min(Math.max(products.length, 3) * 36 + 8, 280) }}>
                                     <CommandEmpty>검색 결과 없음</CommandEmpty>
                                     <CommandGroup>
                                       {products.map((p: any) => {

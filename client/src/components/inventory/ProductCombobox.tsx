@@ -244,7 +244,7 @@ export function ProductCombobox({
       )}
 
       {open && !disabled && (
-        <div className="absolute z-[9999] top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border rounded-lg shadow-xl max-h-80 overflow-hidden flex flex-col">
+        <div className="absolute z-[9999] top-full left-0 right-0 mt-1 bg-background border border-border/60 rounded-xl shadow-[0_12px_40px_-12px_rgba(0,0,0,0.25)] h-80 overflow-hidden flex flex-col">
           {selectedId && (
             <div className="p-2 border-b">
               <div className="relative">
