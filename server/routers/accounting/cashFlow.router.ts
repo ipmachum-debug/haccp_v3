@@ -36,8 +36,12 @@ export const cashFlowRouter = router({
     const totalBankBalance = bankAccounts.reduce((s, b) => s + b.balance, 0);
 
     // 2. 미지급금(AP)
+    // ★ 2026-10-17 (지티 브라우저 검증 F10): 금액 계약 — 채무·채권은 공급가(total_amount) + 세액. 이전엔 공급가만 (330,000 → 300,000).
+    //   확정(approved) 과 대기(pending) 를 따로도 돌려준다 (대기는 아직 확정 채무·채권이 아님).
     const apRows = await safeQuery(pool,
-      `SELECT COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2))), 0) as total, COUNT(*) as cnt
+      `SELECT COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2)) + CAST(COALESCE(tax_amount, 0) AS DECIMAL(15,2))), 0) as total, COUNT(*) as cnt,
+              COALESCE(SUM(CASE WHEN status = 'approved' THEN CAST(total_amount AS DECIMAL(15,2)) + CAST(COALESCE(tax_amount, 0) AS DECIMAL(15,2)) ELSE 0 END), 0) as confirmed,
+              COALESCE(SUM(CASE WHEN status = 'pending' THEN CAST(total_amount AS DECIMAL(15,2)) + CAST(COALESCE(tax_amount, 0) AS DECIMAL(15,2)) ELSE 0 END), 0) as pending
        FROM accounting_purchases WHERE tenant_id = ? AND status IN ('pending', 'approved')`,
       [tenantId],
     );
@@ -46,7 +50,9 @@ export const cashFlowRouter = router({
 
     // 3. 미수금(AR)
     const arRows = await safeQuery(pool,
-      `SELECT COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2))), 0) as total, COUNT(*) as cnt
+      `SELECT COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2)) + CAST(COALESCE(tax_amount, 0) AS DECIMAL(15,2))), 0) as total, COUNT(*) as cnt,
+              COALESCE(SUM(CASE WHEN status = 'approved' THEN CAST(total_amount AS DECIMAL(15,2)) + CAST(COALESCE(tax_amount, 0) AS DECIMAL(15,2)) ELSE 0 END), 0) as confirmed,
+              COALESCE(SUM(CASE WHEN status = 'pending' THEN CAST(total_amount AS DECIMAL(15,2)) + CAST(COALESCE(tax_amount, 0) AS DECIMAL(15,2)) ELSE 0 END), 0) as pending
        FROM accounting_sales WHERE tenant_id = ? AND status IN ('pending', 'approved')`,
       [tenantId],
     );
@@ -55,7 +61,7 @@ export const cashFlowRouter = router({
 
     // 4. 미결 발주서
     const poRows = await safeQuery(pool,
-      `SELECT COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2))), 0) as total, COUNT(*) as cnt
+      `SELECT COALESCE(SUM(CAST(grand_total AS DECIMAL(15,2))), 0) as total, COUNT(*) as cnt
        FROM purchase_orders WHERE tenant_id = ? AND status IN ('approved', 'partial_received')`,
       [tenantId],
     );
@@ -82,8 +88,8 @@ export const cashFlowRouter = router({
     return {
       bankAccounts,
       totalBankBalance,
-      ap: { total: apTotal, count: apCount },
-      ar: { total: arTotal, count: arCount },
+      ap: { total: apTotal, count: apCount, confirmed: Number(apRows[0]?.confirmed || 0), pending: Number(apRows[0]?.pending || 0) },
+      ar: { total: arTotal, count: arCount, confirmed: Number(arRows[0]?.confirmed || 0), pending: Number(arRows[0]?.pending || 0) },
       pendingPO: { total: Number(poRows[0]?.total || 0), count: Number(poRows[0]?.cnt || 0) },
       pendingQuotation: { total: Number(quotRows[0]?.total || 0), count: Number(quotRows[0]?.cnt || 0) },
       recentTransactions: {
@@ -120,7 +126,7 @@ export const cashFlowRouter = router({
       // 지급 예정 (미지급 매입)
       const payables = await safeQuery(pool,
         `SELECT transaction_date as dueDate,
-                SUM(CAST(total_amount AS DECIMAL(15,2))) as amount,
+                SUM(CAST(total_amount AS DECIMAL(15,2)) + CAST(COALESCE(tax_amount, 0) AS DECIMAL(15,2))) as amount,
                 COUNT(*) as cnt
          FROM accounting_purchases
          WHERE tenant_id = ? AND status IN ('pending', 'approved')
@@ -132,7 +138,7 @@ export const cashFlowRouter = router({
       // 수금 예정 (미수 매출)
       const receivables = await safeQuery(pool,
         `SELECT transaction_date as dueDate,
-                SUM(CAST(total_amount AS DECIMAL(15,2))) as amount,
+                SUM(CAST(total_amount AS DECIMAL(15,2)) + CAST(COALESCE(tax_amount, 0) AS DECIMAL(15,2))) as amount,
                 COUNT(*) as cnt
          FROM accounting_sales
          WHERE tenant_id = ? AND status IN ('pending', 'approved')

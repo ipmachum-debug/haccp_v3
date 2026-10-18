@@ -324,7 +324,7 @@ export const metalDetectionRouter = router({
         params.push(input.status);
       }
 
-      params.push(input.limit);
+      params.push(String(input.limit));
 
       const [rows] = await conn.execute<any[]>(
         `SELECT da.*, r.batch_id, r.work_date, r.equipment_id,

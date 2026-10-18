@@ -908,6 +908,27 @@ async function ensureInboundDocumentSchema(conn: any) {
   } catch (err: any) {
     console.warn("[Migration] purchase_order_line_changes failed:", err.message);
   }
+  // 원재료·제품 코드는 회사별 유일 (지티컴퍼니 QA F01, 2026-10-18) — 전역 UNIQUE 때문에 다른 회사가 쓴 코드(RM-001 등)를
+  //   새 회사가 못 써서 등록이 DB 오류로 실패했다. 회사별 키를 먼저 만들고, 만들어진 것을 확인한 뒤에만 전역 키를 지운다.
+  for (const [table, col, name, legacy] of [
+    ["h_materials", "material_code", "uq_hm_tenant_code", "h_materials_material_code_unique"],
+    ["h_products_v2", "product_code", "uq_hp2_tenant_code", "h_products_v2_product_code_unique"],
+  ] as const) {
+    await addIndex(table, name, `UNIQUE KEY \`${name}\` (\`tenant_id\`, \`${col}\`)`);
+    try {
+      const [ix]: any = await conn.query(
+        `SELECT INDEX_NAME AS n FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND INDEX_NAME IN (?, ?)`,
+        [table, name, legacy],
+      );
+      const names = new Set((ix as any[]).map((r) => String(r.n ?? r.INDEX_NAME)));
+      if (names.has(name) && names.has(legacy)) {
+        await conn.query(`ALTER TABLE \`${table}\` DROP INDEX \`${legacy}\``);
+        console.log(`[Migration] ${table}.${legacy} dropped (회사별 ${name} 로 대체)`);
+      }
+    } catch (err: any) {
+      if (err.code !== "ER_NO_SUCH_TABLE") console.warn(`[Migration] ${table}.${legacy} drop failed:`, err.message);
+    }
+  }
 }
 
 /**

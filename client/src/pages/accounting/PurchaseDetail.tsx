@@ -147,9 +147,9 @@ export default function PurchaseDetail() {
                       <td colSpan={3} className="py-2 px-4 text-right">
                         총 합계
                       </td>
-                      <td className="text-right py-2 px-4">{purchase.totalAmount.toLocaleString()}원</td>
-                      <td className="text-right py-2 px-4">{purchase.totalTax.toLocaleString()}원</td>
-                      <td className="text-right py-2 px-4">{purchase.grandTotal.toLocaleString()}원</td>
+                      <td className="text-right py-2 px-4">{Number(purchase.supplyAmount ?? 0).toLocaleString()}원</td>
+                      <td className="text-right py-2 px-4">{Number(purchase.totalTax ?? 0).toLocaleString()}원</td>
+                      <td className="text-right py-2 px-4">{Number(purchase.grandTotal ?? 0).toLocaleString()}원</td>
                     </tr>
                   </tfoot>
                 </table>

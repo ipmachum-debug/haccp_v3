@@ -37,15 +37,15 @@ export async function createPurchase(params: {
   // === itemMasterId → materialId 자동 매핑 ===
   let resolvedMaterialId = params.materialId;
   if (params.itemMasterId && !resolvedMaterialId) {
-    try {
-      const { itemMaster } = await import("../../../drizzle/schema");
-      // 이 회사의 품목만 (다른 회사 품목 id 로 그 회사 원재료를 잡지 않는다)
-      const [masterItem] = await db.select().from(itemMaster).where(and(eq(itemMaster.id, params.itemMasterId), eq(itemMaster.tenantId, tenantId as number)));
-      if (masterItem && masterItem.itemType === 'raw_material' && masterItem.legacyMaterialId) {
-        resolvedMaterialId = masterItem.legacyMaterialId;
-      }
-    } catch (e) {
-      console.error("[createPurchase] itemMaster 조회 실패:", e);
+    // 이 회사의 품목만 (다른 회사 품목 id 로 그 회사 원재료를 잡지 않는다). 조회 실패는 삼키지 않는다.
+    const { itemMaster } = await import("../../../drizzle/schema");
+    const [masterItem] = await db.select().from(itemMaster).where(and(eq(itemMaster.id, params.itemMasterId), eq(itemMaster.tenantId, tenantId as number)));
+    const isMaterial = masterItem && (masterItem.itemType === "raw_material" || masterItem.itemType === "subsidiary");
+    if (isMaterial && masterItem.legacyMaterialId) {
+      resolvedMaterialId = masterItem.legacyMaterialId;
+    } else if (isMaterial) {
+      // ★ 2026-10-17 (지티 브라우저 검증 F03): 원재료인데 재고 원료와 연결이 없으면 옛 경로(재고·검수 없는 전표) 로 보내지 않는다
+      throw new Error(`품목 '${masterItem.itemName}' 이 재고 원재료와 연결돼 있지 않아 매입 입고를 처리할 수 없습니다 — 품목 마스터 연결을 먼저 확인하세요.`);
     }
   }
 
@@ -607,7 +607,8 @@ export async function getPurchaseById(id: number, tenantId?: number) {
 
   return {
     ...purchase[0].accounting_purchases,
-    partnerName: purchase[0].partners?.companyName || "알 수 없음"
+    partnerName: purchase[0].partners?.companyName || "알 수 없음",
+    ...transactionDetailView(purchase[0].accounting_purchases),
   };
 }
 
@@ -639,7 +640,8 @@ export async function getSaleById(id: number, tenantId?: number) {
 
   return {
     ...sale[0].accounting_sales,
-    partnerName: sale[0].partners?.companyName || "알 수 없음"
+    partnerName: sale[0].partners?.companyName || "알 수 없음",
+    ...transactionDetailView(sale[0].accounting_sales),
   };
 }
 
@@ -1046,4 +1048,21 @@ async function saleSkuFields(
   const r = await resolveSaleSku(await getRawConnection() as any, tenantId, { skuId: p.skuId, productId: p.productId ?? null });
   if (r.kind !== "sku") throw new Error(`SKU #${p.skuId} 를 확인하지 못했습니다.`);
   return { skuId: r.sku.skuId, productId: r.sku.productId, unit: r.sku.salesUnit };
+}
+
+/**
+ * 매입·매출 상세 화면용 값 (2026-10-17, 지티 브라우저 검증 F07 — 상세 화면이 items·totalTax·grandTotal 을 기대해 전체 화면 오류).
+ * 한 전표 = 한 품목 줄. 금액 계약(amountContract): total_amount = 공급가, tax_amount = 세액, 합계 = 공급가 + 세액.
+ * 기존 필드(totalAmount 등 문자열) 는 그대로 두고 숫자 값을 더한다 (PDF 등 다른 사용처 보존).
+ */
+function transactionDetailView(r: any) {
+  const n = (v: unknown) => (v == null || v === "" ? 0 : Number(v) || 0);
+  const supply = n(r?.totalAmount);
+  const tax = n(r?.taxAmount);
+  return {
+    supplyAmount: supply,
+    totalTax: tax,
+    grandTotal: supply + tax,
+    items: [{ itemName: r?.itemName ?? "", quantity: n(r?.quantity), unit: r?.unit ?? null, unitPrice: n(r?.unitPrice), amount: supply, tax, total: supply + tax }],
+  };
 }

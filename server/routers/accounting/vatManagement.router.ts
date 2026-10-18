@@ -23,10 +23,12 @@ export const vatManagementRouter = router({
       try {
 
       // 매입세액 (accounting_purchases)
+      // ★ 2026-10-17 (지티 브라우저 검증 F09): 금액 계약(amountContract) — total_amount 는 공급가, tax_amount 는 세액.
+      //   이전엔 공급가 = total_amount − tax_amount 로 세액을 한 번 더 뺐다 (공급가 300,000 → 270,000 표시).
       const [inputRows]: any = await pool.execute(
         `SELECT
            COALESCE(SUM(CAST(tax_amount AS DECIMAL(15,2))), 0) as totalTax,
-           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2)) - CAST(tax_amount AS DECIMAL(15,2))), 0) as totalSupply,
+           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2))), 0) as totalSupply,
            COUNT(*) as cnt
          FROM accounting_purchases
          WHERE tenant_id = ? AND status != 'cancelled'
@@ -38,7 +40,7 @@ export const vatManagementRouter = router({
       const [outputRows]: any = await pool.execute(
         `SELECT
            COALESCE(SUM(CAST(tax_amount AS DECIMAL(15,2))), 0) as totalTax,
-           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2)) - CAST(tax_amount AS DECIMAL(15,2))), 0) as totalSupply,
+           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2))), 0) as totalSupply,
            COUNT(*) as cnt
          FROM accounting_sales
          WHERE tenant_id = ? AND status != 'cancelled'
@@ -85,7 +87,7 @@ export const vatManagementRouter = router({
         `SELECT
            MONTH(transaction_date) as month,
            COALESCE(SUM(CAST(tax_amount AS DECIMAL(15,2))), 0) as tax,
-           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2)) - CAST(tax_amount AS DECIMAL(15,2))), 0) as supply
+           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2))), 0) as supply
          FROM accounting_purchases
          WHERE tenant_id = ? AND status != 'cancelled'
            AND YEAR(transaction_date) = ?
@@ -99,7 +101,7 @@ export const vatManagementRouter = router({
         `SELECT
            MONTH(transaction_date) as month,
            COALESCE(SUM(CAST(tax_amount AS DECIMAL(15,2))), 0) as tax,
-           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2)) - CAST(tax_amount AS DECIMAL(15,2))), 0) as supply
+           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2))), 0) as supply
          FROM accounting_sales
          WHERE tenant_id = ? AND status != 'cancelled'
            AND YEAR(transaction_date) = ?
@@ -175,7 +177,7 @@ export const vatManagementRouter = router({
       // 매입/매출 전표 기반 집계 (세금계산서 미발행분 포함)
       const [purchaseTotal]: any = await pool.execute(
         `SELECT
-           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2)) - CAST(tax_amount AS DECIMAL(15,2))), 0) as supply,
+           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2))), 0) as supply,
            COALESCE(SUM(CAST(tax_amount AS DECIMAL(15,2))), 0) as tax,
            COUNT(*) as cnt
          FROM accounting_purchases
@@ -186,7 +188,7 @@ export const vatManagementRouter = router({
 
       const [salesTotal]: any = await pool.execute(
         `SELECT
-           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2)) - CAST(tax_amount AS DECIMAL(15,2))), 0) as supply,
+           COALESCE(SUM(CAST(total_amount AS DECIMAL(15,2))), 0) as supply,
            COALESCE(SUM(CAST(tax_amount AS DECIMAL(15,2))), 0) as tax,
            COUNT(*) as cnt
          FROM accounting_sales

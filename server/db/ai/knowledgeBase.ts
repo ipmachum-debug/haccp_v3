@@ -430,7 +430,7 @@ export async function listDocuments(
      WHERE ${whereClause} AND is_active = 1
      ORDER BY created_at DESC
      LIMIT ? OFFSET ?`,
-    [...params, options?.limit || 50, options?.offset || 0]
+    [...params, String(options?.limit || 50), String(options?.offset || 0)]
   );
 
   return {
@@ -622,7 +622,7 @@ async function keywordSearch(
        AND (${likeConditions})
      ORDER BY match_count DESC
      LIMIT ?`,
-    [...likeParams, tenantId, ...likeParams, limit]
+    [...likeParams, tenantId, ...likeParams, String(limit)]
   );
 
   return (rows as any[]).map((row, idx) => ({

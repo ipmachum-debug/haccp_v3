@@ -384,7 +384,7 @@ export async function getCcpDeviations(filters?: {
       d.id DESC
     LIMIT ?
     `,
-    [...params, limit],
+    [...params, String(limit)],
   );
 
   // deviation_type → 한국어 라벨

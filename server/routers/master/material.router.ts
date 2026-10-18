@@ -191,10 +191,18 @@ export const materialRouter = router({
           throw new Error("이미 존재하는 원재료 코드입니다");
         }
         
-        const result = await db.insert(hMaterials).values({
-          ...input,
-          tenantId: ctx.tenantId
-        } as any);
+        // DB 오류 원문(SQL·값)을 화면에 내보내지 않는다 (지티컴퍼니 QA F01)
+        let result: any;
+        try {
+          result = await db.insert(hMaterials).values({
+            ...input,
+            tenantId: ctx.tenantId
+          } as any);
+        } catch (err: any) {
+          console.error("원재료 등록 실패:", err?.message);
+          if (err?.code === "ER_DUP_ENTRY" || err?.cause?.code === "ER_DUP_ENTRY") throw new Error("이미 존재하는 원재료 코드입니다");
+          throw new Error("원재료를 저장하지 못했습니다 — 잠시 후 다시 시도하세요.");
+        }
         const newMaterialId = Number(result[0].insertId);
         
         // item_master 테이블에도 동기화 생성

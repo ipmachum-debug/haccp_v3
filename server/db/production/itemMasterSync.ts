@@ -227,6 +227,9 @@ export async function syncItemMasterToProduct(
     description: params.description ?? null,
     isActive,
   } as any);
+  // ★ 2026-10-17 (지티 브라우저 검증 F08): 방금 이 품목으로 만든 제품 — 정체성 연결(legacy_product_id) 을 남긴다.
+  //   없으면 SKU → 제품 해석이 실패해 매출 product_id 가 비었다. 같은 id 의 기존 행(UPDATE 경로) 은 우연 일치일 수 있어 연결하지 않는다.
+  await linkItemIdentity(db, params.tenantId, params.itemId, "legacy_product_id");
   return "inserted";
 }
 
@@ -329,5 +332,13 @@ export async function syncItemMasterToMaterial(
     description: params.description ?? null,
     isActive,
   } as any);
+  // ★ 2026-10-17 (지티 브라우저 검증 F03): 방금 만든 원재료와의 정체성 연결 — 없으면 매입 입력이 입고 문서 경로를 못 탔다
+  await linkItemIdentity(db, params.tenantId, params.itemId, "legacy_material_id");
   return "inserted";
+}
+
+/** 동기화로 방금 만든 행과 item_master 를 잇는다 — 연결이 비어 있을 때만 (기존 연결을 덮지 않는다) */
+async function linkItemIdentity(db: MySql2Database<any>, tenantId: number, itemId: number, col: "legacy_product_id" | "legacy_material_id") {
+  const { sql } = await import("drizzle-orm");
+  await db.execute(sql.raw(`UPDATE item_master SET ${col} = ${Number(itemId)} WHERE id = ${Number(itemId)} AND tenant_id = ${Number(tenantId)} AND ${col} IS NULL`));
 }
