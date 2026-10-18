@@ -68,6 +68,8 @@ export interface BatchApprovalOverview {
   decision: "approved" | "rejected" | "pending" | "none";
   canApprove: boolean;
   blockers: string[];
+  /** 공식 CCP 기록지만의 차단 사유 — 승인 경로 공통 관문(batchApprovalGate)이 쓴다 (요청 상태 제외) */
+  formBlockers: string[];
 }
 
 const PENDING = new Set(["pending_writer", "pending_review", "pending_approval", "pending"]);
@@ -181,13 +183,15 @@ export async function getBatchApprovalOverview(batchId: number, tenantId: number
   const blockers: string[] = [];
   if (!batchRequest) blockers.push("배치 승인 요청이 없습니다 (배치 생성 시 자동 등록되는 [CCP 기록지] 요청). 승인관리에서 생성하거나 CCP 재생성으로 만들 수 있습니다.");
   else if (!PENDING.has(batchRequest.status)) blockers.push(`배치 승인 요청이 이미 ${labelStatus(batchRequest.status)} 상태입니다.`);
-  if (forms.length === 0) blockers.push("공식 CCP 기록지가 없습니다.");
+  const formBlockers: string[] = [];
+  if (forms.length === 0) formBlockers.push("공식 CCP 기록지가 없습니다.");
   for (const f of forms) {
-    if (f.status === "draft") blockers.push(`${f.ccpType} 기록지가 작성중입니다 (제출 필요).`);
-    if (f.status === "rejected") blockers.push(`${f.ccpType} 기록지가 반려 상태입니다.`);
-    if (f.rowCount === 0) blockers.push(`${f.ccpType} 기록지에 행이 없습니다.`);
-    if (f.deviationCount > 0) blockers.push(`${f.ccpType} 기록지에 이탈(비적합) ${f.deviationCount}건이 있습니다.`);
+    if (f.status === "draft") formBlockers.push(`${f.ccpType} 기록지가 작성중입니다 (제출 필요).`);
+    if (f.status === "rejected") formBlockers.push(`${f.ccpType} 기록지가 반려 상태입니다.`);
+    if (f.rowCount === 0) formBlockers.push(`${f.ccpType} 기록지에 행이 없습니다.`);
+    if (f.deviationCount > 0) formBlockers.push(`${f.ccpType} 기록지에 이탈(비적합) ${f.deviationCount}건이 있습니다.`);
   }
+  blockers.push(...formBlockers);
   const decision: BatchApprovalOverview["decision"] = !batchRequest
     ? "none"
     : batchRequest.status === "approved"
@@ -205,6 +209,7 @@ export async function getBatchApprovalOverview(batchId: number, tenantId: number
     decision,
     canApprove: blockers.length === 0,
     blockers,
+    formBlockers,
   };
 }
 

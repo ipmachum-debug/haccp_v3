@@ -212,6 +212,18 @@ export async function finalApproveRequest(
     const { assertDailyLogGate } = await import("./dailyLogApprovalGate");
     await assertDailyLogGate(tenantId, approvalRequestId);
   }
+  // 배치 결재면 승인 전에 공통 관문 — CCP 기록지·원료 출고 (지티 QA B01·B03, 다른 승인 경로와 같은 함수)
+  {
+    const pre = await db.execute(sql`
+      SELECT reference_type, reference_id FROM h_approval_requests WHERE id = ${approvalRequestId} AND tenant_id = ${tenantId}
+    `);
+    const p0 = getFirstRow<{ reference_type: string; reference_id: number }>(pre);
+    if (p0?.reference_type === "batch" && p0.reference_id) {
+      const { prepareBatchForApproval } = await import("./batchApprovalGate");
+      await prepareBatchForApproval(Number(p0.reference_id), tenantId, approverId);
+    }
+  }
+  let postWarnings: string[] = [];
 
   try {
     await db.execute(sql`
@@ -288,62 +300,20 @@ export async function finalApproveRequest(
       }
     }
 
-    // === batch_production 승인 시 배치 상태를 completed로 전환 ===
-    // completed_at/end_time은 생산일(planned_date) 17:00 기준으로 설정
+    // === batch_production 승인 시 배치 완료 — 공통 완료 처리 (완료시각은 실제 처리 시각, 후속 경고는 응답으로) ===
     if (reqData?.reference_type === "batch" && reqData?.reference_id) {
       const batchId = Number(reqData.reference_id);
       try {
-        await db.execute(sql`
-          UPDATE h_batches
-          SET status = 'completed',
-              end_time = CONCAT(planned_date, ' 17:00:00'),
-              completed_at = CONCAT(planned_date, ' 17:00:00'),
-              updated_at = NOW()
-          WHERE id = ${batchId} AND tenant_id = ${tenantId}
-        `);
-        console.log(`[finalApprove] 배치 #${batchId} 상태 → completed (planned_date 기준)`);
-
-        // ★ 2026-10-13: 배치 결재 → 그 배치의 CCP-1B/2B 기록지 승인 + 설비행 동기화.
-        //   이 고리가 없어서 배치는 결재 완료인데 기록지는 '제출됨' 에 머물렀다 (순인절미 #1102).
-        try {
-          const { applyBatchDecisionToCcpForms } = await import("../../db/haccp/ccpStatusSync");
-          await applyBatchDecisionToCcpForms({ batchId, decision: "approved", userId: approverId, tenantId });
-        } catch (ccpErr: any) {
-          console.error(`[finalApprove] 배치 #${batchId} CCP 기록지 승인 반영 실패:`, ccpErr);
-        }
-
-        // ★ 2026-07-03 근본수정: 승인경로 완료가 상태 플래그만 바꾸고 완제품 LOT 을
-        //   안 만들던 버그(26배치 LOT 0건) 해소. 상태 UPDATE 는 planned_date 17:00 을
-        //   유지하고, 여기서 정상 완료 후처리(완제품 LOT 생성 + 훅)를 마저 실행한다.
-        //   completeBatch 전체를 부르지 않는 이유: 원가/CCP 재실행·completed_at 재설정
-        //   부작용을 피하고, LOT 생성만 멱등(ensureBatchLots)으로 보강하기 위함.
-        try {
-          const { ensureBatchLots } = await import("../../db/production/productOutboundManagement");
-          const lotResult = await ensureBatchLots(batchId, tenantId);
-          console.log(
-            `[finalApprove] 배치 #${batchId} 완제품 LOT 보강: 생성 ${lotResult?.created?.length ?? 0}건` +
-            (lotResult?.skipped ? ` (skip: ${JSON.stringify(lotResult.skipped)})` : ""),
-          );
-        } catch (lotErr: any) {
-          console.error(`[finalApprove] 배치 #${batchId} 완제품 LOT 생성 실패:`, lotErr);
-        }
-
-        try {
-          const { runBatchCompletionHooks } = await import("./batchCompletionHooks");
-          const hookResult = await runBatchCompletionHooks(batchId, tenantId, { source: "manual" });
-          if (hookResult.warnings.length > 0) {
-            console.warn(`[finalApprove] 배치 #${batchId} 완료 훅 경고:`, hookResult.warnings);
-          }
-        } catch (hookErr: any) {
-          console.error(`[finalApprove] 배치 #${batchId} 완료 훅 실패:`, hookErr);
-        }
+        const { completeApprovedBatch } = await import("./batchApprovalGate");
+        postWarnings = await completeApprovedBatch(batchId, tenantId, approverId, "finalApprove");
       } catch (batchErr: any) {
         console.error(`[finalApprove] 배치 상태 업데이트 실패 (승인은 완료):`, batchErr);
       }
     }
 
     console.log(`[finalApprove] 승인요청 #${approvalRequestId} 최종 승인 완료`);
-    return { success: true, message: "승인 완료되었습니다.", inventoryTriggered: false };
+    const { approvalMessage } = await import("./batchApprovalGate");
+    return { success: true, message: approvalMessage("승인 완료되었습니다.", postWarnings), inventoryTriggered: false };
   } catch (error: any) {
     console.error(`[finalApprove] 최종 승인 실패:`, error);
     return { success: false, message: error.message || "최종 승인 실패" };

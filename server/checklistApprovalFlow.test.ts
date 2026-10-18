@@ -243,12 +243,13 @@ describe("인쇄 결재란 — 화면과 같은 2줄 (대표 요청)", async () 
 });
 
 describe("배치 승인 — 세 경로 모두 제품 LOT·완료 훅(생산완료 분개) 실행 (10/12 실배치 검증)", () => {
-  it("개별 승인·바로 승인·일괄 승인이 같은 후속 처리를 부른다", () => {
+  it("개별 승인·바로 승인·일괄 승인이 같은 관문·후속 처리를 부른다 (2026-10-18: batchApprovalGate 공통)", () => {
     const src = readFileSync(join(REPO_ROOT, "server/routers/checklist/genericChecklist.router.ts"), "utf-8");
     for (const tag of ["approveChecklist", "approveWithAutoReview", "batchApproveChecklists"]) {
-      expect(src, tag).toContain(`await finishApprovedBatch(Number(refId), ctx.tenantId, "${tag}")`);
+      expect(src, tag).toContain(`completeApprovedBatch(Number(refId), ctx.tenantId, ctx.user.id, "${tag}")`);
     }
-    const helper = src.slice(src.indexOf("async function finishApprovedBatch"), src.indexOf("async function inTx"));
+    expect(src.match(/await prepareBatchForApproval\(Number\(refId\), ctx\.tenantId, ctx\.user\.id\)/g)?.length).toBe(3);
+    const helper = readFileSync(join(REPO_ROOT, "server/lib/production/batchApprovalGate.ts"), "utf-8");
     expect(helper).toMatch(/ensureBatchLots\(batchId, tenantId\)/);
     expect(helper).toMatch(/runBatchCompletionHooks\(batchId, tenantId/);
   });

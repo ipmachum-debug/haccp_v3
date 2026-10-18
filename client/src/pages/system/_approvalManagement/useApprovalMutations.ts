@@ -73,8 +73,10 @@ export function useApprovalMutations(cfg: ApprovalMutationsConfig) {
 
   // 최종 승인
   const approveMutation = trpc.genericChecklist.approveChecklist.useMutation({
-    onSuccess: (data: { message?: string }) => {
-      toast.success("승인 완료", {
+    onSuccess: (data: { message?: string; warnings?: string[] }) => {
+      // 후속 처리(제품 LOT·원가·분개) 경고가 있으면 성공 하나로 숨기지 않는다 (지티 QA B01)
+      if (data.warnings?.length) toast.warning("승인됨 — 후속 처리 확인 필요", { description: data.message, duration: 10000 });
+      else toast.success("승인 완료", {
         description: data.message || "최종 승인이 완료되었습니다.",
       });
       cfg.setApproveDialogOpen(false);
@@ -170,9 +172,10 @@ export function useApprovalMutations(cfg: ApprovalMutationsConfig) {
 
   // 일괄 최종 승인
   const batchApproveMutation = trpc.genericChecklist.batchApproveChecklists.useMutation({
-    onSuccess: (data: { message?: string; count?: number; failed?: Array<{ approvalRequestId: number; message: string }> }) => {
+    onSuccess: (data: { message?: string; count?: number; failed?: Array<{ approvalRequestId: number; message: string }>; warnings?: string[] }) => {
       // 일부가 막히면(예: 일일일지 측정 기록 미완료) 성공 토스트가 아니라 경고로 — 실제 처리 건수와 사유 (2026-10-15)
       if (data.failed?.length) toast.warning("일괄 승인 — 일부 처리 안 됨", { description: data.message, duration: 10000 });
+      else if (data.warnings?.length) toast.warning("일괄 승인됨 — 후속 처리 확인 필요", { description: data.message, duration: 10000 });
       else toast.success("일괄 승인 완료", { description: data.message });
       cfg.setBatchConfirmDialogOpen(false);
       cfg.refetchApproval();
@@ -187,8 +190,9 @@ export function useApprovalMutations(cfg: ApprovalMutationsConfig) {
 
   // 승인자 자동 검토+승인
   const autoReviewApproveMutation = trpc.genericChecklist.approveWithAutoReview.useMutation({
-    onSuccess: (data: { message?: string }) => {
-      toast.success("검토 및 승인 완료", { description: data.message });
+    onSuccess: (data: { message?: string; warnings?: string[] }) => {
+      if (data.warnings?.length) toast.warning("승인됨 — 후속 처리 확인 필요", { description: data.message, duration: 10000 });
+      else toast.success("검토 및 승인 완료", { description: data.message });
       cfg.setSelectedIds([]);
       cfg.setReviewDialogOpen(false);
       resetSelection();

@@ -124,6 +124,8 @@ export async function createSingleBatch(
     plannedQuantity: input.plannedQuantityKg.toString(),
     plannedDate,
     batchStartTime: input.startTime,
+    // 행별 처리 방식 저장 — 빠지면 createBatch 가 auto 로 저장해 수동 행이 자동이 됐다 (지티 QA B02)
+    mode: input.mode,
     createdBy: input.userId,
   });
 

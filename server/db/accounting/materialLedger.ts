@@ -480,75 +480,52 @@ export async function rejectMonthlyClose(yearMonth: string, userId: number, reas
 
 /**
  * 일일 마감 후 원료수불부 자동 업데이트
- * 실제 DB 테이블 구조에 맞춰 수정:
- * - 입고: h_inventory_lots (material_id + receipt_date 기반)
- * - 사용: h_batch_inputs 또는 h_production_material_usage (batch 완료일 기반)
+ *
+ * ★ 2026-10-18 (지티 QA F05 추가 원인, Codex 2차): 이전엔 입고를 h_inventory_lots.SUM(quantity) 로 집계해
+ *   그날 행의 receiving_qty 를 **덮어썼다**. LOT quantity 는 출고 때 줄어 '입고 100·사용 8' 이 '입고 92·사용 8' 로 바뀌고
+ *   누계 현재고가 84 로 두 번 빠졌다. 사용도 완료 배치의 계획/실적 투입을 합쳐 실제로 출고되지 않은 배치까지 사용으로 잡았다.
+ *   → 이제 입고·출고 시점에 이미 기록한 행(입고 문서·자동출고·매입/매출 확정·취소)은 건드리지 않는다.
+ *     그날 행이 **없는** 원료만, 바뀌지 않는 재고 거래(h_inventory_transactions 입고·사용) 로 채운다. 계획량으로 추정하지 않는다.
+ *     여러 번 실행해도 같은 결과(이미 채운 행은 다시 쓰지 않음).
  */
 export async function autoUpdateFromDailyClose(closeDate: string, tenantId: number) {
   const db = await getRawConnection();
-  
-  // 1. 해당 날짜의 입고 데이터 집계 (h_inventory_lots 기반)
-  interface DailyCloseRow { material_id: number; total_receiving?: number; total_usage?: number }
-  const recvResult = await db.execute(
-    `SELECT material_id, SUM(quantity) as total_receiving
-     FROM h_inventory_lots
-     WHERE tenant_id = ? AND receipt_date = ? AND material_id IS NOT NULL
-     GROUP BY material_id`,
-    [tenantId, closeDate]
-  );
-  const receivingRows = getRows<DailyCloseRow>(recvResult);
 
-  // 2. 해당 날짜에 완료된 배치의 원재료 사용량 집계 (h_batch_inputs 기반)
-  const usageResult = await db.execute(
-    `SELECT bi.material_id, SUM(COALESCE(bi.actual_quantity, bi.planned_quantity)) as total_usage
-     FROM h_batch_inputs bi
-     JOIN h_batches pb ON pb.id = bi.batch_id
-     WHERE bi.tenant_id = ? AND DATE(pb.completed_at) = ? AND pb.status = 'completed'
-     GROUP BY bi.material_id`,
-    [tenantId, closeDate]
+  interface TxRow { material_id: number; recv: number; used: number }
+  const txResult = await db.execute(
+    `SELECT t.material_id,
+            SUM(CASE WHEN t.transaction_type IN ('receipt', 'inbound') THEN t.quantity ELSE 0 END) AS recv,
+            SUM(CASE WHEN t.transaction_type IN ('usage', 'outbound') THEN t.quantity ELSE 0 END) AS used
+       FROM h_inventory_transactions t
+      WHERE t.tenant_id = ? AND t.transaction_date = ? AND t.material_id IS NOT NULL
+        AND t.transaction_type IN ('receipt', 'inbound', 'usage', 'outbound')
+        AND NOT EXISTS (SELECT 1 FROM material_ledger_daily d
+                         WHERE d.tenant_id = t.tenant_id AND d.material_id = t.material_id AND d.ledger_date = ?)
+      GROUP BY t.material_id`,
+    [tenantId, closeDate, closeDate]
   );
-  const usageRows = getRows<DailyCloseRow>(usageResult);
+  const rows = getRows<TxRow>(txResult);
 
-  // 3. h_batch_inputs가 비어있으면 h_production_material_usage에서 조회
-  let finalUsageRows = usageRows;
-  if (!usageRows || usageRows.length === 0) {
-    const pmuResult = await db.execute(
-      `SELECT pmu.material_id, SUM(COALESCE(pmu.actual_quantity, pmu.planned_quantity)) as total_usage
-       FROM h_production_material_usage pmu
-       JOIN h_batches pb ON pb.id = pmu.batch_id
-       WHERE pmu.tenant_id = ? AND DATE(pb.completed_at) = ? AND pb.status = 'completed'
-       GROUP BY pmu.material_id`,
-      [tenantId, closeDate]
+  let filled = 0;
+  for (const row of rows) {
+    const recv = Math.max(Number(row.recv) || 0, 0);
+    const used = Math.max(Number(row.used) || 0, 0);
+    if (recv <= 0 && used <= 0) continue;
+    // INSERT IGNORE — 그 사이 다른 경로가 같은 날 행을 만들었으면 그 행이 우선
+    const [ins]: any = await db.execute(
+      `INSERT IGNORE INTO material_ledger_daily (tenant_id, material_id, ledger_date, receiving_qty, usage_qty, source, notes)
+       VALUES (?, ?, ?, ?, ?, 'auto_daily_close', '일일 마감 — 재고 거래로 채움')`,
+      [tenantId, Number(row.material_id), closeDate, recv, used]
     );
-    finalUsageRows = getRows<DailyCloseRow>(pmuResult);
+    if (Number(ins?.affectedRows ?? 0) > 0) filled++;
   }
-  
-  // 4. 입고량 반영
-  for (const row of receivingRows) {
-    await upsertDailyLedger({
-      materialId: Number(row.material_id),
-      ledgerDate: closeDate,
-      receivingQty: Number(row.total_receiving) || 0,
-      source: 'auto_daily_close'
-    }, tenantId);
-  }
-  
-  // 5. 사용량 반영
-  for (const row of finalUsageRows) {
-    await upsertDailyLedger({
-      materialId: Number(row.material_id),
-      ledgerDate: closeDate,
-      usageQty: Number(row.total_usage) || 0,
-      source: 'auto_daily_close'
-    }, tenantId);
-  }
-  
-  // 6. 해당 월 집계 갱신
+
+  // 해당 월 집계 갱신
   const yearMonth = closeDate.substring(0, 7);
   await aggregateMonthlyLedger(yearMonth, tenantId);
-  
-  console.log(`[원료수불부] 일일 마감 자동 업데이트 완료: date=${closeDate}, 입고=${receivingRows.length}건, 사용=${finalUsageRows.length}건`);
-  return { closeDate, receivingCount: receivingRows.length, usageCount: finalUsageRows.length };
+
+  console.log(`[원료수불부] 일일 마감 완료: date=${closeDate}, 비어 있던 원료 ${filled}건 채움`);
+  return { closeDate, filledCount: filled, receivingCount: rows.filter((r) => Number(r.recv) > 0).length, usageCount: rows.filter((r) => Number(r.used) > 0).length };
 }
 
 // ===== 대시보드 통계 =====

@@ -14,6 +14,7 @@ import { toKSTDate, todayKST } from "../../utils/timezone";
 import { TRPCError } from "@trpc/server";
 import { getRawConnection } from "../../db/connection";
 import { assertDailyLogGate, checkDailyLogGate } from "../../lib/production/dailyLogApprovalGate";
+import { prepareBatchForApproval, completeApprovedBatch, approvalMessage } from "../../lib/production/batchApprovalGate";
 import {
   ACTIVE_REQUEST_STATUSES, CHECKLIST_REFERENCE_TYPES, clearReviewStamps, decideDelete, decideSubmit, decideUpdate,
   isChecklistReference, applyApprovalStamp, stampDate, classifySubmitted, type RecordStatus, type StampKind,
@@ -61,31 +62,6 @@ const activeParams = (tenantId: number, id: number) => [tenantId, id, ...CHECKLI
 const approvedSql = `SELECT id FROM h_approval_requests
   WHERE tenant_id = ? AND reference_id = ? AND reference_type IN (${CHECKLIST_REFERENCE_TYPES.map(() => "?").join(",")}) AND status = 'approved'`;
 const approvedParams = (tenantId: number, id: number) => [tenantId, id, ...CHECKLIST_REFERENCE_TYPES];
-
-/**
- * 배치 승인(완료 처리) 뒤 후속 처리 — 개별 승인·바로 승인·일괄 승인 세 경로 공통 (2026-10-15)
- *  - 이전엔 일괄 승인만 제품 LOT 생성 + 완료 훅(실적 보강·생산완료 분개)을 돌렸고, 나머지 두 경로는
- *    상태만 completed 로 바꿔 매시 :15 자가치유가 나중에 메우기를 기다렸다.
- *  - 둘 다 멱등이라 다시 불려도 중복 생성 없음. 실패해도 승인 자체는 유지.
- */
-async function finishApprovedBatch(batchId: number, tenantId: number, tag: string) {
-  try {
-    const { ensureBatchLots } = await import("../../db/production/productOutboundManagement");
-    const lotResult = await ensureBatchLots(batchId, tenantId);
-    console.log(`[${tag}] 배치 #${batchId} 완제품 LOT 보강: 생성 ${lotResult?.created?.length ?? 0}건`);
-  } catch (lotErr: any) {
-    console.error(`[${tag}] 배치 #${batchId} 완제품 LOT 생성 실패:`, lotErr);
-  }
-  try {
-    const { runBatchCompletionHooks } = await import("../../lib/production/batchCompletionHooks");
-    const hookResult = await runBatchCompletionHooks(batchId, tenantId, { source: "manual" });
-    if (hookResult.warnings.length > 0) {
-      console.warn(`[${tag}] 배치 #${batchId} 완료 훅 경고:`, hookResult.warnings);
-    }
-  } catch (hookErr: any) {
-    console.error(`[${tag}] 배치 #${batchId} 완료 훅 실패:`, hookErr);
-  }
-}
 
 /** 일괄 처리 결과 문구 — 실제 처리 건수와 실패 사유 */
 function bulkMessage(verb: string, ok: number, failed: Array<{ approvalRequestId: number; message: string }>): string {
@@ -460,6 +436,7 @@ export const genericChecklistRouter = router({
       `);
       const rawRows: any[] = (execResult as any)?.[0] || [];
       const firstRow = rawRows[0] || {};
+      let postWarnings: string[] = [];
       const refId = firstRow.reference_id;
       const requestType = firstRow.request_type;
       const referenceType = firstRow.reference_type;
@@ -476,16 +453,9 @@ export const genericChecklistRouter = router({
             // 배치 승인: h_batches 상태를 'completed'로 변경 + 완료일 설정
             // ⚠️ 'approved'는 enum에 없음 → MySQL strict mode 위반이므로 'completed' 사용
             // 승인 기록은 approval_requests 테이블에 별도 보관됨
-            await db.execute(sql`
-              UPDATE h_batches
-              SET status = 'completed',
-                  end_time = COALESCE(end_time, CONCAT(planned_date, ' 17:00:00')),
-                  completed_at = COALESCE(completed_at, CONCAT(planned_date, ' 17:00:00')),
-                  updated_at = NOW()
-              WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
-            `);
-            console.log(`[approveChecklist] 배치 #${refId} 상태 → completed (승인 완료)`);
-            await finishApprovedBatch(Number(refId), ctx.tenantId, "approveChecklist");
+            // 공통 관문(CCP 기록지·원료 출고) → 완료(실제 처리 시각) → 후속 처리 경고는 응답으로 (지티 QA B01·B03·B04)
+            await prepareBatchForApproval(Number(refId), ctx.tenantId, ctx.user.id);
+            postWarnings = await completeApprovedBatch(Number(refId), ctx.tenantId, ctx.user.id, "approveChecklist");
 
             // 배치 승인 시 생산일지 갱신
             try {
@@ -512,7 +482,7 @@ export const genericChecklistRouter = router({
           SET status = 'approved', approved_by = ${ctx.user.id}, approved_at = NOW(), notes = ${input.comments || null}
           WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
         `);
-        return { success: true, message: "최종 승인이 완료되었습니다." };
+        return { success: true, message: approvalMessage("최종 승인이 완료되었습니다.", postWarnings), warnings: postWarnings };
       } else {
         if (refId) {
           if (requestType === 'batch_production' && referenceType === 'batch') {
@@ -583,6 +553,7 @@ export const genericChecklistRouter = router({
       if (!db) throw new Error("데이터베이스 연결 실패");
       let successCount = 0;
       const failed: Array<{ approvalRequestId: number; message: string }> = [];
+      const postWarnings: string[] = [];
       for (const id of input.approvalRequestIds) {
         try {
           // 승인 요청 정보 조회 (reference_id, request_type, reference_type)
@@ -606,20 +577,10 @@ export const genericChecklistRouter = router({
             if (requestType === 'batch_production' && referenceType === 'batch') {
               // 배치 승인: h_batches 상태를 'completed'로 변경 + 완료일 설정
               // ⚠️ 'approved'는 enum에 없음 → MySQL strict mode 위반이므로 'completed' 사용
-              await db.execute(sql`
-                UPDATE h_batches
-                SET status = 'completed',
-                    end_time = COALESCE(end_time, CONCAT(planned_date, ' 17:00:00')),
-                    completed_at = COALESCE(completed_at, CONCAT(planned_date, ' 17:00:00')),
-                    updated_at = NOW()
-                WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
-              `);
-              console.log(`[batchApproveChecklists] 배치 #${refId} 상태 → completed (승인 완료)`);
-
-              // ★ 2026-07-03: 이 경로(일괄 승인)가 실제 UI 완료 경로인데 완제품 LOT 을
-              //   안 만들어(26배치 LOT 0건의 진짜 원인) → #404/#407 과 동일하게 여기서도
-              //   완제품 LOT 멱등 생성 + 완료훅 실행. (완료경로 파편화 5번째 = path E 봉인)
-              await finishApprovedBatch(Number(refId), ctx.tenantId, "batchApproveChecklists");
+              // 공통 관문 → 완료 → 후속 처리 (지티 QA B01·B03·B04). 관문 실패는 이 요청만 실패 목록으로
+              await prepareBatchForApproval(Number(refId), ctx.tenantId, ctx.user.id);
+              const w = await completeApprovedBatch(Number(refId), ctx.tenantId, ctx.user.id, "batchApproveChecklists");
+              if (w.length) postWarnings.push(`#${id}: ${w.slice(0, 2).join(", ")}`);
 
               // 배치 승인 시 생산일지(production_daily) 자동 갱신
               try {
@@ -656,7 +617,7 @@ export const genericChecklistRouter = router({
           failed.push({ approvalRequestId: id, message: e?.message || "승인 실패" });
         }
       }
-      return { success: failed.length === 0, message: bulkMessage("승인", successCount, failed), count: successCount, failed };
+      return { success: failed.length === 0, message: approvalMessage(bulkMessage("승인", successCount, failed), postWarnings), count: successCount, failed, warnings: postWarnings };
     }),
   // 승인자가 검토+승인 동시 처리 (검토 자동 완료)
   approveWithAutoReview: tenantRequiredProcedure
@@ -675,6 +636,7 @@ export const genericChecklistRouter = router({
       `);
       const rawRows: any[] = (execResult as any)?.[0] || [];
       const firstRow = rawRows[0] || {};
+      let postWarnings: string[] = [];
       const refId = firstRow.reference_id;
       const currentStatus = firstRow.status;
       const requestType = firstRow.request_type;
@@ -690,16 +652,9 @@ export const genericChecklistRouter = router({
         if (requestType === 'batch_production' && referenceType === 'batch') {
           // 배치 승인: h_batches 상태를 'completed'로 변경 + 완료일 설정
           // ⚠️ 'approved'는 enum에 없음 → MySQL strict mode 위반이므로 'completed' 사용
-          await db.execute(sql`
-            UPDATE h_batches
-            SET status = 'completed',
-                end_time = COALESCE(end_time, CONCAT(planned_date, ' 17:00:00')),
-                completed_at = COALESCE(completed_at, CONCAT(planned_date, ' 17:00:00')),
-                updated_at = NOW()
-            WHERE id = ${refId} AND tenant_id = ${ctx.tenantId}
-          `);
-          console.log(`[approveWithAutoReview] 배치 #${refId} 상태 → completed (승인 완료)`);
-          await finishApprovedBatch(Number(refId), ctx.tenantId, "approveWithAutoReview");
+          // 공통 관문(CCP 기록지·원료 출고) → 완료(실제 처리 시각) → 후속 처리 경고는 응답으로 (지티 QA B01·B03·B04)
+          await prepareBatchForApproval(Number(refId), ctx.tenantId, ctx.user.id);
+          postWarnings = await completeApprovedBatch(Number(refId), ctx.tenantId, ctx.user.id, "approveWithAutoReview");
 
           // 배치 승인 시 생산일지(production_daily) 자동 갱신
           try {
@@ -740,7 +695,7 @@ export const genericChecklistRouter = router({
           WHERE id = ${input.approvalRequestId} AND tenant_id = ${ctx.tenantId}
         `);
       }
-      return { success: true, message: "검토 및 승인이 완료되었습니다." };
+      return { success: true, message: approvalMessage("검토 및 승인이 완료되었습니다.", postWarnings), warnings: postWarnings };
     }),
 
   // ── 생산일지 수동 재생성 (관리자용) ──
