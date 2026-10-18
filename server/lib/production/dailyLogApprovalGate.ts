@@ -16,6 +16,7 @@ import { TRPCError } from "@trpc/server";
 import { getRawConnection } from "../../db/connection";
 import { CHECKLIST_REFERENCE_TYPES } from "../checklist/recordStatePolicy";
 import { findMeasurementIssues, summarizeIssues, type MeasurementIssue } from "../../../shared/dailyLogMeasurements";
+import { khaccpSubmitIssues } from "../../../shared/dailyLog/khaccpTemplate";
 
 export type DailyLogGateResult =
   | { ok: true; dailyLog: boolean }
@@ -43,11 +44,16 @@ export async function checkDailyLogGate(tenantId: number, approvalRequestId: num
   );
   const rec = recRows?.[0];
   if (!rec || rec.form_type !== "daily_log") return { ok: true, dailyLog: false };
-  const issues = findMeasurementIssues(parse(rec.form_data));
-  if (issues.length === 0) return { ok: true, dailyLog: true };
+  const fd = parse(rec.form_data);
+  const issues = findMeasurementIssues(fd);
+  // 원본 템플릿 기록은 운송 온도도 (숫자 또는 '운송 없음'+사유) — 제출과 같은 검사 (PR-A)
+  const tIssues = khaccpSubmitIssues(fd);
+  if (issues.length === 0 && tIssues.length === 0) return { ok: true, dailyLog: true };
   return {
     ok: false, dailyLog: true, recordId: Number(rec.id), issues,
-    message: `일일일지 #${rec.id} 측정 기록 미완료 — ${summarizeIssues(issues)}. 작성자가 실제 측정값과 측정시각을 입력한 뒤 다시 진행하세요.`,
+    message: tIssues.length === 0
+      ? `일일일지 #${rec.id} 측정 기록 미완료 — ${summarizeIssues(issues)}. 작성자가 실제 측정값과 측정시각을 입력한 뒤 다시 진행하세요.`
+      : `일일일지 #${rec.id} 기록 미완료 — ${[issues.length ? summarizeIssues(issues) : "", ...tIssues].filter(Boolean).join(" / ")}. 작성자가 실제 값을 입력한 뒤 다시 진행하세요.`,
   };
 }
 
