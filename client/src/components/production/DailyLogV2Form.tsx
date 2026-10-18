@@ -18,7 +18,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { Loader2, Save, Send, AlertTriangle, RefreshCw } from "lucide-react";
+import { Loader2, Save, Send, AlertTriangle, RefreshCw, ArrowLeft, Printer } from "lucide-react";
+import { useLocation } from "wouter";
 import { SECTION_TITLES, MEASURE_LABELS, MEASURE_UNITS, criteriaText, type DailyLogSection, type MeasureKind } from "@shared/dailyLog/definition";
 import { expectedRows, activeQuestions, evaluateRow, v2SubmitIssues, type DailyLogRecordV2, type DeviationV2 } from "@shared/dailyLog/recordV2";
 
@@ -55,6 +56,7 @@ function DeviationEditor({ rec, setRec, rowId, itemId, readOnly }: { rec: DailyL
 }
 
 export default function DailyLogV2Form({ logDate, setLogDate }: { logDate: string; setLogDate: (d: string) => void }) {
+  const [, navigate] = useLocation();
   const q = trpc.dailyLog.getByDate.useQuery({ logDate }, { retry: 1 });
   const [rec, setRecState] = useState<DailyLogRecordV2 | null>(null);
   const [dataVersion, setDataVersion] = useState(0);
@@ -88,6 +90,7 @@ export default function DailyLogV2Form({ logDate, setLogDate }: { logDate: strin
     onError: (e: { message: string }) => toast.error(e.message, { duration: 8000 }),
   });
 
+  const approvalRequestId: number | null = (q.data as any)?.approvalRequestId ?? null;
   const readOnly = status === "submitted" || status === "approved";
   const def = rec?.definitionSnapshot;
   const rows = useMemo(() => (def ? expectedRows(def) : []), [def]);
@@ -122,13 +125,20 @@ export default function DailyLogV2Form({ logDate, setLogDate }: { logDate: strin
 
   const header = (
     <div className="flex flex-wrap items-center justify-between gap-2">
-      <div>
+      <div className="flex items-start gap-2">
+        <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="일지 목록" onClick={() => navigate("/dashboard/daily-logs")}><ArrowLeft className="h-5 w-5" /></Button>
+        <div>
         <h1 className="text-2xl font-bold">일일일지</h1>
         <p className="text-sm text-muted-foreground">회사 일지 설정{rec?.settingsVersionId ? ` v${rec.settingsVersionId}` : ""} 기준 — 오늘 필요한 구역·대상·회차만 보입니다.</p>
+        </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Input type="date" className="h-11 w-44" value={logDate} onChange={(e) => setLogDate(e.target.value)} />
         {rec && <Badge variant="outline">{STATUS_LABEL[status] ?? status}</Badge>}
+        {/* 인쇄 미리보기 — 승인 요청(제출 때 생김)이 있을 때만. 미리보기만 열고 인쇄창은 그 화면의 '인쇄하기' */}
+        {rec && approvalRequestId && (
+          <Button variant="outline" className="h-11" onClick={() => window.open(`/print-preview?ids=${approvalRequestId}&print=0`, "_blank")}><Printer className="h-4 w-4 mr-1" />인쇄 미리보기</Button>
+        )}
         {rec && !readOnly && <Badge variant={missingCount ? "destructive" : "secondary"}>{missingCount ? `남은 항목 ${missingCount}` : "제출 가능"}</Badge>}
         {rec && !readOnly && (
           <>
@@ -225,7 +235,7 @@ export default function DailyLogV2Form({ logDate, setLogDate }: { logDate: strin
                       </div>
                       <p className="text-xs text-muted-foreground">기준 {kinds.map((k) => `${MEASURE_LABELS[k]} ${criteriaText(k, r.point.measurements[k])}`).join(", ")}</p>
                       <div className="mt-2 flex flex-wrap items-end gap-2">
-                        <div className="space-y-1"><Label className="text-xs">측정시각</Label><Input type="time" disabled={readOnly || m.notApplicable} className="h-11 w-32" value={m.measuredAt ?? ""} onChange={(e) => updateRow(r.rowId, { measuredAt: e.target.value || null })} /></div>
+                        <div className="space-y-1"><Label className="text-xs">측정시각</Label><Input type="time" disabled={readOnly || m.notApplicable} className="h-11 w-40" value={m.measuredAt ?? ""} onChange={(e) => updateRow(r.rowId, { measuredAt: e.target.value || null })} /></div>
                         {kinds.map((k) => (
                           <div key={k} className="space-y-1"><Label className="text-xs">{MEASURE_LABELS[k]} ({MEASURE_UNITS[k]})</Label>
                             <Input type="number" inputMode="decimal" step="0.1" disabled={readOnly || m.notApplicable} className="h-11 w-28" value={(m as any)[k] ?? ""}

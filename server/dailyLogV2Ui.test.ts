@@ -48,8 +48,17 @@ describe("화면 연결", () => {
   const form = read("client/src/pages/production/DailyLogForm.tsx");
   it("일지 화면은 회사 방식(mode)으로 v2/이전 화면을 고르고, 방식 조회 실패를 이전 화면으로 넘기지 않는다", () => {
     expect(form).toMatch(/trpc\.dailyLog\.mode\.useQuery/);
-    expect(form).toMatch(/version === 2\)\s*return <DashboardLayout><DailyLogV2Form/);
+    expect(form).toMatch(/return <DashboardLayout><DailyLogV2Form/);
     expect(form).toMatch(/if \(mode\.isError\)/);
+  });
+  it("F01: v2 회사라도 그 날짜에 이전 방식 기록이 있으면 그 기록 형식(이전 화면)으로 연다 — 자동 변환 없음", () => {
+    expect(form).toMatch(/existing\.data && !isV2Record\(existing\.data\.formData\)\) return <DailyLogFormV1 [^>]*legacyOnV2/);
+    expect(form).toMatch(/if \(existing\.isLoading\) return loader/);
+  });
+  it("F02: 날짜를 바꾸면 주소도 ?date= 로 바꾼다 (이전 id 버림)", () => {
+    expect(form).toMatch(/navigate\(`\/daily-log\/daily\?date=\$\{d\}`, \{ replace: true \}\)/);
+    expect(form).toMatch(/function DailyLogFormV1\(\{ logDate, setLogDate/);
+    expect(form).not.toMatch(/function DailyLogFormV1[\s\S]*useState\(paramDate/);
   });
   it("이전 화면: 일지 조회 실패면 빈 새 양식으로 바꾸지 않고 저장을 막는다", () => {
     expect(form).toMatch(/if \(existingError\) return;/);
@@ -66,6 +75,20 @@ describe("화면 연결", () => {
     expect(pp).toMatch(/isV2Record\(/);
     expect(pp).toMatch(/renderDailyLogV2Pages\(/);
     expect(pp).toMatch(/renderDailyLogPages\(/);
+  });
+  it("인쇄 미리보기: ?print=0 이면 인쇄창을 띄우지 않고, PDF 파일명 날짜는 v2 업무일 우선", () => {
+    const pp = read("client/src/pages/system/PrintPreviewPage.tsx");
+    expect(pp).toMatch(/get\("print"\) !== "0"/);
+    expect(pp).toMatch(/ymd\(fd\.businessDate\) \|\| ymd\(fd\.date\)/);
+    const v2 = read("client/src/components/production/DailyLogV2Form.tsx");
+    expect(v2).toMatch(/print-preview\?ids=\$\{approvalRequestId\}&print=0/);
+  });
+  it("F03: v2 인쇄 표는 칸 폭 고정 + 줄바꿈 (전역 nowrap 무효화), 행 단위 쪽 넘김", () => {
+    const html = renderToStaticMarkup(React.createElement("div", null, renderDailyLogV2Pages(newRecordV2(khaccpDefinition(), "2026-11-20", 3))[0].content));
+    expect(html).toContain("dlv2-print");
+    expect(html).toMatch(/white-space: normal !important/);
+    expect(html).toMatch(/table-layout: fixed !important/);
+    expect(html).toMatch(/<colgroup>/);
   });
   it("설정 화면: ROUTES 경로, 초안 저장·발행에 설정 버전, 발행 확인 단계", () => {
     expect(read("client/src/App.tsx")).toMatch(/path=\{ROUTES\.DAILY_LOG_SETTINGS\}/);

@@ -201,7 +201,9 @@ export default function PrintPreviewPage() {
   }, [ids.length, approvedRequests.length, isApprovalLoading]);
 
   useEffect(() => {
-    if (!loading && documents.length > 0 && !printTriggered.current) {
+    // ?print=0 = 미리보기만 (인쇄창은 '인쇄하기' 버튼으로). 기본은 이전처럼 바로 인쇄창
+    const autoPrint = new URLSearchParams(window.location.search).get("print") !== "0";
+    if (autoPrint && !loading && documents.length > 0 && !printTriggered.current) {
       printTriggered.current = true;
       setTimeout(() => window.print(), 800);
     }
@@ -382,7 +384,8 @@ export default function PrintPreviewPage() {
       };
       const ccpRec0 = (fd.ccpFormRecords || [])[0];
       const ccpRec1 = fd.ccpFormRecord?.record || fd.ccpFormRecord;
-      let dateStr = ymd(fd.date) || ymd(fd.workDate) || ymd(fd.checkDate) || ymd(fd.inspectionDate) || ymd(fd.formDate)
+      // v2 일지는 업무일이 businessDate (docs/architecture/17)
+      let dateStr = ymd(fd.businessDate) || ymd(fd.date) || ymd(fd.workDate) || ymd(fd.checkDate) || ymd(fd.inspectionDate) || ymd(fd.formDate)
         || ymd(ccpRec0?.workDate) || ymd(ccpRec0?.work_date) || ymd(ccpRec1?.workDate) || ymd(ccpRec1?.work_date)
         || ymd(fd.plannedDate) || ymd(fd.batch?.plannedDate);
       if (!dateStr && firstDoc.requestedAt) dateStr = ymd(firstDoc.requestedAt instanceof Date ? firstDoc.requestedAt : new Date(firstDoc.requestedAt));

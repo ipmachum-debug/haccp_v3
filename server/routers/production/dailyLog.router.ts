@@ -180,7 +180,13 @@ export const dailyLogRouter = router({
         const r = (rows as any[])[0];
         let fd: any = {};
         try { fd = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {}); } catch {}
+        // 인쇄 미리보기 진입용 — 이 일지의 가장 최근 승인 요청 (없으면 null, 만들지 않는다)
+        const [ar]: any = await conn.execute(
+          `SELECT id FROM h_approval_requests WHERE tenant_id = ? AND reference_type = 'checklist' AND reference_id = ? AND request_type = 'daily_log' ORDER BY id DESC LIMIT 1`,
+          [ctx.tenantId, r.id],
+        );
         return {
+          approvalRequestId: (ar as any[])[0]?.id != null ? Number((ar as any[])[0].id) : null,
           id: r.id,
           siteId: r.site_id,
           logDate: String(r.form_date),
