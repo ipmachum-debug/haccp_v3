@@ -389,8 +389,9 @@ export const ccpFormRouter = router({
     saveEquipSettings: workerProcedure
       .input(z.object({
         processGroupId: z.number(),
-        groupMode: z.enum(["concurrent", "sequential"]),
+        groupMode: z.enum(["concurrent", "sequential", "grouped"]),
         intervalBetweenMin: z.number().optional(),
+        /** 묶음 크기(동시 가동 대수) — ccp_process_groups.equip_batch_size */
         maxConcurrent: z.number().optional(),
         notes: z.string().optional(),
       }))

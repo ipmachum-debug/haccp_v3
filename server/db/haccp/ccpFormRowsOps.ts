@@ -19,10 +19,8 @@ import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import {
   hCcpFormRecords,
   hCcpFormRows,
-  hCcpEquipBatchSettings,
   type InsertCcpFormRecord,
   type InsertCcpFormRow,
-  type InsertCcpEquipBatchSetting,
 } from "../../../drizzle/schema/schema_main";
 import { eq, and, desc } from "drizzle-orm";
 import {

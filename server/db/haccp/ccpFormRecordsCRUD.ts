@@ -20,10 +20,8 @@ import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import {
   hCcpFormRecords,
   hCcpFormRows,
-  hCcpEquipBatchSettings,
   type InsertCcpFormRecord,
   type InsertCcpFormRow,
-  type InsertCcpEquipBatchSetting,
 } from "../../../drizzle/schema/schema_main";
 import { eq, and, desc } from "drizzle-orm";
 import {
@@ -166,23 +164,19 @@ export async function getOrCreateCcpFormRecord(params: {
     if (batchCount < 1) batchCount = 1;
   }
 
-  // 설비 배치 설정 가져오기
-  let equipGroupMode: "concurrent" | "sequential" = "sequential";
+  // 설비 배치 운영 설정 — ccp_process_groups 한 곳에서 (2026-10-18: 빈 별도 표를 읽어 '묶음 3대' 공정이 '순차' 로 스냅샷되던 문제)
+  let equipGroupMode: "concurrent" | "sequential" | "grouped" = "sequential";
   let equipIntervalMin = 10;
   if (params.processGroupId) {
-    const settings = await db
-      .select()
-      .from(hCcpEquipBatchSettings)
-      .where(
-        and(
-          eq(hCcpEquipBatchSettings.tenantId, params.tenantId),
-          eq(hCcpEquipBatchSettings.processGroupId, params.processGroupId)
-        )
-      )
-      .limit(1);
-    if (settings.length > 0) {
-      equipGroupMode = (settings[0] as any).groupMode;
-      equipIntervalMin = settings[0].intervalBetweenMin ?? 10;
+    const conn0 = await getRawConnection();
+    const [pg]: any = await conn0.execute(
+      `SELECT equip_group_mode, equip_interval_min FROM ccp_process_groups WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [params.processGroupId, params.tenantId],
+    );
+    const g = (pg as any[])[0];
+    if (g) {
+      if (g.equip_group_mode === "concurrent" || g.equip_group_mode === "sequential" || g.equip_group_mode === "grouped") equipGroupMode = g.equip_group_mode;
+      if (g.equip_interval_min != null) equipIntervalMin = Number(g.equip_interval_min);
     }
   }
 

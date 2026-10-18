@@ -237,6 +237,10 @@ export const hCcpFormRows = mysqlTable("h_ccp_form_rows", {
 export type CcpFormRow = typeof hCcpFormRows.$inferSelect;
 export type InsertCcpFormRow = typeof hCcpFormRows.$inferInsert;
 
+/**
+ * @deprecated 2026-10-18 — 설비 배치 운영 설정의 정본은 ccp_process_groups (equip_group_mode · equip_interval_min · equip_batch_size).
+ *   이 표는 운영에서 한 번도 채워진 적이 없고(0행) 읽는 코드도 없다. 표 삭제는 별도 DDL 결정 뒤.
+ */
 export const hCcpEquipBatchSettings = mysqlTable("h_ccp_equip_batch_settings", {
   id: int("id").autoincrement().primaryKey(),
   tenantId: int("tenant_id").notNull().default(1),
