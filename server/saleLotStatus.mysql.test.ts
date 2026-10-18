@@ -2656,4 +2656,47 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`DELETE FROM h_materials WHERE id = 99301`);
     });
   });
+
+  describe("원료수불부 일일 마감 — 이미 기록한 행은 덮어쓰지 않고, 빈 날만 재고 거래로 (지티 QA F05 추가 원인, 2026-10-18)", () => {
+    it("입고 100 → 출고 8 → 마감 → 재실행 → 다음날 현재고 92, 미출고 완료 배치 계획량은 사용 아님, 빈 날은 거래로 한 번만 채움", async () => {
+      const days = Array.from({ length: 31 }, (_, i) => String(i + 1).padStart(2, "0"));
+      await q(`CREATE TABLE IF NOT EXISTS material_ledger_monthly (
+        id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, material_id bigint NOT NULL, \`year_month\` varchar(7) NOT NULL,
+        prev_stock decimal(12,3) DEFAULT 0, receiving_total decimal(12,3) DEFAULT 0, usage_total decimal(12,3) DEFAULT 0, end_stock decimal(12,3) DEFAULT 0,
+        ${days.map((d) => `receiving_day_${d} decimal(12,3) DEFAULT 0, usage_day_${d} decimal(12,3) DEFAULT 0`).join(", ")},
+        status varchar(20) DEFAULT 'draft', updated_at timestamp NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_mlm (tenant_id, material_id, \`year_month\`))`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit) VALUES (99401, ?, 'F05B-A', '원료F05B', 'kg'), (99402, ?, 'F05B-C', '원료F05C', 'kg')`, [T, T]);
+      // 입고 LOT — 출고 뒤 quantity 가 줄어든 상태(92) 로 남아 있다 (예전 마감은 이 값을 입고로 썼다)
+      await q(`INSERT INTO h_inventory_lots (tenant_id, material_id, lot_number, quantity, available_quantity, unit, unit_price, receipt_date, status)
+               VALUES (?, 99401, 'F05B-LOT', 92, 92, 'kg', 1000, '2026-10-17', 'available')`, [T]);
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, material_id, transaction_type, quantity, unit, transaction_date, created_by) VALUES
+               (?, 99401, 'receipt', 100, 'kg', '2026-10-17', 4), (?, 99401, 'usage', 8, 'kg', '2026-10-18', 4),
+               (?, 99402, 'receipt', 30, 'kg', '2026-10-18', 4)`, [T, T, T]);
+      // 입고·출고 때 이미 기록된 수불부 (99402 는 기록 없음 — 옛 경로)
+      await q(`INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, receiving_qty, source) VALUES (?, 99401, '2026-10-17', 100, 'inbound')`, [T]);
+      await q(`INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, usage_qty, source) VALUES (?, 99401, '2026-10-18', 8, 'auto')`, [T]);
+      const { autoUpdateFromDailyClose, getDailyLedger } = await import("./db/accounting/materialLedger");
+      for (let i = 0; i < 2; i++) {
+        await autoUpdateFromDailyClose("2026-10-17", T);
+        await autoUpdateFromDailyClose("2026-10-18", T);
+      }
+      const rows = await q(`SELECT material_id, ledger_date, receiving_qty + 0 AS r, usage_qty + 0 AS u FROM material_ledger_daily WHERE material_id IN (99401, 99402) ORDER BY material_id, ledger_date`);
+      expect(rows.map((x: any) => [Number(x.material_id), x.ledger_date, Number(x.r), Number(x.u)])).toEqual([
+        [99401, "2026-10-17", 100, 0],
+        [99401, "2026-10-18", 0, 8],
+        [99402, "2026-10-18", 30, 0],
+      ]);
+      const next: any[] = await getDailyLedger("2026-10-19", T);
+      expect(Number(next.find((x: any) => Number(x.material_id) === 99401).current_stock)).toBe(92);
+      expect(Number(next.find((x: any) => Number(x.material_id) === 99402).current_stock)).toBe(30);
+      const m = await q(`SELECT material_id, receiving_total + 0 AS r, usage_total + 0 AS u, end_stock + 0 AS e FROM material_ledger_monthly WHERE material_id = 99401`);
+      expect(m.map((x: any) => [Number(x.r), Number(x.u), Number(x.e)])).toEqual([[100, 8, 92]]);
+      await q(`DELETE FROM material_ledger_daily WHERE material_id IN (99401, 99402)`);
+      await q(`DELETE FROM material_ledger_monthly WHERE material_id IN (99401, 99402)`);
+      await q(`DELETE FROM h_inventory_transactions WHERE material_id IN (99401, 99402) AND tenant_id = ?`, [T]);
+      await q(`DELETE FROM h_inventory_lots WHERE material_id = 99401 AND tenant_id = ?`, [T]);
+      await q(`DELETE FROM h_materials WHERE id IN (99401, 99402)`);
+    });
+  });
 });

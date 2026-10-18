@@ -691,6 +691,19 @@ export async function syncCcpRowsToFormRows(params: {
       }
     }
 
+    // ═══ 회차별 실제 투입량 (지티 QA B05, 2026-10-18) ═══
+    // 위 inputQtyKg 는 'BOM 1배치(설비 1회차) 기준' 양이다. 배치 계획량이 BOM 기준보다 작거나 회차가 나누어떨어지지 않으면
+    //   (예: BOM 10kg 기준인데 5kg 생산) 모든 행에 10kg 이 들어갔다. 공정 총 투입량 = 1회차 기준 × 계획량 ÷ BOM 기준 중량을
+    //   회차에 나눈다 — 앞 회차는 1회차 기준량, 마지막 회차는 남은 양 (splitCcpInputQty).
+    const frPlannedKg = parseFloat(fr.planned_qty_kg) || batchPlannedKg || 0;
+    const hasBomInputRow = !!(processGroupId && localBomInputQtyMap[processGroupId] != null);
+    let processTotalKg: number | null = null;
+    if (ccpType !== "CCP-4P" && frPlannedKg > 0 && inputQtyKg != null) {
+      if (hasBomInputRow && localBomBatchKg && localBomBatchKg > 0) processTotalKg = (inputQtyKg * frPlannedKg) / localBomBatchKg;
+      else if (!hasBomInputRow) processTotalKg = frPlannedKg;
+    }
+    const rowInputQty = (seq: number) => splitCcpInputQty(processTotalKg, inputQtyKg, totalBatchCount, seq);
+
     // ═══ 공정별 시작시간 결정 ═══
     // 배치 시작시간(batchStartTime)을 기본값으로 사용하되,
     // 공정그룹 설비에 별도 work_start_time이 있으면 그것을 사용
@@ -1486,7 +1499,7 @@ export async function syncCcpRowsToFormRows(params: {
             row.equipment_id ?? null,
             row.equipment_name ?? null,
             instanceProductName || frProductName || null,
-            inputQtyKg != null ? inputQtyKg.toFixed(2) : null,
+            (() => { const q = rowInputQty(batchSeq); return q != null ? q.toFixed(2) : null; })(),
             measurementTime ?? null,
             row.heating_min ?? row.duration_min ?? null,
             row.temp_c ?? null,
@@ -1558,4 +1571,20 @@ export async function loadCcpInputFromMassBasis(
     console.warn(`[ccpFormSettings] batch=${batchId} 원물·공정 기준 스냅샷 조회 실패 (기존 BOM 계산 유지):`, (err as any)?.message || err);
     return null;
   }
+}
+
+/**
+ * 회차별 CCP 투입량 — 공정 총 투입량을 설비 회차에 나눈다 (지티 QA B05).
+ *   회차 수가 '총량 ÷ 1회차 기준량' 올림과 같으면 앞 회차는 기준량, 마지막 회차는 남은 양. 다르면(설비 회차가 따로 정해짐) 균등.
+ *   총량을 모르면 1회차 기준량 그대로 (이전 동작).
+ */
+export function splitCcpInputQty(totalKg: number | null, perRoundKg: number | null, rounds: number, seq: number): number | null {
+  if (totalKg == null || !(totalKg > 0)) return perRoundKg;
+  const n = Math.max(1, Math.floor(rounds) || 1);
+  const r2 = (x: number) => Math.round(x * 100) / 100;
+  if (perRoundKg != null && perRoundKg > 0) {
+    const needed = Math.ceil(totalKg / perRoundKg - 1e-9);
+    if (needed === n) return r2(seq < n ? perRoundKg : totalKg - perRoundKg * (n - 1));
+  }
+  return r2(totalKg / n);
 }
