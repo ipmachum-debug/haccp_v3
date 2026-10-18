@@ -619,18 +619,14 @@ async function generateDocuments(conn: PoolConnection, tenantId: number, results
 
   for (const day of dailyData) {
     const dateStr = day.work_date instanceof Date ? day.work_date.toISOString().slice(0, 10) : String(day.work_date);
-    const [existing] = (await conn.execute(
-      `SELECT id FROM h_generic_checklist_records WHERE tenant_id = ? AND form_type = 'daily_log' AND form_date = ?`,
-      [tenantId, dateStr]
-    )) as any[];
-
-    if (existing.length === 0) {
-      await conn.execute(
-        `INSERT INTO h_generic_checklist_records (site_id, tenant_id, form_type, form_date, title, form_data, status, created_by) VALUES (1, ?, 'daily_log', ?, ?, ?, 'approved', ?)`,
-        [tenantId, dateStr, `생산일보 ${dateStr}`, JSON.stringify({ workDate: dateStr, batchCount: day.cnt, totalProductionKg: parseFloat(day.total_qty || 0) }), 4]
-      );
-      results.step4.dailyReports++;
-    }
+    // 일일일지는 한 날짜 한 건 (dailyLogStore) — 이미 있으면 건너뛴다
+    const { ensureDailyLog } = await import("../../lib/production/dailyLogStore");
+    const r = await ensureDailyLog(conn, {
+      tenantId, siteScope: 0, siteIdColumn: 1, date: dateStr, title: `생산일보 ${dateStr}`,
+      formData: { workDate: dateStr, batchCount: day.cnt, totalProductionKg: parseFloat(day.total_qty || 0) },
+      status: "approved", createdBy: 4,
+    });
+    if (r.created) results.step4.dailyReports++;
   }
 
   // ── 원가 ──

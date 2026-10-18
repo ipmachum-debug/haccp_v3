@@ -86,8 +86,15 @@ describe("판단 규칙", () => {
 
 describe("create — 항상 작성중", () => {
   it("화면이 submitted/approved 를 보내도 draft 로 저장", async () => {
-    await caller().create({ formType: "daily_log", formDate: "2026-10-15", formData: {}, status: "approved" });
+    // 일일일지는 한 날짜 한 건 경로(ensureDailyLog) — 여기서는 다른 공통 양식으로 확인
+    await caller().create({ formType: "pest_control_checklist", formDate: "2026-10-15", formData: {}, status: "approved" });
     expect(state.inserted.status).toBe("draft");
+  });
+  it("일일일지 생성은 한 날짜 한 건 함수로 (작성 모달·입력 화면·자동 생성·엑셀 임포트 공통)", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const src = readFileSync(join(__dirname, "routers/checklist/genericChecklist.router.ts"), "utf-8");
+    expect(src).toMatch(/if \(input\.formType === "daily_log"\) \{[\s\S]*ensureDailyLog\(conn, \{/);
   });
 });
 

@@ -213,6 +213,21 @@ export const genericChecklistRouter = router({
       const db = await getDb();
       if (!db) throw new Error("데이터베이스 연결 실패");
       const tenantId = getEffectiveTenantId(ctx);
+      // 일일일지는 한 날짜 한 건 — 이미 있으면 그 기록을 돌려준다 (docs/architecture/17 C1, 다른 생성 경로와 같은 함수)
+      if (input.formType === "daily_log") {
+        const conn: any = await getRawConnection();
+        const { ensureDailyLog } = await import("../../lib/production/dailyLogStore");
+        const { activeDefinition, DAILY_LOG_V2_FEATURE } = await import("../../lib/production/dailyLogSettingsStore");
+        const { isTenantFeatureEnabled } = await import("../../lib/production/massBasisPolicy");
+        if ((await isTenantFeatureEnabled(conn, tenantId, DAILY_LOG_V2_FEATURE)) && (await activeDefinition(conn, tenantId, 0))) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "이 회사는 새 일지 방식을 씁니다 — 일일일지 화면에서 작성하세요." });
+        }
+        const r = await ensureDailyLog(conn, {
+          tenantId, siteScope: 0, siteIdColumn: input.siteId || ctx.user.siteId || tenantId, date: input.formDate,
+          title: input.title || `daily_log - ${input.formDate}`, formData: input.formData ?? {}, status: "draft", createdBy: ctx.user.id,
+        });
+        return { success: true, id: r.id, existing: !r.created };
+      }
       // site_id 는 NOT NULL 이지만 기본값이 없다. site 미배정 사용자(관리자 등)는
       // input.siteId / ctx.user.siteId 가 모두 undefined 라 Drizzle 이 DEFAULT 를 넣어
       // "Field 'site_id' doesn't have a default value" 로 INSERT 가 실패한다.
