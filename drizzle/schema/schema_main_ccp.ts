@@ -165,6 +165,8 @@ export const hCcpFormRecords = mysqlTable("h_ccp_form_records", {
   clMetalSensitivity: int("cl_metal_sensitivity").default(130),
   clFeMm: decimal("cl_fe_mm", { precision: 4, scale: 1 }).default("2.0"),
   clSusMm: decimal("cl_sus_mm", { precision: 4, scale: 1 }).default("3.0"),
+  // print_snapshot (json) — 승인 때 고정한 인쇄 문구. select(hCcpFormRecords) 가 컬럼 없는 DB 에서 깨지지 않도록
+  //   Drizzle 에 넣지 않고 ccpPrintText 가 raw SQL 로만 읽고 쓴다 (2026-10-18)
 
   // 승인 정보
   writerId: bigint("writer_id", { mode: "number" }),

@@ -146,6 +146,21 @@ export async function applyCcpFormDecision(params: {
           [params.userId, params.reason ?? null, params.formRecordId, ...tenantArg],
         );
     const formUpdated = ((res as any)?.affectedRows ?? 0) > 0;
+    // 반려되면 고정 해제 — 다시 승인할 때 그때 문구로 새로 고정 (컬럼 없는 DB 는 무시)
+    if (params.decision === "rejected") {
+      try {
+        await conn.execute(`UPDATE h_ccp_form_records SET print_snapshot = NULL WHERE id = ?${tenantClause}`, [params.formRecordId, ...tenantArg]);
+      } catch (e: any) { if (e?.code !== "ER_BAD_FIELD_ERROR") throw e; }
+    }
+    // 승인 순간 인쇄 문구 고정 — 이후 공정그룹 문구를 개정해도 승인된 기록지는 그대로 (2026-10-18)
+    if (params.decision === "approved") {
+      try {
+        const { freezeCcpPrintText } = await import("./ccpPrintText");
+        await freezeCcpPrintText(params.formRecordId, params.tenantId);
+      } catch (e) {
+        console.error(`[ccpStatusSync] 기록지 #${params.formRecordId} 인쇄 문구 고정 실패 (승인은 유지):`, e);
+      }
+    }
     const instancesUpdated = await syncCcpInstanceStatusFromForm(params.formRecordId, params.tenantId);
     return { formUpdated, instancesUpdated };
   } catch (err) {
