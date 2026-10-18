@@ -281,7 +281,7 @@ export function SearchModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn(resolvedMaxWidth, "max-h-[600px] flex flex-col gap-3")}>
+      <DialogContent className={cn(resolvedMaxWidth, "top-[10vh] translate-y-0 rounded-2xl max-h-[600px] flex flex-col gap-3")}>
         <DialogHeader className="space-y-1 pb-0">
           <DialogTitle className="text-lg font-bold">{title}</DialogTitle>
           {description && (
@@ -330,8 +330,8 @@ export function SearchModal({
         {/* 결과 목록 */}
         <div
           ref={listRef}
-          className="flex-1 overflow-y-auto border rounded-md -mt-1"
-          style={{ minHeight: "300px", maxHeight: "400px" }}
+          className="overflow-y-auto overscroll-contain border border-border/60 rounded-xl -mt-1"
+          style={{ height: "min(400px, 50vh)" }}
         >
           {loading ? (
             <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -352,7 +352,7 @@ export function SearchModal({
                       expandedItemId === row.original.id
                         ? "bg-blue-50 border-l-2 border-l-blue-500"
                         : index === selectedIndex && expandedItemId === null
-                          ? "bg-primary text-primary-foreground"
+                          ? "bg-muted font-medium"
                           : "hover:bg-muted"
                     )}
                   >

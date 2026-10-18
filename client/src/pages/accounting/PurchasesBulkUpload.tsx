@@ -761,7 +761,7 @@ function PurchasesBulkUploadContent() {
 
       {/* ─── 매칭 다이얼로그 ─── */}
       <Dialog open={matchDialogOpen} onOpenChange={setMatchDialogOpen}>
-        <DialogContent className="max-w-lg">
+        <DialogContent className="top-[10vh] translate-y-0 max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {matchDialogType === 'item' ? '품목 매칭 선택' : '거래처 매칭 선택'}
@@ -848,10 +848,11 @@ function ItemSearchSelect({ items, onSelect }: { items: UploadItem[]; onSelect: 
         <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="품목명/코드 검색..."
           className="h-7 text-xs pl-7" />
       </div>
-      <div className="max-h-[150px] overflow-y-auto">
+      <div className="h-[150px] overflow-y-auto overscroll-contain rounded-lg border border-border/60 p-1">
+        {filtered.length === 0 && <div className="flex h-full items-center justify-center text-xs text-muted-foreground">일치하는 품목이 없습니다</div>}
         {filtered.map((item: UploadItem) => (
           <button key={item.id} onClick={() => onSelect(item)}
-            className="w-full text-left px-2 py-1 text-xs hover:bg-muted rounded flex items-center gap-2">
+            className="w-full text-left px-2 py-1.5 text-xs hover:bg-muted rounded-md flex items-center gap-2">
             <span className="font-medium truncate flex-1">{item.itemName}</span>
             <span className="text-[10px] text-muted-foreground">{item._displayType}</span>
           </button>
@@ -878,10 +879,11 @@ function PartnerSearchSelect({ partners, onSelect }: { partners: PartnerRow[]; o
         <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="거래처명/사업자번호 검색..."
           className="h-7 text-xs pl-7" />
       </div>
-      <div className="max-h-[150px] overflow-y-auto">
+      <div className="h-[150px] overflow-y-auto overscroll-contain rounded-lg border border-border/60 p-1">
+        {filtered.length === 0 && <div className="flex h-full items-center justify-center text-xs text-muted-foreground">일치하는 거래처가 없습니다</div>}
         {filtered.map((p: PartnerRow) => (
           <button key={p.id} onClick={() => onSelect(p)}
-            className="w-full text-left px-2 py-1 text-xs hover:bg-muted rounded flex items-center gap-2">
+            className="w-full text-left px-2 py-1.5 text-xs hover:bg-muted rounded-md flex items-center gap-2">
             <span className="font-medium truncate flex-1">{p.companyName}</span>
             <span className="text-[10px] text-muted-foreground">{p.bizNo || ''}</span>
           </button>

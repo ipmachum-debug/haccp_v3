@@ -876,3 +876,23 @@ table th {
 table tr {
   height: 36px;
 }
+
+/* 입력 아래 검색 목록 공통 (2026-10-18 대표 요청 — 결과 수에 따라 크기가 왔다갔다, 디자인 정리)
+ *   높이 고정 · 흰 바탕 · 둥근 모서리 · 부드러운 그림자. 결과가 많으면 안에서만 스크롤. */
+@layer components {
+  .search-dropdown {
+    @apply absolute z-[9999] top-full left-0 right-0 mt-1.5 flex h-[min(300px,50vh)] flex-col overflow-hidden rounded-xl border border-border/60 bg-white shadow-[0_16px_48px_-12px_rgba(15,23,42,0.28)] dark:bg-zinc-900;
+  }
+  .search-dropdown-scroll {
+    @apply overflow-y-auto overscroll-contain p-1.5;
+  }
+  .search-dropdown-item {
+    @apply flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-[13.5px] text-foreground transition-colors hover:bg-muted;
+  }
+  .search-dropdown-empty {
+    @apply flex flex-1 items-center justify-center px-3 py-6 text-[13px] text-muted-foreground;
+  }
+  .search-dropdown-meta {
+    @apply shrink-0 text-[11.5px] text-muted-foreground tabular-nums;
+  }
+}

@@ -81,10 +81,14 @@ export const materialRouter = router({
             isActive: itemMaster.isActive,
             supplierId: itemMaster.supplierId,
             description: itemMaster.description,
+            shelfLifeDays: itemMaster.shelfLifeDays,
+            // 만료 알림 일수는 재고 원재료(h_materials) 에만 있다 — legacy 연결로만 읽는다
+            expiryWarningDays: hMaterials.expiryWarningDays,
             createdAt: itemMaster.createdAt,
             updatedAt: itemMaster.updatedAt,
           })
           .from(itemMaster)
+          .leftJoin(hMaterials, and(eq(hMaterials.id, itemMaster.legacyMaterialId), eq(hMaterials.tenantId, itemMaster.tenantId)))
           .where(and(...conditions))
           .limit(limit)
           .offset(offset)
@@ -261,36 +265,42 @@ export const materialRouter = router({
         if (!db) throw new Error("DB 연결 실패");
         
         const { id, ...data } = input;
-        
-        await db
-          .update(hMaterials)
-          .set(data as any)
-          .where(
-            and(
-              eq(hMaterials.id, id),
-              eq(hMaterials.tenantId, ctx.tenantId as any) 
-            )
-          );
-        
-        // item_master 테이블 동기화 (legacyMaterialId로 연결)
-        try {
-          const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
-          const syncData: any = {};
-          if (data.materialName) syncData.itemName = data.materialName;
-          if (data.materialCode) syncData.itemCode = data.materialCode;
-          if (data.category) syncData.category = data.category;
-          if (data.unit) syncData.baseUnit = data.unit;
-          if (data.shelfLifeDays !== undefined) syncData.shelfLifeDays = data.shelfLifeDays;
-          if (data.description) syncData.description = data.description;
-          if (Object.keys(syncData).length > 0) {
-            await db.update(itemMaster).set(syncData).where(
-              and(eq(itemMaster.legacyMaterialId, id) as any, eq(itemMaster.tenantId, ctx.tenantId as any) )
+
+        // list 는 item_master 기반 — input.id 는 item_master.id (delete 와 같은 계약).
+        //   재고 원재료(h_materials) 는 legacy_material_id 로만 찾는다 — id 가 같다고 가정하지 않는다 (지티 QA, 2026-10-18:
+        //   이전엔 item_master.id 로 h_materials 를 바로 고쳐 다른 원재료가 바뀔 수 있었다).
+        const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit.js");
+        const [item] = await db.select({ id: itemMaster.id, legacyMaterialId: itemMaster.legacyMaterialId })
+          .from(itemMaster)
+          .where(and(eq(itemMaster.id, id), eq(itemMaster.tenantId, ctx.tenantId as any)))
+          .limit(1);
+        if (!item) throw new Error("원재료를 찾을 수 없습니다");
+
+        if (item.legacyMaterialId) {
+          await db
+            .update(hMaterials)
+            .set(data as any)
+            .where(
+              and(
+                eq(hMaterials.id, item.legacyMaterialId),
+                eq(hMaterials.tenantId, ctx.tenantId as any)
+              )
             );
-          }
-        } catch (syncErr) {
-          console.error('item_master 동기화 실패 (material):', syncErr);
         }
-        
+
+        const syncData: any = {};
+        if (data.materialName) syncData.itemName = data.materialName;
+        if (data.materialCode) syncData.itemCode = data.materialCode;
+        if (data.category) syncData.category = data.category;
+        if (data.unit) syncData.baseUnit = data.unit;
+        if (data.shelfLifeDays !== undefined) syncData.shelfLifeDays = data.shelfLifeDays;
+        if (data.description !== undefined) syncData.description = data.description || null;
+        if (Object.keys(syncData).length > 0) {
+          await db.update(itemMaster).set(syncData).where(
+            and(eq(itemMaster.id, item.id) as any, eq(itemMaster.tenantId, ctx.tenantId as any))
+          );
+        }
+
         return { success: true };
       }),
     

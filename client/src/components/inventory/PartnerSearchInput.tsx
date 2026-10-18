@@ -42,17 +42,17 @@ export function PartnerSearchInput({ partnerType, selectedId, selectedName, onSe
         </div>
       )}
       {open && !selectedId && (
-        <div className="absolute z-[9999] top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border rounded-md shadow-lg max-h-52 overflow-y-auto">
-          {q.isFetching && <div className="px-3 py-2 text-xs text-muted-foreground text-center">검색 중...</div>}
-          {!q.isFetching && results.length === 0 && <div className="px-3 py-2 text-xs text-muted-foreground text-center">{search ? "검색 결과 없음" : "등록된 거래처가 없습니다"}</div>}
+        <div className="search-dropdown search-dropdown-scroll">
+          {q.isFetching && <div className="search-dropdown-empty">검색 중...</div>}
+          {!q.isFetching && results.length === 0 && <div className="search-dropdown-empty">{search ? "검색 결과 없음" : "등록된 거래처가 없습니다"}</div>}
           {results.map((p: any) => (
             <button key={p.id} type="button"
-              className="w-full text-left px-3 py-2 hover:bg-muted text-xs flex items-center gap-2 border-b last:border-0"
+              className="search-dropdown-item"
               onMouseDown={e => e.preventDefault()}
               onClick={() => { onSelect(p.id, p.company_name); setSearch(""); setOpen(false); }}>
-              <Building2 className="w-3 h-3 text-muted-foreground shrink-0" />
+              <Building2 className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.6} />
               <span className="font-medium truncate">{p.company_name}</span>
-              {p.biz_no && <span className="text-[10px] text-muted-foreground shrink-0">{p.biz_no}</span>}
+              {p.biz_no && <span className="search-dropdown-meta">{p.biz_no}</span>}
               <Badge variant="outline" className="text-[9px] px-1 py-0 shrink-0 ml-auto">
                 {p.partner_type === "supplier" ? "공급" : p.partner_type === "customer" ? "고객" : "외주"}
               </Badge>

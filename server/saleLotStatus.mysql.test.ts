@@ -2603,4 +2603,35 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number((await q(`SELECT COUNT(*) AS n FROM purchase_order_line_changes`))[0].n)).toBe(0);
     });
   });
+
+  describe("원재료 마스터 — 수정은 item_master 연결로만, 소비기한·알림·설명 분리, 중복 코드 안내 (지티 QA R01·R02, 2026-10-18)", () => {
+    const caller = async (path: string, name: string) =>
+      (await import(path))[name].createCaller({ user: { id: 4, role: "admin", tenantId: T, email: "t@t" }, tenantId: T } as any);
+    it("목록 id(item_master) 로 수정하면 연결된 h_materials 만 바뀌고, 같은 번호의 다른 원재료는 그대로", async () => {
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (99201, ?, 'R02-A', '원료R'), (99101, ?, 'DECOY', '다른원료')`, [T, T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_material_id) VALUES (99101, ?, 'R02-A', '원료R', 'raw_material', 99201)`, [T]);
+      const m = await caller("./routers/master/material.router", "materialRouter");
+      await m.update({ id: 99101, materialName: "원료R2", shelfLifeDays: 180, expiryWarningDays: 10, description: "QA 설명" });
+      const hm = await q(`SELECT id, material_name, shelf_life_days, expiry_warning_days, description FROM h_materials WHERE id IN (99101, 99201) ORDER BY id`);
+      expect(hm.map((r: any) => [r.id, r.material_name, r.shelf_life_days, r.expiry_warning_days, r.description])).toEqual([
+        [99101, "다른원료", null, 7, null],
+        [99201, "원료R2", 180, 10, "QA 설명"],
+      ]);
+      const im = (await q(`SELECT item_name, shelf_life_days, description FROM item_master WHERE id = 99101`))[0];
+      expect([im.item_name, im.shelf_life_days, im.description]).toEqual(["원료R2", 180, "QA 설명"]);
+      const list = await m.list({ search: "R02-A" });
+      expect(list.items.map((x: any) => [x.id, x.shelfLifeDays, x.expiryWarningDays])).toEqual([[99101, 180, 10]]);
+      await expect(m.update({ id: 99999, materialName: "x" })).rejects.toThrow(/원재료를 찾을 수 없습니다/);
+    });
+    it("품목 마스터에서 같은 회사 중복 코드 → SQL 없이 업무 문장, 품목·원재료 추가 없음", async () => {
+      const im = await caller("./routers/master/itemMaster.router", "itemMasterRouter");
+      const before = (await q(`SELECT (SELECT COUNT(*) FROM item_master) a, (SELECT COUNT(*) FROM h_materials) b`))[0];
+      const err: any = await im.create({ itemCode: "R02-A", itemName: "중복", itemType: "raw_material" }).catch((e: any) => e);
+      expect(err.message).toBe("이미 있는 품목 코드입니다 (R02-A). 다른 코드를 입력하세요.");
+      expect(err.message).not.toMatch(/insert|params|Failed query/i);
+      expect((await q(`SELECT (SELECT COUNT(*) FROM item_master) a, (SELECT COUNT(*) FROM h_materials) b`))[0]).toEqual(before);
+      await q(`DELETE FROM item_master WHERE id = 99101`);
+      await q(`DELETE FROM h_materials WHERE id IN (99101, 99201)`);
+    });
+  });
 });

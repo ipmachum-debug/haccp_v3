@@ -467,10 +467,10 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
                   {productSearchOpen && (
                     <div
                       ref={productDropdownRef}
-                      className="absolute z-50 top-full left-0 w-full mt-1 bg-popover border border-border rounded-lg shadow-lg max-h-[240px] overflow-y-auto"
+                      className="search-dropdown search-dropdown-scroll"
                     >
                       {filteredProducts.length === 0 ? (
-                        <div className="px-3 py-4 text-sm text-center text-muted-foreground">
+                        <div className="search-dropdown-empty">
                           {products.length === 0 ? "등록된 제품이 없습니다" : "일치하는 제품이 없습니다"}
                         </div>
                       ) : (
@@ -479,8 +479,8 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
                             key={product.id}
                             type="button"
                             className={cn(
-                              "w-full flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
-                              selectedProductId === product.id.toString() && "bg-accent"
+                              "search-dropdown-item",
+                              selectedProductId === product.id.toString() && "bg-muted"
                             )}
                             onClick={() => {
                               setSelectedProductId(product.id.toString());
@@ -494,12 +494,8 @@ export default function BatchCreate({ embedded = false, ..._ }: { embedded?: boo
                                 selectedProductId === product.id.toString() ? "opacity-100 text-emerald-600" : "opacity-0"
                               )}
                             />
-                            <div className="flex flex-col min-w-0">
-                              <span className="font-medium truncate">{product.productName || `제품 #${product.id}`}</span>
-                              {product.productCode && (
-                                <span className="text-[11px] text-muted-foreground truncate">{product.productCode}</span>
-                              )}
-                            </div>
+                            <span className="flex-1 truncate font-medium">{product.productName || `제품 #${product.id}`}</span>
+                            {product.productCode && <span className="search-dropdown-meta">{product.productCode}</span>}
                           </button>
                         ))
                       )}

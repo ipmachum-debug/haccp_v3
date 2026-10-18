@@ -808,18 +808,18 @@ function ExpenseFormDialog({
                 </div>
                 {/* 거래처 검색 드롭다운 */}
                 {showPartnerDropdown && partnerSearch.length >= 1 && (
-                  <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white dark:bg-zinc-900 border rounded-md shadow-lg max-h-48 overflow-y-auto">
+                  <div className="search-dropdown search-dropdown-scroll">
                     {partnersQuery.isFetching && (
-                      <div className="px-3 py-2 text-sm text-muted-foreground text-center">검색 중...</div>
+                      <div className="search-dropdown-empty">검색 중...</div>
                     )}
                     {!partnersQuery.isFetching && partnerResults.length === 0 && (
-                      <div className="px-3 py-2 text-sm text-muted-foreground text-center">검색 결과 없음</div>
+                      <div className="search-dropdown-empty">검색 결과 없음</div>
                     )}
                     {partnerResults.map((p: ExpensePartnerRow) => (
                       <button
                         key={p.id}
                         type="button"
-                        className="w-full text-left px-3 py-2 hover:bg-muted text-sm flex items-center gap-2 border-b last:border-0"
+                        className="search-dropdown-item"
                         onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
                           setPartnerId(p.id);
