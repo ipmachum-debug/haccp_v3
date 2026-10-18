@@ -55,6 +55,10 @@ export function renderCcpFormRecord(fr: any, doc: any) {
   // 공정그룹별 모니터링 방법/개선조치 텍스트 (교반 vs 증숙 등 양식 차이) — 있으면 우선 사용
   const monitoringMethodText = s(fr.monitoringMethod || fr.monitoring_method).trim();
   const correctiveActionText = s(fr.correctiveAction || fr.corrective_action).trim();
+  const monitoringCycleText = s(fr.monitoringCycle || fr.monitoring_cycle).trim();
+  // 회사 한계기준표(같은 CCP 유형 공정 전부) · 설비 열 제목 — 서버 enrichWithGroupText 가 넣어 준다
+  const clTable: any[] = Array.isArray(fr.clTable) ? fr.clTable : [];
+  const equipTypeLabel = s(fr.equipTypeLabel).trim() || "설비";
   // 저장된 텍스트를 그대로(줄바꿈 보존) 렌더 — 사용자가 기준서 문구를 직접 관리
   const renderMultiline = (text: string) => (
     <div className="whitespace-pre-wrap leading-relaxed">{text}</div>
@@ -71,6 +75,13 @@ export function renderCcpFormRecord(fr: any, doc: any) {
   const clMetalFe = fr.clFeMm ?? fr.cl_fe_mm;
   const clMetalSus = fr.clSusMm ?? fr.cl_sus_mm;
   const clMetalSensitivity = fr.clMetalSensitivity ?? fr.cl_metal_sensitivity;
+  // 기준이 없으면 '-' — 특정 회사 값을 폴백으로 쓰지 않는다 (2026-10-18)
+  const fmtRange = (lo: any, hi: any, unit: string) =>
+    lo != null && hi != null ? `${lo}${unit}이상~${hi}${unit}이하` : lo != null ? `${lo}${unit}이상` : hi != null ? `${hi}${unit}이하` : "-";
+  const fmtMin = (lo: any, unit: string) => (lo != null ? `${lo}${unit}이상` : "-");
+  const EMPTY_TEXT = (label: string) => (
+    <p className="text-gray-400">({label} 문구가 비어 있습니다 — CCP 관리 → 공정그룹에서 입력하세요)</p>
+  );
 
   const formRows: any[] = fr.rows || [];
   const hasFormRows = formRows.length > 0;
@@ -122,14 +133,17 @@ export function renderCcpFormRecord(fr: any, doc: any) {
     const uniqueEquipNames = Array.from(
       new Set(formRows.map((r: any) => s(r.equipmentName || r.equipment_name)).filter(Boolean))
     );
-    const clRows = uniqueEquipNames.length > 0
+    // 정규 양식: 회사의 이 CCP 공정 전부를 나열 (예: 교반-가열 / 증숙(설기류) / 증숙(약식류)). 표가 없으면 이 기록지의 기준 한 줄.
+    const clRows = clTable.length > 0
+      ? clTable.map((g: any) => ({ name: s(g.name), time: fmtRange(g.timeMin, g.timeMax, "분"), pressure: fmtMin(g.pressureMin, "Mpa"), temp: fmtMin(g.temperatureMin, "℃") }))
+      : uniqueEquipNames.length > 0
       ? uniqueEquipNames.map((name) => ({
-          name: `${productName || "찹쌀떡류"}(${name})`,
-          time: `${clHeatTimeLo || 10}분이상~${clHeatTimeHi || 15}분이하`,
-          pressure: `${clPressureMpaLo || "0.16"}Mpa이상`,
-          temp: `${clHeatTempLo || "90"}℃이상`,
+          name: productName ? `${productName}(${name})` : name,
+          time: fmtRange(clHeatTimeLo, clHeatTimeHi, "분"),
+          pressure: fmtMin(clPressureMpaLo, "Mpa"),
+          temp: fmtMin(clHeatTempLo, "℃"),
         }))
-      : [{ name: `${productName || "찹쌀떡류"}(교반기1)`, time: `${clHeatTimeLo || 10}분이상~${clHeatTimeHi || 15}분이하`, pressure: `${clPressureMpaLo || "0.16"}Mpa이상`, temp: `${clHeatTempLo || "90"}℃이상` }];
+      : [{ name: productName || processGroupName || "-", time: fmtRange(clHeatTimeLo, clHeatTimeHi, "분"), pressure: fmtMin(clPressureMpaLo, "Mpa"), temp: fmtMin(clHeatTempLo, "℃") }];
 
     // 8개 빈 행 (기록란)
     const displayRows = hasFormRows
@@ -174,9 +188,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
           <tbody>
             <tr>
               <td className={`${bCls} px-2 py-1 font-bold bg-gray-50 text-center`} style={{ width: "12%" }}>주 기</td>
-              <td className={`${bCls} px-2 py-1 font-bold`}>
-                매 작업시마다, 같은품목 작업시 2시간마다, 품목 바뀔때마다
-              </td>
+              <td className={`${bCls} px-2 py-1 font-bold`}>{monitoringCycleText ? renderMultiline(monitoringCycleText) : EMPTY_TEXT("주기")}</td>
             </tr>
           </tbody>
         </table>
@@ -189,18 +201,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 모니터링<br />방 법
               </td>
               <td className={`${bCls} px-2 py-1 leading-relaxed`}>
-                {monitoringMethodText ? renderMultiline(monitoringMethodText) : (
-                <div className="space-y-0.5">
-                  <p>○ 가열시간 : 모니터링 담당자는 검교정된 타이머를 이용하여 시간을 확인일지에 기록</p>
-                  <p>○ 품명 및 해당 품목 가열(증숙) 압력확인 - 압력계 수치 확인</p>
-                  <p>○ 품명 및 해당 품목 가열(증숙) 시간확인 - 가열(증숙)시간을 타이머로 설정(setting)</p>
-                  <p>○ 시루 최대 적재단수 3단이며 <u>제일 윗단 시루에 스팀이 올라오는 것</u></p>
-                  <p>&nbsp;&nbsp;확인후 타이머 (세팅된 가열(증숙)시간) 작동</p>
-                  <p>※ 품온 측정 : 스팀공급관에서 제일 끝시루</p>
-                  <p>&nbsp;&nbsp;(스팀공급관에서 제일 끝시루) 상단시루에서 모서리 1곳과 중심부 1곳을 측정</p>
-                  <p>○ 타이머로 설정된 시간 종료후 탐침온도계로 품온측정 및 측정시간 확인, 기록</p>
-                </div>
-                )}
+                {monitoringMethodText ? renderMultiline(monitoringMethodText) : EMPTY_TEXT("모니터링 방법")}
               </td>
             </tr>
           </tbody>
@@ -212,7 +213,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
             <tr>
               <th className={thCls} rowSpan={2} style={{ width: "11%" }}>품 명</th>
               <th className={thCls} rowSpan={2} style={{ width: "9%" }}>측정<br/>시각</th>
-              <th className={thCls} rowSpan={2} style={{ width: "10%" }}>교반기</th>
+              <th className={thCls} rowSpan={2} style={{ width: "10%" }}>{equipTypeLabel}</th>
               <th className={thCls} rowSpan={2} style={{ width: "8%" }}>가열<br/>시간</th>
               <th className={thCls} rowSpan={2} style={{ width: "10%" }}>압력<br/><span className="font-normal text-[8px]">(MPa)</span></th>
               <th className={thCls} rowSpan={2} style={{ width: "8%" }}>투입량<br/><span className="font-normal text-[8px]">(kg)</span></th>
@@ -271,27 +272,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 개선조치<br />방법
               </td>
               <td className={`${bCls} px-2 py-1 leading-relaxed`}>
-                {correctiveActionText ? renderMultiline(correctiveActionText) : (
-                <div className="space-y-0.5">
-                  <p>○ 가열온도 또는 가열시간 미달 시</p>
-                  <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
-                  <p>&nbsp;- 가열온도와 가열시간을 재조정한 후 미달된 제품에 대해 재가열을 실시하고</p>
-                  <p>&nbsp;&nbsp;&nbsp;제품검사(관능)를 실시하여 이상이 없는 경우 다음 공정을 진행한다.</p>
-                  <p>&nbsp;- 한계기준 이탈내용과 개선조치 내용을 모니터링 일지에 기록한다.</p>
-                  <p>○ 가열온도 또는 가열시간 초과 시</p>
-                  <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
-                  <p>&nbsp;- 제품검사(관능 등)를 실시하여 이상이 없는 경우 다음공정을 진행한다.</p>
-                  <p>&nbsp;- 한계기준 이탈내용과 개선조치 내용을 모니터링 일지에 기록한다.</p>
-                  <p>○ 기계고장 시</p>
-                  <p>&nbsp;- 모니터링 담당자는 가열기 등 기계고장 시 즉시 작업을 중지한다.</p>
-                  <p>&nbsp;- 수리 후 정상적으로 작동 시 재가동한다.</p>
-                  <p>&nbsp;&nbsp;※ 즉각적인 수리가 불가능할 경우 교차오염이 되지 않도록 보호조치하여</p>
-                  <p>&nbsp;&nbsp;&nbsp;&nbsp;냉장창고에 보관한후, 수리가 끝나면 제품 생산을 계속한다.</p>
-                  <p>○ 공통 : 개선조치 시</p>
-                  <p>&nbsp;- 문제 발생 시 HACCP팀장에게 보고 후 조치하며, 개선조치 후 모니터링 일지에</p>
-                  <p>&nbsp;&nbsp;&nbsp;기록후 HACCP팀장에게 승인을 받는다.</p>
-                </div>
-                )}
+                {correctiveActionText ? renderMultiline(correctiveActionText) : EMPTY_TEXT("개선조치 방법")}
               </td>
             </tr>
           </tbody>
@@ -362,12 +343,17 @@ export function renderCcpFormRecord(fr: any, doc: any) {
             </tr>
           </thead>
           <tbody>
-            <tr>
-              <td className={`${tdCls} bg-gray-50`}></td>
-              <td className={tdCls}>{processGroupName || "오븐-굽기공정"}</td>
-              <td className={tdCls}>{clHeatTimeLo != null ? `${clHeatTimeLo}분이상` : "-"}{clHeatTimeHi != null ? `~${clHeatTimeHi}분이하` : ""}</td>
-              <td className={tdCls}>{clHeatTempLo != null ? `${clHeatTempLo}℃이상` : "-"}</td>
-            </tr>
+            {(clTable.length > 0
+              ? clTable.map((g: any) => ({ name: s(g.name), time: fmtRange(g.timeMin, g.timeMax, "분"), temp: fmtMin(g.temperatureMin, "℃") }))
+              : [{ name: processGroupName || productName || "-", time: fmtRange(clHeatTimeLo, clHeatTimeHi, "분"), temp: fmtMin(clHeatTempLo, "℃") }]
+            ).map((row, i, arr) => (
+              <tr key={i}>
+                {i === 0 && <td className={`${tdCls} bg-gray-50`} rowSpan={arr.length}></td>}
+                <td className={tdCls}>{row.name}</td>
+                <td className={tdCls}>{row.time}</td>
+                <td className={tdCls}>{row.temp}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
 
@@ -375,7 +361,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
           <tbody>
             <tr>
               <td className={`${bCls} px-2 py-1 font-bold bg-gray-50 text-center`} style={{ width: "12%" }}>주 기</td>
-              <td className={`${bCls} px-2 py-1 font-bold`}>매 작업시마다, 같은품목 작업시 2시간마다, 품목 바뀔때마다</td>
+              <td className={`${bCls} px-2 py-1 font-bold`}>{monitoringCycleText ? renderMultiline(monitoringCycleText) : EMPTY_TEXT("주기")}</td>
             </tr>
           </tbody>
         </table>
@@ -388,13 +374,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 모니터링<br />방 법
               </td>
               <td className={`${bCls} px-2 py-1 leading-relaxed`}>
-                {monitoringMethodText ? renderMultiline(monitoringMethodText) : (
-                <div className="space-y-0.5">
-                  <p>○ 가열온도 : 모니터링 담당자는 가열기에 부착된 판넬에 표시되는 온도를 확인하여 일지에 기록한다.</p>
-                  <p>○ 가열시간 : 모니터링 담당자는 가열기에 부착된 판넬에 표시되는 시간을 확인하여 일지에 기록한다.</p>
-                  <p>※ 가열기는 연 1회 검·교정을 실시한다.</p>
-                </div>
-                )}
+                {monitoringMethodText ? renderMultiline(monitoringMethodText) : EMPTY_TEXT("모니터링 방법")}
               </td>
             </tr>
           </tbody>
@@ -451,27 +431,7 @@ export function renderCcpFormRecord(fr: any, doc: any) {
                 개선조치<br />방법
               </td>
               <td className={`${bCls} px-2 py-1 leading-relaxed`}>
-                {correctiveActionText ? renderMultiline(correctiveActionText) : (
-                <div className="space-y-0.5">
-                  <p>○ 가열온도 또는 가열시간 미달 시</p>
-                  <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
-                  <p>&nbsp;- 가열온도와 가열시간을 재조정한 후 미달된 제품에 대해 재가열을 실시하고</p>
-                  <p>&nbsp;&nbsp;&nbsp;제품검사(관능)를 실시하여 이상이 없는 경우 다음 공정을 진행한다.</p>
-                  <p>&nbsp;- 한계기준 이탈내용과 개선조치 내용을 모니터링 일지에 기록한다.</p>
-                  <p>○ 가열온도 또는 가열시간 초과 시</p>
-                  <p>&nbsp;- 모니터링 담당자는 한계기준 이탈시 즉시 작업을 중지한다.</p>
-                  <p>&nbsp;- 제품검사(관능 등)를 실시하여 이상이 없는 경우 다음공정을 진행한다.</p>
-                  <p>&nbsp;- 한계기준 이탈내용과 개선조치 내용을 모니터링 일지에 기록한다.</p>
-                  <p>○ 기계고장 시</p>
-                  <p>&nbsp;- 모니터링 담당자는 가열기 등 기계고장 시 즉시 작업을 중지한다.</p>
-                  <p>&nbsp;- 수리 후 정상적으로 작동 시 재가동한다.</p>
-                  <p>&nbsp;&nbsp;※ 즉각적인 수리가 불가능할 경우 교차오염이 되지 않도록 보호조치하여</p>
-                  <p>&nbsp;&nbsp;&nbsp;&nbsp;냉장창고에 보관한후, 수리가 끝나면 제품 생산을 계속한다.</p>
-                  <p>○ 공통 : 개선조치 시</p>
-                  <p>&nbsp;- 문제 발생 시 HACCP팀장에게 보고 후 조치하며, 개선조치 후 모니터링 일지에</p>
-                  <p>&nbsp;&nbsp;&nbsp;기록후 HACCP팀장에게 승인을 받는다.</p>
-                </div>
-                )}
+                {correctiveActionText ? renderMultiline(correctiveActionText) : EMPTY_TEXT("개선조치 방법")}
               </td>
             </tr>
           </tbody>
@@ -582,9 +542,9 @@ export function renderCcpFormRecord(fr: any, doc: any) {
               <td className={`${bCls} px-2 py-0.5 text-center`} colSpan={2}>SUS</td>
             </tr>
             <tr>
-              <td className={`${bCls} px-2 py-0.5 text-center`}>{clMetalSensitivity ?? 130}</td>
-              <td className={`${bCls} px-2 py-0.5 text-center`} colSpan={2}>{clMetalFe != null ? `${clMetalFe}mm\u03A6 이상 불검출` : "2.0mm\u03A6 이상 불검출"}</td>
-              <td className={`${bCls} px-2 py-0.5 text-center`} colSpan={2}>{clMetalSus != null ? `${clMetalSus}mm\u03A6 이상 불검출` : "3.0mm\u03A6 이상 불검출"}</td>
+              <td className={`${bCls} px-2 py-0.5 text-center`}>{clMetalSensitivity ?? "-"}</td>
+              <td className={`${bCls} px-2 py-0.5 text-center`} colSpan={2}>{clMetalFe != null ? `${clMetalFe}mm\u03A6 이상 불검출` : "-"}</td>
+              <td className={`${bCls} px-2 py-0.5 text-center`} colSpan={2}>{clMetalSus != null ? `${clMetalSus}mm\u03A6 이상 불검출` : "-"}</td>
             </tr>
           </tbody>
         </table>
@@ -593,13 +553,8 @@ export function renderCcpFormRecord(fr: any, doc: any) {
         <table className="w-full border-collapse border border-gray-600 mb-0">
           <tbody>
             <tr>
-              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50 text-center`} rowSpan={2} style={{ width: "10%" }}>주 기</td>
-              <td className={`${bCls} px-2 py-0.5 text-[10px]`} style={{ width: "45%" }}>금속검출기 정상작동 여부 확인</td>
-              <td className={`${bCls} px-2 py-0.5 text-[10px]`} style={{ width: "45%" }}>품목 변경시 마다(시작시, 종료시), 동일품목 연속작업시 2시간 마다</td>
-            </tr>
-            <tr>
-              <td className={`${bCls} px-2 py-0.5 text-[10px]`}>금속검출기에 의한 공정품 확인</td>
-              <td className={`${bCls} px-2 py-0.5 text-[10px]`}>작업중 상시</td>
+              <td className={`${bCls} px-2 py-0.5 font-medium bg-gray-50 text-center`} style={{ width: "10%" }}>주 기</td>
+              <td className={`${bCls} px-2 py-0.5 text-[10px]`} colSpan={2}>{monitoringCycleText ? renderMultiline(monitoringCycleText) : EMPTY_TEXT("주기")}</td>
             </tr>
           </tbody>
         </table>

@@ -11,6 +11,7 @@ import { Loader2, Sparkles } from "lucide-react";
 
 import { todayLocal } from "../../lib/dateUtils";
 import { type CcpFormProps, confidenceClass } from "./ccpFormTypes";
+import { ClReference } from "./ClReference";
 
 // ★ PR-AN: 평면 데이터 구조 — items[] 배열 없음
 export interface Ccp1bFormData {
@@ -95,7 +96,7 @@ export function CCP1BForm(props: CcpFormProps<Ccp1bFormData> = {}) {
         <CardDescription>
           {description ?? (isOcrMode
             ? "AI 자동 인식 결과 — 노란색 강조 항목은 신뢰도가 낮으니 확인 후 수정해 주세요."
-            : "참쌀떡류, 전통떡류, 약식 등의 가열(증숙)공정 모니터링")}
+            : "가열(증숙)공정 모니터링 — 한계기준은 이 회사의 공정그룹 설정을 따릅니다")}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -119,7 +120,7 @@ export function CCP1BForm(props: CcpFormProps<Ccp1bFormData> = {}) {
                 value={formData.productName}
                 onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
                 className={ccls("productName")}
-                placeholder="예: 참쌀떡류(교반기1)"
+                placeholder="품명(설비)"
                 required
               />
             </div>
@@ -135,27 +136,7 @@ export function CCP1BForm(props: CcpFormProps<Ccp1bFormData> = {}) {
             </div>
           </div>
 
-          <div className="bg-muted p-4 rounded-lg space-y-2">
-            <h3 className="font-semibold">한계기준 (참고)</h3>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm">
-              <div>
-                <div className="font-medium">참쌀떡류(교반기1)</div>
-                <div className="text-muted-foreground">10-15분, 0.16Mpa 이상, 90℃ 이상</div>
-              </div>
-              <div>
-                <div className="font-medium">참쌀떡류(교반기2)</div>
-                <div className="text-muted-foreground">10-15분, 0.12Mpa 이상, 90℃ 이상</div>
-              </div>
-              <div>
-                <div className="font-medium">전통떡류</div>
-                <div className="text-muted-foreground">10-15분, 0.28Mpa 이상, 90℃ 이상</div>
-              </div>
-              <div>
-                <div className="font-medium">약식</div>
-                <div className="text-muted-foreground">35-40분, 0.28Mpa 이상, 90℃ 이상</div>
-              </div>
-            </div>
-          </div>
+          <ClReference ccpType="CCP-1B" />
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">

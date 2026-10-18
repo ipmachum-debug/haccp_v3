@@ -11,6 +11,7 @@ import { Loader2, Sparkles } from "lucide-react";
 
 import { todayLocal } from "../../lib/dateUtils";
 import { type CcpFormProps, confidenceClass } from "./ccpFormTypes";
+import { ClReference } from "./ClReference";
 
 // ★ PR-AN: CCP-2B/3B 공용 데이터 구조 (3B 는 wrapper)
 export interface Ccp2bFormData {
@@ -94,7 +95,7 @@ export function CCP2BForm(props: CCP2BFormProps = {}) {
         <CardDescription>
           {description ?? (isOcrMode
             ? "AI 자동 인식 결과 — 노란색 강조 항목은 신뢰도가 낮으니 확인 후 수정해 주세요."
-            : "마카다미아, 호두, 땅콩, 해바라기씨앗, 호박씨앗 등의 가열(굽기)공정 모니터링")}
+            : "가열(굽기)공정 모니터링 — 한계기준은 이 회사의 공정그룹 설정을 따릅니다")}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -118,7 +119,7 @@ export function CCP2BForm(props: CCP2BFormProps = {}) {
                 value={formData.productName}
                 onChange={(e) => setFormData({ ...formData, productName: e.target.value })}
                 className={ccls("productName")}
-                placeholder="예: 마카다미아"
+                placeholder="품명"
                 required
               />
             </div>
@@ -134,12 +135,7 @@ export function CCP2BForm(props: CCP2BFormProps = {}) {
             </div>
           </div>
 
-          <div className="bg-muted p-4 rounded-lg space-y-2">
-            <h3 className="font-semibold">한계기준 (참고)</h3>
-            <div className="text-sm text-muted-foreground">
-              모든 품목: 10-15분, 150℃ 이상
-            </div>
-          </div>
+          <ClReference ccpType="CCP-2B" />
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">

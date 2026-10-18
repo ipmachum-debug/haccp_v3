@@ -833,7 +833,8 @@ export async function syncCcpRowsToFormRows(params: {
       let equipWorkStart = "09:00", equipWorkEnd = "16:30";
       let equipLunchStart = "12:00", equipLunchEnd = "13:00";
       let equipId = 0;
-      let equipFeSensitivity = 2.0, equipStsSensitivity = 3.0;
+      // 감도 기준은 회사 설비 설정에서만 — 없으면 비워 둔다 (코드 기본값 2.0/3.0 제거, 2026-10-18)
+      let equipFeSensitivity: number | null = null, equipStsSensitivity: number | null = null;
       try {
         const [eqRows] = await rawConn.execute<any[]>(
           `SELECT id, work_start_time, work_end_time, lunch_start_time, lunch_end_time,

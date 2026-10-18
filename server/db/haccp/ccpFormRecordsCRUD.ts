@@ -202,6 +202,18 @@ export async function getOrCreateCcpFormRecord(params: {
     }
   }
 
+  // 금속검출 감도 기준은 이 회사의 금속검출기 설정에서 — 코드 기본값(130·2.0·3.0) 없음 (2026-10-18)
+  let metalCl: { fe: string | null; sus: string | null } = { fe: null, sus: null };
+  if (params.ccpType === "CCP-4P" && (params.clFeMm == null || params.clSusMm == null)) {
+    const conn = await getRawConnection();
+    const [eq]: any = await conn.execute(
+      `SELECT fe_sensitivity, sts_sensitivity FROM equipments WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND status = 'active' ORDER BY id LIMIT 1`,
+      [params.tenantId],
+    );
+    const e = (eq as any[])[0];
+    if (e) metalCl = { fe: e.fe_sensitivity != null ? String(e.fe_sensitivity) : null, sus: e.sts_sensitivity != null ? String(e.sts_sensitivity) : null };
+  }
+
   // CCP-4P: 일일 통합 기록 → productName/plannedQtyKg를 당일 전체 기준으로 설정
   let finalProductName = params.productName;
   let finalPlannedQtyKg = params.plannedQtyKg;
@@ -245,9 +257,9 @@ export async function getOrCreateCcpFormRecord(params: {
     clPressureMpaLo: (groupCl ? groupCl.pressureLo : params.clPressureMpaLo)?.toString(),
     // 증숙(CCP-1B) 품온 기준은 그룹 온도 하한 — 그룹이 있으면 기준서 기본 90℃ 를 쓰지 않는다
     clProductTempLo: (groupCl ? (params.ccpType === "CCP-1B" ? groupCl.tempLo : null) : params.clProductTempLo)?.toString(),
-    clMetalSensitivity: params.clMetalSensitivity ?? 130,
-    clFeMm: params.clFeMm?.toString() ?? "2.0",
-    clSusMm: params.clSusMm?.toString() ?? "3.0",
+    clMetalSensitivity: params.clMetalSensitivity ?? null,
+    clFeMm: params.clFeMm?.toString() ?? metalCl.fe,
+    clSusMm: params.clSusMm?.toString() ?? metalCl.sus,
     writerId: params.writerId,
     status: "draft",
   };
@@ -385,18 +397,36 @@ export async function getCcpFormRecordsByBatch(batchId: number, tenantId?: numbe
  * (문서 양식이 공정그룹별로 달라야 하므로 — 예: 교반 vs 증숙 — ccp_process_groups
  *  에 저장된 monitoring_method / corrective_action 을 렌더러가 사용하도록 주입)
  */
-async function enrichWithGroupText<T extends { processGroupId?: number | null }>(
+async function enrichWithGroupText<T extends { processGroupId?: number | null; ccpType?: string | null }>(
   rec: T,
   tenantId?: number,
-): Promise<T & { monitoringMethod?: string | null; correctiveAction?: string | null }> {
+): Promise<T & { monitoringMethod?: string | null; monitoringCycle?: string | null; correctiveAction?: string | null; clTable?: any[]; equipTypeLabel?: string | null }> {
   if (!rec || !rec.processGroupId) return rec as any;
   try {
     const conn = await getRawConnection();
+    // 정규 양식의 '한계기준' 표는 이 회사의 같은 CCP 유형 공정 전부를 나열한다 (이 배치 것만이 아니라) — 2026-10-18 원본 양식 대조
+    //   설비 열 제목(교반기/시루/증숙기)은 공정에 배정된 설비 종류에서.
+    let clTable: any[] = [];
+    let equipTypeLabel: string | null = null;
+    if (tenantId != null && (rec as any).ccpType) {
+      const [gs] = await conn.execute<any[]>(
+        `SELECT name, time_min, time_max, pressure_min, temperature_min FROM ccp_process_groups
+          WHERE tenant_id = ? AND ccp_type = ? AND status = 'active' ORDER BY sort_order, id`,
+        [tenantId, (rec as any).ccpType],
+      );
+      clTable = (gs as any[]).map((g) => ({ name: g.name, timeMin: g.time_min, timeMax: g.time_max, pressureMin: g.pressure_min, temperatureMin: g.temperature_min }));
+      const [et] = await conn.execute<any[]>(
+        `SELECT e.type FROM ccp_process_group_equipments ge JOIN equipments e ON e.id = ge.equipment_id AND e.tenant_id = ge.tenant_id
+          WHERE ge.tenant_id = ? AND ge.process_group_id = ? ORDER BY ge.sort_order, ge.id LIMIT 1`,
+        [tenantId, rec.processGroupId],
+      );
+      equipTypeLabel = (et as any[])[0]?.type ?? null;
+    }
     const params: any[] = [rec.processGroupId];
     let where = `id = ?`;
     if (tenantId != null) { where += ` AND tenant_id = ?`; params.push(tenantId); }
     const [rows] = await conn.execute<any[]>(
-      `SELECT monitoring_method, corrective_action FROM ccp_process_groups WHERE ${where} LIMIT 1`,
+      `SELECT monitoring_method, monitoring_cycle, corrective_action FROM ccp_process_groups WHERE ${where} LIMIT 1`,
       params,
     );
     const g = (rows as any[])[0];
@@ -404,7 +434,10 @@ async function enrichWithGroupText<T extends { processGroupId?: number | null }>
       return {
         ...rec,
         monitoringMethod: g.monitoring_method ?? null,
+        monitoringCycle: g.monitoring_cycle ?? null,
         correctiveAction: g.corrective_action ?? null,
+        clTable,
+        equipTypeLabel,
       };
     }
   } catch { /* 공정그룹 텍스트 조회 실패 시 하드코딩 폴백 사용 */ }

@@ -908,6 +908,8 @@ async function ensureInboundDocumentSchema(conn: any) {
   } catch (err: any) {
     console.warn("[Migration] purchase_order_line_changes failed:", err.message);
   }
+  // CCP 기록지 '주 기' 문구 — 공정그룹마다 회사가 적는다 (이전엔 인쇄 코드에 금속검출기 주기가 고정, 2026-10-18)
+  await addCol("ccp_process_groups", "monitoring_cycle", "`monitoring_cycle` text NULL");
   // 원재료·제품 코드는 회사별 유일 (지티컴퍼니 QA F01, 2026-10-18) — 전역 UNIQUE 때문에 다른 회사가 쓴 코드(RM-001 등)를
   //   새 회사가 못 써서 등록이 DB 오류로 실패했다. 회사별 키를 먼저 만들고, 만들어진 것을 확인한 뒤에만 전역 키를 지운다.
   for (const [table, col, name, legacy] of [
