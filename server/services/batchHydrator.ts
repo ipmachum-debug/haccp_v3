@@ -189,21 +189,8 @@ export async function hydrateBatches(
             try {
               const { getOrCreateCcpFormRecord, syncCcpRowsToFormRows } = await import("../db/haccp/ccpFormRecords");
               const conn = await getRawConnection();
-              // BOM batch_target_kg 조회
-              let bomBatchKg: number | undefined;
-              const { resolveBomProductIds, inPlaceholders } = await import("../lib/identity/itemIdentityService");
-              const bomPids = await resolveBomProductIds(batch.productId, tenantId, conn);
-              const [bomRows] = await conn.execute<any[]>(
-                `SELECT rv.batch_target_kg
-                 FROM h_mf_report_versions rv
-                 JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
-                 WHERE mr.product_id IN (${inPlaceholders(bomPids)}) AND mr.tenant_id = ?
-                   AND rv.approval_status = 'APPROVED'
-                 ORDER BY (mr.product_id = ?) DESC, rv.id DESC LIMIT 1`,
-                [...bomPids, tenantId, batch.productId]
-              );
-              const btkVal = (bomRows as any[])[0]?.batch_target_kg;
-              if (btkVal) bomBatchKg = parseFloat(btkVal);
+              // 1회차 기준 중량 = CCP 계획과 같은 BOM 버전 (결함 #11)
+              const bomBatchKg: number | undefined = ccpResult.subBatchKg ?? undefined;
 
               // 각 공정그룹별 CCP form record 생성
               for (const group of ccpResult.groups) {

@@ -76,6 +76,8 @@ interface ChecklistFormLayoutProps {
   documentTitle?: string;
   // 작성자 필드명
   writerField?: string;
+  /** 승인 요청 전 검사 — 막을 이유 목록 (서버도 같은 검사, shared/checklist/submitChecks) */
+  validateBeforeSubmit?: (formData: any) => string[];
 }
 
 // ============================================================================
@@ -153,6 +155,7 @@ export default function ChecklistFormLayout({
   extraActions,
   children,
   documentTitle,
+  validateBeforeSubmit,
 }: ChecklistFormLayoutProps) {
   const params = useParams();
   const [, setLocation] = useLocation();
@@ -534,6 +537,11 @@ export default function ChecklistFormLayout({
       toast({ title: "저장 필요", description: "먼저 점검표를 저장해주세요.", variant: "destructive" });
       return;
     }
+    const problems = validateBeforeSubmit?.(collectFormData()) ?? [];
+    if (problems.length) {
+      toast({ title: "승인 요청할 수 없습니다", description: problems.join("\n"), variant: "destructive" });
+      return;
+    }
     try {
       await submitForReviewMutation.mutateAsync({
         id: savedRecordId,
@@ -554,8 +562,9 @@ export default function ChecklistFormLayout({
     <DashboardLayout>
       <div className="container mx-auto py-6 max-w-[1200px]">
         {/* 상단 액션 바 - 인쇄 시 숨김 */}
-        <div className="flex items-center justify-between mb-4 print:hidden">
-          <div className="flex items-center gap-3">
+        {/* 좁은 화면에서 버튼이 겹치지 않게 줄바꿈 (Codex 위생 점검 UI-01) */}
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-4 print:hidden">
+          <div className="flex flex-wrap items-center gap-3 min-w-0">
             <Button variant="outline" size="sm" onClick={() => setLocation(config.listPath)}>
               <ArrowLeft className="h-4 w-4 mr-1" />
               목록
@@ -565,7 +574,7 @@ export default function ChecklistFormLayout({
             {approvalStatus === "approved" && <Badge variant="default" className="bg-green-600">승인 완료</Badge>}
             {approvalStatus === "rejected" && <Badge variant="destructive">반려</Badge>}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {extraActions}
             <Button variant="outline" size="sm" onClick={handlePrint}>
               <Printer className="h-4 w-4 mr-1" />

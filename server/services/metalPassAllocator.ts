@@ -50,9 +50,17 @@ interface SkuPassRow {
 // ─────────────────────────────────────────────────────────
 // Seeded Random (audit-reproducible)
 // seed = hash(batch_id + date + equipment_id)
+//
+// ★ 2026-10-18 CEO 결정: 예정시각을 무작위로 흩뜨리지 않는다.
+//   이전에는 '시각이 일정하면 외부 점검 때 이상하게 보인다' 며 감도 점검·통과 시각에 0~10분을 더했다.
+//   예정시각은 계산한 그대로 두고, 실제 시각은 작업자가 확인·수정한다. 계산 코드는 그대로 두고 오프셋만 0 이 된다.
 // ─────────────────────────────────────────────────────────
 
+/** 예정시각 무작위 분산 — 끔 (CEO 2026-10-18). 켜지 않는다. */
+export const PLANNED_TIME_JITTER = false;
+
 export function seededRandom(seed: number): number {
+  if (!PLANNED_TIME_JITTER) return 0;
   let s = seed;
   s = ((s ^ 0xDEADBEEF) + (s << 1)) & 0x7FFFFFFF;
   s = ((s ^ (s >> 16)) * 0x45d9f3b) & 0x7FFFFFFF;

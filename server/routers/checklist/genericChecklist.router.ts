@@ -16,6 +16,7 @@ import { getRawConnection } from "../../db/connection";
 import { assertDailyLogGate, checkDailyLogGate } from "../../lib/production/dailyLogApprovalGate";
 import { prepareBatchForApproval, completeApprovedBatch, approvalMessage } from "../../lib/production/batchApprovalGate";
 import { approveCcpFormRecord, rejectCcpFormRecord } from "../../lib/haccp/ccpSheetConfirm";
+import { checklistSubmitProblems } from "../../../shared/checklist/submitChecks";
 import {
   ACTIVE_REQUEST_STATUSES, CHECKLIST_REFERENCE_TYPES, clearReviewStamps, decideDelete, decideSubmit, decideUpdate,
   isChecklistReference, applyApprovalStamp, stampDate, classifySubmitted, type RecordStatus, type StampKind,
@@ -50,10 +51,10 @@ async function syncChecklistRecord(
 /** 공통 일지 한 건을 잠그고 읽는다 (트랜잭션 안) */
 async function lockRecord(conn: any, id: number, tenantId: number) {
   const [rows]: any = await conn.execute(
-    `SELECT id, status, form_data FROM h_generic_checklist_records WHERE id = ? AND tenant_id = ? FOR UPDATE`, [id, tenantId]);
+    `SELECT id, status, form_type, form_data FROM h_generic_checklist_records WHERE id = ? AND tenant_id = ? FOR UPDATE`, [id, tenantId]);
   const r = rows?.[0];
   if (!r) throw new TRPCError({ code: "NOT_FOUND", message: "기록을 찾을 수 없습니다." });
-  return { status: (r.status ?? "draft") as RecordStatus, formData: typeof r.form_data === "string" ? safeJson(r.form_data) : r.form_data };
+  return { status: (r.status ?? "draft") as RecordStatus, formType: (r.form_type ?? null) as string | null, formData: typeof r.form_data === "string" ? safeJson(r.form_data) : r.form_data };
 }
 const safeJson = (v: string) => { try { return JSON.parse(v); } catch { return {}; } };
 const activeSql = `SELECT id FROM h_approval_requests
@@ -301,6 +302,9 @@ export const genericChecklistRouter = router({
       const tenantId = getEffectiveTenantId(ctx);
       return inTx(async (conn) => {
         const cur = await lockRecord(conn, input.id, tenantId);
+        // 저장된 내용으로 제출 전 검사 — 기준과 다른 판정, 빈 실측 온도 (Codex 위생 점검 SAN-01·02, 화면과 같은 함수)
+        const problems = checklistSubmitProblems(cur.formType, cur.formData);
+        if (problems.length) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `승인 요청할 수 없습니다 — ${problems.slice(0, 3).join(" / ")}${problems.length > 3 ? ` 외 ${problems.length - 3}건` : ""}` });
         const [active]: any = await conn.execute(`${activeSql} FOR UPDATE`, activeParams(tenantId, input.id));
         const [approvedRows]: any = await conn.execute(approvedSql, approvedParams(tenantId, input.id));
         const d = decideSubmit(cur.status, (active as any[]).map((r) => Number(r.id)), (approvedRows as any[]).map((r) => Number(r.id)));

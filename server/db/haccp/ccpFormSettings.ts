@@ -511,15 +511,21 @@ export async function syncCcpRowsToFormRows(params: {
       // 4. h_ccp_rows에서 해당 인스턴스의 행 조회
       // ★ measured_at 포함: 배치 상세 CCP 점검에서 기록된 실제 측정시간을 사용
       //    measured_at는 KST 기준으로 저장되어 있으므로 직접 사용 가능
-      const [rows] = await rawConn.execute<any[]>(
+      // 계획 스냅샷(planned_start·planned_input_kg, PR-B)이 있으면 함께 — 컬럼 생성 전 DB 는 없이
+      const ccpRowsSql = (withPlan: boolean) =>
         `SELECT sort_order, equipment_id, equipment_name, temp_c,
                 duration_min, heating_min, pressure_bar, result, note,
-                DATE_FORMAT(measured_at, '%H:%i') as measured_at_hhmm
+                DATE_FORMAT(measured_at, '%H:%i') as measured_at_hhmm${withPlan ? ", planned_start, planned_input_kg" : ""}
          FROM h_ccp_rows
          WHERE instance_id = ? AND tenant_id = ?
-         ORDER BY sort_order`,
-        [instanceId, tenantId],
-      );
+         ORDER BY sort_order`;
+      let rows: any;
+      try {
+        [rows] = await rawConn.execute<any[]>(ccpRowsSql(true), [instanceId, tenantId]);
+      } catch (e: any) {
+        if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+        [rows] = await rawConn.execute<any[]>(ccpRowsSql(false), [instanceId, tenantId]);
+      }
       ccpRows = rows as any[];
     }
 
@@ -781,20 +787,8 @@ export async function syncCcpRowsToFormRows(params: {
       }
     }
 
-    // ═══ 랜덤 오프셋 (0-10분) 적용 ═══
-    // 모든 공정(교반, 증숙, 오븐, 금속검출)에 작업시작 시점으로부터 0-10분 랜덤 오프셋
-    // 일괄적이면 외부점검시 이상하게 생각하므로 자연스럽게 분산
-    // seed: batchId + processGroupId + ccpType hash → 동일 배치에 대해 동일 오프셋 (재현성)
-    const seededRandom = (seed: number): number => {
-      let s = seed;
-      s = ((s ^ 0xDEADBEEF) + (s << 1)) & 0x7FFFFFFF;
-      s = ((s ^ (s >> 16)) * 0x45d9f3b) & 0x7FFFFFFF;
-      s = ((s ^ (s >> 16)) * 0x45d9f3b) & 0x7FFFFFFF;
-      return (s & 0x7FFFFFFF) / 0x7FFFFFFF;
-    };
-    const randomSeed = batchId * 1000 + (processGroupId || 0) * 100 + ccpType.charCodeAt(4);
-    const randomOffsetMin = Math.floor(seededRandom(randomSeed) * 11); // 0~10
-    const adjustedStartTime = processStartTime ? addMinutesToTime(processStartTime, randomOffsetMin) : processStartTime;
+    // 예정시각은 계산한 그대로 — 무작위로 흩뜨리지 않는다 (CEO 2026-10-18. 이전: '외부 점검 때 자연스럽게' 0~10분 무작위)
+    const adjustedStartTime = processStartTime;
 
     // ═══ 교차배치 시간 누적: 이전 배치들의 작업시간을 합산하여 시작시간 이동 ═══
     // 일괄배치에서 제품A → 제품B → 제품C 순서로 같은 설비를 사용하면
@@ -1495,6 +1489,9 @@ export async function syncCcpRowsToFormRows(params: {
         if (row.measured_at_hhmm) {
           // h_ccp_rows에 실제 측정시간이 있으면 직접 사용 (KST 기준)
           measurementTime = row.measured_at_hhmm;
+        } else if (row.planned_start) {
+          // 배치 생성 때 고정한 계획 시각 (planDay — 미리보기와 같은 계산, PR-B)
+          measurementTime = String(row.planned_start).slice(0, 5);
         } else if (adjustedStartTime) {
           // 측정시간이 없으면 기존 계산 로직 폴백
           measurementTime = adjustedStartTime;
@@ -1557,7 +1554,8 @@ export async function syncCcpRowsToFormRows(params: {
             row.equipment_id ?? null,
             row.equipment_name ?? null,
             instanceProductName || frProductName || null,
-            (() => { const q = rowInputQty(batchSeq); return q != null ? q.toFixed(2) : null; })(),
+            // 계획 스냅샷의 예정 투입량이 있으면 그대로 (미리보기와 같은 값), 없으면 이전 계산
+            (() => { const q = row.planned_input_kg != null ? Number(row.planned_input_kg) : rowInputQty(batchSeq); return q != null ? q.toFixed(2) : null; })(),
             measurementTime ?? null,
             row.heating_min ?? null, // 가열 운전시간만 — 비면 비움 (점유시간을 가열시간으로 인쇄하지 않음, 2026-10-18)
             row.temp_c ?? null,

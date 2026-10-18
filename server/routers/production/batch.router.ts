@@ -8,6 +8,7 @@ import { toKSTDate, todayKST, formatLocalDate } from "../../utils/timezone";
 import { batchCrudRouter } from "./batch.crud.router";
 import { batchLifecycleRouter } from "./batch.lifecycle.router";
 import { batchAnalyticsRouter } from "./batch.analytics.router";
+import { batchPlanRouter } from "./batch.plan.router";
 import { mergeRouters } from "../../_core/trpc";
 
 /**
@@ -18,4 +19,5 @@ export const batchRouter = mergeRouters(
   batchCrudRouter,
   batchLifecycleRouter,
   batchAnalyticsRouter,
+  batchPlanRouter, // 오늘 생산 작업대 — 미리보기·오늘 제외 설비·오늘 배치 목록 (PR-B)
 );

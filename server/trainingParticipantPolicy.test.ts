@@ -57,6 +57,19 @@ describe("표시", () => {
   it("수료증 만료일은 일정을 거쳐 과정을 찾는다 (일정 번호를 과정 번호로 쓰지 않음)", () => {
     const s = readFileSync(join(__dirname, "db/system/training.ts"), "utf-8");
     expect(s).not.toMatch(/getTrainingCourseById\(participant\.scheduleId/);
-    expect(s).toMatch(/values\(\{ \.\.\.data, tenantId \}/);
+    expect(s).toMatch(/values\(\{ scheduleId: data\.scheduleId, employeeId, userId, tenantId \}/);
+  });
+  it("EDU-06: 참가자는 구성원 관리 명단(h_employees)에서 — 로그인 계정 없는 직원도", () => {
+    const db = readFileSync(join(__dirname, "db/system/training.ts"), "utf-8");
+    expect(db).toMatch(/FROM h_employees e WHERE e\.tenant_id = \? AND e\.is_active = 1/);
+    expect(db).toMatch(/SELECT id, user_id FROM h_employees WHERE id = \? AND tenant_id = \? AND is_active = 1/);
+    const ui = readFileSync(join(__dirname, "../client/src/pages/system/TrainingManagement.tsx"), "utf-8");
+    expect(ui).toMatch(/listMemberOptions/);
+    expect(ui).toMatch(/employeeId: Number\(memberId\)/);
+  });
+  it("평가 점수는 앱 안 입력창 (window.prompt 는 앱 안 브라우저에서 열리지 않음)", () => {
+    const ui = readFileSync(join(__dirname, "../client/src/pages/system/TrainingManagement.tsx"), "utf-8");
+    expect(ui).not.toMatch(/\bprompt\(/);
+    expect(ui).toMatch(/id="assessmentScore"/);
   });
 });

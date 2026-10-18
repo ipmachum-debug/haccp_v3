@@ -95,6 +95,7 @@ export const batchCrudRouter = router({
         let ccpCreated = false;
         let ccpCount = 0;
         let ccpGroups: any[] = [];
+        let ccpSubBatchKg: number | null = null;
         try {
           const result = await autoCreateCcpInstancesForBatch({
             siteId: input.siteId,
@@ -109,6 +110,7 @@ export const batchCrudRouter = router({
           ccpCreated = result.instanceIds.length > 0;
           ccpCount = result.instanceIds.length;
           ccpGroups = result.groups || [];
+          ccpSubBatchKg = result.subBatchKg;
         } catch (err) {
           console.error("[파이프라인] CCP 자동 생성 실패 (배치 생성 유지):", err);
         }
@@ -140,27 +142,8 @@ export const batchCrudRouter = router({
             const { getRawConnection: _rc3 } = await import("../../db");
             const _pool3 = await _rc3(); // Pool 싱글턴 (end() 호출 금지)
 
-            // BOM에서 batch_target_kg (1배치 기준 중량) 조회
-            let bomBatchKg: number | null = null;
-            try {
-              // 2026-10-07: product_id 네임스페이스 이중화 (v2 / item_master) — bomProductResolver
-              const { resolveBomProductIds, inPlaceholders } = await import("../../lib/identity/itemIdentityService");
-              const bomPids = await resolveBomProductIds(input.productId, tenantId, _pool3);
-              const [bomRows] = await _pool3.execute(
-                `SELECT v.batch_target_kg
-                 FROM h_mf_reports r
-                 JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.approval_status = 'APPROVED'
-                 WHERE r.product_id IN (${inPlaceholders(bomPids)}) AND r.tenant_id = ?
-                 ORDER BY (r.product_id = ?) DESC, v.id DESC LIMIT 1`,
-                [...bomPids, tenantId, input.productId]
-              );
-              if ((bomRows as any[]).length > 0 && (bomRows as any[])[0]?.batch_target_kg) {
-                bomBatchKg = parseFloat((bomRows as any[])[0].batch_target_kg);
-              }
-              // h_recipes 폴백 제거 — BOM(h_mf_report_versions) APPROVED만 사용
-            } catch (bomErr) {
-              console.error('[파이프라인] BOM batch_target_kg 조회 실패:', bomErr);
-            }
+            // 1회차 기준 중량 = CCP 계획과 같은 BOM 버전 (결함 #11 — 이전: '최신 승인' 버전을 따로 조회)
+            const bomBatchKg: number | null = ccpSubBatchKg;
 
             // batch_count 계산: 총생산량 / BOM 1배치 기준 중량
             let batchCount = 1;
@@ -487,10 +470,18 @@ export const batchCrudRouter = router({
           plannedQuantityKg: z.number().positive(),
           skuOutputs: z.array(zSkuOut).optional(),
           startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+          /** 오늘만 바꾼 시작시각 — CCP 계획에서 설비 작업 시작보다 우선 (PR-B) */
+          startTimeOverride: z.string().regex(/^\d{2}:\d{2}$/).optional(),
           mode: z.enum(["auto", "manual"]).optional(),
           batchCode: z.string().optional(),
+          /** 입력 줄 키 — requestKey 와 함께 같은 줄은 한 번만 생성 (PR-B) */
+          rowKey: z.string().min(1).max(64).optional(),
         });
         return z.object({
+          /** 요청 키 — 재시도·더블클릭에도 같은 줄은 한 번만, 실패 줄만 다시 (PR-B) */
+          requestKey: z.string().min(8).max(64).optional(),
+          /** 오늘만 쓰지 않는 설비 (PR-B) */
+          excludedEquipmentIds: z.array(z.number()).max(200).optional(),
           siteId: z.number(),
           workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
           dayStartTime: z.string().regex(/^\d{2}:\d{2}$/).default("09:00"),
@@ -520,13 +511,35 @@ export const batchCrudRouter = router({
           [ctx.tenantId, `DAY-${dateStr}-%`],
         );
         const grpSeq = ((grpCntRows as any[])[0]?.cnt || 0) + 1;
-        const dayBatchGroup = `DAY-${dateStr}-${String(grpSeq).padStart(3, "0")}`;
+        let dayBatchGroup = `DAY-${dateStr}-${String(grpSeq).padStart(3, "0")}`;
+
+        // 요청 키 — 같은 요청의 재시도면 같은 그룹, 이미 만든 줄은 다시 만들지 않는다 (PR-B)
+        const reqKeys = await import("../../lib/production/batchCreateRequests");
+        const useKeys = !!input.requestKey && (await reqKeys.requestKeysAvailable(conn));
+        if (useKeys) dayBatchGroup = (await reqKeys.existingDayGroup(conn, ctx.tenantId, input.requestKey!)) ?? dayBatchGroup;
 
         const results: any[] = [];
 
         // === 2. 품목별 배치 순차 생성 (그룹코드 공유, 승인/일지는 그룹 레벨에서) ===
         for (let idx = 0; idx < input.items.length; idx++) {
           const item = input.items[idx];
+          const rowKey = item.rowKey ?? `row-${idx + 1}`;
+          if (useKeys) {
+            const claim = await reqKeys.claimRow(conn, ctx.tenantId, input.requestKey!, rowKey, dayBatchGroup);
+            if (claim.state === "done") {
+              // 이미 만든 줄 — 다시 만들지 않고 그 배치를 알려 준다
+              const [bRows] = await conn.execute<any[]>(
+                `SELECT b.batch_code, p.product_name FROM h_batches b LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id WHERE b.id = ? AND b.tenant_id = ?`,
+                [claim.batchId, ctx.tenantId],
+              );
+              results.push({ rowKey, status: "reused", reused: true, batchId: claim.batchId ?? 0, batchCode: (bRows as any[])[0]?.batch_code ?? "", productId: item.productId, productName: (bRows as any[])[0]?.product_name ?? "" });
+              continue;
+            }
+            if (claim.state === "processing") {
+              results.push({ rowKey, status: "in_progress", batchId: 0, batchCode: "", productId: item.productId, productName: "", error: "같은 요청이 아직 처리 중입니다 — 잠시 뒤 다시 확인하세요." });
+              continue;
+            }
+          }
           try {
             const mode = item.mode ?? input.defaultMode;
             const result = await createSingleBatch({
@@ -551,11 +564,16 @@ export const batchCrudRouter = router({
               userEmail: ctx.user.email,
               userRole: ctx.user.role,
               skipGroupActions: true,
+              startTimeOverride: item.startTimeOverride ?? null,
+              excludedEquipmentIds: input.excludedEquipmentIds,
             });
-            results.push(result);
+            if (useKeys) await reqKeys.finishRow(conn, ctx.tenantId, input.requestKey!, rowKey, result.batchId);
+            results.push({ ...result, rowKey, status: "created" });
           } catch (err: any) {
             console.error(`[bulkCreateForDay] 품목 ${item.productId} 실패:`, err);
+            if (useKeys) await reqKeys.failRow(conn, ctx.tenantId, input.requestKey!, rowKey, err?.message || "생성 실패").catch(() => {});
             results.push({
+              rowKey, status: "failed",
               batchId: 0, batchCode: "", productId: item.productId, productName: "",
               ccpCreated: false, ccpCount: 0, ccpGroups: [], approvalRequestId: null,
               scheduleCreated: false, dailyReportCreated: false,
@@ -564,7 +582,8 @@ export const batchCrudRouter = router({
           }
         }
 
-        const successResults = results.filter((r: any) => r.batchId > 0);
+        // 이번에 새로 만든 줄만 그룹 후속 처리 (이미 만든 줄은 그때 처리됨)
+        const successResults = results.filter((r: any) => r.batchId > 0 && !r.reused);
 
         // ★ 2026-04-15: 하위 단계 실패를 수집하여 프론트엔드에 리턴
         //   이전: 각 try/catch 가 console.error 만 하고 끝 → 사용자는 성공/실패 구분 못 함
@@ -781,7 +800,7 @@ export const batchCrudRouter = router({
           subFailures.push({ step: "autoRegenerateProductionDaily", error: pdErr?.message || String(pdErr) });
         }
 
-        const failedResults = results.filter((r: any) => r.batchId === 0);
+        const failedResults = results.filter((r: any) => !(r.batchId > 0));
         if (failedResults.length > 0) {
           console.error(`[bulkCreateForDay] ${failedResults.length}건 실패:`,
             failedResults.map((r: any) => `productId=${r.productId}: ${r.error}`).join("; "));
@@ -792,13 +811,14 @@ export const batchCrudRouter = router({
         }
 
         return {
-          success: successResults.length > 0,
+          success: successResults.length > 0 || results.some((r: any) => r.reused),
           dayBatchGroup,
           createdCount: successResults.length,
+          reusedCount: results.filter((r: any) => r.reused).length,
           totalRequested: input.items.length,
-          batchIds: successResults.map((r: any) => r.batchId),
+          batchIds: results.filter((r: any) => r.batchId > 0).map((r: any) => r.batchId),
           batches: results,
-          errors: failedResults.map((r: any) => ({ productId: r.productId, error: r.error })),
+          errors: failedResults.map((r: any) => ({ rowKey: r.rowKey, productId: r.productId, error: r.error })),
           // ★ 2026-04-15: 하위 단계 실패 리스트 — 프론트엔드에서 노출 가능
           subFailures,
           metalPass: metalPassResult,

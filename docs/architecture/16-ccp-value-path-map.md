@@ -27,6 +27,13 @@
 | AI 다중 | 별도 경로 없음 — `bulkCreateForDay` 호출 (`client/src/pages/agent/ProductionAgent.tsx:186`) |
 | 수동 '기록지 생성' | `ccpForm.getOrCreate` → `getOrCreateCcpFormRecord` — **행 동기화 없음**, `batchCount > 1` 일 때만 화면이 resync |
 
+> **PR-B 이후 (2026-10-18)** — 모든 생성 경로(단건·일괄·복구·CCP 재생성)가 `ccp-batch.autoCreateCcpInstancesForBatch` 안에서
+> 하루 계획 `planCcpForDay` (`server/lib/production/ccpDayPlanner.ts` 순수 함수 + `ccpPlanContext.ts` 읽기) 로 설비·회차·예정시각·예정 투입량을 정하고
+> `h_ccp_rows.planned_start / planned_end / planned_input_kg` 에 스냅샷으로 저장한다. 기록지 동기화는 이 스냅샷을 그대로 쓴다.
+> 미리보기 `batch.previewDay` 는 같은 함수를 저장 없이 실행한다 (운영 백업 사본 복제 DB 에서 미리보기 = 저장 결과 일치 확인).
+> 화면: `/dashboard/batch/new`·`/bulk` → 오늘 생산 작업대 (`TodayProductionWorkbench.tsx`). 요청 키 `h_batch_create_requests`.
+> 무작위 예정시각 분산은 제거 (CEO 결정). 아래 1.2 표의 CL 하한 폴백(temp/pressure) 과 '최신 승인 BOM' 회차 기준(결함 #11)은 해소.
+
 ### 1.2 쓰는 값과 출처
 
 **`h_ccp_rows`** (`server/services/ccp-batch.ts:283–397`)
@@ -128,7 +135,7 @@
 | 8 | 4P 인쇄 모니터링·개선조치 고정 문구 | 다른 회사 양식에 단지 문구 | ✅ 공정그룹 문구 |
 | 9 | 4P 생략 판정이 제품 이름 비교 | 같은 제품 2배치째 통과행 누락 | ✅ 통과 기록 (품목, 수량, 단위) 목록 비교 — 수·합계만 보면 kg 2 → 상자 2 를 놓침 (#590 R590-05, `server/lib/haccp/passageSignature.ts`) |
 | 10 | `heat_time_min = heating ?? duration` | 가열 없으면 점유시간 인쇄 | ✅ 가열 운전시간만 |
-| 11 | 회차 기준량은 '최신 승인' BOM, 공정은 `selectBomVersion` | 버전 다르면 불일치 | ⏳ PR-B (계획 함수 분리 때) |
+| 11 | 회차 기준량은 '최신 승인' BOM, 공정은 `selectBomVersion` | 버전 다르면 불일치 | ✅ PR-B — 회차·투입량·원물 기준 모두 `selectBomVersion` 버전 하나 (`ccpPlanContext.loadPlanBom`) |
 | 12 | 계획값·설정값이 실측 칸에 저장, 확인 주체 없음 | 전 기록 | ✅ 부분 — '제출 = 시트 확인' (확인자·시각·버전, 서버 차단). 계획/실측 칸 분리는 PR-B |
 | 13 | 4P 재생성이 작업자 입력 행까지 전체 삭제 | 입력한 감도·통과 결과 유실 | ✅ 작업자 입력·확인·승인된 기록지는 재생성 안 함 (당일 추가 배치는 기록지에 직접 추가) |
 | 14 | 압력 칸 소수 2자리 (0.115 저장 불가) | — | ✅ decimal(6,3) (운영 실측 decimal(5,3) — 소수 3자리는 같음) |
