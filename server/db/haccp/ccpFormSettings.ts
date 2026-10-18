@@ -22,10 +22,8 @@ import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import {
   hCcpFormRecords,
   hCcpFormRows,
-  hCcpEquipBatchSettings,
   type InsertCcpFormRecord,
   type InsertCcpFormRow,
-  type InsertCcpEquipBatchSetting,
 } from "../../../drizzle/schema/schema_main";
 import { eq, and, desc } from "drizzle-orm";
 import {
@@ -48,55 +46,39 @@ import {
  * 배치에 대한 CCP 기록지 조회 (없으면 자동생성)
  */
 
+/**
+ * 설비 배치 운영 설정 — 정본은 ccp_process_groups (equip_group_mode · equip_interval_min · equip_batch_size) 한 곳 (2026-10-18)
+ *   이전엔 h_ccp_equip_batch_settings 표에 따로 저장·조회했다. 그 표는 운영에서 한 번도 채워진 적이 없고(0행),
+ *   기록지 생성이 그 빈 표를 읽어 공정 설정(묶음 3대)과 다른 기본값(순차)을 스냅샷했다 (단지 10/14 약식 공정).
+ */
 export async function upsertCcpEquipBatchSettings(
-  data: InsertCcpEquipBatchSetting
+  data: { tenantId: number; processGroupId: number; groupMode: string; intervalBetweenMin?: number | null; maxConcurrent?: number | null; notes?: string | null }
 ) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  const existing = await db
-    .select()
-    .from(hCcpEquipBatchSettings)
-    .where(
-      and(
-        eq(hCcpEquipBatchSettings.tenantId, data.tenantId as any) ,
-        eq(hCcpEquipBatchSettings.processGroupId, data.processGroupId)
-      )
-    )
-    .limit(1);
-
-  if (existing.length > 0) {
-    await db
-      .update(hCcpEquipBatchSettings)
-      .set({ ...data, updatedAt: new Date() })
-      .where(eq(hCcpEquipBatchSettings.id, existing[0].id));
-    return existing[0].id;
-  } else {
-    const [result] = await db.insert(hCcpEquipBatchSettings).values(data);
-    return (result as any).insertId as number;
-  }
+  const conn = await getRawConnection();
+  const [r]: any = await conn.execute(
+    `UPDATE ccp_process_groups
+        SET equip_group_mode = ?, equip_interval_min = COALESCE(?, equip_interval_min), equip_batch_size = COALESCE(?, equip_batch_size), updated_at = NOW()
+      WHERE id = ? AND tenant_id = ?`,
+    [data.groupMode, data.intervalBetweenMin ?? null, data.maxConcurrent ?? null, data.processGroupId, data.tenantId],
+  );
+  if (Number(r?.affectedRows ?? 0) === 0) throw new Error("공정그룹을 찾을 수 없습니다.");
+  return data.processGroupId;
 }
 
 /**
- * 설비 배치 설정 조회
+ * 설비 배치 운영 설정 조회 (ccp_process_groups)
  */
 export async function getCcpEquipBatchSettings(
   tenantId: number,
   processGroupId: number
 ) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-  const rows = await db
-    .select()
-    .from(hCcpEquipBatchSettings)
-    .where(
-      and(
-        eq(hCcpEquipBatchSettings.tenantId, tenantId),
-        eq(hCcpEquipBatchSettings.processGroupId, processGroupId)
-      )
-    )
-    .limit(1);
-  return rows[0] ?? null;
+  const conn = await getRawConnection();
+  const [rows]: any = await conn.execute(
+    `SELECT id AS processGroupId, tenant_id AS tenantId, equip_group_mode AS groupMode, equip_interval_min AS intervalBetweenMin, equip_batch_size AS maxConcurrent
+       FROM ccp_process_groups WHERE id = ? AND tenant_id = ? LIMIT 1`,
+    [processGroupId, tenantId],
+  );
+  return (rows as any[])[0] ?? null;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -570,7 +552,7 @@ export async function syncCcpRowsToFormRows(params: {
         if ((pgRows as any[]).length > 0) {
           const pg = (pgRows as any[])[0];
           pgGroupMode = pg.equip_group_mode || "sequential";
-          pgIntervalMin = pg.equip_interval_min != null ? Number(pg.equip_interval_min) : 17;
+          pgIntervalMin = pg.equip_interval_min != null ? Number(pg.equip_interval_min) : 10; // 기본은 공정 설정 기본값과 같은 10분 (이전 17)
           pgBatchSize = pg.equip_batch_size != null ? Number(pg.equip_batch_size) : 1;
           if (pgBatchSize < 1) pgBatchSize = 1;
         }
