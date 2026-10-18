@@ -440,6 +440,8 @@ export default function PrintPreviewPage() {
           body { margin: 0; padding: 0; }
           .no-print { display: none !important; }
           .print-page { page-break-after: always; break-after: page; }
+          /* 오른쪽 끝에 닿은 테두리가 인쇄에서 잘린다 (Codex PR596 실제 PDF, 2026-10-18) — 좌우 1.5mm 안쪽으로 */
+          .print-page { padding: 0 1.5mm; box-sizing: border-box; }
           .print-page:last-child { page-break-after: auto; break-after: auto; }
           /* 첫 번째가 아닌 모든 print-page에 page-break-before 강제 */
           .print-page + .print-page { page-break-before: always; break-before: page; }
@@ -495,7 +497,8 @@ export default function PrintPreviewPage() {
           <div key={index} className="print-page" style={index > 0 ? { pageBreakBefore: 'always', breakBefore: 'page' } : undefined}>
             {/* 결재란은 각 페이지 렌더러 내부 TitleRow에 포함됨 */}
             <div className="print-content mb-2">{page.pageContent}</div>
-            <div className="text-center text-xs text-gray-400 mt-4">{index + 1} / {allPages.length}</div>
+            {/* v2 일지: 양식 번호 — 프린터 바닥글의 실제 쪽 번호와 구분 (Codex PR596 실제 PDF). 다른 문서는 이전 표시 그대로 */}
+            <div className="text-center text-xs text-gray-400 mt-4 print:mt-1">{page.doc.formType === "daily_log" && isV2Record(page.doc.formData) ? `양식 ${page.pageIndex + 1} / ${page.totalPages}` : `${index + 1} / ${allPages.length}`}</div>
           </div>
           );
         })}

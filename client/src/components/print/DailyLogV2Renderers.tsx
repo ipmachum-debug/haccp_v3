@@ -19,6 +19,7 @@ const sec = "border border-gray-400 px-2 py-1 text-sm font-bold bg-blue-50";
 
 /**
  * 표 폭 고정 (Codex PR595 F03): 전역 `table td { white-space: nowrap }` 와 인쇄 미리보기의 table-layout:auto 때문에
+ * (행 높이: 전역 화면용 `table tr { height: 36px }` 이 인쇄에도 적용돼 위생 18문항 첫 쪽이 넘쳤다 — 내용 높이로, Codex PR596 실제 PDF)
  * 긴 질문·발생내용이 한 줄로 남아 표가 종이 밖으로 넘쳤다. v2 일지 표만:
  *   칸 폭 고정(시각·수치·판정은 좁게, 설명은 나머지) + 줄바꿈 + 행 단위로 다음 쪽(머리글 반복). 글자를 줄여 우겨넣지 않는다.
  */
@@ -26,6 +27,8 @@ const PRINT_CSS = `
 .dlv2-print table { table-layout: fixed !important; width: 100% !important; }
 .dlv2-print th, .dlv2-print td { white-space: normal !important; overflow-wrap: anywhere; word-break: normal; }
 .dlv2-print th { overflow-wrap: normal; word-break: keep-all; }
+.dlv2-print tr { height: auto !important; }
+.dlv2-print td, .dlv2-print th { padding-top: 4px !important; padding-bottom: 4px !important; }
 .dlv2-print thead { display: table-header-group; }
 .dlv2-print tr { break-inside: avoid; page-break-inside: avoid; }
 `;
@@ -75,9 +78,8 @@ function SectionPage({ s, doc, date }: { s: SectionVM; doc?: DocInfo; date: stri
                   {s.section === "hygiene" && <td className={cell}>{c.category || "-"}</td>}
                   <td className={cell}>{c.order}. {c.text}</td>
                   <td className={cell + " text-center" + verdictCls(c.verdict)}>
-                    {c.verdict}
-                    {c.verdict && c.tempText ? <br /> : null}
-                    {c.tempText && <span className="text-xs">{c.tempText}</span>}
+                    {/* 한 줄 — '적합 · 0℃' (첫 쪽 세로 공간) */}
+                    {[c.verdict, c.tempText].filter(Boolean).join(" · ")}
                   </td>
                 </tr>
               );
@@ -112,7 +114,7 @@ function SectionPage({ s, doc, date }: { s: SectionVM; doc?: DocInfo; date: stri
           </tbody>
         </table>
       )}
-      <div className="mt-3 text-sm font-medium">이상 발생 내용</div>
+      <div className="mt-2 text-sm font-medium">이상 발생 내용</div>
       <table className="w-full border-collapse border border-gray-400 text-sm mt-1">
         <Cols w={[null, null, "84px", "56px", "64px", "64px"]} />
         <thead><tr className="bg-gray-50"><th className={head}>발생내용</th><th className={head}>조치내용 및 결과</th><th className={head}>완료일자</th><th className={head}>상태</th><th className={head}>조치자</th><th className={head}>확인자</th></tr></thead>
@@ -130,11 +132,14 @@ function SectionPage({ s, doc, date }: { s: SectionVM; doc?: DocInfo; date: stri
         </tbody>
       </table>
       {s.notes && (s.notes.specialNotes || s.notes.improvementAction) && (
-        <table className="w-full border-collapse border border-gray-400 text-sm mt-3">
-          <Cols w={["120px", null]} />
+        // 한 행 — 첫 쪽(위생 18문항)이 꽉 차 있어 두 행이면 마지막 행만 다음 장으로 넘어갔다 (Codex PR596 실제 PDF)
+        <table className="w-full border-collapse border border-gray-400 text-sm mt-2">
+          <Cols w={["72px", null, "96px", null]} />
           <tbody>
-            <tr><td className={head}>특이사항</td><td className={cell}>{s.notes.specialNotes || "-"}</td></tr>
-            <tr><td className={head}>개선조치 및 결과</td><td className={cell}>{s.notes.improvementAction || "-"}</td></tr>
+            <tr>
+              <td className={head}>특이사항</td><td className={cell}>{s.notes.specialNotes || "-"}</td>
+              <td className={head}>개선조치 및 결과</td><td className={cell}>{s.notes.improvementAction || "-"}</td>
+            </tr>
           </tbody>
         </table>
       )}

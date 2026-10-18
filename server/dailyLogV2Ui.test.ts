@@ -90,6 +90,16 @@ describe("화면 연결", () => {
     expect(html).toMatch(/table-layout: fixed !important/);
     expect(html).toMatch(/<colgroup>/);
   });
+  it("실제 PDF (Codex PR596): 전역 행 높이 36px 해제, 인쇄 좌우 안쪽 여백(오른쪽 테두리 잘림), 특이사항 한 행, 양식 번호", () => {
+    const rec: any = newRecordV2(khaccpDefinition(), "2026-11-20", 3);
+    rec.notes = { hygiene: { specialNotes: "메모", improvementAction: "", actionBy: "", confirmedBy: "" } };
+    const html = renderToStaticMarkup(React.createElement("div", null, renderDailyLogV2Pages(rec)[0].content));
+    expect(html).toMatch(/\.dlv2-print tr \{ height: auto !important; \}/);
+    expect(html).toMatch(/특이사항<\/td><td[^>]*>메모<\/td><td[^>]*>개선조치 및 결과<\/td>/);
+    const pp = read("client/src/pages/system/PrintPreviewPage.tsx");
+    expect(pp).toMatch(/@media print[\s\S]*\.print-page \{ padding: 0 1\.5mm; box-sizing: border-box; \}/);
+    expect(pp).toMatch(/`양식 \$\{page\.pageIndex \+ 1\} \/ \$\{page\.totalPages\}`/);
+  });
   it("설정 화면: ROUTES 경로, 초안 저장·발행에 설정 버전, 발행 확인 단계", () => {
     expect(read("client/src/App.tsx")).toMatch(/path=\{ROUTES\.DAILY_LOG_SETTINGS\}/);
     const st = read("client/src/pages/production/DailyLogSettings.tsx");
