@@ -115,3 +115,35 @@ describe("묶음 설비 일부 제외 — 같은 설비 동시 이중 배정 없
     expect(overlaps(two)).toEqual([]);
   });
 });
+
+describe("단지 증숙 운영 확정 (2026-10-19 대표 확정) — 약식 1대씩 · 설기 최대 3대 묶음", () => {
+  const steamer = (id: number) => eq(id, { name: `증숙기${id}호`, cycleTotalMin: 34, defaultTimeMin: 10 });
+  const six = [1, 2, 3, 4, 5, 6].map(steamer);
+  const rows = (p: ReturnType<typeof planDay>[number]) => p.processes[0].rounds.map((r) => `${r.equipmentName}@${r.plannedStart} ${r.inputKg}kg`);
+
+  it("약식 119kg (1대 34kg, 1대씩 10분 간격, 가열 35분) → 4회: 34·34·34·17, 서로 다른 증숙기, 점유 59분", () => {
+    const g = group({ name: "증숙(약식류)공정", mode: "sequential", intervalMin: 10, batchSize: 1, profileTimeMin: 35, equipments: six, workStartTime: "08:40" });
+    const [p] = planDay([item({ plannedKg: 119, subBatchKg: 34, inputByGroup: { 1: 34 }, groups: [g] })]);
+    expect(p.roundsCount).toBe(4);
+    expect(rows(p)).toEqual(["증숙기1호@08:40 34kg", "증숙기2호@08:50 34kg", "증숙기3호@09:00 34kg", "증숙기4호@09:10 17kg"]);
+    expect(p.processes[0].rounds.every((r) => r.heatingMin === 35 && r.occupancyMin === 59)).toBe(true);
+  });
+
+  it("설기 37.5kg (1대 5kg, 최대 3대 묶음) → 8회: 묶음 3·3·2, 마지막 대 2.5kg(시루 1개), 묶음 안 설비 겹침 없음", () => {
+    const g = group({ name: "증숙(설기류)공정", mode: "grouped", intervalMin: 10, batchSize: 3, profileTimeMin: 10, equipments: six, workStartTime: "08:40" });
+    const [p] = planDay([item({ plannedKg: 37.5, subBatchKg: 5, inputByGroup: { 1: 5 }, groups: [g] })]);
+    expect(p.roundsCount).toBe(8);
+    expect(rows(p)).toEqual([
+      "증숙기1호@08:40 5kg", "증숙기2호@08:40 5kg", "증숙기3호@08:40 5kg",
+      "증숙기4호@08:50 5kg", "증숙기5호@08:50 5kg", "증숙기6호@08:50 5kg",
+      "증숙기1호@09:14 5kg", "증숙기2호@09:14 2.5kg",
+    ]);
+  });
+
+  it("설기 5배치 → 1-2-3, 4-5 (마지막 묶음을 3대로 채우지 않음)", () => {
+    const g = group({ mode: "grouped", batchSize: 3, equipments: six, workStartTime: "08:40" });
+    const [p] = planDay([item({ plannedKg: 25, subBatchKg: 5, inputByGroup: { 1: 5 }, groups: [g] })]);
+    expect(p.processes[0].rounds.map((r) => r.roundNo)).toEqual([1, 1, 1, 2, 2]);
+    expect(p.processes[0].rounds.map((r) => r.inputKg)).toEqual([5, 5, 5, 5, 5]);
+  });
+});
