@@ -70,7 +70,10 @@ export const approvalRouter = router({
         if (!ctx.tenantId) {
           throw new TRPCError({ code: "FORBIDDEN", message: "tenantId is required" });
         }
-        return await getApprovalRequests({ ...input, tenantId: ctx.tenantId });
+        const items = await getApprovalRequests({ ...input, tenantId: ctx.tenantId });
+        // CCP 기록지 요청은 작업자 시트 확인 여부를 함께 — 화면에서 '미확인' 으로 구분 (Codex #590 UX)
+        const { attachCcpSheetConfirmState } = await import("../../lib/haccp/ccpSheetConfirm");
+        return await attachCcpSheetConfirmState(items as any[], ctx.tenantId) as typeof items;
       }),
 
     // 처리이력 페이지네이션용 — items + total 을 함께 반환

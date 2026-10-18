@@ -15,6 +15,7 @@ import { TRPCError } from "@trpc/server";
 import { getRawConnection } from "../../db/connection";
 import { assertDailyLogGate, checkDailyLogGate } from "../../lib/production/dailyLogApprovalGate";
 import { prepareBatchForApproval, completeApprovedBatch, approvalMessage } from "../../lib/production/batchApprovalGate";
+import { approveCcpFormRecord, rejectCcpFormRecord } from "../../lib/haccp/ccpSheetConfirm";
 import {
   ACTIVE_REQUEST_STATUSES, CHECKLIST_REFERENCE_TYPES, clearReviewStamps, decideDelete, decideSubmit, decideUpdate,
   isChecklistReference, applyApprovalStamp, stampDate, classifySubmitted, type RecordStatus, type StampKind,
@@ -474,7 +475,8 @@ export const genericChecklistRouter = router({
             }
           } else {
             // 최종 승인 + 승인 직인 (공통 일지 요청일 때만 — 다른 종류 요청은 일지를 건드리지 않는다)
-            await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), { status: "approved", stamp: "approve" }, ctx.user.name ?? "");
+            if (referenceType === "ccp_form_record") await approveCcpFormRecord(Number(refId), ctx.tenantId, ctx.user.id);
+            else await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), { status: "approved", stamp: "approve" }, ctx.user.name ?? "");
           }
         }
         await db.execute(sql`
@@ -494,7 +496,8 @@ export const genericChecklistRouter = router({
             `);
             console.log(`[approveChecklist] 배치 #${refId} 상태 → cancelled (반려)`);
           } else {
-            await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), { status: "submitted" }, ctx.user.name ?? "");
+            if (referenceType === "ccp_form_record") await rejectCcpFormRecord(Number(refId), ctx.tenantId, ctx.user.id, input.comments ?? undefined);
+            else await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), { status: "submitted" }, ctx.user.name ?? "");
           }
         }
         await db.execute(sql`
@@ -599,8 +602,10 @@ export const genericChecklistRouter = router({
                 console.error(`[batchApproveChecklists] 생산일지 갱신 실패:`, pdErr);
               }
             } else {
+              // CCP 기록지 단독 요청은 공통 승인 서비스(확인 관문·기록지 승인) — 실패하면 이 요청만 실패 목록으로
+              if (referenceType === "ccp_form_record") await approveCcpFormRecord(Number(refId), ctx.tenantId, ctx.user.id);
               // 체크리스트/일일일지 승인 + 직인 (검토 전이면 검토 직인도) — 공통 일지 요청일 때만
-              await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), {
+              else await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), {
                 status: "approved", stamp: reqStatus === "pending_review" || reqStatus === "pending" ? "reviewAndApprove" : "approve",
               }, ctx.user.name ?? "");
             }
@@ -673,8 +678,10 @@ export const genericChecklistRouter = router({
             console.error(`[approveWithAutoReview] 생산일지 갱신 실패:`, pdErr);
           }
         } else {
+          // CCP 기록지 단독 요청은 공통 승인 서비스(확인 관문·기록지 승인 확인) — 실패하면 요청도 승인하지 않음 (Codex #590 R590-02)
+          if (referenceType === "ccp_form_record") await approveCcpFormRecord(Number(refId), ctx.tenantId, ctx.user.id);
           // 체크리스트/일일일지: 승인 + 직인 (검토 단계였으면 검토 직인도) — 공통 일지 요청일 때만
-          await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), {
+          else await syncChecklistRecord(refId, referenceType, getEffectiveTenantId(ctx), {
             status: "approved", stamp: currentStatus === "pending_review" || currentStatus === "pending" ? "reviewAndApprove" : "approve",
           }, ctx.user.name ?? "");
         }

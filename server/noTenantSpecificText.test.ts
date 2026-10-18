@@ -12,6 +12,8 @@ const FILES = [
   "client/src/components/ccp/CCP2BForm.tsx",
   "client/src/components/ccp/ccpCl.ts",
   "client/src/components/ccp/CcpMonitoringForms.tsx",
+  "client/src/components/ccp/CCP4PForm.tsx",
+  "client/src/pages/haccp/CCPMonitoring.tsx",
   "server/lib/blankFormPdf.ts",
   "server/db/haccp/ccpFormRecordsCRUD.ts",
 ];
@@ -20,6 +22,7 @@ const FORBIDDEN = [
   /\|\| *10\b|\|\| *15\b|\|\| *"0\.16"|\|\| *"90"|\?\? *130\b|\?\? *"2\.0"|\?\? *"3\.0"|= *2\.0,|= *3\.0;/,
   /같은품목 작업시 2시간마다|동일품목 연속작업시 2시간/,
   /"0\.12Mpa|"0\.16Mpa|"0\.28Mpa/,
+  /감도 130|>130<|2\.0mmΦ 이상|3\.0mmΦ 이상/,
 ];
 
 describe("공용 CCP 코드에 특정 회사 문구·기본값 없음", () => {

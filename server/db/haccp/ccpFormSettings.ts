@@ -398,23 +398,43 @@ export async function syncCcpRowsToFormRows(params: {
         Array.from(expectedProductNames).every((nm) => existingProductNames.has(nm));
 
       // ★ 2026-10-18: 이름만 보면 같은 날 같은 제품의 두 번째 배치, 나중에 저장된 SKU 실적(통과량 = 생산량)이 반영되지 않았다.
-      //   통과행 수와 통과량 합도 당일 배치·SKU 실적과 같아야 건너뛴다.
+      //   통과 기록의 (품목, 수량, 단위) 목록이 당일 배치·SKU 실적과 같아야 건너뛴다 — 개수·합계만 보면 단위만 바뀐 경우를 놓친다 (Codex #590 R590-05)
       let passageMatches = false;
       try {
-        const [[ex]]: any = await rawConn.execute(
-          `SELECT COUNT(*) AS n, COALESCE(SUM(pass_qty), 0) AS q FROM h_ccp_form_rows
-            WHERE form_record_id = ? AND tenant_id = ? AND equipment_type = 'passage'`,
-          [formRecordId, tenantId],
-        );
-        const [[want]]: any = await rawConn.execute(
-          `SELECT COUNT(*) AS n,
-                  COALESCE(SUM(CASE WHEN pso.id IS NOT NULL AND pso.quantity > 0 THEN ROUND(pso.quantity) ELSE ROUND(COALESCE(pso.total_kg, b.planned_quantity, 0)) END), 0) AS q
+        const { expectedPassageEntries, passageMatches: samePassage } = await import("../../lib/haccp/passageSignature");
+        let withUnit = true;
+        let exRows: any[];
+        try {
+          [exRows] = await rawConn.execute<any[]>(
+            `SELECT product_name, pass_qty, pass_unit FROM h_ccp_form_rows
+              WHERE form_record_id = ? AND tenant_id = ? AND equipment_type = 'passage'`,
+            [formRecordId, tenantId],
+          );
+        } catch (e: any) {
+          if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+          withUnit = false; // 단위 컬럼 생성 전 DB — 품목·수량만 비교
+          [exRows] = await rawConn.execute<any[]>(
+            `SELECT product_name, pass_qty FROM h_ccp_form_rows
+              WHERE form_record_id = ? AND tenant_id = ? AND equipment_type = 'passage'`,
+            [formRecordId, tenantId],
+          );
+        }
+        const [srcRows] = await rawConn.execute<any[]>(
+          `SELECT b.id as batch_id, b.planned_quantity,
+                  COALESCE(p.product_name, fr2.product_name) as product_name,
+                  pso.sku_id, ps.sku_name, ps.sales_unit,
+                  COALESCE(pso.quantity, 0) as sku_quantity,
+                  COALESCE(pso.total_kg, b.planned_quantity) as sku_kg
              FROM h_batches b
+             LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+             LEFT JOIN h_ccp_form_records fr2 ON fr2.batch_id = b.id AND fr2.tenant_id = b.tenant_id AND fr2.ccp_type = 'CCP-4P'
              LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
+             LEFT JOIN product_skus ps ON ps.id = pso.sku_id AND ps.tenant_id = b.tenant_id
             WHERE b.tenant_id = ? AND b.planned_date = ?`,
           [tenantId, fr.work_date],
         );
-        passageMatches = Number(ex.n) === Number(want.n) && Number(ex.q) === Number(want.q);
+        const existing = (exRows as any[]).map((r) => ({ name: String(r.product_name ?? ""), qty: Number(r.pass_qty ?? 0), unit: r.pass_unit ?? null }));
+        passageMatches = samePassage(existing, expectedPassageEntries(srcRows as any[], frProductName || ""), withUnit);
       } catch { /* 판정 불가 → 재생성 */ }
 
       // 작업자가 손댄 기록지(행 버전 > 0)·확인·승인된 기록지는 지우고 다시 만들지 않는다 — 입력한 감도·통과 결과가 사라졌다 (2026-10-18)

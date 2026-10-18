@@ -35,3 +35,66 @@ export function toSafeErrorMessage(err: unknown): string {
   if (!code && !SQL_LIKE.test(message)) return message;
   return (code && MESSAGE_BY_CODE[code]) || (/Duplicate entry/i.test(message) ? MESSAGE_BY_CODE.ER_DUP_ENTRY : GENERIC);
 }
+
+/**
+ * 입력 검증(zod) 오류 → 고칠 수 있는 업무 문장 (Codex #590 UX, 2026-10-18)
+ *   tRPC 는 입력 검증 실패 때 검증 결과 JSON 원문을 message 로 보낸다 ("[{ expected: string, … }]").
+ *   스키마에 한글 안내가 있으면 그 문장을, 없으면 항목·이유를 한국어로.
+ */
+const FIELD_LABEL: Record<string, string> = {
+  workDate: "작업일", date: "날짜", plannedDate: "계획일", quantity: "수량", qty: "수량", plannedQuantity: "계획 수량",
+  productId: "제품", materialId: "원재료", partnerId: "거래처", batchId: "배치", batchCount: "배치수", name: "이름",
+  code: "코드", unit: "단위", price: "단가", amount: "금액", formRecordId: "기록지", ccpType: "CCP 유형",
+};
+const TYPE_LABEL: Record<string, string> = { string: "글자", number: "숫자", boolean: "예/아니오", date: "날짜", array: "목록", object: "항목" };
+const HANGUL = /[가-힣]/;
+
+export interface ValidationIssueLike {
+  code?: string;
+  path?: Array<string | number>;
+  message?: string;
+  expected?: string;
+  minimum?: number | bigint;
+  maximum?: number | bigint;
+  origin?: string;
+}
+
+function fieldName(path: Array<string | number> | undefined): string {
+  const parts = (path ?? []).filter((p) => typeof p === "string") as string[];
+  const last = parts[parts.length - 1];
+  if (!last) return "입력값";
+  return FIELD_LABEL[last] ?? `'${last}'`;
+}
+
+function issueText(i: ValidationIssueLike): string {
+  const f = fieldName(i.path);
+  if (i.message && HANGUL.test(i.message)) return `${f}: ${i.message}`;
+  const received = /received (\w+)/.exec(i.message ?? "")?.[1];
+  switch (i.code) {
+    case "invalid_type":
+      if (received === "undefined" || received === "null") return `${f}: 값이 없습니다.`;
+      return `${f}: 형식이 맞지 않습니다${i.expected ? ` (${TYPE_LABEL[i.expected] ?? i.expected} 필요)` : ""}.`;
+    case "too_small":
+      return i.origin === "string" || i.origin === "array"
+        ? `${f}: ${i.minimum != null && Number(i.minimum) <= 1 ? "비어 있습니다" : `${i.minimum}개(자) 이상 입력하세요`}.`
+        : `${f}: ${i.minimum != null ? `${i.minimum} 이상이어야 합니다` : "값이 너무 작습니다"}.`;
+    case "too_big":
+      return i.origin === "string" || i.origin === "array"
+        ? `${f}: ${i.maximum}개(자) 이하로 입력하세요.`
+        : `${f}: ${i.maximum != null ? `${i.maximum} 이하여야 합니다` : "값이 너무 큽니다"}.`;
+    case "invalid_value":
+    case "invalid_enum_value":
+      return `${f}: 선택할 수 없는 값입니다.`;
+    default:
+      return `${f}: 형식이 맞지 않습니다.`;
+  }
+}
+
+/** 입력 검증 오류이면 업무 문장, 아니면 null */
+export function toValidationMessage(err: unknown): string | null {
+  const cause: any = (err as any)?.cause;
+  const issues: ValidationIssueLike[] | undefined = Array.isArray(cause?.issues) ? cause.issues : undefined;
+  if (!issues || issues.length === 0) return null;
+  const head = issues.slice(0, 3).map(issueText).join(" / ");
+  return `입력값을 확인하세요 — ${head}${issues.length > 3 ? ` 외 ${issues.length - 3}건` : ""}`;
+}

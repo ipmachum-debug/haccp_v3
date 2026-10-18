@@ -130,6 +130,15 @@ export function RequestRow({
               REQUEST_TYPE_LABELS[request.requestType] ||
               request.requestType}
           </span>
+          {/* CCP 기록지 — 작업자 시트 확인 전이면 승인할 수 없다. '검토중'과 구분해 보인다 (Codex #590 UX) */}
+          {(request as any).ccpSheetConfirmed === false && (
+            <Badge className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0 flex-shrink-0" title="작업자가 기록지에서 제출(시트 확인)해야 승인할 수 있습니다">
+              미확인 · 작업자 제출 필요
+            </Badge>
+          )}
+          {(request as any).ccpSheetConfirmed === true && (
+            <Badge variant="outline" className="text-emerald-700 border-emerald-300 text-[10px] px-1.5 py-0 flex-shrink-0">시트 확인됨</Badge>
+          )}
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
           <span>{resolvedWriter}</span>

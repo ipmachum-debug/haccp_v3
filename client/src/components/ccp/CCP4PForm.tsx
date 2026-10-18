@@ -151,7 +151,7 @@ export function CCP4PForm(props: CcpFormProps<Ccp4pFormData> = {}) {
           <div className="bg-muted p-4 rounded-lg space-y-2">
             <h3 className="font-semibold">한계기준 (참고)</h3>
             <div className="text-sm text-muted-foreground">
-              감도 130: Fe 2.0mmΦ 이상 불검출, SUS 3.0mmΦ 이상 불검출
+              금속검출기 설비 설정의 Fe·SUS 시편 크기 이상 불검출 (CCP 모니터링 → 설비 설정)
             </div>
           </div>
 

@@ -36,6 +36,9 @@ vi.mock("./db/connection", () => ({
   getRawConnection: vi.fn(async () => ({ getConnection: vi.fn(async () => conn), execute: conn.execute })),
   getDb: vi.fn(async () => null),
 }));
+// CCP 기록지 단독 요청은 공통 승인 서비스로 (Codex #590 R590-02) — 일지 쓰기 없이 이 서비스만 부른다
+const ccpSheet = vi.hoisted(() => ({ approveCcpFormRecord: vi.fn(async () => {}), rejectCcpFormRecord: vi.fn(async () => {}) }));
+vi.mock("./lib/haccp/ccpSheetConfirm", () => ccpSheet);
 vi.mock("./db", () => ({
   getDb: vi.fn(async () => ({ execute: vi.fn(async () => [[state.request]]), insert: () => ({ values: async () => [{ insertId: 1 }] }) })),
 }));
@@ -66,6 +69,10 @@ describe("다른 종류 요청 승인은 공통 일지를 건드리지 않는다
     await caller().approveWithAutoReview({ approvalRequestId: 1 });
     await caller().batchApproveChecklists({ approvalRequestIds: [1, 2] });
     expect(recordWrites()).toHaveLength(0);
+    // 반려 1 · 바로승인 1 · 일괄 2 — 기록지 자체를 승인/반려 (요청만 바뀌던 문제)
+    expect(ccpSheet.rejectCcpFormRecord).toHaveBeenCalledWith(91, 2, 4, undefined);
+    expect(ccpSheet.approveCcpFormRecord).toHaveBeenCalledTimes(3);
+    expect(ccpSheet.approveCcpFormRecord).toHaveBeenCalledWith(91, 2, 4);
   });
   it("판정 함수", () => {
     expect(isChecklistReference("checklist")).toBe(true);
