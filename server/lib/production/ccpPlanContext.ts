@@ -7,7 +7,7 @@
  *   - 원물·공정 기준(수율 기준) 회사면 배치 생성과 같은 prepareBatchMassBasis 결과
  *   - 오늘 이미 저장된 배치의 설비 사용 시각
  */
-import { selectBomVersion } from "./bomProductResolver";
+import { selectBomVersion } from "../identity/itemIdentityService";
 import { CCP_BOM_ROWS_SQL, ccpInputKgByGroup, ccpInputKgFromSnapshot } from "./ccpBomInput";
 import { toMin, type BusySlot } from "./ccpDayPlanner";
 
