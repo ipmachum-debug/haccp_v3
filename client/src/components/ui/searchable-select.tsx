@@ -50,6 +50,9 @@ export function SearchableSelect({
   const [open, setOpen] = React.useState(false);
 
   const selectedOption = options.find((opt) => opt.value === value);
+  // 목록 높이는 전체 항목 수로 한 번 정한다 — 검색어를 쳐도 창 크기가 변하지 않게 (2026-10-18 대표 요청)
+  const rowH = options.some((o) => o.subLabel) ? 52 : 36;
+  const listHeight = Math.min(Math.max(options.length, 3) * rowH + 8, 280);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -79,10 +82,10 @@ export function SearchableSelect({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+      <PopoverContent className="w-[--radix-popover-trigger-width] p-0 rounded-xl overflow-hidden" align="start">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
-          <CommandList>
+          <CommandList className="max-h-none" style={{ height: listHeight }}>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
               {options.map((option) => (
