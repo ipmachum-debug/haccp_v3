@@ -197,3 +197,20 @@ PR-A 는 '원본' 열로 맞춘다. '저장' 은 과거 기록이므로 그대�
 2. **과거 승인 인쇄** — 기본은 보존. 새 템플릿을 소급하지 않는다(1-0). 원본 출력물이 없는 경우의 재구성·정정 표시는 C2 에서 별도 절차.
 3. **단지 사업장 1·2** — h_sites 소유·실제 사업장·원기록 작성 경로를 읽기 대조한 뒤 결정. 날짜가 겹치지 않는다는 이유로 같다고 보지 않는다. 일괄 변경·tenant_id 대입 없음. C1 키 이행 전에 확정.
 4. **새 문구 기준** — 원본 PDF 로 복원(1-2 A1). 저장된 과거 문구 일괄 수정 승인은 아니다. 다른 회사는 템플릿을 켜는 결정이 곧 선택·확인.
+
+## 7. B1~E 구현 결과 (2026-10-18, 한 PR)
+
+| 단계 | 파일 | 실제로 된 것 |
+|---|---|---|
+| B1 | `shared/dailyLog/definition.ts`, `khaccpDefinition.ts`, `recordV2.ts`, `viewModelV2.ts` | 정의 스키마(zod), 단지 원본 정의, 기록 생성·서버 재판정·저장/제출/승인 검사, 표시 데이터. 예/아니오 미선택·미측정·실측시각 없음·미래 시각·대상외 사유 없음·이탈 기록 없음은 제출 불가, 미해결 이탈은 승인 불가 |
+| B2 | `server/lib/production/dailyLogSettingsStore.ts`, `dailyLog.settings*` | 설정 표 2개(시작 시 `CREATE TABLE IF NOT EXISTS`). 초안 저장은 `row_version` 일치 때만, 발행은 트랜잭션 + `FOR UPDATE`, 이전 발행본 ID 삭제 금지 |
+| C1 | `server/lib/production/dailyLogStore.ts`, `scripts/daily-log-unique-key.ts` | 모든 생성 경로(자동 초안·화면 저장·작성 모달·엑셀·v2 작성 시작)가 `ensureDailyLog` 하나. **키 칼럼·인덱스는 시작 시 마이그레이션이 아니다** — 운영 적용 전에는 이전처럼 회사+날짜 조회 후 생성(DB 수준 보장 아님, 로그 경고) |
+| C2 | `dailyLog.saveFullForm` v2 분기, `dailyLogApprovalGate` | `data_version` 낙관적 잠금, 작성 중·반려만 저장, 서버가 평가 재계산, 제출 때만 승인 요청 |
+| D1 | `client/src/pages/production/DailyLogSettings.tsx` (`ROUTES.DAILY_LOG_SETTINGS`) | 3단계(기록 선택·템플릿 불러오기 → 구역·대상·회차·기준·문구 → 서버 검사·인쇄 미리보기·확인 후 발행). 기능 켠 회사만 목록에 '일지 설정' 버튼 |
+| D2 | `DailyLogV2Form.tsx`, `DailyLogV2Renderers.tsx`, `DailyLogForm.tsx` 분기 | 회사 방식(`dailyLog.mode`)으로 화면 선택. 조회만으로 일지를 만들지 않음('작성 시작'). 인쇄는 기록의 정의 스냅샷으로 영역마다 한 쪽, 승인 전 표시 |
+| E | `DailyLogV2Notice.tsx` | 개별 온습도·냉동냉장 화면에 v2 회사만 안내(막지 않음, 이전 기록 열람 그대로) |
+
+**운영에서 켜는 순서 (코드 밖, CEO 승인 뒤 Codex 데이터 작업)**
+1. `npx tsx scripts/daily-log-unique-key.ts` 조사 결과 보고 → 승인 → 백업 → `--apply --confirm`. 중복이 남으면 그 날짜는 키를 채우지 않고 앱은 이전 경로 유지.
+2. 지티(시험 회사)에 `DAILY_LOG_V2` 켬 → 관리자가 설정 화면에서 발행 → 그 뒤 새로 만드는 일지부터 v2. 단지 적용은 읽기 대조·CEO 확인 뒤.
+3. 기능을 켜기 전에는 모든 회사가 이전과 같은 화면·인쇄.

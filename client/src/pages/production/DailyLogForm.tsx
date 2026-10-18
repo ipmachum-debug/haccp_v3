@@ -18,6 +18,7 @@ import { Calendar, Save, Send, FileText, ArrowLeft, Loader2, Copy } from "lucide
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import DailyLogV2Form from "@/components/production/DailyLogV2Form";
 
 import { todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
@@ -85,7 +86,33 @@ const EMPTY_NOTES = { specialNotes: "", improvementAction: "", actionBy: "", con
 const EMPTY_ISSUES = { issueDescription: "", actionTaken: "", completionDate: "", actionBy: "", confirmedBy: "" };
 const EMPTY_REF_ISSUES = { issueDatetime: "", issueDescription: "", actionTaken: "", completionDate: "", actionBy: "", confirmedBy: "" };
 
+/**
+ * 회사 일지 방식에 따라 화면을 고른다 — 설정 발행(DAILY_LOG_V2 켬) 회사는 v2, 아니면 이전 화면.
+ *   방식 조회 실패를 이전 화면으로 넘기지 않는다 (v2 회사가 이전 형식으로 쓰게 되지 않게).
+ */
 export default function DailyLogForm() {
+  const searchStr = useSearch();
+  const paramDate = new URLSearchParams(searchStr).get("date");
+  const [logDate, setLogDate] = useState(paramDate || todayLocal());
+  const mode = trpc.dailyLog.mode.useQuery(undefined, { staleTime: 60000 });
+  if (mode.isLoading) {
+    return <DashboardLayout><div className="py-12 text-center text-sm text-muted-foreground"><Loader2 className="inline h-4 w-4 mr-1 animate-spin" />불러오는 중…</div></DashboardLayout>;
+  }
+  if (mode.isError) {
+    return (
+      <DashboardLayout>
+        <Card><CardContent className="py-8 text-center space-y-2">
+          <p className="text-sm text-red-700">일지 방식을 확인하지 못했습니다 — {mode.error?.message}</p>
+          <Button variant="outline" onClick={() => mode.refetch()}>다시 시도</Button>
+        </CardContent></Card>
+      </DashboardLayout>
+    );
+  }
+  if (mode.data?.version === 2) return <DashboardLayout><DailyLogV2Form logDate={logDate} setLogDate={setLogDate} /></DashboardLayout>;
+  return <DailyLogFormV1 />;
+}
+
+function DailyLogFormV1() {
   const L = useIndustryLabel();
   const [, navigate] = useLocation();
   const searchStr = useSearch();
@@ -124,7 +151,7 @@ export default function DailyLogForm() {
   const [batchData, setBatchData] = useState<any[]>([]);
 
   // API queries
-  const { data: existingLog, isLoading: loadingExisting } = trpc.dailyLog.getByDate.useQuery(
+  const { data: existingLog, isLoading: loadingExisting, isError: existingError, error: existingErr, refetch: refetchExisting } = trpc.dailyLog.getByDate.useQuery(
     { logDate },
     { enabled: !!logDate }
   );
@@ -230,6 +257,8 @@ export default function DailyLogForm() {
   useEffect(() => {
     // 템플릿 정보를 받은 뒤에 새 양식을 만든다 — 나중에 도착해 입력 중인 내용을 지우지 않게
     if (loadingExisting || loadingPrev || loadingTemplate) return;
+    // 조회 실패 = 일지 없음이 아니다 — 빈 새 양식으로 바꾸지 않는다
+    if (existingError) return;
     if (existingLog) {
       // 해당 날짜 데이터 존재 → 로드
       setRecordId(existingLog.id);
@@ -256,7 +285,7 @@ export default function DailyLogForm() {
       setRefrigeratorIssues({ ...EMPTY_REF_ISSUES });
       setBatchData([]);
     }
-  }, [existingLog, previousData, loadingExisting, loadingPrev, loadingTemplate, applyFormData, templateInfo]);
+  }, [existingLog, existingError, previousData, loadingExisting, loadingPrev, loadingTemplate, applyFormData, templateInfo]);
 
   // formData 생성
   const buildFormData = () => ({
@@ -293,7 +322,7 @@ export default function DailyLogForm() {
     saveMutation.mutate({ logDate, formData: buildFormData(), status: 'submitted' });
   };
 
-  const isLoading = loadingExisting || loadingPrev;
+  const isLoading = loadingExisting || loadingPrev || existingError;
   const isSaving = saveMutation.isPending;
 
   return (
@@ -347,6 +376,15 @@ export default function DailyLogForm() {
           </Button>
         </div>
       </div>
+
+      {existingError && (
+        <Card className="border-red-300" data-testid="daily-log-load-error">
+          <CardContent className="py-4 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-sm text-red-700">{existingErr?.message ?? "일일일지를 불러오지 못했습니다."} 저장·제출을 막아 두었습니다.</p>
+            <Button variant="outline" onClick={() => refetchExisting()}>다시 시도</Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* 전일 기록 — 참고만 (오늘 측정값·점검 결과로 채우지 않는다) */}
       {previousData && recordStatus !== 'approved' && (

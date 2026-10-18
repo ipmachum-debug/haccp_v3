@@ -107,7 +107,7 @@ describe("서버 경로", () => {
     expect(router).toMatch(/existingRows\.length\s*\? \(existingFd\.templateCode \?\? null\)\s*: \(\(await templateEnabled\(tenantId\)\)/);
   });
   it("승인된 일지는 저장·수정 거부, 제출·승인 관문이 같은 운송 온도 검사", () => {
-    expect(router.match(/승인된 일일일지는 수정할 수 없습니다/g)?.length).toBe(2);
+    expect(router.match(/승인된 일일일지는 수정할 수 없습니다/g)?.length).toBeGreaterThanOrEqual(3); // v1 저장·승인관리 수정·v2 저장
     expect(router).toMatch(/khaccpSubmitIssues\(\{ \.\.\.existingFd, \.\.\.clientFd, templateCode \}\)/);
     expect(read("server/lib/production/dailyLogApprovalGate.ts")).toMatch(/khaccpSubmitIssues\(fd\)/);
   });

@@ -17,6 +17,13 @@ import { getRawConnection } from "../../db/connection";
 import { CHECKLIST_REFERENCE_TYPES } from "../checklist/recordStatePolicy";
 import { findMeasurementIssues, summarizeIssues, type MeasurementIssue } from "../../../shared/dailyLogMeasurements";
 import { khaccpSubmitIssues } from "../../../shared/dailyLog/khaccpTemplate";
+import { isV2Record, v2ApproveIssues } from "../../../shared/dailyLog/recordV2";
+
+function nowKst(): { date: string; time: string } {
+  const f = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  const p = Object.fromEntries(f.formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour === "24" ? "00" : p.hour}:${p.minute}` };
+}
 
 export type DailyLogGateResult =
   | { ok: true; dailyLog: boolean }
@@ -45,6 +52,13 @@ export async function checkDailyLogGate(tenantId: number, approvalRequestId: num
   const rec = recRows?.[0];
   if (!rec || rec.form_type !== "daily_log") return { ok: true, dailyLog: false };
   const fd = parse(rec.form_data);
+  // v2 기록 — 정의 스냅샷 기준 검사 + 미해결 이탈 차단 (docs/architecture/17 C2)
+  if (isV2Record(fd)) {
+    const v2 = v2ApproveIssues(fd, nowKst());
+    if (v2.length === 0) return { ok: true, dailyLog: true };
+    return { ok: false, dailyLog: true, recordId: Number(rec.id), issues: [],
+      message: `일일일지 #${rec.id} 기록 미완료 — ${v2.slice(0, 5).map((x) => x.replace(/\.$/, "")).join(" / ")}${v2.length > 5 ? ` 외 ${v2.length - 5}건` : ""}. 작성자가 고친 뒤 다시 진행하세요.` };
+  }
   const issues = findMeasurementIssues(fd);
   // 원본 템플릿 기록은 운송 온도도 (숫자 또는 '운송 없음'+사유) — 제출과 같은 검사 (PR-A)
   const tIssues = khaccpSubmitIssues(fd);

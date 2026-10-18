@@ -7,6 +7,7 @@
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
+import { ROUTES } from "@/lib/routePaths";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -16,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CalendarIcon, FileText, Search, RefreshCw, ChevronLeft, ChevronRight,
-  ClipboardCheck, CheckCircle, Clock, AlertTriangle, Eye, Trash2, Thermometer, ShieldCheck
+  ClipboardCheck, CheckCircle, Clock, AlertTriangle, Eye, Trash2, Thermometer, ShieldCheck, Settings2
 } from "lucide-react";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 
@@ -46,6 +47,8 @@ export default function DailyLogs() {
 
   // API Query
   const utils = trpc.useUtils();
+  // 일지 설정 — 기능(DAILY_LOG_V2) 켠 회사만 보인다. 관리 권한은 서버가 확인
+  const { data: logSettings } = trpc.dailyLog.settingsGet.useQuery(undefined, { staleTime: 60_000, retry: false });
   const { data: dailyLogs = [], isLoading, refetch } = trpc.dailyLog.list.useQuery({
     startDate,
     endDate,
@@ -107,6 +110,12 @@ export default function DailyLogs() {
             <RefreshCw className="h-4 w-4 mr-1" />
             새로고침
           </Button>
+          {logSettings?.enabled && (
+            <Button variant="outline" size="sm" onClick={() => navigate(ROUTES.DAILY_LOG_SETTINGS)}>
+              <Settings2 className="h-4 w-4 mr-1" />
+              일지 설정
+            </Button>
+          )}
           <Button size="sm" onClick={() => navigate("/daily-log/daily")}>
             <FileText className="h-4 w-4 mr-1" />
             새 일지 작성

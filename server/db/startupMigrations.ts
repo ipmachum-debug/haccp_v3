@@ -955,6 +955,15 @@ async function ensureInboundDocumentSchema(conn: any) {
   } catch (err: any) {
     console.warn("[Migration] h_batch_create_requests failed:", err.message);
   }
+  // 일일일지 회사별 설정·버전 (docs/architecture/17 B2) — 표 추가만, 기존 행 변경 없음
+  try {
+    const { DAILY_LOG_SETTINGS_DDL } = await import("../lib/production/dailyLogSettingsStore");
+    for (const ddl of DAILY_LOG_SETTINGS_DDL) await conn.query(ddl);
+  } catch (err: any) {
+    console.warn("[Migration] daily log settings tables failed:", err.message);
+  }
+  // 일일일지 v2 동시 편집 보호 (C2) — 칼럼 추가만. 고유 키(unique_key)는 scripts/daily-log-unique-key.ts (승인 후)
+  await addCol("h_generic_checklist_records", "data_version", "`data_version` int NOT NULL DEFAULT 0");
   // 가열공정 계획 스냅샷 (PR-B, 2026-10-18) — 배치 생성 때 계산한 예정 시작/끝·예정 투입량. 미리보기와 같은 계산(planDay)
   await addCol("h_ccp_rows", "planned_start", "`planned_start` varchar(5) NULL");
   await addCol("h_ccp_rows", "planned_end", "`planned_end` varchar(5) NULL");

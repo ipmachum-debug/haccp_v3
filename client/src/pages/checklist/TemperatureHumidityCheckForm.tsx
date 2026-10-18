@@ -2,6 +2,7 @@ import { judgeTemp } from "../../lib/checklist/tempJudge";
 import { checklistSubmitProblems } from "@shared/checklist/submitChecks";
 import { useState, useCallback } from "react";
 import ChecklistFormLayout from "@/components/checklist/ChecklistFormLayout";
+import DailyLogV2Notice from "@/components/production/DailyLogV2Notice";
 import type { ChecklistFormConfig } from "@/components/checklist/ChecklistFormLayout";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -226,6 +227,7 @@ export default function TemperatureHumidityCheckForm() {
       extraActions={extraActions}
       writerField="writer"
     >
+      <DailyLogV2Notice section="temperatureHumidity" date={checkDate} />
       <div className="px-6 pb-6">
         <div className="py-2">
             <Table className="w-full border-collapse">

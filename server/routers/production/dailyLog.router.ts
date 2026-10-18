@@ -7,7 +7,7 @@
  * - 목록/상세 조회
  */
 
-import { router, tenantRequiredProcedure } from "../../_core/trpc";
+import { adminProcedure, router, tenantRequiredProcedure } from "../../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getDb } from "../../db";
@@ -26,6 +26,96 @@ function stripServerOwned(fd: any): any {
   if (!fd || typeof fd !== "object") return fd;
   const { templateCode: _t, ...rest } = fd;
   return rest;
+}
+
+/** 설정 쓰기 전 — 기능 DAILY_LOG_V2 를 켠 회사만 */
+async function settingsConn(tenantId: number): Promise<any> {
+  const { getRawConnection } = await import("../../db/connection");
+  const conn: any = await getRawConnection();
+  const { DAILY_LOG_V2_FEATURE } = await import("../../lib/production/dailyLogSettingsStore");
+  const { isTenantFeatureEnabled } = await import("../../lib/production/massBasisPolicy");
+  if (!(await isTenantFeatureEnabled(conn, tenantId, DAILY_LOG_V2_FEATURE))) {
+    throw new TRPCError({ code: 'FORBIDDEN', message: '이 회사는 일지 설정 기능이 켜져 있지 않습니다.' });
+  }
+  return conn;
+}
+
+/** 기록의 data_version (칼럼 생성 전 DB 는 0) */
+async function readDataVersion(conn: any, id: number, tenantId: number): Promise<number> {
+  try {
+    const [r]: any = await conn.execute(`SELECT data_version FROM h_generic_checklist_records WHERE id = ? AND tenant_id = ?`, [id, tenantId]);
+    return Number((r as any[])[0]?.data_version ?? 0);
+  } catch (e: any) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') return 0;
+    throw e;
+  }
+}
+
+/** v2 를 쓰는 회사면 발행 정의 (기능 DAILY_LOG_V2 켬 + 발행본 있음) */
+async function v2DefinitionFor(conn: any, tenantId: number) {
+  const { activeDefinition, DAILY_LOG_V2_FEATURE } = await import("../../lib/production/dailyLogSettingsStore");
+  const { isTenantFeatureEnabled } = await import("../../lib/production/massBasisPolicy");
+  if (!(await isTenantFeatureEnabled(conn, tenantId, DAILY_LOG_V2_FEATURE))) return null;
+  return activeDefinition(conn, tenantId, 0);
+}
+
+/** 회사 시간대(KST) 기준 지금 */
+function nowKstParts(): { date: string; time: string } {
+  const f = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+  const p = Object.fromEntries(f.formatToParts(new Date()).map((x) => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour === "24" ? "00" : p.hour}:${p.minute}` };
+}
+
+/**
+ * v2 저장 — 서버 소유 칸 유지(mergeV2) · 평가 재계산 · 구조 검사 · 버전 잠금 · 제출 시 스냅샷 기준 검사.
+ *   작성중·반려만 고칠 수 있다. 승인대기(제출)는 회수·반려 후 재작성, 승인은 거부.
+ */
+async function saveV2(conn: any, a: { recordId: number; status: string; prev: any; incoming: any; submit: boolean; expectedDataVersion?: number; tenantId: number; siteId: number; userId: number; logDate: string }) {
+  const { mergeV2, v2SaveProblems, v2SubmitIssues } = await import("../../../shared/dailyLog/recordV2");
+  if (a.status === 'approved') throw new TRPCError({ code: 'FORBIDDEN', message: '승인된 일일일지는 수정할 수 없습니다.' });
+  if (a.status === 'submitted') throw new TRPCError({ code: 'FORBIDDEN', message: '제출된 일지입니다 — 반려된 뒤 고칠 수 있습니다.' });
+  if (a.expectedDataVersion == null) throw new TRPCError({ code: 'BAD_REQUEST', message: '화면이 읽은 일지 버전이 없습니다 — 새로 고친 뒤 저장하세요.' });
+  const merged: any = mergeV2(a.prev, a.incoming);
+  const problems = v2SaveProblems(merged);
+  if (problems.length) throw new TRPCError({ code: 'BAD_REQUEST', message: `저장할 수 없습니다 — ${problems.slice(0, 5).join(' / ')}` });
+  if (a.submit) {
+    const issues = v2SubmitIssues(merged, nowKstParts());
+    if (issues.length) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `제출할 수 없습니다 — ${issues.slice(0, 5).join(' / ')}${issues.length > 5 ? ` 외 ${issues.length - 5}건` : ''}` });
+    merged.submittedBy = a.userId;
+    merged.submittedAt = new Date().toISOString();
+    merged.submittedVersion = a.expectedDataVersion + 1;
+  }
+  merged.lastUpdated = new Date().toISOString();
+  const nextStatus = a.submit ? 'submitted' : 'draft';
+  let affected = 0;
+  try {
+    const [res]: any = await conn.execute(
+      `UPDATE h_generic_checklist_records SET form_data = ?, status = ?, data_version = data_version + 1, updated_by = ?, updated_at = NOW()
+        WHERE id = ? AND tenant_id = ? AND status IN ('draft','rejected') AND data_version = ?`,
+      [JSON.stringify(merged), nextStatus, a.userId, a.recordId, a.tenantId, a.expectedDataVersion],
+    );
+    affected = Number(res?.affectedRows ?? 0);
+  } catch (e: any) {
+    if (e?.code === 'ER_BAD_FIELD_ERROR') throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '일지 버전 칸(data_version)이 아직 없습니다 — 서버 시작 마이그레이션 후 다시 시도하세요.' });
+    throw e;
+  }
+  if (affected !== 1) throw new TRPCError({ code: 'CONFLICT', message: '다른 곳(PC·태블릿)에서 이 일지를 먼저 고쳤습니다 — 새로 고친 뒤 다시 저장하세요.' });
+  if (a.submit) {
+    const [ex]: any = await conn.execute(
+      `SELECT id FROM h_approval_requests WHERE reference_type = 'checklist' AND reference_id = ? AND request_type = 'daily_log' AND tenant_id = ? AND status IN ('pending','pending_review','pending_approval','rejected') ORDER BY id DESC LIMIT 1`,
+      [a.recordId, a.tenantId],
+    );
+    if ((ex as any[]).length) {
+      await conn.execute(`UPDATE h_approval_requests SET status = 'pending_review' WHERE id = ? AND tenant_id = ?`, [(ex as any[])[0].id, a.tenantId]);
+    } else {
+      await conn.execute(
+        `INSERT INTO h_approval_requests (site_id, tenant_id, request_type, reference_type, reference_id, title, description, status, priority, requested_by, created_at)
+         VALUES (?, ?, 'daily_log', 'checklist', ?, ?, ?, 'pending_review', 'medium', ?, NOW())`,
+        [a.siteId, a.tenantId, a.recordId, `[일일일지] ${a.logDate}`, '일일일지 작성 완료 — 검토 요청합니다.', a.userId],
+      );
+    }
+  }
+  return { success: true, id: a.recordId, status: nextStatus, dataVersion: a.expectedDataVersion + 1 };
 }
 
 export const dailyLogRouter = router({
@@ -71,41 +161,65 @@ export const dailyLogRouter = router({
     }),
 
   // ── 해당 날짜 일일일지 조회 (편집용) ──
+  //   한 날짜 한 건 (dailyLogStore). 조회 실패는 '일지 없음' 이 아니라 오류 — 빈 새 일지로 보이지 않게 (docs/architecture/17 3-1)
   getByDate: tenantRequiredProcedure
     .input(z.object({ logDate: z.string(), siteId: z.number().optional() }))
     .query(async ({ input, ctx }) => {
+      const { getRawConnection } = await import("../../db/connection");
+      const conn: any = await getRawConnection();
+      const { findDailyLog } = await import("../../lib/production/dailyLogStore");
+      const { resolveSiteScope } = await import("../../lib/production/dailyLogSettingsStore");
       try {
-        const db = await getDb();
-        if (!db) return null;
-        const result = await db.execute(sql`
-          SELECT id, site_id, form_date, title, status, form_data, created_at, updated_at
-          FROM h_generic_checklist_records
-          WHERE form_type = 'daily_log'
-            AND form_date = ${input.logDate}
-            AND tenant_id = ${ctx.tenantId}
-          ORDER BY created_at DESC LIMIT 1
-        `);
-        const rows = (result as any)[0] || [];
-        if (rows.length === 0) return null;
-        const r = rows[0];
+        const scope = await resolveSiteScope(conn, ctx.tenantId, input.siteId);
+        const found = await findDailyLog(conn, ctx.tenantId, scope, input.logDate);
+        if (!found) return null;
+        const [rows]: any = await conn.execute(
+          `SELECT id, site_id, form_date, title, status, form_data, created_at, updated_at FROM h_generic_checklist_records WHERE id = ? AND tenant_id = ?`,
+          [found.id, ctx.tenantId],
+        );
+        const r = (rows as any[])[0];
         let fd: any = {};
-        try {
-          fd = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {});
-        } catch {}
+        try { fd = typeof r.form_data === 'string' ? JSON.parse(r.form_data) : (r.form_data || {}); } catch {}
         return {
           id: r.id,
           siteId: r.site_id,
-          logDate: r.form_date instanceof Date ? r.form_date.toISOString().split('T')[0] : String(r.form_date),
+          logDate: String(r.form_date),
           title: r.title,
           status: r.status,
           formData: fd,
+          dataVersion: await readDataVersion(conn, Number(r.id), ctx.tenantId),
           createdAt: r.created_at,
           updatedAt: r.updated_at,
         };
-      } catch (e) {
+      } catch (e: any) {
         console.error('[dailyLog.getByDate]', e);
-        return null;
+        throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: `일일일지를 불러오지 못했습니다 — 다시 시도하세요. (${e?.message ?? e})` });
       }
+    }),
+
+  /** 이 회사의 일지 방식 — v2 설정 발행(기능 켬) 이면 정의, 아니면 v1 */
+  mode: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const { getRawConnection } = await import("../../db/connection");
+    const conn: any = await getRawConnection();
+    const v2 = await v2DefinitionFor(conn, ctx.tenantId);
+    return v2 ? { version: 2 as const, settingsVersionId: v2.versionId } : { version: 1 as const, settingsVersionId: null };
+  }),
+
+  /** v2 일지 작성 시작 — 사용자가 누를 때만 만든다 (조회만으로 만들지 않음). 이미 있으면 그대로 */
+  startV2: tenantRequiredProcedure
+    .input(z.object({ logDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .mutation(async ({ input, ctx }) => {
+      const { getRawConnection } = await import("../../db/connection");
+      const conn: any = await getRawConnection();
+      const v2 = await v2DefinitionFor(conn, ctx.tenantId);
+      if (!v2) throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '발행된 일지 설정이 없습니다 — 관리자가 일지 설정을 발행해야 합니다.' });
+      const { ensureDailyLog } = await import("../../lib/production/dailyLogStore");
+      const { newRecordV2 } = await import("../../../shared/dailyLog/recordV2");
+      const r = await ensureDailyLog(conn, {
+        tenantId: ctx.tenantId, siteScope: 0, siteIdColumn: ctx.user.siteId || ctx.tenantId, date: input.logDate,
+        title: `일일일지 - ${input.logDate}`, formData: newRecordV2(v2.definition, input.logDate, v2.versionId), status: 'draft', createdBy: ctx.user.id,
+      });
+      return { id: r.id, created: r.created };
     }),
 
   // ── 일일일지 저장 (전체 양식 = 위생점검 + 온도 + 이물관리 + 배치) ──
@@ -115,6 +229,8 @@ export const dailyLogRouter = router({
       formData: z.any(),
       siteId: z.number().optional(),
       status: z.enum(['draft', 'submitted']).default('draft'),
+      /** v2 기록: 화면이 읽은 버전 — 다르면 다른 곳(PC·태블릿)에서 고친 것이므로 저장 거부 */
+      expectedDataVersion: z.number().int().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
       try {
@@ -125,15 +241,27 @@ export const dailyLogRouter = router({
 
         const clientFd = stripServerOwned(input.formData);
 
-        // 기존 레코드 확인
-        const existing = await db.execute(sql`
-          SELECT id, status, form_data FROM h_generic_checklist_records
-          WHERE form_type = 'daily_log'
-            AND form_date = ${input.logDate}
-            AND tenant_id = ${tenantId}
-          LIMIT 1
-        `);
-        const existingRows = (existing as any)[0] || [];
+        // 기존 레코드 확인 — 한 날짜 한 건 (dailyLogStore)
+        const { getRawConnection } = await import("../../db/connection");
+        const conn: any = await getRawConnection();
+        const { findDailyLog, ensureDailyLog } = await import("../../lib/production/dailyLogStore");
+        const { resolveSiteScope } = await import("../../lib/production/dailyLogSettingsStore");
+        const siteScope = await resolveSiteScope(conn, tenantId, input.siteId);
+        const found = await findDailyLog(conn, tenantId, siteScope, input.logDate);
+        const existingRows: any[] = found ? [found] : [];
+        const foundFd = (() => { try { return found ? (typeof found.form_data === 'string' ? JSON.parse(found.form_data) : (found.form_data || {})) : null; } catch { return null; } })();
+
+        // v2 기록 (회사 일지 설정) — 별도 경로: 구조 검사·서버 재판정·버전 잠금 (docs/architecture/17 C2)
+        const { isV2Record } = await import("../../../shared/dailyLog/recordV2");
+        if (isV2Record(foundFd) || clientFd?.schemaVersion === 2) {
+          if (!found || !isV2Record(foundFd)) {
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '새 일지 방식 기록이 없습니다 — 화면에서 \'작성 시작\' 을 먼저 누르세요.' });
+          }
+          return saveV2(conn, { recordId: Number(found.id), status: found.status, prev: foundFd, incoming: clientFd, submit: input.status === 'submitted', expectedDataVersion: input.expectedDataVersion, tenantId, siteId, userId: ctx.user.id, logDate: input.logDate });
+        }
+        if (!found && (await v2DefinitionFor(conn, tenantId))) {
+          throw new TRPCError({ code: 'PRECONDITION_FAILED', message: '이 회사는 새 일지 방식(회사 일지 설정)을 씁니다 — 화면을 새로 고친 뒤 작성하세요.' });
+        }
         // 승인된 일지는 고치지 않는다 (정정은 별도 절차)
         if (existingRows[0]?.status === 'approved') {
           throw new TRPCError({ code: 'FORBIDDEN', message: '승인된 일일일지는 수정할 수 없습니다.' });
@@ -193,23 +321,16 @@ export const dailyLogRouter = router({
             WHERE id = ${recordId} AND tenant_id = ${tenantId}
           `);
         } else {
-          // 신규 생성
-          const seqR = await db.execute(sql`
-            SELECT COALESCE(MAX(tenant_seq), 0) + 1 as ns
-            FROM h_generic_checklist_records
-            WHERE form_type = 'daily_log' AND tenant_id = ${tenantId} AND YEAR(created_at) = YEAR(NOW())
-          `);
-          const nextSeq = Number((seqR as any)[0]?.[0]?.ns || 1);
-          const formDataStr = JSON.stringify({ ...clientFd, date: input.logDate, ...(templateCode ? { templateCode } : {}) });
-
-          const ins = await db.execute(sql`
-            INSERT INTO h_generic_checklist_records
-              (site_id, tenant_id, form_type, tenant_seq, form_date, title, form_data, status, created_by)
-            VALUES
-              (${siteId}, ${tenantId}, 'daily_log', ${nextSeq}, ${input.logDate}, ${title},
-               ${formDataStr}, ${input.status}, ${ctx.user.id})
-          `);
-          recordId = Number((ins as any)[0]?.insertId || 0);
+          // 신규 생성 — 한 날짜 한 건 (동시에 다른 경로가 먼저 만들었으면 그 행에 저장)
+          const formDataObj = { ...clientFd, date: input.logDate, ...(templateCode ? { templateCode } : {}) };
+          const r = await ensureDailyLog(conn, {
+            tenantId, siteScope, siteIdColumn: siteId, date: input.logDate, title,
+            formData: formDataObj, status: input.status, createdBy: ctx.user.id,
+          });
+          recordId = r.id;
+          if (!r.created) {
+            throw new TRPCError({ code: 'CONFLICT', message: '같은 날짜 일지가 방금 다른 곳에서 만들어졌습니다 — 화면을 새로 고친 뒤 다시 저장하세요.' });
+          }
         }
 
         // submitted이면 승인요청 생성/업데이트
@@ -268,6 +389,8 @@ export const dailyLogRouter = router({
         if (oldRows[0].status === 'approved') throw new TRPCError({ code: 'FORBIDDEN', message: '승인된 일일일지는 수정할 수 없습니다.' });
         let oldFd: any = {};
         try { oldFd = typeof oldRows[0].form_data === 'string' ? JSON.parse(oldRows[0].form_data) : (oldRows[0].form_data || {}); } catch {}
+        // v2 기록은 일지 화면(버전 잠금·구조 검사)에서만 고친다
+        if (oldFd?.schemaVersion === 2) throw new TRPCError({ code: 'FORBIDDEN', message: '새 일지 방식 기록은 일일일지 화면에서 고칩니다.' });
         const clientFd = stripServerOwned(input.formData);
         const merged: any = { ...oldFd, ...clientFd, lastUpdated: new Date().toISOString() };
         // 템플릿 표시는 그 기록의 것 그대로
@@ -288,6 +411,78 @@ export const dailyLogRouter = router({
         if (error instanceof TRPCError) throw error;
         console.error('[dailyLog.updateFormData]', error);
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '수정 실패' });
+      }
+    }),
+
+  // ════════ 일지 설정 (회사별 구역·대상·회차·기준) — 관리자, 기능 DAILY_LOG_V2 켠 회사만 (docs/architecture/17 B2·D1) ════════
+  settingsGet: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const { getRawConnection } = await import("../../db/connection");
+    const conn: any = await getRawConnection();
+    const { loadSettings, DAILY_LOG_V2_FEATURE } = await import("../../lib/production/dailyLogSettingsStore");
+    const { isTenantFeatureEnabled } = await import("../../lib/production/massBasisPolicy");
+    const enabled = await isTenantFeatureEnabled(conn, ctx.tenantId, DAILY_LOG_V2_FEATURE);
+    if (!enabled) return { enabled: false as const, rowVersion: 0, draft: null, active: null };
+    return { enabled: true as const, ...(await loadSettings(conn, ctx.tenantId, 0)) };
+  }),
+
+  /** 참고 템플릿 — 고르면 초안으로 복사 (자동 적용 없음) */
+  settingsTemplates: tenantRequiredProcedure.query(async () => {
+    const { khaccpDefinition } = await import("../../../shared/dailyLog/khaccpDefinition");
+    return [{ code: 'khaccp_daily_v1', title: 'K-HACCP 일일일지 5종 (원재료실 2 · 급속냉동 · 냉동 · 냉장, 오전·오후)', definition: khaccpDefinition() }];
+  }),
+
+  settingsSaveDraft: adminProcedure
+    .input(z.object({ definition: z.any(), expectedRowVersion: z.number().int() }))
+    .mutation(async ({ input, ctx }) => {
+      const conn = await settingsConn(ctx.tenantId);
+      const { saveDraft } = await import("../../lib/production/dailyLogSettingsStore");
+      const { definitionProblems } = await import("../../../shared/dailyLog/definition");
+      try {
+        const rowVersion = await saveDraft(conn, ctx.tenantId, 0, input.definition, input.expectedRowVersion, ctx.user.id);
+        return { rowVersion, problems: definitionProblems(input.definition) };
+      } catch (e: any) {
+        throw new TRPCError({ code: 'CONFLICT', message: e?.message ?? '저장 실패' });
+      }
+    }),
+
+  /** 미리보기 — 정의 검사·행 수·하루 측정 횟수와 빈 일지 표시 데이터 (아무것도 만들지 않는다) */
+  settingsPreview: adminProcedure
+    .input(z.object({ definition: z.any() }))
+    .mutation(async ({ input, ctx }) => {
+      const conn = await settingsConn(ctx.tenantId);
+      const { definitionProblems, parseDefinition } = await import("../../../shared/dailyLog/definition");
+      const { loadSettings, removedIdProblems } = await import("../../lib/production/dailyLogSettingsStore");
+      const problems = definitionProblems(input.definition);
+      if (problems.length) return { problems, summary: null, viewModel: null };
+      const def = parseDefinition(input.definition);
+      const s = await loadSettings(conn, ctx.tenantId, 0);
+      const removed = removedIdProblems(s.active?.definition ?? null, def);
+      const { newRecordV2, expectedRows, activeQuestions } = await import("../../../shared/dailyLog/recordV2");
+      const { buildDailyLogViewModelV2 } = await import("../../../shared/dailyLog/viewModelV2");
+      const rows = expectedRows(def);
+      const summary = {
+        zones: def.zones.filter((z) => z.active).length,
+        points: new Set(rows.map((r) => r.point.pointId)).size,
+        measurementsPerDay: rows.length,
+        questions: activeQuestions(def).length,
+        sections: def.enabledSections.length,
+      };
+      return { problems: removed, summary, viewModel: buildDailyLogViewModelV2(newRecordV2(def, nowKstParts().date, null)) };
+    }),
+
+  /** 발행 — 새 버전(불변). 다음에 새로 만드는 일지부터 적용 */
+  settingsPublish: adminProcedure
+    .input(z.object({ expectedRowVersion: z.number().int() }))
+    .mutation(async ({ input, ctx }) => {
+      const conn = await settingsConn(ctx.tenantId);
+      const { publishDraft } = await import("../../lib/production/dailyLogSettingsStore");
+      try {
+        const r = await publishDraft(conn, ctx.tenantId, 0, input.expectedRowVersion, ctx.user.id);
+        const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
+        await createAuditLog({ action: "daily_log_settings.publish", entityType: "daily_log_settings", userId: ctx.user.id, changes: r, description: `일지 설정 v${r.versionNo} 발행` }, ctx.tenantId);
+        return r;
+      } catch (e: any) {
+        throw new TRPCError({ code: 'PRECONDITION_FAILED', message: e?.message ?? '발행 실패' });
       }
     }),
 
