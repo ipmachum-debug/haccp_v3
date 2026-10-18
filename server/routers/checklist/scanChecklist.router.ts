@@ -351,10 +351,13 @@ export const scanChecklistRouter = router({
     .input(z.object({
       ccpType: z.enum(["ccp_1b", "ccp_2b", "ccp_3b", "ccp_4p"]),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { generateBlankFormPdf } = await import("../../lib/blankFormPdf");
+      const { loadBlankFormOverrides } = await import("../../lib/blankFormOverrides");
       try {
-        const buf = await generateBlankFormPdf(input.ccpType);
+        // 회사의 공정그룹(한계기준·주기·모니터링·개선조치)·금속검출기 감도로 채운다 — 없으면 빈 줄
+        const overrides = await loadBlankFormOverrides(ctx.tenantId, input.ccpType);
+        const buf = await generateBlankFormPdf(input.ccpType, overrides);
         return {
           success: true,
           fileName: `${input.ccpType.toUpperCase()}_빈양식지.pdf`,

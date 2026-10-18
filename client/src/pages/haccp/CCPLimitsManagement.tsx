@@ -42,6 +42,8 @@ type CcpLimitInitialData = {
   phMax?: number | string;
   ph_max?: number | string;
   monitoringMethod?: string;
+  monitoringCycle?: string;
+  monitoring_cycle?: string;
   monitoring_method?: string;
   correctiveAction?: string;
   corrective_action?: string;
@@ -127,6 +129,7 @@ function ProcessGroupFormDialog({
     phMin: initialData?.ph_min || initialData?.phMin || "",
     phMax: initialData?.ph_max || initialData?.phMax || "",
     monitoringMethod: initialData?.monitoring_method || initialData?.monitoringMethod || "",
+    monitoringCycle: initialData?.monitoring_cycle || initialData?.monitoringCycle || "",
     correctiveAction: initialData?.corrective_action || initialData?.correctiveAction || "",
     selectedEquipmentIds: (initialData?.equipments || []).map((e: CcpLimitEquipment) => e.equipmentId || e.equipment_id) as number[],
     // 배치 운영 설정
@@ -187,6 +190,7 @@ function ProcessGroupFormDialog({
       phMin: form.phMin ? Number(form.phMin) : undefined,
       phMax: form.phMax ? Number(form.phMax) : undefined,
       monitoringMethod: form.monitoringMethod || undefined,
+      monitoringCycle: form.monitoringCycle || undefined,
       correctiveAction: form.correctiveAction || undefined,
       equipmentIds: form.selectedEquipmentIds,
       // 배치 운영 설정
@@ -334,8 +338,18 @@ function ProcessGroupFormDialog({
                 </div>
               </div>
 
-              {/* 모니터링 방법 & 시정 조치 */}
+              {/* 주기 · 모니터링 방법 · 시정 조치 — 기록지에 그대로 인쇄되는 문구 (회사마다 다름) */}
               <div className="grid grid-cols-2 gap-3">
+                <div className="col-span-2">
+                  <Label className="text-xs">주기 <span className="text-muted-foreground">(기록지 '주 기' 칸에 인쇄)</span></Label>
+                  <Textarea
+                    value={form.monitoringCycle}
+                    onChange={(e) => setForm({ ...form, monitoringCycle: e.target.value })}
+                    rows={1}
+                    className="text-sm"
+                    placeholder="예: 매 회차(배치)마다"
+                  />
+                </div>
                 <div>
                   <Label className="text-xs">모니터링 방법</Label>
                   <Textarea

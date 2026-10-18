@@ -251,10 +251,12 @@ async function checkEquipColumns(conn: any): Promise<boolean> {
  * 공정그룹 × 설비 → h_ccp_rows 자동 생성
  *
  * ── 시간 계산 원칙 ─────────────────────────────────────────────────
- *  heating_min    = ccp_process_groups.time_min (공정별 가열시간)
+ *  ★ 2026-10-18 (CEO 검토): 한계기준(time_min, 하한)과 표준 운영시간(설비 default_time)은 다른 값이다.
+ *    행에 미리 채우는 가열시간은 **운영값** — 설비 default_time. 공정 time_min 은 적합 판정 기준으로만 쓰고
+ *    운영값 자리에 넣지 않는다. 운영값이 없으면 비워 둔다 (코드 기본 10분 없음).
+ *  heating_min    = equipments.default_time (설비 표준 운영 가열시간) — 없으면 NULL
  *  cycle_total    = equipments.batch_operation_time (설비 유휴포함 사이클)
- *  eq_default_heat= equipments.default_time (설비 기본 가열시간)
- *  duration_min   = cycle_total + (heating_min - eq_default_heat)
+ *  duration_min   = cycle_total (없으면 heating_min)
  *
  *  예) 교반기(사이클70, 기본가열10) + 교반-가열공정(가열10)
  *      → 70 + (10 - 10) = 70분
@@ -299,7 +301,7 @@ async function createCcpRowsForGroup(
     const tempC        = group.temperature_min != null ? group.temperature_min.toString() : null;
     // MPa → bar
     const pressureBar  = group.pressure_min != null ? (group.pressure_min * 10).toFixed(2) : null;
-    const heatingMin   = group.time_min ?? 10;
+    const heatingMin: number | null = null; // 설비가 없으면 운영 가열시간을 알 수 없다 — 비워 둔다 (한계 하한을 넣지 않음)
 
     let sortIdx = 0;
     for (let bn = 1; bn <= batchCount; bn++) {
@@ -352,13 +354,9 @@ async function createCcpRowsForGroup(
             : null;
 
       // 시간 계산
-      const heatingMin     = group.time_min    ?? eq.default_time ?? 10;
+      const heatingMin: number | null = eq.default_time ?? null;
       const cycleTotalMin  = eq.batch_operation_time ?? null;
-      const eqDefaultHeat  = eq.default_time ?? heatingMin;
-      const durationMin    =
-        cycleTotalMin != null
-          ? cycleTotalMin + (heatingMin - eqDefaultHeat)
-          : heatingMin;
+      const durationMin    = cycleTotalMin ?? heatingMin;
 
       await conn.execute(
         `INSERT INTO h_ccp_rows

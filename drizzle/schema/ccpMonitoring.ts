@@ -205,6 +205,7 @@ export const ccpProcessGroups = mysqlTable('ccp_process_groups', {
   phMin: decimal('ph_min', { precision: 4, scale: 2 }),
   phMax: decimal('ph_max', { precision: 4, scale: 2 }),
   monitoringMethod: text('monitoring_method'),
+  monitoringCycle: text('monitoring_cycle'),   // 주기 — 인쇄 '주 기' 칸, 회사가 공정마다 적는다 (2026-10-18)
   correctiveAction: text('corrective_action'),
   sortOrder: int('sort_order').default(0),
   status: varchar('status', { length: 50 }).notNull().default('active'),

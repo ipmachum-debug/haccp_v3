@@ -1,5 +1,8 @@
 /**
- * CCP 기록지의 공정별 투입량 (정제수 제외) — 품목제조보고 버전 하나 기준 (2026-10-16)
+ * CCP 기록지의 공정별 투입량 — 품목제조보고 버전 하나 기준 (2026-10-16)
+ *
+ * ★ 2026-10-18 (CEO): 정제수도 공정 투입량에 넣는다 — 가열되는 내용물에 들어가므로. 재고 차감 제외(is_deductible·stock_exempt)와는
+ *   다른 의미라 여기서 이름으로 빼지 않는다. 이전엔 '정제수' 이름 행을 CCP 투입량에서 뺐다.
  *
  * 이전: APPROVED 버전 전부의 원료 행을 합산 → 승인 버전이 2개인 제품(운영 20개)은 공정 투입 kg 두 배
  *   (우유설기 9/14: 버전1 4.55 + 버전2 4.635 = 9.19kg).
@@ -48,7 +51,7 @@ export function ccpInputKgByGroup(rows: CcpBomRow[], chosenVersionId: number): M
   for (const r of rows) {
     if (Number(r.version_id) !== chosenVersionId) continue;
     const pg = Number(r.process_group_id);
-    if (!pg || isWaterName(r.material_name)) continue;
+    if (!pg) continue;
     const cur = out.get(pg) ?? { kg: 0, versionId: chosenVersionId };
     cur.kg += rowKg(r);
     out.set(pg, cur);
@@ -75,11 +78,11 @@ export const CCP_BOM_ROWS_SQL = `
  * CCP 기록지의 투입량은 공정에 실제로 들어가는 양 — 불린 쌀처럼 전처리 후 kg(processKg) 이다 (원물 kg 아님).
  * 스냅샷은 배치 전체(계획 완제품) 기준이므로 기록지 한 행(배치 단위 batch_target_kg) 기준으로 나눈다:
  *   행 투입량 = 공정 합계 processKg × subBatchKg / plannedFinishedKg   (subBatchKg 가 없으면 배치 전체량)
- * 정제수는 기존과 같이 제외. 공정이 지정되지 않은 원료는 넣지 않는다 (공정 지정은 읽기만).
+ * 정제수 포함 (2026-10-18). 공정이 지정되지 않은 원료는 넣지 않는다 (공정 지정은 읽기만).
  */
 export function ccpInputKgFromSnapshot(
   rows: Array<{ materialId: number | null; processGroupId: number | null; processKg: number }>,
-  waterMaterialIds: Set<number>,
+  _waterMaterialIds: Set<number>, // 호환용 — 더 이상 제외하지 않는다 (2026-10-18)
   subBatchKg: number | null,
   plannedFinishedKg: number,
 ): Record<number, number> {
@@ -88,7 +91,6 @@ export function ccpInputKgFromSnapshot(
   for (const r of rows) {
     const pg = Number(r.processGroupId);
     if (!pg) continue;
-    if (r.materialId != null && waterMaterialIds.has(Number(r.materialId))) continue;
     out[pg] = (out[pg] ?? 0) + Number(r.processKg || 0) * scale;
   }
   for (const k of Object.keys(out)) out[Number(k)] = Math.round(out[Number(k)] * 1000) / 1000;

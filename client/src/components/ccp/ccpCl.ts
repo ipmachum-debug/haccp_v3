@@ -16,17 +16,14 @@ export type ClRecord = {
   clSusMm?: string | number | null;
 };
 
-// CL 기준값 (기준서 기반)
-export const CCP_CL_DEFAULTS: Record<string, {
+// CL 값 모양. 기본값은 없다 — 특정 회사 기준서 숫자(10~15분·0.12MPa·90℃·150℃·감도 130·Fe 2.0·SUS 3.0)를
+//   코드에 두지 않는다 (2026-10-18 CEO: 단지 전용 금지). 기준은 공정그룹 → 기록지 스냅샷에서만 온다.
+export type ClValues = {
   heatTimeMinLo?: number; heatTimeMinHi?: number;
   heatTempLo?: number; pressureMpaLo?: number; productTempLo?: number;
   metalSensitivity?: number; feMm?: number; susMm?: number;
-}> = {
-  "CCP-2B": { heatTimeMinLo: 10, heatTimeMinHi: 15, heatTempLo: 150 },
-  "CCP-1B": { heatTimeMinLo: 10, heatTimeMinHi: 15, pressureMpaLo: 0.12, productTempLo: 90 },
-  "CCP-4P": { metalSensitivity: 130, feMm: 2.0, susMm: 3.0 },
 };
-export type ClValues = typeof CCP_CL_DEFAULTS[string];
+export const CCP_CL_DEFAULTS: Record<string, ClValues> = {};
 
 /**
  * 기록지의 CL — 기록지에 저장된 스냅샷(공정그룹 설정)을 쓴다 (지티 QA F12, 2026-10-18).
@@ -34,11 +31,9 @@ export type ClValues = typeof CCP_CL_DEFAULTS[string];
  *   공정그룹 기록지는 스냅샷에 없는 항목을 기본값으로 채우지 않는다(표시 '-', 판정 제외). 그룹 없는 옛 기록지만 기본값.
  */
 export function clFromRecord(rec: ClRecord): ClValues {
-  const d = CCP_CL_DEFAULTS[rec.ccpType] ?? {};
   const num = (v: unknown) => (v == null || v === "" || !Number.isFinite(Number(v)) ? undefined : Number(v));
-  const snap = [rec.clHeatTimeMinLo, rec.clHeatTimeMinHi, rec.clHeatTempLo, rec.clPressureMpaLo, rec.clProductTempLo].some((v) => num(v) != null);
-  const metal = { metalSensitivity: num(rec.clMetalSensitivity) ?? d.metalSensitivity, feMm: num(rec.clFeMm) ?? d.feMm, susMm: num(rec.clSusMm) ?? d.susMm };
-  if (rec.ccpType === "CCP-4P" || (rec.processGroupId == null && !snap)) return { ...d, ...metal };
+  const metal = { metalSensitivity: num(rec.clMetalSensitivity), feMm: num(rec.clFeMm), susMm: num(rec.clSusMm) };
+  if (rec.ccpType === "CCP-4P") return metal;
   return {
     heatTimeMinLo: num(rec.clHeatTimeMinLo), heatTimeMinHi: num(rec.clHeatTimeMinHi),
     heatTempLo: num(rec.clHeatTempLo), pressureMpaLo: num(rec.clPressureMpaLo),
@@ -49,6 +44,8 @@ export function clFromRecord(rec: ClRecord): ClValues {
 export const clRange = (lo?: number, hi?: number, unit = "") =>
   lo != null && hi != null ? `${lo}~${hi}${unit}` : lo != null ? `${lo}${unit} 이상` : hi != null ? `${hi}${unit} 이하` : "-";
 export const clMin = (lo: number | undefined, suffix: string) => (lo != null ? `${lo}${suffix}` : "-");
+/** 판정에 쓸 기준이 하나라도 있는가 — 없으면 자동 판정하지 않는다 (전부 '적합' 으로 찍히는 것 방지) */
+export const clHasAny = (cl: ClValues, keys: Array<keyof ClValues>) => keys.some((k) => cl[k] != null);
 /** 정한 기준만 본다 — 없는 기준은 판정에서 뺀다 */
 export const clOk = (v: number, lo?: number, hi?: number) =>
   (lo == null || (Number.isFinite(v) && v >= lo)) && (hi == null || (Number.isFinite(v) && v <= hi));

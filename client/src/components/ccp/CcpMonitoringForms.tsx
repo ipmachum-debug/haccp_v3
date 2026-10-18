@@ -45,7 +45,7 @@ import { cn } from "../../lib/utils";
 import { useLocation } from "wouter";
 
 import { todayLocal } from "../../lib/dateUtils";
-import { CCP_CL_DEFAULTS, clFromRecord, clRange, clMin, clOk, clSummary } from "./ccpCl";
+import { type ClValues, clFromRecord, clRange, clMin, clOk, clHasAny, clSummary } from "./ccpCl";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants & Types
@@ -319,7 +319,7 @@ function RowInputForm({
 }: {
   ccpType: string; batchSeq: number; formRecordId: number;
   equipmentName?: string; equipmentType?: string;
-  clDefaults: typeof CCP_CL_DEFAULTS[string];
+  clDefaults: ClValues;
   onSaved: () => void; editRow?: CcpFormRow;
 }) {
   const { toast } = useToast();
@@ -371,11 +371,11 @@ function RowInputForm({
     if (!autoResult) {
       if (ccpType === "CCP-2B") {
         const ht = parseFloat(heatTimeMin); const temp = parseFloat(heatTempC);
-        if (ht && temp) autoResult = (clOk(ht, clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi) && clOk(temp, clDefaults.heatTempLo)) ? "적합" : "부적합";
+        if (ht && temp && clHasAny(clDefaults, ["heatTimeMinLo", "heatTimeMinHi", "heatTempLo"])) autoResult = (clOk(ht, clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi) && clOk(temp, clDefaults.heatTempLo)) ? "적합" : "부적합";
       } else if (ccpType === "CCP-1B") {
         const ht = parseFloat(heatTimeMin); const p = parseFloat(pressureMpa);
         const tc = parseFloat(tempCenterC);
-        if (ht && tc) autoResult = (clOk(ht, clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi) && clOk(p, clDefaults.pressureMpaLo) && clOk(tc, clDefaults.productTempLo)) ? "적합" : "부적합";
+        if (ht && tc && clHasAny(clDefaults, ["heatTimeMinLo", "heatTimeMinHi", "pressureMpaLo", "productTempLo"])) autoResult = (clOk(ht, clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi) && clOk(p, clDefaults.pressureMpaLo) && clOk(tc, clDefaults.productTempLo)) ? "적합" : "부적합";
       } else if (ccpType === "CCP-4P") {
         const allPass = [metalFeMid, metalSusMid, metalProductOnly, metalFeProduct, metalSusProduct]
           .every(v => v === "O");
@@ -460,7 +460,7 @@ function RowInputForm({
         <div className="p-2 bg-blue-50 border border-blue-100 rounded space-y-2">
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <Label className="text-xs">시루명 (설비기준 = 시루)</Label>
+              <Label className="text-xs">설비명</Label>
               <Input placeholder="예: 교반기 1호" value={siruName}
                 onChange={e => setSiruName(e.target.value)} className="h-8 text-sm mt-1" />
             </div>
@@ -1093,16 +1093,12 @@ export function CcpMonitoringForms({
     const uniqueTypes = Array.from(new Set((ccpInstances as any[]).map((c: any) => c.ccpType as string)));
     for (const ccpType of uniqueTypes) {
       const inst = (ccpInstances as any[]).find((c: any) => c.ccpType === ccpType);
-      const cl = CCP_CL_DEFAULTS[ccpType] ?? {};
+      // CL 은 보내지 않는다 — 서버가 공정그룹(금속검출은 설비 감도)에서 스냅샷한다 (회사별 값)
       getOrCreateMutation.mutate({
         batchId, ccpType, workDate: today,
         productId, productName,
         processGroupId: inst?.processGroupId ?? undefined,
         plannedQtyKg,
-        clHeatTimeMinLo: cl.heatTimeMinLo, clHeatTimeMinHi: cl.heatTimeMinHi,
-        clHeatTempLo: cl.heatTempLo, clPressureMpaLo: cl.pressureMpaLo,
-        clProductTempLo: cl.productTempLo,
-        clMetalSensitivity: cl.metalSensitivity, clFeMm: cl.feMm, clSusMm: cl.susMm,
       });
     }
   }, [ccpInstances, batchId, today, productId, productName, plannedQtyKg]);
@@ -1175,7 +1171,7 @@ export function CcpMonitoringForms({
           <br />
           <strong>설비 순차할당:</strong> 배치1→설비1, 배치2→설비2, 배치3→설비3 (순환)
           <br />
-          <strong>굽기/증숙 공정:</strong> 설비기준에서 시루(교반기/증숙기)가 표시됩니다.
+          <strong>굽기/증숙 공정:</strong> 공정그룹에 배정된 설비가 표시됩니다.
         </div>
       </div>
       )}

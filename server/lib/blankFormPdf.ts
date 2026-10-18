@@ -81,25 +81,17 @@ const FORM_SPECS: Record<BlankFormCcpType, CcpFormSpec> = {
     title: "중요관리점(CCP-1B) 모니터링일지",
     subtitle: "[가열(증숙)공정]",
     limitsHeader: ["품목", "가열시간", "압력", "품온"],
-    limitsRows: [
-      ["참쌀떡류(교반기1호기)", "10분이상~15분이하", "0.16Mpa이상", "90.0℃이상"],
-      ["참쌀떡류(교반기2호기)", "10분이상~15분이하", "0.12Mpa이상", "90.0℃이상"],
-      ["전통떡류", "10분이상~15분이하", "0.28Mpa이상", "90.0℃이상"],
-      ["약식", "35분이상~40분이하", "0.28Mpa이상", "90.0℃이상"],
-    ],
-    cycleNote: "매 작업시마다, 같은품목 작업시 2시간마다, 품목 바뀔때마다",
+    limitsRows: [],
+    cycleNote: "",
     monitoringMethod: [
-      "○ 가열시간 : 모니터링 담당자는 검교정된 타이머를 이용하여 시간을 확인일지에 기록",
-      "○ 품명 및 해당 품목 가열(증숙) 압력확인 - 압력계 수치 확인",
-      "○ 품명 및 해당 품목 가열(증숙) 시간확인 - 가열(증숙)시간을 타이머로 설정(setting)",
-      "○ 시루 최대 적재단수 3단이며 제일 윗단 시루에 스팀이 올라오는 것 확인후 타이머 (세팅된 가열(증숙)시간) 작동",
-      "※ 품온 측정 : 스팀공급관에서 제일 끝시루 상단시루에서 모서리 1곳과 중심부 1곳을 측정",
-      "○ 타이머로 설정된 시간 종료후 탐침온도계로 품온측정 및 측정시간 확인, 기록",
+      "○ 가열시간 : 검교정된 타이머로 확인 후 기록",
+      "○ 압력·온도 : 계기 수치 확인 후 기록",
+      "○ 품온 : 가열 종료 후 탐침온도계로 측정 후 기록",
     ],
     dataColumns: [
       { label: "품 명",             widthRatio: 0.14 },
       { label: "측정시각",         widthRatio: 0.10 },
-      { label: "교반기",           widthRatio: 0.09 },
+      { label: "설비",             widthRatio: 0.09 },
       { label: "가열시간",         widthRatio: 0.09 },
       { label: "압력(Mpa)",       widthRatio: 0.10 },
       { label: "투입량(kg)",      widthRatio: 0.10 },
@@ -128,12 +120,8 @@ const FORM_SPECS: Record<BlankFormCcpType, CcpFormSpec> = {
     title: "중요관리점(CCP-2B) 모니터링일지",
     subtitle: "[가열(굽기)공정]",
     limitsHeader: ["품목", "가열시간", "온도"],
-    limitsRows: [
-      ["마카다미아", "10분이상~15분이하", "150℃이상"],
-      ["호두",       "10분이상~15분이하", "150℃이상"],
-      ["땅콩",       "10분이상~15분이하", "150℃이상"],
-    ],
-    cycleNote: "매 작업시마다, 같은품목 작업시 2시간마다, 품목 바뀔때마다",
+    limitsRows: [],
+    cycleNote: "",
     monitoringMethod: [
       "○ 가열시간 : 모니터링 담당자는 검교정된 타이머를 이용하여 시간을 확인일지에 기록",
       "○ 가열온도 : 오븐 온도계 수치 확인",
@@ -158,10 +146,8 @@ const FORM_SPECS: Record<BlankFormCcpType, CcpFormSpec> = {
     title: "중요관리점(CCP-3B) 모니터링일지",
     subtitle: "[가열공정]",
     limitsHeader: ["품목", "가열시간", "온도"],
-    limitsRows: [
-      ["대상 품목", "기준 시간", "기준 온도"],
-    ],
-    cycleNote: "매 작업시마다, 같은품목 작업시 2시간마다, 품목 바뀔때마다",
+    limitsRows: [],
+    cycleNote: "",
     monitoringMethod: [
       "○ 가열시간 : 검교정된 타이머로 시간 확인 및 기록",
       "○ 가열온도 : 온도계 수치 확인",
@@ -184,9 +170,7 @@ const FORM_SPECS: Record<BlankFormCcpType, CcpFormSpec> = {
     title: "중요관리점(CCP-4P) 모니터링일지",
     subtitle: "[금속검출공정]",
     limitsHeader: ["감도 설정", "Fe 시편", "SUS 시편"],
-    limitsRows: [
-      ["130", "Fe 2.0mmΦ 이상 불검출", "SUS 3.0mmΦ 이상 불검출"],
-    ],
+    limitsRows: [],
     cycleNote: "매 작업시마다 시편 통과 확인. 시편 미감지 시 즉시 작업 중단.",
     monitoringMethod: [
       "○ 작업 시작 전 시편(Fe/SUS) 통과시켜 감도 정상 확인",
@@ -218,9 +202,21 @@ const FORM_SPECS: Record<BlankFormCcpType, CcpFormSpec> = {
 /**
  * 빈 양식지 PDF 생성. Buffer 반환.
  */
-export async function generateBlankFormPdf(ccpType: BlankFormCcpType): Promise<Buffer> {
-  const spec = FORM_SPECS[ccpType];
-  if (!spec) throw new Error(`알 수 없는 양식 타입: ${ccpType}`);
+/** 회사 공정 설정에서 온 문구·한계기준 — 있으면 코드 기본 문구 대신 쓴다 (2026-10-18: 특정 회사 값 코드 제거) */
+export type BlankFormOverrides = Partial<Pick<CcpFormSpec, "limitsRows" | "cycleNote" | "monitoringMethod" | "correctiveMethod">> & { equipmentLabel?: string };
+
+export async function generateBlankFormPdf(ccpType: BlankFormCcpType, overrides: BlankFormOverrides = {}): Promise<Buffer> {
+  const base = FORM_SPECS[ccpType];
+  if (!base) throw new Error(`알 수 없는 양식 타입: ${ccpType}`);
+  const spec: CcpFormSpec = { ...base };
+  for (const k of ["limitsRows", "cycleNote", "monitoringMethod", "correctiveMethod"] as const) {
+    const v = overrides[k];
+    if (v != null && (typeof v === "string" ? v.trim() : (v as unknown[]).length)) (spec as any)[k] = v;
+  }
+  // 설비 열 제목 — 공정에 배정된 설비 종류 (교반기/시루/증숙기 …)
+  if (overrides.equipmentLabel) spec.dataColumns = spec.dataColumns.map((c) => (c.label === "설비" ? { ...c, label: overrides.equipmentLabel! } : c));
+  // 한계기준 행이 없으면 손으로 적을 빈 줄 3개
+  if (!spec.limitsRows.length) spec.limitsRows = Array.from({ length: 3 }, () => spec.limitsHeader.map(() => ""));
 
   return new Promise((resolve, reject) => {
     try {
