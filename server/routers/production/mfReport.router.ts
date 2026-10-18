@@ -6,6 +6,24 @@ import { eq, or } from "drizzle-orm";
 import { hMfFlavors } from "../../../drizzle/schema";
 import { getDb } from "../../db";
 
+// 회사 소유 검증 (2026-10-19, 설계 18 R6) — 입력의 보고서·버전·원료 줄·품목·공정 번호가 모두 이 회사 것일 때만 실행
+//   이전: 버전·원료 줄을 번호만으로 찾아 고쳐 다른 회사의 BOM 이 바뀔 수 있었다 (updateMfReport 등)
+async function mfOwned(opts: { ctx: any; getRawInput: () => Promise<unknown>; next: () => any }) {
+  const tenantId = opts.ctx?.tenantId;
+  if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "회사 정보가 없습니다." });
+  const { getRawConnection } = await import("../../db");
+  const { assertMfIdsOwned, MfOwnershipError } = await import("../../lib/production/mfReportOwnership");
+  try {
+    await assertMfIdsOwned(await getRawConnection(), Number(tenantId), await opts.getRawInput());
+  } catch (e: any) {
+    if (e instanceof MfOwnershipError) throw new TRPCError({ code: "NOT_FOUND", message: e.message });
+    throw e;
+  }
+  return opts.next();
+}
+const mfAdmin = adminProcedure.use(mfOwned as any);
+const mfTenant = tenantRequiredProcedure.use(mfOwned as any);
+
 export const mfReportRouter = router({
     // 품목제조보고 목록 조회
     list: tenantRequiredProcedure.query(async ({ ctx }) => {
@@ -14,7 +32,7 @@ export const mfReportRouter = router({
     }),
     
     // 품목제조보고 상세 조회
-    getById: tenantRequiredProcedure
+    getById: mfTenant
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMfReportDetail } = await import("../../db/production/mfReportAPI");
@@ -22,7 +40,7 @@ export const mfReportRouter = router({
       }),
     
     // 품목제조보고 생성
-    create: adminProcedure
+    create: mfAdmin
       .input(
         z.object({
           productId: z.number(),
@@ -99,7 +117,7 @@ export const mfReportRouter = router({
         return { enabled: input.enabled };
       }),
 
-    update: adminProcedure
+    update: mfAdmin
       .input(
         z.object({
           mfReportId: z.number(),
@@ -164,7 +182,7 @@ export const mfReportRouter = router({
       }),
     
     // 품목제조보고 버전 생성
-    createVersion: adminProcedure
+    createVersion: mfAdmin
       .input(
         z.object({
           mfReportId: z.number(),
@@ -181,7 +199,7 @@ export const mfReportRouter = router({
       }),
     
     // 품목제조보고 버전 승인
-    approveVersion: adminProcedure
+    approveVersion: mfAdmin
       .input(z.object({ versionId: z.number(), comment: z.string().optional() }))
       .mutation(async ({ input, ctx }) => {
         const { approveMfReportVersion } = await import("../../db/production/mfReportAPI");
@@ -189,7 +207,7 @@ export const mfReportRouter = router({
       }),
     
     // 품목제조보고 버전 목록 조회
-    getVersions: tenantRequiredProcedure
+    getVersions: mfTenant
       .input(z.object({ mfReportId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMfReportVersions } = await import("../../db/production/mfReportAPI");
@@ -197,7 +215,7 @@ export const mfReportRouter = router({
       }),
     
     // 품목제조보고 버전 상세 조회
-    getVersionDetail: tenantRequiredProcedure
+    getVersionDetail: mfTenant
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMfReportVersionDetail } = await import("../../db/production/mfReportAPI");
@@ -205,7 +223,7 @@ export const mfReportRouter = router({
       }),
     
     // 특정 날짜에 유효한 버전 조회
-    getVersionByDate: tenantRequiredProcedure
+    getVersionByDate: mfTenant
       .input(
         z.object({
           mfReportId: z.number(),
@@ -225,7 +243,7 @@ export const mfReportRouter = router({
     }),
     
     // 맛(Flavor) 생성
-    createFlavor: adminProcedure
+    createFlavor: mfAdmin
       .input(
         z.object({
           mfReportVersionId: z.number(),
@@ -241,7 +259,7 @@ export const mfReportRouter = router({
       }),
     
     // 원재료 구성 추가
-    addIngredient: adminProcedure
+    addIngredient: mfAdmin
       .input(
         z.object({
           mfReportVersionId: z.number(),
@@ -260,7 +278,7 @@ export const mfReportRouter = router({
       }),
     
     // 원재료 구성 수정
-    updateIngredient: adminProcedure
+    updateIngredient: mfAdmin
       .input(
         z.object({
           ingredientId: z.number(),
@@ -279,7 +297,7 @@ export const mfReportRouter = router({
       }),
     
     // 원재료 구성 삭제
-    deleteIngredient: adminProcedure
+    deleteIngredient: mfAdmin
       .input(z.object({ ingredientId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { deleteMfIngredient } = await import("../../db/production/mfReportAPI");
@@ -287,7 +305,7 @@ export const mfReportRouter = router({
       }),
     
     // 일괄 상태 변경
-    bulkUpdateStatus: adminProcedure
+    bulkUpdateStatus: mfAdmin
       .input(
         z.object({
           ids: z.array(z.number()),
@@ -300,7 +318,7 @@ export const mfReportRouter = router({
       }),
     
     // 일괄 삭제
-    bulkDelete: adminProcedure
+    bulkDelete: mfAdmin
       .input(z.object({ ids: z.array(z.number()) }))
       .mutation(async ({ input, ctx }) => {
         const { bulkDeleteMfReports } = await import("../../db/production/mfReportAPI");
@@ -308,7 +326,7 @@ export const mfReportRouter = router({
       }),
     
     // 일괄 PDF 출력
-    bulkExportPdf: adminProcedure
+    bulkExportPdf: mfAdmin
       .input(z.object({ ids: z.array(z.number()) }))
       .mutation(async ({ input, ctx }) => {
         const { bulkExportMfReportsPdf } = await import("../../db/production/mfReportAPI");
@@ -316,7 +334,7 @@ export const mfReportRouter = router({
       }),
     
     // 배치 생산량 g 환산 계산
-    calculateBatchRequirements: tenantRequiredProcedure
+    calculateBatchRequirements: mfTenant
       .input(
         z.object({
           versionId: z.number(),
@@ -329,7 +347,7 @@ export const mfReportRouter = router({
       }),
     
     // 승인 요청
-    requestApproval: tenantRequiredProcedure
+    requestApproval: mfTenant
       .input(
         z.object({
           versionId: z.number(),
@@ -342,7 +360,7 @@ export const mfReportRouter = router({
       }),
     
     // 승인 처리
-    approve: adminProcedure
+    approve: mfAdmin
       .input(
         z.object({
           versionId: z.number(),
@@ -354,7 +372,7 @@ export const mfReportRouter = router({
         return await approveMfReportVersion(input.versionId, ctx.user.id, input.comment, ctx.tenantId);
       }),
     // 반려 처리
-    reject: adminProcedure
+    reject: mfAdmin
       .input(
         z.object({
           versionId: z.number(),
@@ -367,7 +385,7 @@ export const mfReportRouter = router({
       }),
     
     // 승인 이력 조회
-    getApprovalHistory: tenantRequiredProcedure
+    getApprovalHistory: mfTenant
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMfReportApprovalHistory } = await import("../../db/production/mfReportAPI");
@@ -375,7 +393,7 @@ export const mfReportRouter = router({
       }),
     
     // 보정 배합비 재계산
-    recalculateCorrectedRatios: adminProcedure
+    recalculateCorrectedRatios: mfAdmin
       .input(z.object({ versionId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
@@ -384,7 +402,7 @@ export const mfReportRouter = router({
       }),
 
     // 오차 분석 (배치 학습 기반)
-    getDeviationAnalysis: tenantRequiredProcedure
+    getDeviationAnalysis: mfTenant
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const tenantId = ctx.tenantId;
@@ -393,7 +411,7 @@ export const mfReportRouter = router({
       }),
 
     // 재고 차감 (원재료/중간재/부재료 정책 적용)
-    deductInventory: adminProcedure
+    deductInventory: mfAdmin
       .input(
         z.object({
           versionId: z.number(),
@@ -413,7 +431,7 @@ export const mfReportRouter = router({
       }),
     
     // 표시사항 출력 (요약형/상세형)
-    generateLabel: tenantRequiredProcedure
+    generateLabel: mfTenant
       .input(
         z.object({
           versionId: z.number(),
@@ -429,7 +447,7 @@ export const mfReportRouter = router({
       }),
     
     // 생산 이력 조회
-    getProductionLogs: tenantRequiredProcedure
+    getProductionLogs: mfTenant
       .input(
         z.object({
           versionId: z.number()
@@ -441,7 +459,7 @@ export const mfReportRouter = router({
       }),
     
     // 재고 차감 이력 조회
-    getInventoryDeductionLogs: tenantRequiredProcedure
+    getInventoryDeductionLogs: mfTenant
       .input(
         z.object({
           versionId: z.number()
@@ -454,7 +472,7 @@ export const mfReportRouter = router({
     // === 공정그룹 재료 매핑 & 배치 배합비 조정 API ===
     
     // 재료-공정 매핑 조회
-    getIngredientProcessMappings: tenantRequiredProcedure
+    getIngredientProcessMappings: mfTenant
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getIngredientProcessMappings } = await import("../../db/production/mfReportAPI");
@@ -462,7 +480,7 @@ export const mfReportRouter = router({
       }),
 
     // 재료-공정 매핑 일괄 저장
-    saveIngredientProcessMappings: tenantRequiredProcedure
+    saveIngredientProcessMappings: mfTenant
       .input(z.object({
         versionId: z.number(),
         mappings: z.array(z.object({
@@ -478,7 +496,7 @@ export const mfReportRouter = router({
       }),
 
     // 공정별 조정 파라미터 조회
-    getProcessAdjustments: tenantRequiredProcedure
+    getProcessAdjustments: mfTenant
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getProcessAdjustments } = await import("../../db/production/mfReportAPI");
@@ -486,7 +504,7 @@ export const mfReportRouter = router({
       }),
 
     // 공정별 조정 파라미터 일괄 저장
-    saveProcessAdjustments: tenantRequiredProcedure
+    saveProcessAdjustments: mfTenant
       .input(z.object({
         versionId: z.number(),
         adjustments: z.array(z.object({
@@ -508,7 +526,7 @@ export const mfReportRouter = router({
       }),
 
     // 공정그룹 기반 배치 배합비 계산
-    calculateAdjustedBatchFormula: tenantRequiredProcedure
+    calculateAdjustedBatchFormula: mfTenant
       .input(z.object({
         versionId: z.number(),
         batchKg: z.number(),
@@ -522,7 +540,7 @@ export const mfReportRouter = router({
      * 품목제조보고서 BOM 트리 분해 — PR #254
      * 식약처 양식 출력 준비 (트리 구조 + depth + 원산지)
      */
-    flattenedBom: tenantRequiredProcedure
+    flattenedBom: mfTenant
       .input(z.object({ versionId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { flattenBomTree } = await import("../../db/production/mfReportFlatten");
@@ -532,7 +550,7 @@ export const mfReportRouter = router({
     /**
      * 품목제조보고서 Excel 출력 — PR #256
      */
-    exportFlattenedExcel: tenantRequiredProcedure
+    exportFlattenedExcel: mfTenant
       .input(z.object({ versionId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { exportMfReportExcel } = await import("../../db/production/mfReportExcelExport");
@@ -542,7 +560,7 @@ export const mfReportRouter = router({
     /**
      * 품목제조보고서 PDF 출력 — PR #256 (puppeteer HTML→PDF, 한글 폰트 지원)
      */
-    exportFlattenedPdf: tenantRequiredProcedure
+    exportFlattenedPdf: mfTenant
       .input(z.object({ versionId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         const { exportMfReportPdf } = await import("../../db/production/mfReportPdfExport");

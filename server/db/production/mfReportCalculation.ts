@@ -1014,6 +1014,11 @@ export async function updateMfReport(data: {
 
   const mfReportId = data.mfReportId;
 
+  // 0. 이 회사의 보고서인지 — 아래 버전·원료 줄 조회가 보고서 번호만 쓰므로 먼저 막는다 (설계 18 R6, 라우터 검증과 이중)
+  const owned = await db.select({ id: hMfReports.id }).from(hMfReports)
+    .where(and(eq(hMfReports.id, mfReportId), eq(hMfReports.tenantId, tenantId))).limit(1);
+  if (!owned.length) throw new Error("이 회사의 품목제조보고가 아닙니다 — 저장하지 않았습니다.");
+
   // 1. 보고서 기본 정보 업데이트
   const updateFields: any = {};
   if (data.reportNo) updateFields.reportNo = data.reportNo;

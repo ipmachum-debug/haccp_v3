@@ -195,7 +195,8 @@ function ProcessGroupFormDialog({
       equipmentIds: form.selectedEquipmentIds,
       // 배치 운영 설정
       equipGroupMode: form.equipGroupMode,
-      equipIntervalMin: Number(form.equipIntervalMin) || 10,
+      // 간격 0(동시에 바로 다음) 도 값 — 비었거나 숫자가 아닐 때만 기본 10 (설계 18 R9)
+      equipIntervalMin: String(form.equipIntervalMin ?? "").trim() !== "" && Number.isFinite(Number(form.equipIntervalMin)) ? Math.max(0, Number(form.equipIntervalMin)) : 10,
       equipBatchSize: Number(form.equipBatchSize) || 1,
     });
   };

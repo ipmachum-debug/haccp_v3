@@ -174,8 +174,11 @@ export function planDay(items: PlannerItem[], context: PlannerContext = {}): Pla
       const setSize = g.mode === "grouped" ? Math.max(1, g.batchSize || 1) : 1;
       const size = eqs.length ? Math.min(setSize, eqs.length) : setSize;
       if (size < setSize) warnings.push(`오늘 쓸 수 있는 설비가 ${eqs.length}대라 묶음을 ${setSize}대에서 ${size}대로 줄여 계산했습니다.`);
+      // 묶음 = '최대 size 대' — 앞에서부터 size 대씩, 남으면 작은 묶음 (대표 확정 2026-10-19: 5대분 → 1-2-3, 4-5).
+      //   이전에는 마지막 묶음도 size 대로 채워(5대분 → 6행) 투입량을 6줄로 나눴다. 행 = 설비 1회(BOM 1회 기준량), 마지막 행은 잔량.
       const groupsCount = g.mode === "grouped" && size > 1 ? Math.max(1, Math.ceil(rounds / size)) : rounds;
-      const rowCount = groupsCount * size;
+      const rowCount = rounds;
+      const membersOf = (gi: number) => (g.mode === "grouped" && size > 1 ? Math.min(size, rounds - gi * size) : 1);
 
       // 투입량 — 공정 1회차 기준량 × 계획량 ÷ 1회차 기준 완제품량 (BOM 공정 지정이 없으면 계획량 전체)
       const perRound = item.inputByGroup[g.id] ?? null;
@@ -198,7 +201,7 @@ export function planDay(items: PlannerItem[], context: PlannerContext = {}): Pla
         const pick: PlannerEquipment[] = [];
         if (eqs.length) {
           const ranked = [...eqs].sort((a, b) => (freeAt.get(a.id) ?? -Infinity) - (freeAt.get(b.id) ?? -Infinity) || a.sortOrder - b.sortOrder || a.id - b.id);
-          for (let k = 0; k < size; k++) pick.push(ranked[k]); // size ≤ 설비 수 — 한 묶음에 같은 설비 없음
+          for (let k = 0; k < membersOf(gi); k++) pick.push(ranked[k]); // 묶음 대수 ≤ 설비 수 — 한 묶음에 같은 설비 없음
         }
         // 시작 시각 — 공정 시작 · 설비가 비는 시각 · (순차/묶음) 앞 회차 + 간격
         let start: number | null = null;
@@ -209,7 +212,7 @@ export function planDay(items: PlannerItem[], context: PlannerContext = {}): Pla
           if (g.mode !== "concurrent" && prev != null && Number.isFinite(prev)) start = Math.max(start, prev + Math.max(0, g.intervalMin));
           lastStart.set(g.id, start);
         }
-        for (let k = 0; k < size; k++) {
+        for (let k = 0; k < membersOf(gi); k++) {
           seq++;
           const e = pick[k] ?? null;
           const heat = e ? (heatingMin ?? e.defaultTimeMin) : heatingMin;
