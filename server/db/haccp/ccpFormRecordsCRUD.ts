@@ -186,6 +186,22 @@ export async function getOrCreateCcpFormRecord(params: {
     }
   }
 
+  // CL 은 공정그룹 설정을 스냅샷으로 (배치 생성 경로와 같은 근거 — 지티 QA F12, 2026-10-18).
+  //   화면이 기준서 기본값(10~15분·0.12MPa·90℃)을 보내도 그룹이 있으면 그룹 값을 쓴다 — 판정과 표시가 같은 기준.
+  let groupCl: { timeLo: number | null; timeHi: number | null; tempLo: number | null; pressureLo: number | null } | null = null;
+  if (params.processGroupId && params.ccpType !== "CCP-4P") {
+    const conn = await getRawConnection();
+    const [g]: any = await conn.execute(
+      `SELECT time_min, time_max, temperature_min, pressure_min FROM ccp_process_groups WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [params.processGroupId, params.tenantId],
+    );
+    const r = (g as any[])[0];
+    if (r) {
+      const n = (v: unknown) => (v == null ? null : Number(v));
+      groupCl = { timeLo: n(r.time_min), timeHi: n(r.time_max), tempLo: n(r.temperature_min), pressureLo: n(r.pressure_min) };
+    }
+  }
+
   // CCP-4P: 일일 통합 기록 → productName/plannedQtyKg를 당일 전체 기준으로 설정
   let finalProductName = params.productName;
   let finalPlannedQtyKg = params.plannedQtyKg;
@@ -223,11 +239,12 @@ export async function getOrCreateCcpFormRecord(params: {
     batchCount: finalBatchCount,
     equipGroupMode,
     equipIntervalMin,
-    clHeatTimeMinLo: params.clHeatTimeMinLo,
-    clHeatTimeMinHi: params.clHeatTimeMinHi,
-    clHeatTempLo: params.clHeatTempLo?.toString(),
-    clPressureMpaLo: params.clPressureMpaLo?.toString(),
-    clProductTempLo: params.clProductTempLo?.toString(),
+    clHeatTimeMinLo: groupCl ? groupCl.timeLo : params.clHeatTimeMinLo,
+    clHeatTimeMinHi: groupCl ? groupCl.timeHi : params.clHeatTimeMinHi,
+    clHeatTempLo: (groupCl ? groupCl.tempLo : params.clHeatTempLo)?.toString(),
+    clPressureMpaLo: (groupCl ? groupCl.pressureLo : params.clPressureMpaLo)?.toString(),
+    // 증숙(CCP-1B) 품온 기준은 그룹 온도 하한 — 그룹이 있으면 기준서 기본 90℃ 를 쓰지 않는다
+    clProductTempLo: (groupCl ? (params.ccpType === "CCP-1B" ? groupCl.tempLo : null) : params.clProductTempLo)?.toString(),
     clMetalSensitivity: params.clMetalSensitivity ?? 130,
     clFeMm: params.clFeMm?.toString() ?? "2.0",
     clSusMm: params.clSusMm?.toString() ?? "3.0",

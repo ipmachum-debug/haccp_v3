@@ -45,6 +45,7 @@ import { cn } from "../../lib/utils";
 import { useLocation } from "wouter";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { CCP_CL_DEFAULTS, clFromRecord, clRange, clMin, clOk, clSummary } from "./ccpCl";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants & Types
@@ -55,16 +56,6 @@ const CCP_TYPE_LABELS: Record<string, string> = {
   "CCP-4P": "금속검출공정",
 };
 
-// CL 기준값 (기준서 기반)
-const CCP_CL_DEFAULTS: Record<string, {
-  heatTimeMinLo?: number; heatTimeMinHi?: number;
-  heatTempLo?: number; pressureMpaLo?: number; productTempLo?: number;
-  metalSensitivity?: number; feMm?: number; susMm?: number;
-}> = {
-  "CCP-2B": { heatTimeMinLo: 10, heatTimeMinHi: 15, heatTempLo: 150 },
-  "CCP-1B": { heatTimeMinLo: 10, heatTimeMinHi: 15, pressureMpaLo: 0.12, productTempLo: 90 },
-  "CCP-4P": { metalSensitivity: 130, feMm: 2.0, susMm: 3.0 },
-};
 
 interface CcpFormRecord {
   id: number;
@@ -380,15 +371,11 @@ function RowInputForm({
     if (!autoResult) {
       if (ccpType === "CCP-2B") {
         const ht = parseFloat(heatTimeMin); const temp = parseFloat(heatTempC);
-        const lo = clDefaults.heatTimeMinLo ?? 10; const hi = clDefaults.heatTimeMinHi ?? 15;
-        const tempLo = clDefaults.heatTempLo ?? 150;
-        if (ht && temp) autoResult = (ht >= lo && ht <= hi && temp >= tempLo) ? "적합" : "부적합";
+        if (ht && temp) autoResult = (clOk(ht, clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi) && clOk(temp, clDefaults.heatTempLo)) ? "적합" : "부적합";
       } else if (ccpType === "CCP-1B") {
         const ht = parseFloat(heatTimeMin); const p = parseFloat(pressureMpa);
         const tc = parseFloat(tempCenterC);
-        const lo = clDefaults.heatTimeMinLo ?? 10; const hi = clDefaults.heatTimeMinHi ?? 15;
-        const pLo = clDefaults.pressureMpaLo ?? 0.12; const tLo = clDefaults.productTempLo ?? 90;
-        if (ht && tc) autoResult = (ht >= lo && ht <= hi && p >= pLo && tc >= tLo) ? "적합" : "부적합";
+        if (ht && tc) autoResult = (clOk(ht, clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi) && clOk(p, clDefaults.pressureMpaLo) && clOk(tc, clDefaults.productTempLo)) ? "적합" : "부적합";
       } else if (ccpType === "CCP-4P") {
         const allPass = [metalFeMid, metalSusMid, metalProductOnly, metalFeProduct, metalSusProduct]
           .every(v => v === "O");
@@ -456,12 +443,12 @@ function RowInputForm({
       {ccpType === "CCP-2B" && (
         <div className="grid grid-cols-2 gap-2 p-2 bg-orange-50 border border-orange-100 rounded">
           <div>
-            <Label className="text-xs">가열시간(분) <span className="text-orange-600">CL: {clDefaults.heatTimeMinLo}~{clDefaults.heatTimeMinHi}분</span></Label>
+            <Label className="text-xs">가열시간(분) <span className="text-orange-600">CL: {clRange(clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi, "분")}</span></Label>
             <Input type="number" placeholder="예: 12" value={heatTimeMin}
               onChange={e => setHeatTimeMin(e.target.value)} className="h-8 text-sm mt-1" />
           </div>
           <div>
-            <Label className="text-xs">가열온도(°C) <span className="text-orange-600">CL: {clDefaults.heatTempLo}°C 이상</span></Label>
+            <Label className="text-xs">가열온도(°C) <span className="text-orange-600">CL: {clMin(clDefaults.heatTempLo, "°C 이상")}</span></Label>
             <Input type="number" placeholder="예: 180" value={heatTempC}
               onChange={e => setHeatTempC(e.target.value)} className="h-8 text-sm mt-1" />
           </div>
@@ -478,14 +465,14 @@ function RowInputForm({
                 onChange={e => setSiruName(e.target.value)} className="h-8 text-sm mt-1" />
             </div>
             <div>
-              <Label className="text-xs">가열시간(분) <span className="text-blue-600">CL: {clDefaults.heatTimeMinLo}~{clDefaults.heatTimeMinHi}분</span></Label>
+              <Label className="text-xs">가열시간(분) <span className="text-blue-600">CL: {clRange(clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi, "분")}</span></Label>
               <Input type="number" placeholder="예: 12" value={heatTimeMin}
                 onChange={e => setHeatTimeMin(e.target.value)} className="h-8 text-sm mt-1" />
             </div>
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <Label className="text-xs">압력(MPa) <span className="text-blue-600">CL: {clDefaults.pressureMpaLo}MPa 이상</span></Label>
+              <Label className="text-xs">압력(MPa) <span className="text-blue-600">CL: {clMin(clDefaults.pressureMpaLo, "MPa 이상")}</span></Label>
               <Input type="number" step="0.01" placeholder="0.12" value={pressureMpa}
                 onChange={e => setPressureMpa(e.target.value)} className="h-8 text-sm mt-1" />
             </div>
@@ -495,7 +482,7 @@ function RowInputForm({
                 onChange={e => setTempEdgeC(e.target.value)} className="h-8 text-sm mt-1" />
             </div>
             <div>
-              <Label className="text-xs">중심온도(°C) <span className="text-blue-600">CL: {clDefaults.productTempLo}°C↑</span></Label>
+              <Label className="text-xs">중심온도(°C) <span className="text-blue-600">CL: {clMin(clDefaults.productTempLo, "°C↑")}</span></Label>
               <Input type="number" placeholder="90" value={tempCenterC}
                 onChange={e => setTempCenterC(e.target.value)} className="h-8 text-sm mt-1" />
             </div>
@@ -770,7 +757,7 @@ function CcpFormPanel({
 
   const ccpGroup = equipmentGroups.find(g => g.ccpType === formRecord.ccpType);
   const equipmentList: EquipmentInfo[] = ccpGroup?.equipment ?? [];
-  const clDefaults = CCP_CL_DEFAULTS[formRecord.ccpType] ?? {};
+  const clDefaults = clFromRecord(formRecord);
   // CCP-4P 는 일일 통합 기록지 — 배치 단위가 아니라 감도 체크 + 통과 기록 (BOM 배치수·설비 할당 해당 없음)
   const is4P = formRecord.ccpType === "CCP-4P";
   const sens4pCount = is4P ? rows.filter(r => classify4pRow(r) === "sensitivity").length : 0;
@@ -851,9 +838,7 @@ function CcpFormPanel({
           {/* CL 기준값 표시 */}
           <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
             <span className="font-semibold">CL 기준:</span>{" "}
-            {formRecord.ccpType === "CCP-2B" && `가열시간 ${clDefaults.heatTimeMinLo}~${clDefaults.heatTimeMinHi}분 · 온도 ${clDefaults.heatTempLo}°C 이상`}
-            {formRecord.ccpType === "CCP-1B" && `가열시간 ${clDefaults.heatTimeMinLo}~${clDefaults.heatTimeMinHi}분 · 압력 ${clDefaults.pressureMpaLo}MPa 이상 · 품온 ${clDefaults.productTempLo}°C 이상`}
-            {formRecord.ccpType === "CCP-4P" && `감도 ${clDefaults.metalSensitivity} · Fe ${clDefaults.feMm}mmΦ 불검출 · SUS ${clDefaults.susMm}mmΦ 불검출`}
+            {clSummary(formRecord.ccpType, clDefaults)}
           </div>
 
           {/* CCP-4P: 감도 모니터링 + 통과량 (일일 통합) */}
