@@ -169,7 +169,11 @@ export function planDay(items: PlannerItem[], context: PlannerContext = {}): Pla
       else if (!g.equipments.length) warnings.push("공정에 설비가 지정되지 않아 설비·시각을 계산하지 못했습니다.");
 
       // 회차 수 — 묶음 방식은 한 회차에 묶음 크기만큼 설비가 같이 돈다 (행 = 묶음 수 × 묶음 크기, 이전 생성 규칙과 같음)
-      const size = g.mode === "grouped" ? Math.max(1, g.batchSize || 1) : 1;
+      //   오늘 쓸 수 있는 설비가 묶음 크기보다 적으면 묶음을 그 대수로 줄인다 — 같은 설비를 한 묶음에 두 번 배정하지 않는다
+      //   (2026-10-19 Codex 단지 회귀: 3대 묶음에서 1대 제외 시 같은 설비가 같은 시각에 두 번 배정됨)
+      const setSize = g.mode === "grouped" ? Math.max(1, g.batchSize || 1) : 1;
+      const size = eqs.length ? Math.min(setSize, eqs.length) : setSize;
+      if (size < setSize) warnings.push(`오늘 쓸 수 있는 설비가 ${eqs.length}대라 묶음을 ${setSize}대에서 ${size}대로 줄여 계산했습니다.`);
       const groupsCount = g.mode === "grouped" && size > 1 ? Math.max(1, Math.ceil(rounds / size)) : rounds;
       const rowCount = groupsCount * size;
 
@@ -194,7 +198,7 @@ export function planDay(items: PlannerItem[], context: PlannerContext = {}): Pla
         const pick: PlannerEquipment[] = [];
         if (eqs.length) {
           const ranked = [...eqs].sort((a, b) => (freeAt.get(a.id) ?? -Infinity) - (freeAt.get(b.id) ?? -Infinity) || a.sortOrder - b.sortOrder || a.id - b.id);
-          for (let k = 0; k < size; k++) pick.push(ranked[k % ranked.length]);
+          for (let k = 0; k < size; k++) pick.push(ranked[k]); // size ≤ 설비 수 — 한 묶음에 같은 설비 없음
         }
         // 시작 시각 — 공정 시작 · 설비가 비는 시각 · (순차/묶음) 앞 회차 + 간격
         let start: number | null = null;

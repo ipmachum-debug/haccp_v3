@@ -311,7 +311,8 @@ export async function createSingleBatch(
   if (ccpCreated && (input.mode === "auto" || input.endTime)) {
     try {
       const { updateBatchStatus } = await import("../db/production/batchCRUD");
-      await updateBatchStatus(batchId, "in_progress", input.tenantId);
+      // 자동 시작 — 계획 시작시각(업무일 + 시작시각) 유지, 입력 시각으로 덮어쓰지 않음 (F-PROD-02)
+      await updateBatchStatus(batchId, "in_progress", input.tenantId, { keepPlannedStart: true });
       // 자동출고 공통 진입점 (배치 잠금·회사 확인·줄 단위 트랜잭션, 2026-10-17)
       const { autoIssueMaterialsDispatch } = await import("../lib/production/autoMaterialIssueDispatcher");
       const issueResult = await autoIssueMaterialsDispatch(batchId, input.userId, input.tenantId);
