@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { categories as categoriesTable } from "../../../drizzle/schema/schema_categories";
 import ExcelJS from 'exceljs';
 import { tenantRequiredProcedure, adminProcedure, router } from "../../_core/trpc";
@@ -146,6 +147,22 @@ export const itemMasterRouter = router({
         }
       }
       
+      // 같은 회사 안의 코드 중복 — 품목과 재고 원재료·제품 표 모두 확인하고 업무 문장으로 안내 (지티 QA R01).
+      //   먼저 확인하지 않으면 품목만 들어가고 재고 표 동기화가 중복으로 실패해 반쪽 품목이 남는다.
+      {
+        const { getRawConnection } = await import("../../db/connection");
+        const conn = await getRawConnection();
+        const [dup]: any = await conn.query(
+          `SELECT 1 FROM item_master WHERE tenant_id = ? AND item_code = ?
+           UNION ALL SELECT 1 FROM h_materials WHERE tenant_id = ? AND material_code = ? AND ? = 'raw_material'
+           UNION ALL SELECT 1 FROM h_products_v2 WHERE tenant_id = ? AND product_code = ? AND ? = 'own_product'
+           LIMIT 1`,
+          [ctx.tenantId, itemCode, ctx.tenantId, itemCode, input.itemType, ctx.tenantId, itemCode, input.itemType],
+        );
+        if ((dup as any[]).length) {
+          throw new TRPCError({ code: "CONFLICT", message: `이미 있는 품목 코드입니다 (${itemCode}). 다른 코드를 입력하세요.` });
+        }
+      }
       const result = await db.insert(itemMaster).values({
         tenantId: ctx.tenantId,
         itemCode,

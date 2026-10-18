@@ -5,9 +5,17 @@ import type { TrpcContext } from "./context";
 import { TenantDb } from "../db/TenantDb";
 import { hasPermission, type FeatureArea, type Permission } from "../utils/rbacMatrix";
 import { checkPlanFeature, type PlanLimits } from "../utils/planConfig";
+import { toSafeErrorMessage } from "../utils/safeErrorMessage";
 
 const t = initTRPC.context<TrpcContext>().create({
   transformer: superjson,
+  // DB 오류 원문(SQL·파라미터)은 화면에 보내지 않고 서버 로그에만 (지티 QA R01)
+  errorFormatter({ shape, error }) {
+    const safe = toSafeErrorMessage(error);
+    if (safe === error.message) return shape;
+    console.error(`[trpc] ${shape.data?.path ?? "?"} DB 오류 원문:`, error.message);
+    return { ...shape, message: safe, data: { ...shape.data, stack: undefined } };
+  },
 });
 
 export const router = t.router;

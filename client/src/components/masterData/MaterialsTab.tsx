@@ -128,7 +128,10 @@ export default function MaterialsTab() {
       kind: kind as "RAW" | "PACKAGING" | "SUBSIDIARY",
       category: (formData.get("category") as string) || undefined,
       unit: (formData.get("unit") as string) || undefined,
-      expiryWarningDays: formData.get("shelfLifeDays") ? parseInt(formData.get("shelfLifeDays") as string) : undefined,
+      // 소비기한(일) 과 만료 알림(며칠 전) 은 다른 값 — 섞어 저장하지 않는다 (지티 QA R02)
+      shelfLifeDays: formData.get("shelfLifeDays") ? parseInt(formData.get("shelfLifeDays") as string) : undefined,
+      expiryWarningDays: formData.get("expiryWarningDays") ? parseInt(formData.get("expiryWarningDays") as string) : undefined,
+      description: (formData.get("description") as string) || undefined,
       isActive: 1,
     });
   };
@@ -142,7 +145,9 @@ export default function MaterialsTab() {
       materialName: formData.get("materialName") as string,
       category: editMaterialCategory || undefined,
       unit: (formData.get("unit") as string) || undefined,
-      expiryWarningDays: formData.get("shelfLifeDays") ? parseInt(formData.get("shelfLifeDays") as string) : undefined,
+      shelfLifeDays: formData.get("shelfLifeDays") ? parseInt(formData.get("shelfLifeDays") as string) : undefined,
+      expiryWarningDays: formData.get("expiryWarningDays") ? parseInt(formData.get("expiryWarningDays") as string) : undefined,
+      description: (formData.get("description") as string) ?? undefined,
     });
   };
 
@@ -306,7 +311,11 @@ export default function MaterialsTab() {
                       </div>
                       <div className="grid gap-2">
                         <Label htmlFor="shelfLifeDays">소비기한 (일)</Label>
-                        <Input id="shelfLifeDays" name="shelfLifeDays" type="number" placeholder="30일 = 1개월로 자동 변환" />
+                        <Input id="shelfLifeDays" name="shelfLifeDays" type="number" min={0} placeholder="예: 180" />
+                      </div>
+                      <div className="grid gap-2">
+                        <Label htmlFor="expiryWarningDays">만료 알림 (며칠 전)</Label>
+                        <Input id="expiryWarningDays" name="expiryWarningDays" type="number" min={0} placeholder="예: 7 — 비우면 기본값" />
                       </div>
                       <div className="grid gap-2">
                         <Label htmlFor="description">설명</Label>
@@ -390,7 +399,7 @@ export default function MaterialsTab() {
                       ) : "-"}
                     </TableCell>
                     <TableCell>{material.unit || "-"}</TableCell>
-                    <TableCell>{material.expiryWarningDays || "-"}</TableCell>
+                    <TableCell>{material.shelfLifeDays ?? "-"}</TableCell>
                     <TableCell>
                       <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
                         material.isActive ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"
@@ -530,7 +539,15 @@ export default function MaterialsTab() {
               </div>
               <div className="grid gap-2">
                 <Label htmlFor="edit-shelfLifeDays">소비기한 (일)</Label>
-                <Input id="edit-shelfLifeDays" name="shelfLifeDays" type="number" defaultValue={editingMaterial?.expiryWarningDays || ""} placeholder="30일 = 1개월로 자동 변환" />
+                <Input id="edit-shelfLifeDays" name="shelfLifeDays" type="number" min={0} defaultValue={editingMaterial?.shelfLifeDays ?? ""} placeholder="예: 180" />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-expiryWarningDays">만료 알림 (며칠 전)</Label>
+                <Input id="edit-expiryWarningDays" name="expiryWarningDays" type="number" min={0} defaultValue={editingMaterial?.expiryWarningDays ?? ""} placeholder="예: 7" />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="edit-description">설명</Label>
+                <Input id="edit-description" name="description" defaultValue={editingMaterial?.description ?? ""} />
               </div>
             </div>
             <DialogFooter>
@@ -578,8 +595,8 @@ export default function MaterialsTab() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-muted-foreground">소비기한 경고 (일)</Label>
-                  <p className="font-medium">{viewingMaterial.expiryWarningDays || "-"}</p>
+                  <Label className="text-muted-foreground">소비기한 (일) · 만료 알림</Label>
+                  <p className="font-medium">{viewingMaterial.shelfLifeDays ?? "-"}일 · {viewingMaterial.expiryWarningDays != null ? `${viewingMaterial.expiryWarningDays}일 전` : "-"}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">상태</Label>
