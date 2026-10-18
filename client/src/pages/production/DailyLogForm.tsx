@@ -19,6 +19,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import DailyLogV2Form from "@/components/production/DailyLogV2Form";
+import { isV2Record } from "@shared/dailyLog/recordV2";
 
 import { todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
@@ -87,17 +88,28 @@ const EMPTY_ISSUES = { issueDescription: "", actionTaken: "", completionDate: ""
 const EMPTY_REF_ISSUES = { issueDatetime: "", issueDescription: "", actionTaken: "", completionDate: "", actionBy: "", confirmedBy: "" };
 
 /**
- * 회사 일지 방식에 따라 화면을 고른다 — 설정 발행(DAILY_LOG_V2 켬) 회사는 v2, 아니면 이전 화면.
- *   방식 조회 실패를 이전 화면으로 넘기지 않는다 (v2 회사가 이전 형식으로 쓰게 되지 않게).
+ * 화면 고르기 (docs/architecture/17, Codex PR595 B 시험 F01·F02)
+ *   - 그 날짜에 일지가 있으면 **그 기록의 형식**으로 연다 (이전 방식 기록은 이전 화면 — 자동 변환 없음).
+ *   - 일지가 없는 날만 회사 방식(설정 발행 = v2)으로 새로 쓴다.
+ *   - 방식·일지 조회 실패를 이전 화면으로 넘기지 않는다 (v2 회사가 이전 형식으로 새로 쓰게 되지 않게).
+ *   - 날짜를 바꾸면 주소도 바꾼다 (?date= 만, 이전 id 는 버림) — 새로고침·링크 복사가 보던 날짜로 돌아오게.
  */
 export default function DailyLogForm() {
+  const [, navigate] = useLocation();
   const searchStr = useSearch();
   const paramDate = new URLSearchParams(searchStr).get("date");
-  const [logDate, setLogDate] = useState(paramDate || todayLocal());
+  const [logDate, setLogDateState] = useState(paramDate || todayLocal());
+  // 목록에서 다른 날짜로 다시 들어오면(같은 화면) 주소의 날짜를 따른다
+  useEffect(() => { if (paramDate && paramDate !== logDate) setLogDateState(paramDate); }, [paramDate]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setLogDate = useCallback((d: string) => {
+    setLogDateState(d);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(d)) navigate(`/daily-log/daily?date=${d}`, { replace: true });
+  }, [navigate]);
   const mode = trpc.dailyLog.mode.useQuery(undefined, { staleTime: 60000 });
-  if (mode.isLoading) {
-    return <DashboardLayout><div className="py-12 text-center text-sm text-muted-foreground"><Loader2 className="inline h-4 w-4 mr-1 animate-spin" />불러오는 중…</div></DashboardLayout>;
-  }
+  const isV2Company = mode.data?.version === 2;
+  const existing = trpc.dailyLog.getByDate.useQuery({ logDate }, { enabled: isV2Company && !!logDate, retry: 1 });
+  const loader = <DashboardLayout><div className="py-12 text-center text-sm text-muted-foreground"><Loader2 className="inline h-4 w-4 mr-1 animate-spin" />불러오는 중…</div></DashboardLayout>;
+  if (mode.isLoading) return loader;
   if (mode.isError) {
     return (
       <DashboardLayout>
@@ -108,19 +120,23 @@ export default function DailyLogForm() {
       </DashboardLayout>
     );
   }
-  if (mode.data?.version === 2) return <DashboardLayout><DailyLogV2Form logDate={logDate} setLogDate={setLogDate} /></DashboardLayout>;
-  return <DailyLogFormV1 />;
+  if (isV2Company) {
+    if (existing.isLoading) return loader;
+    // 이전 방식으로 만든 기록이 있는 날짜 → 이전 화면 (작성·제출·인쇄 동선 그대로)
+    if (existing.data && !isV2Record(existing.data.formData)) return <DailyLogFormV1 logDate={logDate} setLogDate={setLogDate} legacyOnV2 />;
+    // 조회 실패는 v2 화면이 오류·다시 시도로 보여 준다
+    return <DashboardLayout><DailyLogV2Form logDate={logDate} setLogDate={setLogDate} /></DashboardLayout>;
+  }
+  return <DailyLogFormV1 logDate={logDate} setLogDate={setLogDate} />;
 }
 
-function DailyLogFormV1() {
+function DailyLogFormV1({ logDate, setLogDate, legacyOnV2 = false }: { logDate: string; setLogDate: (d: string) => void; legacyOnV2?: boolean }) {
   const L = useIndustryLabel();
   const [, navigate] = useLocation();
   const searchStr = useSearch();
   const params = new URLSearchParams(searchStr);
-  const paramDate = params.get("date");
   const paramId = params.get("id");
 
-  const [logDate, setLogDate] = useState(paramDate || todayLocal());
   const [activeTab, setActiveTab] = useState("hygiene");
   const [recordId, setRecordId] = useState<number | null>(paramId ? parseInt(paramId) : null);
   const [recordStatus, setRecordStatus] = useState<string>("new");
@@ -376,6 +392,14 @@ function DailyLogFormV1() {
           </Button>
         </div>
       </div>
+
+      {legacyOnV2 && (
+        <Card className="border-blue-300 bg-blue-50/60" data-testid="daily-log-legacy-on-v2">
+          <CardContent className="py-3 text-sm text-blue-900">
+            이 날짜는 이전 방식으로 만든 일지입니다 — 기록 그대로 이전 화면으로 열었습니다 (새 방식으로 자동 변환하지 않음). 일지가 없는 날짜는 회사 일지 설정으로 새로 작성합니다.
+          </CardContent>
+        </Card>
+      )}
 
       {existingError && (
         <Card className="border-red-300" data-testid="daily-log-load-error">
