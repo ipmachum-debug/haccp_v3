@@ -468,9 +468,12 @@ export async function updateCcpRow(rowId: number, data: {
   if (data.measuredAt !== undefined)   { sets.push("measured_at = ?");     vals.push(data.measuredAt); }
   if (data.heatingMin !== undefined)   { sets.push("heating_min = ?");     vals.push(data.heatingMin); }
   if (data.cycleTotalMin !== undefined){ sets.push("cycle_total_min = ?"); vals.push(data.cycleTotalMin); }
+  // 회사 격리 — 이전엔 id 만으로 수정해 다른 회사의 CCP 행도 고칠 수 있었다 (2026-10-18)
+  if (!Number.isFinite(Number(tenantId)) || Number(tenantId) <= 0) throw new Error("테넌트 정보가 필요합니다.");
   if (sets.length === 0) return { success: true };
-  vals.push(rowId);
-  await conn.execute(`UPDATE h_ccp_rows SET ${sets.join(", ")} WHERE id = ?`, vals);
+  vals.push(rowId, Number(tenantId));
+  const [r]: any = await conn.execute(`UPDATE h_ccp_rows SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`, vals);
+  if (Number(r?.affectedRows ?? 0) === 0) throw new Error("CCP 점검 행을 찾을 수 없습니다.");
   return { success: true };
 }
 
@@ -481,8 +484,12 @@ export async function getCcpRowsByInstanceId(instanceId: number, tenantId?: numb
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   const { hCcpRows } = await import("../../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
-  return await db.select().from(hCcpRows).where(eq(hCcpRows.instanceId, instanceId)).orderBy(hCcpRows.sortOrder);
+  const { eq, and } = await import("drizzle-orm");
+  // 회사 격리 (2026-10-18) — 이전엔 instanceId 만으로 다른 회사 행도 읽혔다
+  if (!Number.isFinite(Number(tenantId)) || Number(tenantId) <= 0) throw new Error("테넌트 정보가 필요합니다.");
+  return await db.select().from(hCcpRows)
+    .where(and(eq(hCcpRows.instanceId, instanceId), eq(hCcpRows.tenantId, Number(tenantId))))
+    .orderBy(hCcpRows.sortOrder);
 }
 
 /**
@@ -492,7 +499,9 @@ export async function updateCcpInstanceStatus(instanceId: number, status: "draft
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
   const { hCcpInstances } = await import("../../../drizzle/schema.js");
-  const { eq } = await import("drizzle-orm");
+  const { eq, and } = await import("drizzle-orm");
+  // 회사 격리 (2026-10-18) — 이전엔 instanceId 만으로 다른 회사 인스턴스 상태도 바꿀 수 있었다
+  if (!Number.isFinite(Number(tenantId)) || Number(tenantId) <= 0) throw new Error("테넌트 정보가 필요합니다.");
 
   const updateData: Record<string, unknown> = { status };
 
@@ -504,7 +513,8 @@ export async function updateCcpInstanceStatus(instanceId: number, status: "draft
     if (userId) updateData.approvedBy = userId;
   }
 
-  await db.update(hCcpInstances).set(updateData).where(eq(hCcpInstances.id, instanceId));
+  await db.update(hCcpInstances).set(updateData)
+    .where(and(eq(hCcpInstances.id, instanceId), eq(hCcpInstances.tenantId, Number(tenantId))));
 }
 
 export async function getAllCcpRecords(filters?: {
