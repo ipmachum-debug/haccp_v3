@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { useSearch } from "wouter";
 import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { trpc } from "@/lib/trpc";
-import { jsPDF } from "jspdf";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -44,6 +43,240 @@ import { TabsList } from "@/components/ui/tabs";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 
 import { todayLocal } from "../../lib/dateUtils";
+import { toast } from "sonner";
+import { TRAINING_CATEGORY_LABELS, TRAINING_ATTENDANCE_LABELS, formatTrainingMinutes } from "@shared/trainingLabels";
+
+/**
+ * HACCP 교육 과정·일정·참가자 (h_training_courses / schedules / participants)
+ * 2026-10-18 Codex 교육 점검 후속:
+ *  - EDU-02 과정 '상세' · 일정 '관리' 창 (일정별 참가자 추가·출석·평가·수료증)
+ *  - EDU-03 목록 필드 이름을 저장 이름과 맞춤 (duration·validityPeriod·trainerName·registeredCount)
+ *  - EDU-04 보고서 PDF 는 서버에서 한글 폰트로
+ *  참석 · 평가 합격 · 수료증은 서로 다른 사실 — 하나가 다른 것을 자동으로 만들지 않는다.
+ */
+function downloadBase64Pdf(base64: string, filename: string) {
+  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
+  const a = document.createElement("a");
+  a.href = url; a.download = filename; a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+const ymd = (v: unknown) => (v ? (v instanceof Date ? todayLocalOf(v) : String(v).slice(0, 10)) : "-");
+function todayLocalOf(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+type ParticipantRow = {
+  id: number; scheduleId: number; userId: number; userName: string | null; attendanceStatus: string | null;
+  assessmentScore: string | null; passed: number | null; certificateIssued: number | null; certificateNumber: string | null;
+  expiryDate: string | null; scheduledDate: string | null; courseName: string | null; passingScore: string | null;
+};
+
+/** 참가자 표 — 참가자 탭과 일정 관리 창이 같이 쓴다 */
+function ParticipantTable({ rows, showSchedule, onChanged }: { rows: ParticipantRow[]; showSchedule: boolean; onChanged: () => void }) {
+  const done = (msg: string) => { toast.success(msg); onChanged(); };
+  const fail = (e: { message: string }) => toast.error(e.message);
+  const attendance = trpc.haccpTraining.recordAttendance.useMutation({ onSuccess: () => done("출석 상태를 저장했습니다."), onError: fail });
+  const assessment = trpc.haccpTraining.recordAssessment.useMutation({
+    onSuccess: (r: { passed: 0 | 1 | null }) => done(r.passed == null ? "평가 점수를 저장했습니다 (과정에 합격 점수가 없어 합격 판정은 하지 않음)." : r.passed ? "평가 점수 저장 — 합격" : "평가 점수 저장 — 불합격"),
+    onError: fail,
+  });
+  const certificate = trpc.haccpTraining.issueCertificate.useMutation({ onSuccess: (r: { certificateNumber: string; expiryDate: string | null }) => done(`수료증 ${r.certificateNumber} 발급${r.expiryDate ? ` · 재교육 기한 ${r.expiryDate}` : ""}`), onError: fail });
+  const cancel = trpc.haccpTraining.cancelParticipant.useMutation({ onSuccess: () => done("참가 등록을 취소했습니다."), onError: fail });
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>참가자</TableHead>
+          {showSchedule && <TableHead>교육</TableHead>}
+          <TableHead>출석</TableHead>
+          <TableHead>평가 점수</TableHead>
+          <TableHead>합격</TableHead>
+          <TableHead>수료증</TableHead>
+          <TableHead>작업</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.length ? rows.map((p) => {
+          const attended = p.attendanceStatus === "attended";
+          return (
+            <TableRow key={p.id}>
+              <TableCell className="font-medium">{p.userName ?? `사용자 #${p.userId}`}</TableCell>
+              {showSchedule && <TableCell className="text-xs">{p.courseName ?? "-"} · {p.scheduledDate ?? "-"}</TableCell>}
+              <TableCell>
+                <Badge variant={attended ? "default" : "secondary"}>{TRAINING_ATTENDANCE_LABELS[p.attendanceStatus ?? "registered"] ?? p.attendanceStatus}</Badge>
+              </TableCell>
+              <TableCell>{p.assessmentScore != null ? `${Number(p.assessmentScore)}점` : "-"}</TableCell>
+              <TableCell>
+                {p.passed == null ? "-" : Number(p.passed) === 1
+                  ? <Badge variant="default"><CheckCircle className="mr-1 h-3 w-3" />합격</Badge>
+                  : <Badge variant="secondary">불합격</Badge>}
+              </TableCell>
+              <TableCell className="text-xs">
+                {Number(p.certificateIssued) === 1
+                  ? <span className="inline-flex items-center gap-1"><Award className="h-3 w-3" />{p.certificateNumber}{p.expiryDate ? ` (~${p.expiryDate})` : ""}</span>
+                  : "-"}
+              </TableCell>
+              <TableCell>
+                <div className="flex flex-wrap gap-1">
+                  {!attended && (
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => attendance.mutate({ id: p.id, attendanceStatus: "attended" })}>출석</Button>
+                      {p.attendanceStatus !== "absent" && (
+                        <Button size="sm" variant="ghost" onClick={() => attendance.mutate({ id: p.id, attendanceStatus: "absent" })}>결석</Button>
+                      )}
+                    </>
+                  )}
+                  {attended && Number(p.certificateIssued) !== 1 && (
+                    <Button size="sm" variant="outline" onClick={() => {
+                      const v = prompt(`평가 점수 (0~100)${p.passingScore != null ? ` — 합격 ${Number(p.passingScore)}점 이상` : ""}`, p.assessmentScore != null ? String(Number(p.assessmentScore)) : "");
+                      if (v == null || v.trim() === "") return;
+                      assessment.mutate({ id: p.id, assessmentScore: Number(v) });
+                    }}>평가</Button>
+                  )}
+                  {attended && Number(p.certificateIssued) !== 1 && (p.passingScore == null || Number(p.passed) === 1) && (
+                    <Button size="sm" variant="outline" onClick={() => certificate.mutate({ participantId: p.id })}>수료증</Button>
+                  )}
+                  {Number(p.certificateIssued) !== 1 && (
+                    <Button size="sm" variant="ghost" className="text-red-600" onClick={() => { if (confirm("참가 등록을 취소할까요?")) cancel.mutate({ id: p.id }); }}>취소</Button>
+                  )}
+                </div>
+              </TableCell>
+            </TableRow>
+          );
+        }) : (
+          <TableRow>
+            <TableCell colSpan={showSchedule ? 7 : 6} className="text-center text-muted-foreground">등록된 참가자가 없습니다.</TableCell>
+          </TableRow>
+        )}
+      </TableBody>
+    </Table>
+  );
+}
+
+/** 일정 '관리' — 일정 정보 · 상태 · 참가자 추가와 관리 */
+function ScheduleManageDialog({ schedule, courseName, onClose, onChanged }: { schedule: any; courseName: string; onClose: () => void; onChanged: () => void }) {
+  const utils = trpc.useUtils();
+  const { data: rows = [], refetch } = trpc.haccpTraining.listParticipants.useQuery({ scheduleId: schedule.id });
+  const { data: users = [] } = trpc.haccpTraining.listUserOptions.useQuery();
+  const [userId, setUserId] = useState<string>("");
+  const changed = () => { refetch(); onChanged(); utils.haccpTraining.listParticipants.invalidate(); };
+  const register = trpc.haccpTraining.registerParticipant.useMutation({
+    onSuccess: () => { toast.success("참가자를 등록했습니다."); setUserId(""); changed(); },
+    onError: (e: { message: string }) => toast.error(e.message),
+  });
+  const updateSchedule = trpc.haccpTraining.updateSchedule.useMutation({
+    onSuccess: () => { toast.success("일정 상태를 저장했습니다."); onChanged(); },
+    onError: (e: { message: string }) => toast.error(e.message),
+  });
+  const registered = new Set((rows as ParticipantRow[]).map((r) => r.userId));
+  const choices = (users as Array<{ id: number; name: string }>).filter((u) => !registered.has(u.id));
+
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-4xl">
+        <DialogHeader>
+          <DialogTitle>{courseName} · {ymd(schedule.scheduledDate)}</DialogTitle>
+          <DialogDescription>
+            {schedule.startTime ?? "-"} ~ {schedule.endTime ?? "-"} · 장소 {schedule.location || "-"} · 강사 {schedule.trainerName || "-"}
+            {schedule.maxParticipants ? ` · 정원 ${schedule.maxParticipants}명` : ""}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="grid gap-1">
+            <Label className="text-xs">일정 상태</Label>
+            <Select value={schedule.status ?? "scheduled"} onValueChange={(v) => updateSchedule.mutate({ id: schedule.id, status: v as any })}>
+              <SelectTrigger className="w-36 h-9"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="scheduled">예정</SelectItem>
+                <SelectItem value="in_progress">진행 중</SelectItem>
+                <SelectItem value="completed">완료</SelectItem>
+                <SelectItem value="cancelled">취소</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-1 flex-1 min-w-[220px]">
+            <Label className="text-xs">참가자 추가</Label>
+            <div className="flex gap-2">
+              <Select value={userId} onValueChange={setUserId}>
+                <SelectTrigger className="h-9"><SelectValue placeholder={choices.length ? "사용자 선택" : "추가할 사용자가 없습니다"} /></SelectTrigger>
+                <SelectContent>
+                  {choices.map((u) => <SelectItem key={u.id} value={String(u.id)}>{u.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+              <Button size="sm" className="h-9" disabled={!userId || register.isPending}
+                onClick={() => register.mutate({ scheduleId: schedule.id, userId: Number(userId) })}>
+                <Users className="mr-1 h-4 w-4" />등록
+              </Button>
+            </div>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          출석 · 평가 합격 · 수료증은 따로 처리합니다. 일정 상태를 '완료'로 바꿔도 참가자가 자동으로 출석·수료되지 않습니다.
+        </p>
+        <div className="max-h-[50vh] overflow-auto">
+          <ParticipantTable rows={rows as ParticipantRow[]} showSchedule={false} onChanged={changed} />
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** 과정 '상세' — 과정 정보와 그 과정의 일정 */
+function CourseDetailDialog({ course, onClose, onManageSchedule }: { course: any; onClose: () => void; onManageSchedule: (s: any) => void }) {
+  const { data: schedules = [] } = trpc.haccpTraining.listSchedulesByCourse.useQuery({ courseId: course.id });
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{course.courseName}</DialogTitle>
+          <DialogDescription>{course.courseCode} · {TRAINING_CATEGORY_LABELS[course.category] ?? course.category}</DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-3 gap-3 text-sm">
+          <div><span className="text-muted-foreground text-xs block">교육 시간</span>{formatTrainingMinutes(course.duration)}</div>
+          <div><span className="text-muted-foreground text-xs block">합격 점수</span>{course.passingScore != null ? `${Number(course.passingScore)}점` : "없음"}</div>
+          <div><span className="text-muted-foreground text-xs block">유효 기간</span>{course.validityPeriod ? `${course.validityPeriod}개월` : "기한 없음"}</div>
+        </div>
+        {course.description && <p className="text-sm whitespace-pre-wrap">{course.description}</p>}
+        <div>
+          <h4 className="text-sm font-semibold mb-2">이 과정의 일정</h4>
+          <Table>
+            <TableHeader>
+              <TableRow><TableHead>날짜</TableHead><TableHead>시간</TableHead><TableHead>강사</TableHead><TableHead>참가자</TableHead><TableHead>상태</TableHead><TableHead /></TableRow>
+            </TableHeader>
+            <TableBody>
+              {(schedules as any[]).length ? (schedules as any[]).map((s) => (
+                <TableRow key={s.id}>
+                  <TableCell>{ymd(s.scheduledDate)}</TableCell>
+                  <TableCell>{s.startTime ?? "-"} ~ {s.endTime ?? "-"}</TableCell>
+                  <TableCell>{s.trainerName || "-"}</TableCell>
+                  <TableCell>{s.registeredCount ?? 0}{s.maxParticipants ? ` / ${s.maxParticipants}` : ""}</TableCell>
+                  <TableCell>{getScheduleStatusBadge(s.status)}</TableCell>
+                  <TableCell><Button size="sm" variant="outline" onClick={() => onManageSchedule(s)}>관리</Button></TableCell>
+                </TableRow>
+              )) : (
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground">등록된 일정이 없습니다.</TableCell></TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function getScheduleStatusBadge(status: string) {
+  const variants: Record<string, { variant: "default" | "secondary" | "destructive"; label: string }> = {
+    scheduled: { variant: "secondary", label: "예정" },
+    in_progress: { variant: "default", label: "진행 중" },
+    completed: { variant: "secondary", label: "완료" },
+    cancelled: { variant: "destructive", label: "취소" },
+  };
+  const config = variants[status] || variants.scheduled;
+  return <Badge variant={config.variant}>{config.label}</Badge>;
+}
 
 export default function TrainingManagement() {
   const [activeTab, setActiveTab] = useTabWithUrl('tab', 'courses');
@@ -54,76 +287,53 @@ export default function TrainingManagement() {
   const [isCreateScheduleOpen, setIsCreateScheduleOpen] = useState(false);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
   const [selectedSchedule, setSelectedSchedule] = useState<any>(null);
+  const [category, setCategory] = useState<string>("haccp_basic");
 
   // 데이터 조회
   const { data: courses, isLoading: coursesLoading, refetch: refetchCourses } = trpc.haccpTraining.listCourses.useQuery();
-  const { data: schedules, refetch: refetchSchedules } = trpc.haccpTraining.listUpcomingSchedules.useQuery({});
-  const { data: participants, refetch: refetchParticipants } = trpc.haccpTraining.listParticipantsByUser.useQuery({});
+  const { data: schedules, refetch: refetchSchedules } = trpc.haccpTraining.listSchedules.useQuery();
+  const { data: participants = [], refetch: refetchParticipants } = trpc.haccpTraining.listParticipants.useQuery({});
+  const refetchAll = () => { refetchSchedules(); refetchParticipants(); };
 
   // 교육 과정 생성
   const createCourseMutation = trpc.haccpTraining.createCourse.useMutation({
     onSuccess: () => {
-      alert("교육 과정이 성공적으로 등록되었습니다.");
+      toast.success("교육 과정을 등록했습니다.");
       setIsCreateCourseOpen(false);
       refetchCourses();
     },
-    onError: (error: { message: string }) => {
-      alert(`등록 실패: ${error.message}`);
-    },
+    onError: (error: { message: string }) => toast.error(`등록 실패: ${error.message}`),
   });
 
   // 교육 일정 생성
   const createScheduleMutation = trpc.haccpTraining.createSchedule.useMutation({
     onSuccess: () => {
-      alert("교육 일정이 성공적으로 등록되었습니다.");
+      toast.success("교육 일정을 등록했습니다.");
       setIsCreateScheduleOpen(false);
       refetchSchedules();
     },
+    onError: (error: { message: string }) => toast.error(`등록 실패: ${error.message}`),
   });
 
-  // 참가자 등록
-  const addParticipantMutation = trpc.haccpTraining.registerParticipant.useMutation({
-    onSuccess: () => {
-      alert("참가자가 등록되었습니다.");
-      refetchParticipants();
-    },
-  });
-
-  // 출석 처리
-  const recordAttendanceMutation = trpc.haccpTraining.recordAttendance.useMutation({
-    onSuccess: () => {
-      alert("출석이 처리되었습니다.");
-      refetchParticipants();
-    },
-  });
-
-  // 평가 점수 등록
-  const recordAssessmentMutation = trpc.haccpTraining.recordAssessment.useMutation({
-    onSuccess: () => {
-      alert("평가 점수가 등록되었습니다.");
-      refetchParticipants();
-    },
-  });
-
-  // 수료증 발급
-  const issueCertificateMutation = trpc.haccpTraining.issueCertificate.useMutation({
-    onSuccess: () => {
-      alert("수료증이 발급되었습니다.");
-      refetchParticipants();
-    },
+  const reportMutation = trpc.haccpTraining.courseReportPdf.useMutation({
+    onSuccess: (r: { base64: string }) => { downloadBase64Pdf(r.base64, `training-report-${todayLocal()}.pdf`); toast.success("보고서를 내려받았습니다."); },
+    onError: (error: { message: string }) => toast.error(`보고서 생성 실패: ${error.message}`),
   });
 
   const handleCreateCourse = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+    const passing = String(formData.get("passingScore") ?? "").trim();
 
     createCourseMutation.mutate({
       courseCode: `COURSE-${Date.now()}`,
       courseName: formData.get("courseName") as string,
-      category: "haccp_basic",
+      category: category as any,
       description: formData.get("description") as string || undefined,
-      duration: Number(formData.get("durationHours")),
-      passingScore: formData.get("passingScore") as string,
+      // 교육 시간은 분으로 저장 (스키마·과정 목록과 같음). 화면은 시간 단위로 입력
+      duration: Math.round(Number(formData.get("durationHours")) * 60),
+      passingScore: passing || undefined,
+      hasAssessment: passing ? 1 : 0,
       validityPeriod: Number(formData.get("validityMonths")) || undefined,
     });
   };
@@ -144,76 +354,7 @@ export default function TrainingManagement() {
     });
   };
 
-  const handleDownloadReport = () => {
-    if (!courses || courses.length === 0) {
-      alert("보고서를 생성할 데이터가 없습니다.");
-      return;
-    }
-
-    const doc = new jsPDF();
-    
-    doc.setFontSize(20);
-    doc.text("Training Management Report", 105, 20, { align: "center" });
-    
-    doc.setFontSize(10);
-    doc.text(`Generated: ${new Date().toLocaleString("ko-KR")}`, 20, 30);
-    doc.text(`Total Courses: ${courses.length}`, 20, 36);
-    
-    let yPos = 46;
-    courses.forEach((course: any, index: number) => {
-      if (yPos > 270) {
-        doc.addPage();
-        yPos = 20;
-      }
-      
-      doc.setFontSize(12);
-      doc.text(`${index + 1}. ${course.courseName}`, 20, yPos);
-      yPos += 7;
-      
-      doc.setFontSize(9);
-      doc.text(`Code: ${course.courseCode}`, 25, yPos);
-      yPos += 5;
-      doc.text(`Category: ${course.category}`, 25, yPos);
-      yPos += 5;
-      doc.text(`Duration: ${course.duration} hours`, 25, yPos);
-      yPos += 5;
-      doc.text(`Passing Score: ${course.passingScore}`, 25, yPos);
-      yPos += 5;
-      if (course.validityPeriod) {
-        doc.text(`Validity: ${course.validityPeriod} months`, 25, yPos);
-        yPos += 5;
-      }
-      if (course.description) {
-        doc.text(`Description: ${course.description.substring(0, 80)}`, 25, yPos);
-        yPos += 5;
-      }
-      yPos += 5;
-    });
-    
-    doc.save(`training-report-${todayLocal()}.pdf`);
-    alert("보고서가 성공적으로 다운로드되었습니다.");
-  };
-
-  const getCourseTypeBadge = (type: string) => {
-    const variants: Record<string, { variant: "default" | "secondary" | "outline"; label: string }> = {
-      initial: { variant: "default", label: "초기 교육" },
-      refresher: { variant: "secondary", label: "보수 교육" },
-      specialized: { variant: "outline", label: "전문 교육" },
-    };
-    const config = variants[type] || variants.initial;
-    return <Badge variant={config.variant}>{config.label}</Badge>;
-  };
-
-  const getScheduleStatusBadge = (status: string) => {
-    const variants: Record<string, { variant: "default" | "secondary" | "destructive"; label: string }> = {
-      scheduled: { variant: "secondary", label: "예정" },
-      in_progress: { variant: "default", label: "진행 중" },
-      completed: { variant: "secondary", label: "완료" },
-      cancelled: { variant: "destructive", label: "취소" },
-    };
-    const config = variants[status] || variants.scheduled;
-    return <Badge variant={config.variant}>{config.label}</Badge>;
-  };
+  const courseNameOf = (courseId: number) => courses?.find((c: any) => c.id === courseId)?.courseName ?? `과정 #${courseId}`;
 
   if (coursesLoading) {
     return <div className="p-6">로딩 중...</div>;
@@ -233,9 +374,9 @@ export default function TrainingManagement() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleDownloadReport}>
+          <Button variant="outline" onClick={() => reportMutation.mutate()} disabled={reportMutation.isPending}>
             <Download className="mr-2 h-4 w-4" />
-            보고서 다운로드
+            {reportMutation.isPending ? "만드는 중..." : "보고서 다운로드"}
           </Button>
           <Button onClick={() => setIsCreateCourseOpen(true)}>
             <Plus className="mr-2 h-4 w-4" />
@@ -269,7 +410,7 @@ export default function TrainingManagement() {
             <CardTitle className="text-sm font-medium">전체 참가자</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{participants?.length || 0}</div>
+            <div className="text-2xl font-bold">{(participants as ParticipantRow[]).length}</div>
           </CardContent>
         </Card>
         <Card>
@@ -278,7 +419,7 @@ export default function TrainingManagement() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {participants?.filter((p: any) => p.certificateIssued === 1).length || 0}
+              {(participants as ParticipantRow[]).filter((p) => Number(p.certificateIssued) === 1).length}
             </div>
           </CardContent>
         </Card>
@@ -304,7 +445,7 @@ export default function TrainingManagement() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>교육 과정명</TableHead>
-                    <TableHead>교육 유형</TableHead>
+                    <TableHead>분류</TableHead>
                     <TableHead>교육 시간</TableHead>
                     <TableHead>합격 점수</TableHead>
                     <TableHead>유효 기간</TableHead>
@@ -316,11 +457,11 @@ export default function TrainingManagement() {
                     courses.map((course: any) => (
                       <TableRow key={course.id}>
                         <TableCell className="font-medium">{course.courseName}</TableCell>
-                        <TableCell>{getCourseTypeBadge(course.courseType)}</TableCell>
-                        <TableCell>{course.durationHours}시간</TableCell>
-                        <TableCell>{course.passingScore}점</TableCell>
+                        <TableCell><Badge variant="outline">{TRAINING_CATEGORY_LABELS[course.category] ?? course.category}</Badge></TableCell>
+                        <TableCell>{formatTrainingMinutes(course.duration)}</TableCell>
+                        <TableCell>{course.passingScore != null ? `${Number(course.passingScore)}점` : "-"}</TableCell>
                         <TableCell>
-                          {course.validityMonths ? `${course.validityMonths}개월` : "무기한"}
+                          {course.validityPeriod ? `${course.validityPeriod}개월` : "기한 없음"}
                         </TableCell>
                         <TableCell>
                           <Button
@@ -357,7 +498,7 @@ export default function TrainingManagement() {
           <Card>
             <CardHeader>
               <CardTitle>교육 일정 목록</CardTitle>
-              <CardDescription>예정된 교육 일정을 확인하고 관리합니다.</CardDescription>
+              <CardDescription>교육 일정과 참가자를 관리합니다 (지난 일정 포함, 최근 순).</CardDescription>
             </CardHeader>
             <CardContent>
               <Table>
@@ -378,18 +519,18 @@ export default function TrainingManagement() {
                     schedules.map((schedule: any) => (
                       <TableRow key={schedule.id}>
                         <TableCell className="font-medium">
-                          {courses?.find((c: any) => c.id === schedule.courseId)?.courseName}
+                          {courseNameOf(schedule.courseId)}
                         </TableCell>
                         <TableCell>
-                          {new Date(schedule.scheduledDate).toLocaleDateString("ko-KR")}
+                          {ymd(schedule.scheduledDate)}
                         </TableCell>
                         <TableCell>
                           {schedule.startTime} - {schedule.endTime}
                         </TableCell>
                         <TableCell>{schedule.location || "-"}</TableCell>
-                        <TableCell>{schedule.instructorName || "-"}</TableCell>
+                        <TableCell>{schedule.trainerName || "-"}</TableCell>
                         <TableCell>
-                          {schedule.currentParticipants || 0}
+                          {schedule.registeredCount || 0}
                           {schedule.maxParticipants ? ` / ${schedule.maxParticipants}` : ""}
                         </TableCell>
                         <TableCell>{getScheduleStatusBadge(schedule.status)}</TableCell>
@@ -422,119 +563,10 @@ export default function TrainingManagement() {
           <Card>
             <CardHeader>
               <CardTitle>참가자 목록</CardTitle>
-              <CardDescription>교육 참가자의 출석 및 평가를 관리합니다.</CardDescription>
+              <CardDescription>전체 교육 참가자의 출석·평가·수료증. 참가자 추가는 교육 일정의 '관리'에서 합니다.</CardDescription>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>참가자 ID</TableHead>
-                    <TableHead>교육 일정 ID</TableHead>
-                    <TableHead>출석</TableHead>
-                    <TableHead>평가 점수</TableHead>
-                    <TableHead>수료 여부</TableHead>
-                    <TableHead>수료증</TableHead>
-                    <TableHead>작업</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {participants && participants.length > 0 ? (
-                    participants.map((participant: any) => (
-                      <TableRow key={participant.id}>
-                        <TableCell className="font-medium">{participant.userId}</TableCell>
-                        <TableCell>{participant.scheduleId}</TableCell>
-                        <TableCell>
-                          {participant.attended === 1 ? (
-                            <Badge variant="default">출석</Badge>
-                          ) : (
-                            <Badge variant="secondary">미출석</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {participant.assessmentScore ? `${participant.assessmentScore}점` : "-"}
-                        </TableCell>
-                        <TableCell>
-                          {participant.passed === 1 ? (
-                            <Badge variant="default">
-                              <CheckCircle className="mr-1 h-3 w-3" />
-                              수료
-                            </Badge>
-                          ) : (
-                            <Badge variant="secondary">미수료</Badge>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          {participant.certificateIssued === 1 ? (
-                            <Badge variant="outline">
-                              <Award className="mr-1 h-3 w-3" />
-                              발급 완료
-                            </Badge>
-                          ) : (
-                            "-"
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            {participant.attended !== 1 && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  recordAttendanceMutation.mutate({
-                                    id: participant.id,
-                                    attendanceStatus: "attended",
-                                  })
-                                }
-                              >
-                                출석
-                              </Button>
-                            )}
-                            {participant.attended === 1 && !participant.assessmentScore && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => {
-                                  const score = prompt("평가 점수를 입력하세요:");
-                                  if (score) {
-                                    const scoreNum = Number(score);
-                                    recordAssessmentMutation.mutate({
-                                      id: participant.id,
-                                      assessmentScore: scoreNum,
-                                      passed: scoreNum >= 80 ? 1 : 0,
-                                    });
-                                  }
-                                }}
-                              >
-                                평가
-                              </Button>
-                            )}
-                            {participant.passed === 1 && participant.certificateIssued !== 1 && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() =>
-                                  issueCertificateMutation.mutate({
-                                    participantId: participant.id,
-                                    certificateUrl: `/certificates/${participant.id}.pdf`,
-                                  })
-                                }
-                              >
-                                수료증
-                              </Button>
-                            )}
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell colSpan={7} className="text-center text-muted-foreground">
-                        등록된 참가자가 없습니다.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+              <ParticipantTable rows={participants as ParticipantRow[]} showSchedule onChanged={refetchAll} />
             </CardContent>
           </Card>
         </TabsContent>
@@ -562,15 +594,15 @@ export default function TrainingManagement() {
               </div>
 
               <div className="grid gap-2">
-                <Label htmlFor="courseType">교육 유형 *</Label>
-                <Select name="courseType" required>
-                  <SelectTrigger>
-                    <SelectValue placeholder="교육 유형 선택" />
+                <Label htmlFor="category">분류 *</Label>
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger id="category">
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="initial">초기 교육</SelectItem>
-                    <SelectItem value="refresher">보수 교육</SelectItem>
-                    <SelectItem value="specialized">전문 교육</SelectItem>
+                    {Object.entries(TRAINING_CATEGORY_LABELS).map(([v, l]) => (
+                      <SelectItem key={v} value={v}>{l}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -591,19 +623,22 @@ export default function TrainingManagement() {
                     id="durationHours"
                     name="durationHours"
                     type="number"
-                    min="1"
-                    placeholder="예: 8"
+                    min="0.5"
+                    step="0.5"
+                    placeholder="예: 1.5"
                     required
                   />
                 </div>
 
                 <div className="grid gap-2">
-                  <Label htmlFor="passingScore">합격 점수 *</Label>
+                  <Label htmlFor="passingScore">합격 점수 (평가 없는 교육은 비움)</Label>
                   <Input
                     id="passingScore"
                     name="passingScore"
+                    type="number"
+                    min="0"
+                    max="100"
                     placeholder="예: 80"
-                    required
                   />
                 </div>
               </div>
@@ -730,6 +765,16 @@ export default function TrainingManagement() {
           </form>
         </DialogContent>
       </Dialog>
+
+      {selectedCourse && (
+        <CourseDetailDialog course={selectedCourse} onClose={() => setSelectedCourse(null)}
+          onManageSchedule={(sch) => { setSelectedCourse(null); setSelectedSchedule(sch); }} />
+      )}
+      {selectedSchedule && (
+        <ScheduleManageDialog schedule={(schedules as any[] | undefined)?.find((x) => x.id === selectedSchedule.id) ?? selectedSchedule}
+          courseName={courseNameOf(selectedSchedule.courseId)}
+          onClose={() => setSelectedSchedule(null)} onChanged={refetchAll} />
+      )}
     </div>
   );
 }
