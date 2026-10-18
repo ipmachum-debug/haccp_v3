@@ -2634,4 +2634,26 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`DELETE FROM h_materials WHERE id IN (99101, 99201)`);
     });
   });
+
+  describe("원료수불부 일별 — 현재고는 입고·사용·조정 누계, 단가는 최근 LOT 단가 (지티 QA F05, 2026-10-18)", () => {
+    it("입고 100 → 사용 8 (저장된 running_stock 은 0): 전일 100·현재고 92·LOT 단가 2,500·금액, 이전 날짜는 영향 없음", async () => {
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, unit_price) VALUES (99301, ?, 'F05-A', '원료F05', 'kg', 0)`, [T]);
+      await q(`INSERT INTO h_inventory_lots (tenant_id, material_id, lot_number, quantity, available_quantity, unit, unit_price, receipt_date, status)
+               VALUES (?, 99301, 'F05-LOT', 100, 92, 'kg', 2500, '2026-10-17', 'available')`, [T]);
+      // 지금 쓰는 경로처럼 receiving/usage 만 넣고 running_stock 은 0 그대로
+      await q(`INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, receiving_qty, running_stock, source) VALUES (?, 99301, '2026-10-17', 100, 0, 'inbound')`, [T]);
+      await q(`INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, usage_qty, running_stock, source) VALUES (?, 99301, '2026-10-18', 8, 0, 'auto')`, [T]);
+      const { getDailyLedger } = await import("./db/accounting/materialLedger");
+      const pick = async (d: string) => {
+        const r: any = (await getDailyLedger(d, T)).find((x: any) => Number(x.material_id) === 99301);
+        return [Number(r.prev_stock), Number(r.receiving_qty), Number(r.usage_qty), Number(r.current_stock), Number(r.unit_price), Number(r.receiving_amount), Number(r.usage_amount)];
+      };
+      expect(await pick("2026-10-17")).toEqual([0, 100, 0, 100, 2500, 250000, 0]);
+      expect(await pick("2026-10-18")).toEqual([100, 0, 8, 92, 2500, 0, 20000]);
+      expect(await pick("2026-10-16")).toEqual([0, 0, 0, 0, 0, 0, 0]); // LOT 입고 전 — 단가 근거 없음
+      await q(`DELETE FROM material_ledger_daily WHERE material_id = 99301`);
+      await q(`DELETE FROM h_inventory_lots WHERE material_id = 99301 AND tenant_id = ?`, [T]);
+      await q(`DELETE FROM h_materials WHERE id = 99301`);
+    });
+  });
 });
