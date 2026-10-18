@@ -126,10 +126,32 @@ describe("resolveSystemAccount", () => {
     expect((await resolveSystemAccount(2, "INVENTORY_FINISHED", "1430", "제품")).id).toBe(0);
   });
 
-  it("폴백 없이 못 찾으면 역할 이름으로 id=0", async () => {
-    useAccounts([]);
+  it("폴백 없이 못 찾고 시드해도 없으면 역할 이름으로 id=0", async () => {
+    useAccounts([]); // 이 가짜 DB 는 시드 INSERT 를 저장하지 않는다
     expect(await resolveSystemAccount(1, "CASH")).toEqual({ id: 0, code: "CASH", name: "CASH" });
-    expect(mockExecute).toHaveBeenCalledTimes(1);
+  });
+
+  it("계정이 하나도 없는 새 회사 — 기본 계정을 시드하고 그 계정을 돌려줌 (지티 QA F04: 첫 매입 분개 account_id=0)", async () => {
+    const accounts: Acc[] = [];
+    useAccounts(accounts);
+    const orig = mockExecute.getMockImplementation()!;
+    let nextId = 500;
+    mockExecute.mockImplementation(async (sql: string, params: any[]) => {
+      if (/^\s*INSERT INTO accounting_accounts/.test(sql)) {
+        const [tenant_id, category, code, name, system_code] = params;
+        accounts.push({ id: nextId++, tenant_id, code, name, category, system_code });
+        return [{ insertId: nextId - 1 }];
+      }
+      if (/^\s*UPDATE/.test(sql)) return [{ affectedRows: 0 }];
+      if (/WHERE tenant_id = \? AND code = \? LIMIT 1/.test(sql)) return [accounts.filter((a) => a.tenant_id === params[0] && a.code === params[1])];
+      return orig(sql, params);
+    });
+    const raw = await resolveSystemAccount(14, "INVENTORY_RAW", "1410", "원재료");
+    expect(raw).toMatchObject({ code: "1410", name: "원재료" });
+    expect(raw.id).toBeGreaterThan(0);
+    const ap = await resolveSystemAccount(14, "ACCOUNTS_PAYABLE", "2010", "외상매입금");
+    expect(ap.id).toBeGreaterThan(0);
+    expect(accounts.filter((a) => a.system_code === "INVENTORY_RAW")).toHaveLength(1); // 두 번째 조회는 다시 시드하지 않음
   });
 });
 
@@ -187,6 +209,16 @@ describe("insertJournalLine", () => {
     expect(params[2]).toBe(5);        // accountId
     expect(params[5]).toBe(10000);    // debitAmount
     expect(params[6]).toBe(0);        // creditAmount
+  });
+
+  it("계정 id 0·없음이면 쓰지 않고 멈춤 (지티 QA F04)", async () => {
+    for (const accountId of [0, NaN, -1]) {
+      await expect(insertJournalLine(mockConn, {
+        tenantId: 14, journalEntryId: 769, accountId, accountCode: "1410", accountName: "원재료",
+        debitAmount: 300000, creditAmount: 0, sortOrder: 0,
+      })).rejects.toThrow(/분개 계정이 준비되지 않았습니다 \(원재료\)/);
+    }
+    expect(mockConn.execute).not.toHaveBeenCalled();
   });
 
   it("uses custom table name when specified", async () => {
