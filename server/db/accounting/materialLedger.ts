@@ -18,7 +18,13 @@ import { todayKST } from "../../utils/timezone";
 
 // ===== 일별 원료수불 =====
 
-/** 특정 날짜의 원료수불 목록 조회 - 모든 활성 원재료 표시 */
+/** 특정 날짜의 원료수불 목록 조회 - 모든 활성 원재료 표시
+ *
+ * ★ 2026-10-18 (지티컴퍼니 QA F05): 전일·현재고를 저장된 running_stock 에서 읽지 않는다.
+ *   지금 쓰는 경로(입고 문서·자동출고·매입/매출 확정·취소)는 receiving/usage 만 더하고 running_stock 은 갱신하지 않아
+ *   입고 100·사용 8 인데 현재고 0 으로 보였다. → 그 날짜까지의 입고 − 사용 + 조정 누계로 계산 (엑셀 전월이월은 조정 행).
+ *   단가: 그 날짜까지 들어온 가장 최근 LOT 단가(실제 입고 원가, 재고 평가와 같은 근거) → 없으면 원재료 기본 단가.
+ */
 export async function getDailyLedger(date: string, tenantId: number) {
   const db = await getRawConnection();
   const [rows] = await db.execute(
@@ -27,44 +33,44 @@ export async function getDailyLedger(date: string, tenantId: number) {
        m.material_name,
        m.material_code,
        m.unit,
-       COALESCE(m.unit_price, 0) as unit_price,
+       COALESCE(NULLIF(lp.unit_price, 0), NULLIF(m.unit_price, 0), 0) as unit_price,
        COALESCE(d.id, 0) as id,
        ? as ledger_date,
        ROUND(COALESCE(d.receiving_qty, 0), 1) as receiving_qty,
        ROUND(COALESCE(d.usage_qty, 0), 1) as usage_qty,
        ROUND(COALESCE(d.adjustment_qty, 0), 1) as adjustment_qty,
-       ROUND(GREATEST(COALESCE(d.running_stock, 0), 0), 1) as running_stock,
        COALESCE(d.notes, '') as notes,
        COALESCE(d.source, '') as source,
-       ROUND(GREATEST(COALESCE(prev_agg.prev_running_stock, 0), 0), 1) as prev_stock,
-       ROUND(GREATEST(
-         COALESCE(
-           d.running_stock,
-           COALESCE(prev_agg.prev_running_stock, 0)
-             + COALESCE(d.receiving_qty, 0)
-             - COALESCE(d.usage_qty, 0)
-             + COALESCE(d.adjustment_qty, 0)
-         ), 0), 1) as current_stock,
-       ROUND(COALESCE(d.receiving_qty, 0) * COALESCE(m.unit_price, 0), 0) as receiving_amount,
-       ROUND(COALESCE(d.usage_qty, 0) * COALESCE(m.unit_price, 0), 0) as usage_amount
+       ROUND(GREATEST(COALESCE(prev.bal, 0), 0), 1) as prev_stock,
+       ROUND(GREATEST(COALESCE(prev.bal, 0) + COALESCE(d.receiving_qty, 0) - COALESCE(d.usage_qty, 0) + COALESCE(d.adjustment_qty, 0), 0), 1) as current_stock,
+       ROUND(GREATEST(COALESCE(prev.bal, 0) + COALESCE(d.receiving_qty, 0) - COALESCE(d.usage_qty, 0) + COALESCE(d.adjustment_qty, 0), 0), 1) as running_stock,
+       ROUND(COALESCE(d.receiving_qty, 0) * COALESCE(NULLIF(lp.unit_price, 0), NULLIF(m.unit_price, 0), 0), 0) as receiving_amount,
+       ROUND(COALESCE(d.usage_qty, 0) * COALESCE(NULLIF(lp.unit_price, 0), NULLIF(m.unit_price, 0), 0), 0) as usage_amount
      FROM h_materials m
      LEFT JOIN material_ledger_daily d
        ON d.material_id = m.id AND d.tenant_id = ? AND d.ledger_date = ?
      LEFT JOIN (
-       SELECT d1.material_id, d1.running_stock as prev_running_stock
-       FROM material_ledger_daily d1
-       INNER JOIN (
-         SELECT material_id, MAX(ledger_date) as max_date
-         FROM material_ledger_daily
-         WHERE tenant_id = ? AND ledger_date < ?
+       SELECT material_id,
+              SUM(COALESCE(receiving_qty, 0) - COALESCE(usage_qty, 0) + COALESCE(adjustment_qty, 0)) as bal
+       FROM material_ledger_daily
+       WHERE tenant_id = ? AND ledger_date < ?
+       GROUP BY material_id
+     ) prev ON prev.material_id = m.id
+     LEFT JOIN (
+       SELECT l.material_id, l.unit_price
+       FROM h_inventory_lots l
+       JOIN (
+         SELECT material_id, MAX(id) as last_id
+         FROM h_inventory_lots
+         WHERE tenant_id = ? AND material_id IS NOT NULL AND unit_price > 0
+           AND (receipt_date IS NULL OR receipt_date <= ?)
          GROUP BY material_id
-       ) d2 ON d1.material_id = d2.material_id AND d1.ledger_date = d2.max_date
-       WHERE d1.tenant_id = ?
-     ) prev_agg ON prev_agg.material_id = m.id
+       ) x ON x.last_id = l.id
+     ) lp ON lp.material_id = m.id
      WHERE m.tenant_id = ? AND m.is_active = 1
        AND m.material_name NOT LIKE '%정제수%'
      ORDER BY m.material_name`,
-    [date, tenantId, date, tenantId, date, tenantId, tenantId]
+    [date, tenantId, date, tenantId, date, tenantId, date, tenantId]
   );
   return rows as Record<string, unknown>[];
 }
@@ -301,7 +307,16 @@ export async function aggregateMonthlyLedger(yearMonth: string, tenantId: number
       [tenantId, mat.id, prevMonth]
     );
     const prevStockRows = getRows<{ end_stock: number }>(prevStockResult);
-    const prevStock = prevStockRows?.[0]?.end_stock ? Number(prevStockRows[0].end_stock) : 0;
+    let prevStock = prevStockRows?.[0]?.end_stock != null ? Number(prevStockRows[0].end_stock) : 0;
+    // 전월 집계가 없으면(처음 쓰는 회사·집계 안 한 달) 일별 누계로 — 0 으로 시작하지 않는다 (QA F05)
+    if (!prevStockRows?.length) {
+      const cumResult = await db.execute(
+        `SELECT COALESCE(SUM(COALESCE(receiving_qty, 0) - COALESCE(usage_qty, 0) + COALESCE(adjustment_qty, 0)), 0) as bal
+         FROM material_ledger_daily WHERE tenant_id = ? AND material_id = ? AND ledger_date < ?`,
+        [tenantId, mat.id, startDate]
+      );
+      prevStock = Math.max(Number(getRows<{ bal: number }>(cumResult)?.[0]?.bal ?? 0), 0);
+    }
 
     // 일별 데이터 조회 (adjustment_qty 포함)
     const dailyResult = await db.execute(
