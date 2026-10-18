@@ -15,7 +15,7 @@
 //   - CCP-4P 금속검출 제품별 순차 시간 배분
 // ═══════════════════════════════════════════════════════════════
 import { selectBomVersion } from "../../lib/identity/itemIdentityService";
-import { ccpInputKgByGroup, CCP_BOM_ROWS_SQL, ccpInputKgFromSnapshot, isWaterName } from "../../lib/production/ccpBomInput";
+import { ccpInputKgByGroup, CCP_BOM_ROWS_SQL, ccpInputKgFromSnapshot } from "../../lib/production/ccpBomInput";
 import { getDb, getRawConnection } from "../connection";
 import { loadBatchMassBasis } from "../production/batchMassBasis";
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
@@ -237,7 +237,7 @@ export async function syncCcpRowsToFormRows(params: {
   // 금속검출: 9:20~30분부터 순차 적용
   // NULL이면 기본값 "09:00" 사용
   let batchStartTime: string = (batchInfo as any[])[0]?.start_time_hhmm || "09:00";
-  // ═══ Issue 3: BOM 기반 투입량 계산 (정제수 제외) ═══
+  // ═══ Issue 3: BOM 기반 투입량 계산 (정제수 포함 — 2026-10-18) ═══
   // BOM에서 해당 공정에 투입되는 원재료 배합비를 환산
   // 예: 총생산 300kg, BOM 1배치=100kg → 배치당 100kg 기준 해당 공정 원재료 합계 (정제수 제외)
   let bomInputQtyMap: Record<number, number> = {}; // processGroupId → inputQtyKg (정제수 제외)
@@ -1554,15 +1554,7 @@ export async function loadCcpInputFromMassBasis(
     const stored = await loadBatchMassBasis(rawConn, batchId, tenantId);
     if (!stored) return null;
     const rows = stored.snapshot.rows;
-    const ids = Array.from(new Set(rows.map((r) => Number(r.materialId)).filter((n) => Number.isFinite(n) && n > 0)));
-    const water = new Set<number>();
-    if (ids.length > 0) {
-      const [names] = await rawConn.execute(
-        `SELECT id, item_name FROM item_master WHERE id IN (${ids.map(() => "?").join(",")})`,
-        ids,
-      );
-      for (const n of names as any[]) if (isWaterName(n.item_name)) water.add(Number(n.id));
-    }
+    const water = new Set<number>(); // 정제수도 공정 투입량에 포함 (2026-10-18 CEO)
     const subBatchKg = stored.subBatchKg ?? currentBomBatchKg;
     return {
       inputByGroup: ccpInputKgFromSnapshot(rows, water, subBatchKg, stored.snapshot.plannedFinishedKg),

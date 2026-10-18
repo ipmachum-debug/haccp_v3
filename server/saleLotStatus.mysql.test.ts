@@ -1117,13 +1117,13 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     });
 
     // ── Codex #546 P2-3: CCP 기록지 행 기준량도 배치 생성 때 고정 ──
-    it("CCP 공정 투입량: 저장된 행 기준량(5kg) 사용 — 이후 BOM 기준량을 10kg 로 바꿔도 그대로 (공정2 = 4.0+0.4+0.4+0.052)", async () => {
+    it("CCP 공정 투입량: 저장된 행 기준량(5kg) 사용 — 이후 BOM 기준량을 10kg 로 바꿔도 그대로 (공정2 = 4.0+0.32 정제수+0.4+0.4+0.052, 2026-10-18 정제수 포함)", async () => {
       const bid = await newBatch("5", "MILK-CCP");
       expect(Number((await q(`SELECT sub_batch_kg + 0 AS s FROM h_batch_mass_basis WHERE batch_id = ?`, [bid]))[0].s)).toBe(5);
       await q(`UPDATE h_mf_report_versions SET batch_target_kg = 10 WHERE id = 472`);
       const { loadCcpInputFromMassBasis } = await import("./db/haccp/ccpFormSettings");
       const r = await loadCcpInputFromMassBasis(admin, bid, T, 10);
-      expect(r).toEqual({ inputByGroup: { 2: 4.852 }, subBatchKg: 5 });
+      expect(r).toEqual({ inputByGroup: { 2: 5.172 }, subBatchKg: 5 });
       // 저장값이 없는(PR C 이전) 스냅샷만 현재 BOM 기준량으로
       await q(`UPDATE h_batch_mass_basis SET sub_batch_kg = NULL WHERE batch_id = ?`, [bid]);
       expect((await loadCcpInputFromMassBasis(admin, bid, T, 10))?.subBatchKg).toBe(10);
