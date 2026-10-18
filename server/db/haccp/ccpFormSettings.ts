@@ -1522,7 +1522,7 @@ export async function syncCcpRowsToFormRows(params: {
             instanceProductName || frProductName || null,
             (() => { const q = rowInputQty(batchSeq); return q != null ? q.toFixed(2) : null; })(),
             measurementTime ?? null,
-            row.heating_min ?? row.duration_min ?? null,
+            row.heating_min ?? null, // 가열 운전시간만 — 비면 비움 (점유시간을 가열시간으로 인쇄하지 않음, 2026-10-18)
             row.temp_c ?? null,
             pressureMpa,
             tempEdge,

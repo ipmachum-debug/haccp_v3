@@ -200,8 +200,8 @@ export const ccpProcessGroups = mysqlTable('ccp_process_groups', {
   temperatureMax: decimal('temperature_max', { precision: 5, scale: 2 }),
   timeMin: int('time_min'),
   timeMax: int('time_max'),
-  pressureMin: decimal('pressure_min', { precision: 5, scale: 2 }),
-  pressureMax: decimal('pressure_max', { precision: 5, scale: 2 }),
+  pressureMin: decimal('pressure_min', { precision: 6, scale: 3 }), // MPa, 소수 3자리 (2026-10-18)
+  pressureMax: decimal('pressure_max', { precision: 6, scale: 3 }),
   phMin: decimal('ph_min', { precision: 4, scale: 2 }),
   phMax: decimal('ph_max', { precision: 4, scale: 2 }),
   monitoringMethod: text('monitoring_method'),
