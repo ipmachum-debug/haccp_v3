@@ -70,7 +70,7 @@ function ProductPicker({ products, value, onChange }: { products: Array<{ id: nu
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" role="combobox" className="w-full h-11 justify-between font-normal">
+        <Button variant="outline" role="combobox" data-testid="product-picker" className="w-full h-11 justify-between font-normal">
           <span className="truncate">{selected ? selected.productName : "제품 선택"}</span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -285,7 +285,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
             return (
               <div key={l.id} className={cn("rounded-lg border p-3 space-y-2", failed.length ? "border-red-300 bg-red-50/40" : "")}>
                 <div className="grid grid-cols-2 md:grid-cols-12 gap-2 items-end">
-                  <div className="col-span-2 md:col-span-4 space-y-1">
+                  <div className="col-span-2 md:col-span-3 space-y-1">
                     <Label className="text-xs">{idx + 1}. 제품</Label>
                     <ProductPicker products={products} value={l.productId} onChange={(id) => update(l.id, { productId: id, sku: {} })} />
                   </div>
@@ -309,9 +309,9 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
                       <SelectContent><SelectItem value="auto">자동</SelectItem><SelectItem value="manual">수동</SelectItem></SelectContent>
                     </Select>
                   </div>
-                  <div className="md:col-span-1 space-y-1">
-                    <Label className="text-xs" title="오늘만 — 설비 작업 시작시각보다 우선">오늘 시작</Label>
-                    <Input type="time" className="h-11 px-1" value={l.startOverride} onChange={(e) => update(l.id, { startOverride: e.target.value })} />
+                  <div className="md:col-span-2 space-y-1">
+                    <Label className="text-xs" title="오늘만 — 설비 작업 시작시각보다 우선">오늘만 시작시각</Label>
+                    <Input type="time" className="h-11" value={l.startOverride} onChange={(e) => update(l.id, { startOverride: e.target.value })} />
                   </div>
                   <div className="md:col-span-1 flex justify-end">
                     <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="줄 삭제"
