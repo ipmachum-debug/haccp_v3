@@ -2749,4 +2749,47 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(retry.get(91)).toEqual(["FP1994"]);
     });
   });
+
+  describe("품목제조보고 회사 소유 검증 — 다른 회사 번호는 실행 전 거부, 부작용 없음 (2026-10-19, 설계 18 R6)", () => {
+    let own: any;
+    const O = 99; // 다른 회사
+    beforeAll(async () => {
+      own = await import("./lib/production/mfReportOwnership");
+      await q(`CREATE TABLE IF NOT EXISTS ccp_process_groups (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, name varchar(100) NOT NULL, ccp_type varchar(20) NULL, status varchar(20) NOT NULL DEFAULT 'active', sort_order int NOT NULL DEFAULT 0)`);
+    });
+    beforeEach(async () => {
+      await q(`DELETE FROM h_mf_ingredients WHERE mf_report_version_id IN (8801, 8802)`);
+      await q(`DELETE FROM h_mf_report_versions WHERE id IN (8801, 8802)`);
+      await q(`DELETE FROM h_mf_reports WHERE id IN (8801, 8802)`);
+      await q(`DELETE FROM item_master WHERE id IN (88101, 88102)`);
+      await q(`DELETE FROM ccp_process_groups WHERE id IN (8811, 8812)`);
+      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status) VALUES (8801, ?, 88101, 'MY', '2026-10-01', 'ACTIVE'), (8802, ?, 88102, 'OTHER', '2026-10-01', 'ACTIVE')`, [T, O]);
+      await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg) VALUES (8801, ?, 8801, 1, '2026-10-01', 'APPROVED', 96), (8802, ?, 8802, 1, '2026-10-01', 'APPROVED', 50)`, [T, O]);
+      await q(`INSERT INTO h_mf_ingredients (id, mf_report_version_id, line_no, material_id, quantity, unit, is_deductible, material_type) VALUES (88011, 8801, 1, 88101, '100', '%', 1, 'RAW'), (88021, 8802, 1, 88102, '100', '%', 1, 'RAW')`);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, is_active) VALUES (88101, ?, 'MY1', '우리 찹쌀', 'raw_material', 1), (88102, ?, 'OT1', '남의 찹쌀', 'raw_material', 1)`, [T, O]);
+      await q(`INSERT INTO ccp_process_groups (id, tenant_id, name, ccp_type) VALUES (8811, ?, '교반', 'CCP-1B'), (8812, ?, '남의 교반', 'CCP-1B')`, [T, O]);
+    });
+    const ok = async (raw: any) => { const { getRawConnection } = await import("./db/connection"); await own.assertMfIdsOwned(await getRawConnection(), T, raw); };
+
+    it("내 회사 번호만이면 통과 (보고서·버전·원료 줄·품목·공정)", async () => {
+      await expect(ok({ mfReportId: 8801, ingredients: [{ id: 88011, materialId: 88101, processGroupId: 8811 }] })).resolves.toBeUndefined();
+      await expect(ok({ versionId: 8801 })).resolves.toBeUndefined();
+      await expect(ok({ id: 8801 })).resolves.toBeUndefined();
+    });
+    it("다른 회사 보고서·버전·원료 줄·품목·공정이 하나라도 있으면 거부", async () => {
+      await expect(ok({ mfReportId: 8802 })).rejects.toThrow(/품목제조보고/);
+      await expect(ok({ versionId: 8802 })).rejects.toThrow(/버전/);
+      await expect(ok({ ingredientId: 88021 })).rejects.toThrow(/원료 줄/);
+      await expect(ok({ mfReportId: 8801, ingredients: [{ materialId: 88102 }] })).rejects.toThrow(/품목/);
+      await expect(ok({ mfReportId: 8801, ingredients: [{ processGroupId: 8812 }] })).rejects.toThrow(/공정/);
+      await expect(ok({ ids: [8801, 8802] })).rejects.toThrow(/품목제조보고/);
+    });
+    it("updateMfReport 도 다른 회사 보고서는 버전·원료를 바꾸기 전에 거부 (남의 BOM 그대로)", async () => {
+      const { updateMfReport } = await import("./db/production/mfReportAPI");
+      await expect(updateMfReport({ mfReportId: 8802, batchTargetKg: 1, ingredients: [{ materialId: 88101, quantity: 1, unit: "%", isDeductible: 1, materialType: "RAW" }] } as any, T)).rejects.toThrow(/이 회사의 품목제조보고가 아닙니다/);
+      const v = (await q(`SELECT batch_target_kg + 0 AS b FROM h_mf_report_versions WHERE id = 8802`))[0];
+      expect(Number(v.b)).toBe(50);
+      expect((await q(`SELECT id FROM h_mf_ingredients WHERE mf_report_version_id = 8802`)).map((r: any) => Number(r.id))).toEqual([88021]);
+    });
+  });
 });
