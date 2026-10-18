@@ -15,12 +15,35 @@ import { formatLocalDate } from "../../utils/timezone";
  * - 1차: system_code 로 조회 — 단 계정 분류(5분류)가 역할과 같아야 한다
  * - 2차: 코드 정확 일치 → 3차: 이름 정확 일치 (한 건일 때만)
  *   폴백은 분류가 같고, 다른 역할(system_code)이 붙지 않은 계정만 고른다.
- * - 못 찾으면 id=0 — 호출부가 ensureSystemAccounts 로 시드하거나 "계정 누락" 으로 멈춘다
+ * - 못 찾으면 기본 계정을 한 번 시드(ensureSystemAccounts)하고 다시 찾는다 — 그래도 없으면 id=0,
+ *   호출부가 "계정 누락" 으로 멈춘다. 계정 행은 id 0 으로 쓰지 않는다 (insertJournalLine 이 거부).
+ *   (지티컴퍼니 QA F04, 2026-10-18: 계정이 하나도 없는 새 회사의 첫 매입 분개 6줄이 account_id=0 으로 저장됐다)
  *
  * 2026-10-15: 이전엔 `code = ? OR name LIKE '%제품%'` 한 줄 폴백이라 제품(자산) 자리에
  *   '제품매출'(수익)을 골랐다 (단지 생산완료 분개 751~754, 매출원가 33건). 틀린 계정으로 전기하느니 멈춘다.
  */
 export async function resolveSystemAccount(
+  tenantId: number,
+  systemCode: SystemAccountCode,
+  fallbackCode?: string,
+  fallbackName?: string
+): Promise<{ id: number; code: string; name: string }> {
+  const found = await findSystemAccount(tenantId, systemCode, fallbackCode, fallbackName);
+  if (found.id) return found;
+  // 시드 대상 역할이면 기본 계정을 만들고 다시 찾는다 (이미 있는 계정은 바꾸지 않음 — 비어 있는 같은 분류 계정만 채택)
+  if (SYSTEM_ACCOUNT_CATEGORY[systemCode]) {
+    try {
+      await ensureSystemAccounts(tenantId, null);
+    } catch (err: any) {
+      console.warn(`[resolveSystemAccount] 기본 계정 시드 실패: tenantId=${tenantId}`, err?.message);
+      return found;
+    }
+    return await findSystemAccount(tenantId, systemCode, fallbackCode, fallbackName);
+  }
+  return found;
+}
+
+async function findSystemAccount(
   tenantId: number,
   systemCode: SystemAccountCode,
   fallbackCode?: string,
@@ -147,6 +170,10 @@ export async function insertJournalLine(
   }
 ) {
   const table = params.tableName || "expense_journal_lines";
+  // 계정 없는 분개 행 금지 — 호출자 트랜잭션째 멈춘다 (QA F04)
+  if (!Number.isSafeInteger(Number(params.accountId)) || Number(params.accountId) <= 0) {
+    throw new Error(`분개 계정이 준비되지 않았습니다 (${params.accountName || params.accountCode || "계정"}) — 계정과목을 확인하세요.`);
+  }
   await conn.execute(
     `INSERT INTO ${table}
        (tenant_id, journal_entry_id, account_id, account_code, account_name,
@@ -428,7 +455,7 @@ export async function cancelBankTransactionJournal(tenantId: number, transaction
  * 시스템 기본 계정 시드 (tenant 초기 설정 시 호출)
  * 이미 system_code가 지정된 계정이 있으면 건너뜀
  */
-export async function ensureSystemAccounts(tenantId: number, createdBy: number) {
+export async function ensureSystemAccounts(tenantId: number, createdBy: number | null) {
   const conn = await getRawConnection();
 
   const systemAccountSeeds: {
