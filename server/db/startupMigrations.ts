@@ -948,6 +948,13 @@ async function ensureInboundDocumentSchema(conn: any) {
   } catch (err: any) {
     if (err.code !== "ER_NO_SUCH_TABLE") console.warn("[Migration] h_training_participants.user_id nullable failed:", err.message);
   }
+  // 배치 일괄 생성 요청 키 — 같은 작업은 한 번만, 실패 줄만 다시 (PR-B, 2026-10-18)
+  try {
+    const { BATCH_CREATE_REQUESTS_DDL } = await import("../lib/production/batchCreateRequests");
+    await conn.query(BATCH_CREATE_REQUESTS_DDL);
+  } catch (err: any) {
+    console.warn("[Migration] h_batch_create_requests failed:", err.message);
+  }
   // 가열공정 계획 스냅샷 (PR-B, 2026-10-18) — 배치 생성 때 계산한 예정 시작/끝·예정 투입량. 미리보기와 같은 계산(planDay)
   await addCol("h_ccp_rows", "planned_start", "`planned_start` varchar(5) NULL");
   await addCol("h_ccp_rows", "planned_end", "`planned_end` varchar(5) NULL");

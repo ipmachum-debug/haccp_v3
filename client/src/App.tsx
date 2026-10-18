@@ -31,9 +31,9 @@ const Dashboard = lazy(() => import("./pages/system/Dashboard"));
 const SuperAdminDashboard = lazy(() => import("./pages/system/SuperAdminDashboard"));
 const SupportManagePage = lazy(() => import("./pages/system/SupportManagePage"));
 const BatchListPage = lazy(() => import("./pages/production/BatchListPage"));
-const BatchCreate = lazy(() => import("./pages/production/BatchCreate"));
+// 단건·일괄 배치 생성 → 오늘 생산 작업대 하나로 (PR-B, 2026-10-18)
+const TodayProductionWorkbench = lazy(() => import("./pages/production/TodayProductionWorkbench"));
 const BatchDetail = lazy(() => import("./pages/production/BatchDetail"));
-const DailyBatchCreate = lazy(() => import("./pages/production/DailyBatchCreate"));
 const CcpInspection = lazy(() => import("./pages/haccp/CcpInspection"));
 const CcpRecords = lazy(() => import("./pages/haccp/CcpRecords"));
 const Inventory = lazy(() => import("./pages/inventory/Inventory"));
@@ -402,8 +402,8 @@ function Router() {
       <Route path="/quality/statistics" component={ChecklistStatistics} />
       <Route path="/quality/notification-settings" component={ChecklistNotificationSettings} />
       <Route path="/dashboard/batch" component={BatchListPage} />
-      <Route path="/dashboard/batch/new" component={BatchCreate} />
-      <Route path="/dashboard/batch/bulk" component={DailyBatchCreate} />
+      <Route path="/dashboard/batch/new" component={TodayProductionWorkbench} />
+      <Route path="/dashboard/batch/bulk" component={TodayProductionWorkbench} />
       <Route path="/dashboard/batch/:id" component={BatchDetail} />
       <Route path="/inventory/receipt" component={InventoryReceipt} />
       <Route path="/inventory/release" component={InventoryRelease} />

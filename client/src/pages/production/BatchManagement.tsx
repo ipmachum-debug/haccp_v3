@@ -4,7 +4,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import BatchList from "./BatchList";
-import BatchCreate from "./BatchCreate";
+import TodayProductionWorkbench from "./TodayProductionWorkbench";
 import BatchProfitabilityDashboard from "./BatchProfitabilityDashboard";
 import CostAnalysis from "./CostAnalysis";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
@@ -53,7 +53,7 @@ export default function BatchManagement() {
           </TabsContent>
 
           <TabsContent value="create" className="space-y-4">
-            <BatchCreate embedded />
+            <TodayProductionWorkbench embedded />
           </TabsContent>
 
           <TabsContent value="profitability" className="space-y-4">

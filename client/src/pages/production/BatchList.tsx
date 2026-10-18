@@ -280,15 +280,9 @@ export default function BatchList() {
               <Download className="mr-1 h-4 w-4" />Excel
             </Button>
             {isWorker && (
+              // 단건·일괄 생성은 '오늘 생산' 작업대 하나 (PR-B) — 여러 제품·여러 배치를 한 입력표로
               <Link href="/dashboard/batch/new">
-                <Button size="sm" className="h-9"><Plus className="mr-1 h-4 w-4" />{`새 ${L("batch")}`}</Button>
-              </Link>
-            )}
-            {isWorker && (
-              <Link href="/dashboard/batch/bulk">
-                <Button size="sm" className="h-9 bg-orange-500 hover:bg-orange-600 text-white">
-                  <Plus className="mr-1 h-4 w-4" />일괄생성
-                </Button>
+                <Button size="sm" className="h-9"><Plus className="mr-1 h-4 w-4" />오늘 생산</Button>
               </Link>
             )}
           </div>
