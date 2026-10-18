@@ -928,6 +928,11 @@ async function ensureInboundDocumentSchema(conn: any) {
       if (err.code !== "ER_NO_SUCH_TABLE") console.warn(`[Migration] ${table}.${col} widen failed:`, err.message);
     }
   }
+  // 제출 = 시트 확인 (2026-10-18) — 행 버전 · 사람 확인자·시각·확인한 버전
+  await addCol("h_ccp_form_records", "rows_version", "`rows_version` int NOT NULL DEFAULT 0");
+  await addCol("h_ccp_form_records", "confirmed_by", "`confirmed_by` bigint NULL");
+  await addCol("h_ccp_form_records", "confirmed_at", "`confirmed_at` timestamp NULL");
+  await addCol("h_ccp_form_records", "confirmed_rows_version", "`confirmed_rows_version` int NULL");
   // 금속검출 통과량 단위 — 통과량 = 생산량(SKU 판매단위 또는 kg), 인쇄에 단위 표기 (2026-10-18)
   await addCol("h_ccp_form_rows", "pass_unit", "`pass_unit` varchar(20) NULL");
   // 원재료·제품 코드는 회사별 유일 (지티컴퍼니 QA F01, 2026-10-18) — 전역 UNIQUE 때문에 다른 회사가 쓴 코드(RM-001 등)를

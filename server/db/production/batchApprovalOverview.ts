@@ -6,6 +6,7 @@
  * 항상 "점검 기록 없음 / 승인 이력 없음" 이었다. 실제 승인은 승인관리의 h_approval_requests
  * (request_type 'batch_production' + 'ccp_form') 에서 돌고 있었다. 이 모듈이 그 둘을 한 화면 값으로 합친다.
  */
+import { isConfirmed } from "../../lib/haccp/ccpSheetConfirm";
 import { getRawConnection } from "../connection";
 
 export interface ApprovalRequestView {
@@ -46,6 +47,8 @@ export interface CcpFormView {
   isDaily: boolean;
   /** 자기 요청이 없어 배치 승인 요청("[CCP 기록지]" batch_production)의 결재를 따르는 기록지 (CCP-1B/2B) */
   viaBatchRequest: boolean;
+  /** 작업자가 제출(시트 확인)했고 그 뒤 행이 바뀌지 않았는가 (2026-10-18) */
+  confirmed: boolean;
 }
 
 export interface ApprovalHistoryView {
@@ -104,7 +107,8 @@ export async function getBatchApprovalOverview(batchId: number, tenantId: number
             f.approval_request_id AS approvalRequestId, f.batch_id AS batchId,
             (SELECT COUNT(*) FROM h_ccp_form_rows r WHERE r.form_record_id = f.id AND r.tenant_id = f.tenant_id) AS rowCount,
             (SELECT COUNT(*) FROM h_ccp_form_rows r WHERE r.form_record_id = f.id AND r.tenant_id = f.tenant_id AND r.is_deviation = 1) AS deviationCount,
-            ar.status AS approvalStatus
+            ar.status AS approvalStatus,
+            f.rows_version AS rowsVersion, f.confirmed_at AS confirmedAt, f.confirmed_rows_version AS confirmedRowsVersion
      FROM h_ccp_form_records f
      LEFT JOIN h_approval_requests ar ON ar.id = f.approval_request_id AND ar.tenant_id = f.tenant_id
      WHERE f.tenant_id = ?
@@ -126,6 +130,7 @@ export async function getBatchApprovalOverview(batchId: number, tenantId: number
       approvalStatus: r.approvalStatus ?? null,
       isDaily: r.ccpType === "CCP-4P" && Number(r.batchId) !== batchId,
       viaBatchRequest: false,
+      confirmed: isConfirmed({ confirmedAt: r.confirmedAt, confirmedRowsVersion: r.confirmedRowsVersion, rowsVersion: r.rowsVersion }),
     }));
 
   // 3. 승인 요청 — 배치 직결(reference batch) + 기록지 요청(ccp_form_record)
@@ -190,6 +195,8 @@ export async function getBatchApprovalOverview(batchId: number, tenantId: number
     if (f.status === "rejected") formBlockers.push(`${f.ccpType} 기록지가 반려 상태입니다.`);
     if (f.rowCount === 0) formBlockers.push(`${f.ccpType} 기록지에 행이 없습니다.`);
     if (f.deviationCount > 0) formBlockers.push(`${f.ccpType} 기록지에 이탈(비적합) ${f.deviationCount}건이 있습니다.`);
+    // 제출 = 시트 확인 (2026-10-18): 자동 제출만 된 기록지·확인 뒤 수정된 기록지는 승인하지 않는다
+    if (f.status !== "draft" && f.status !== "rejected" && f.status !== "approved" && !f.confirmed) formBlockers.push(`${f.ccpType} 기록지를 작업자가 아직 제출(시트 확인)하지 않았습니다.`);
   }
   blockers.push(...formBlockers);
   const decision: BatchApprovalOverview["decision"] = !batchRequest

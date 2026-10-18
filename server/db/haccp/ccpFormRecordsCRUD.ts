@@ -302,6 +302,38 @@ export async function updateCcpFormRecord(
  *    같은 날짜의 다른 배치에서도 해당 CCP-4P 기록지를 표시해야 함.
  */
 export async function getCcpFormRecordsByBatch(batchId: number, tenantId?: number) {
+  return attachConfirmState(await loadCcpFormRecordsByBatch(batchId, tenantId), tenantId);
+}
+
+/**
+ * 기록지 확인 상태 (제출 = 시트 확인, 2026-10-18) — Drizzle 스키마 밖 컬럼이라 따로 읽는다 (마이그레이션 전 DB 에서도 동작)
+ *   confirmed: 사람이 제출(확인)했고 그 뒤 행이 바뀌지 않았는가 · confirmedByName·confirmedAt: 확인자·시각
+ */
+async function attachConfirmState<T extends { id: number }>(records: T[], tenantId?: number): Promise<Array<T & { confirmed: boolean; confirmedAt: string | null; confirmedByName: string | null }>> {
+  if (!records.length || tenantId == null) return records.map((r) => ({ ...r, confirmed: false, confirmedAt: null, confirmedByName: null }));
+  try {
+    const conn = await getRawConnection();
+    const ids = records.map((r) => Number(r.id));
+    const [rs]: any = await conn.execute(
+      `SELECT f.id, f.rows_version, f.confirmed_rows_version, DATE_FORMAT(f.confirmed_at, '%Y-%m-%d %H:%i') AS confirmed_at, u.name AS confirmed_by_name
+         FROM h_ccp_form_records f LEFT JOIN users u ON u.id = f.confirmed_by
+        WHERE f.tenant_id = ? AND f.id IN (${ids.map(() => "?").join(",")})`,
+      [tenantId, ...ids],
+    );
+    const { isConfirmed } = await import("../../lib/haccp/ccpSheetConfirm");
+    const m = new Map((rs as any[]).map((x) => [Number(x.id), x]));
+    return records.map((r) => {
+      const x = m.get(Number(r.id));
+      const ok = !!x && isConfirmed({ confirmedAt: x.confirmed_at, confirmedRowsVersion: x.confirmed_rows_version, rowsVersion: x.rows_version });
+      return { ...r, confirmed: ok, confirmedAt: ok ? x.confirmed_at : null, confirmedByName: ok ? (x.confirmed_by_name ?? null) : null };
+    });
+  } catch (e: any) {
+    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+    return records.map((r) => ({ ...r, confirmed: false, confirmedAt: null, confirmedByName: null }));
+  }
+}
+
+async function loadCcpFormRecordsByBatch(batchId: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
@@ -448,7 +480,8 @@ export async function getCcpFormRecordById(id: number, tenantId?: number) {
     .limit(1);
   if (!records.length) return null;
   const rows = await getCcpFormRows(id, tenantId);
-  const record = await enrichWithGroupText(records[0] as any, tenantId);
+  const [withState] = await attachConfirmState(records as any[], tenantId);
+  const record = await enrichWithGroupText(withState as any, tenantId);
   return { record, rows };
 }
 

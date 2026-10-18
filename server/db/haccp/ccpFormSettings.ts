@@ -417,6 +417,23 @@ export async function syncCcpRowsToFormRows(params: {
         passageMatches = Number(ex.n) === Number(want.n) && Number(ex.q) === Number(want.q);
       } catch { /* 판정 불가 → 재생성 */ }
 
+      // 작업자가 손댄 기록지(행 버전 > 0)·확인·승인된 기록지는 지우고 다시 만들지 않는다 — 입력한 감도·통과 결과가 사라졌다 (2026-10-18)
+      let workerTouched = false;
+      try {
+        const [[st]]: any = await rawConn.execute(
+          `SELECT status, rows_version, confirmed_at FROM h_ccp_form_records WHERE id = ? AND tenant_id = ?`,
+          [formRecordId, tenantId],
+        );
+        workerTouched = st?.status === "approved" || Number(st?.rows_version ?? 0) > 0 || st?.confirmed_at != null;
+      } catch (e: any) { if (e?.code !== "ER_BAD_FIELD_ERROR") throw e; }
+      if (workerTouched && !(linkedBatchExists && allProductsCovered && passageMatches)) {
+        console.warn(
+          `[syncCcpRowsToFormRows] CCP-4P 재생성 보류: formRecord=${formRecordId} — 작업자 입력·확인된 기록지. ` +
+            `당일 새 배치·SKU 는 기록지에 직접 추가해야 합니다.`,
+        );
+        continue;
+      }
+
       if (linkedBatchExists && allProductsCovered && passageMatches) {
         console.log(
           `[syncCcpRowsToFormRows] CCP-4P skip: formRecord=${formRecordId}, ` +

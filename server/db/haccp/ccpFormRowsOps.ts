@@ -76,6 +76,11 @@ export async function getCcpFormRows(formRecordId: number, tenantId?: number) {
 export async function upsertCcpFormRow(data: InsertCcpFormRow) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
+  // 승인된 기록지는 수정 거부, 그 밖에는 행 버전을 올려 기존 확인(제출)을 무효화 (2026-10-18)
+  if (data.tenantId && data.formRecordId) {
+    const { bumpSheetVersion } = await import("../../lib/haccp/ccpSheetConfirm");
+    await bumpSheetVersion(await getRawConnection(), Number(data.formRecordId), Number(data.tenantId));
+  }
 
   // tenantId가 있으면 추가 격리 필터
   const tenantFilter = data.tenantId
@@ -219,6 +224,15 @@ export async function updateCcpFormRow(
 export async function deleteCcpFormRow(id: number, tenantId?: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
+  if (tenantId) {
+    const conn = await getRawConnection();
+    const [fr]: any = await conn.execute(`SELECT form_record_id FROM h_ccp_form_rows WHERE id = ? AND tenant_id = ? LIMIT 1`, [id, tenantId]);
+    const formRecordId = (fr as any[])[0]?.form_record_id;
+    if (formRecordId) {
+      const { bumpSheetVersion } = await import("../../lib/haccp/ccpSheetConfirm");
+      await bumpSheetVersion(conn, Number(formRecordId), Number(tenantId));
+    }
+  }
   const conditions = tenantId
     ? and(eq(hCcpFormRows.id, id), eq(hCcpFormRows.tenantId, tenantId))
     : eq(hCcpFormRows.id, id);

@@ -749,7 +749,12 @@ function CcpFormPanel({
 
   const submitMutation = trpc.ccpForm.submit.useMutation({
     onSuccess: (data: any) => {
-      toast({ title: "승인 요청 완료", description: "CCP 기록지가 승인관리로 이동되었습니다." });
+      if (data?.confirmedOnly) {
+        toast({ title: "시트 확인 완료", description: "확인자·시각이 기록되었습니다." });
+        onRefresh?.();
+        return;
+      }
+      toast({ title: "제출 완료", description: "시트 확인이 기록되고 승인관리로 이동합니다." });
       setTimeout(() => setLocation("/dashboard/approval"), 1200);
     },
     onError: (err: { message: string }) => toast({ title: "제출 실패", description: err.message, variant: "destructive" }),
@@ -814,7 +819,11 @@ function CcpFormPanel({
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {formRecord.status === "draft" && rows.length > 0 && (
+          {/* 제출 = 시트 확인 (2026-10-18): 작성중 또는 자동 제출만 되고 아직 사람 확인이 없는 기록지 */}
+          {(formRecord as any).confirmed && (
+            <span className="text-[11px] text-emerald-700">확인 {(formRecord as any).confirmedByName ?? ""} {(formRecord as any).confirmedAt ?? ""}</span>
+          )}
+          {(formRecord.status === "draft" || (formRecord.status === "submitted" && !(formRecord as any).confirmed)) && rows.length > 0 && (
             <Button size="sm" variant="default" className="h-7 text-xs bg-green-600 hover:bg-green-700"
               onClick={e => {
                 e.stopPropagation();
@@ -828,7 +837,7 @@ function CcpFormPanel({
               }}
               disabled={submitMutation.isPending}>
               <Send className="h-3 w-3 mr-1" />
-              승인요청 → 승인관리
+              {formRecord.status === "submitted" ? "확인 제출" : "제출(시트 확인) → 승인관리"}
             </Button>
           )}
           {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
