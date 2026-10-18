@@ -16,7 +16,12 @@ export interface DailyCheckItem {
   checkResult: string | null;
 }
 
-export const DEFAULT_HYGIENE_CHECKS: DailyCheckItem[] = [
+/**
+ * 이전부터 쓰던 기본 질문 (v0) — 원본 템플릿을 켜지 않은 회사의 새 일지 기본값, 자동 초안(객체)·문구 빠진 배열을 읽는 기준.
+ * ⚠ 고치지 않는다 (2026-10-18 Codex 재검토 P1): 이 목록을 바꾸면 과거 자동 초안 기록의 재인쇄 질문이 바뀐다.
+ *   원본 문구는 shared/dailyLog/khaccpTemplate.ts (켠 회사의 새 기록에만).
+ */
+export const LEGACY_V0_HYGIENE_CHECKS: readonly DailyCheckItem[] = [
   { category: "작업전", subcategory: "개인위생", itemOrder: 1, itemText: "위생복장과 이물 복장이 구분하여 보관되고 있는가?", checkResult: null as string | null },
   { category: "작업전", subcategory: "개인위생", itemOrder: 2, itemText: "종사자의 건강상태가 양호하고 개인 청소가 등을 소지하지 않으며, 청결한 위생복장을 착용하고 있는가?", checkResult: null },
   { category: "작업전", subcategory: "개인위생", itemOrder: 3, itemText: "위생설비(손 세척기 등) 중 이상이 있는 것이 없으며, 종사자는 위생처리를 하고 입실하는가?", checkResult: null },
@@ -37,7 +42,7 @@ export const DEFAULT_HYGIENE_CHECKS: DailyCheckItem[] = [
   { category: "출하시", subcategory: "온송", itemOrder: 18, itemText: "완제품 운송차량 내부는 청결하고 다른 물품과 구분하여 적재되어 있으며, 차량의 온도는 기준을 준수하고 있는가?", checkResult: null },
 ];
 
-export const DEFAULT_FOREIGN_CHECKS: DailyCheckItem[] = [
+export const LEGACY_V0_FOREIGN_CHECKS: readonly DailyCheckItem[] = [
   { category: "원료 입고종 이물관리", itemOrder: 1, itemText: "원·부재료 입고시 외부의 이물을 제거한 후 입고하는가?", checkResult: null as string | null },
   { category: "원료 입고종 이물관리", itemOrder: 2, itemText: "원·부재료 선별시 적절하게 이루어지고 있는가?", checkResult: null },
   { category: "공정중 혼입관리", itemOrder: 3, itemText: "원·부재료 전처리시 이물이 혼입되지 않게 배치하는가?", checkResult: null },
@@ -53,6 +58,15 @@ export const DEFAULT_FOREIGN_CHECKS: DailyCheckItem[] = [
   { category: "해충 혼입관리", itemOrder: 13, itemText: "작업장 종업원, 방문자 벽 등의 틈이 없는가?", checkResult: null },
   { category: "해충 혼입관리", itemOrder: 14, itemText: "포충등 및 포획장비는 정상작동되며 지정된 위치에 있는가?", checkResult: null },
 ];
+
+Object.freeze(LEGACY_V0_HYGIENE_CHECKS);
+Object.freeze(LEGACY_V0_FOREIGN_CHECKS);
+LEGACY_V0_HYGIENE_CHECKS.forEach((x) => Object.freeze(x));
+LEGACY_V0_FOREIGN_CHECKS.forEach((x) => Object.freeze(x));
+
+/** 템플릿을 켜지 않은 회사의 새 일지 기본 질문 = v0 (복사해서 쓴다) */
+export const DEFAULT_HYGIENE_CHECKS: DailyCheckItem[] = LEGACY_V0_HYGIENE_CHECKS.map((x) => ({ ...x }));
+export const DEFAULT_FOREIGN_CHECKS: DailyCheckItem[] = LEGACY_V0_FOREIGN_CHECKS.map((x) => ({ ...x }));
 
 /** 자동 생성 초안(객체)의 키 순서 — 기본 위생 질문 1~18 (server/lib/production/autoDailyReport.ts 주석과 같음) */
 export const LEGACY_HYGIENE_OBJECT_KEYS = [
@@ -79,9 +93,10 @@ export function checkVerdict(v: unknown): CheckVerdict {
  * 저장된 점검(배열 또는 자동 초안 객체) → 항목 배열. 배열은 저장된 질문 그대로, 객체는 키 순서대로 기본 질문.
  * 객체의 true/false 는 yes/no, null 은 미기록(null).
  */
-export function normalizeDailyChecks(raw: unknown, defaults: DailyCheckItem[], legacyKeys?: readonly string[]): DailyCheckItem[] {
+export function normalizeDailyChecks(raw: unknown, defaults: readonly DailyCheckItem[], legacyKeys?: readonly string[]): DailyCheckItem[] {
   if (Array.isArray(raw)) {
     return raw.map((item: any, i: number) => ({
+      ...item, // itemId·responseType·운송 온도 등 저장된 다른 칸도 그대로
       category: item?.category ?? defaults[i]?.category ?? "",
       subcategory: item?.subcategory ?? (item?.category ? undefined : defaults[i]?.subcategory),
       itemOrder: Number(item?.itemOrder ?? i + 1),

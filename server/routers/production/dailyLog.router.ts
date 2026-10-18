@@ -13,7 +13,28 @@ import { z } from "zod";
 import { getDb } from "../../db";
 import { sql } from "drizzle-orm";
 
+/** 원본 템플릿을 켠 회사인가 (회사 기능 설정, 기본 꺼짐) — 조회 실패는 오류로 (꺼짐으로 보지 않음) */
+async function templateEnabled(tenantId: number): Promise<boolean> {
+  const { getRawConnection } = await import("../../db/connection");
+  const { isTenantFeatureEnabled } = await import("../../lib/production/massBasisPolicy");
+  const { KHACCP_TEMPLATE_FEATURE } = await import("../../../shared/dailyLog/khaccpTemplate");
+  return isTenantFeatureEnabled(await getRawConnection(), tenantId, KHACCP_TEMPLATE_FEATURE);
+}
+
+/** 화면이 보낸 form_data 에서 서버만 정하는 칸을 뺀다 — templateCode 는 생성 때 서버가 찍고 바꾸지 않는다 */
+function stripServerOwned(fd: any): any {
+  if (!fd || typeof fd !== "object") return fd;
+  const { templateCode: _t, ...rest } = fd;
+  return rest;
+}
+
 export const dailyLogRouter = router({
+  /** 이 회사의 새 일지에 쓸 템플릿 (원본 템플릿을 켠 회사만 코드, 아니면 null) */
+  templateInfo: tenantRequiredProcedure.query(async ({ ctx }) => {
+    const { KHACCP_TEMPLATE_CODE } = await import("../../../shared/dailyLog/khaccpTemplate");
+    return { templateCode: (await templateEnabled(ctx.tenantId)) ? KHACCP_TEMPLATE_CODE : null };
+  }),
+
   // ── 이전 작성 데이터 조회 (pre-fill용) ──
   getPreviousFormData: tenantRequiredProcedure
     .input(z.object({ beforeDate: z.string() }))
@@ -102,28 +123,48 @@ export const dailyLogRouter = router({
         const tenantId = ctx.tenantId;
         const siteId = input.siteId || ctx.user.siteId || ctx.tenantId || 1;
 
-        // 제출(검토 요청) 시 온·습도 실측값·측정시각 필수 — 임시저장(draft)은 빈 값 허용.
-        // 측정하지 않은 값이 검토·승인 단계로 넘어가는 것을 막는다 (승인 관문과 같은 검사, 2026-10-15).
-        if (input.status === 'submitted') {
-          const { findMeasurementIssues, summarizeIssues } = await import("../../../shared/dailyLogMeasurements");
-          const issues = findMeasurementIssues(input.formData);
-          if (issues.length > 0) {
-            throw new TRPCError({
-              code: 'PRECONDITION_FAILED',
-              message: `측정 기록 미완료 — ${summarizeIssues(issues)}. 실제 측정값과 측정시각을 입력한 뒤 제출하세요.`,
-            });
-          }
-        }
+        const clientFd = stripServerOwned(input.formData);
 
         // 기존 레코드 확인
         const existing = await db.execute(sql`
-          SELECT id, form_data FROM h_generic_checklist_records
+          SELECT id, status, form_data FROM h_generic_checklist_records
           WHERE form_type = 'daily_log'
             AND form_date = ${input.logDate}
             AND tenant_id = ${tenantId}
           LIMIT 1
         `);
         const existingRows = (existing as any)[0] || [];
+        // 승인된 일지는 고치지 않는다 (정정은 별도 절차)
+        if (existingRows[0]?.status === 'approved') {
+          throw new TRPCError({ code: 'FORBIDDEN', message: '승인된 일일일지는 수정할 수 없습니다.' });
+        }
+        let existingFd: any = {};
+        try {
+          existingFd = existingRows.length ? (typeof existingRows[0].form_data === 'string' ? JSON.parse(existingRows[0].form_data) : (existingRows[0].form_data || {})) : {};
+        } catch {}
+        // 템플릿: 기존 기록은 그 기록의 것 그대로, 새 기록은 회사 설정으로 (화면 값 안 씀)
+        const { KHACCP_TEMPLATE_CODE, khaccpSubmitIssues } = await import("../../../shared/dailyLog/khaccpTemplate");
+        const templateCode: string | null = existingRows.length
+          ? (existingFd.templateCode ?? null)
+          : ((await templateEnabled(tenantId)) ? KHACCP_TEMPLATE_CODE : null);
+
+        // 제출(검토 요청) 시 온·습도 실측값·측정시각 필수 — 임시저장(draft)은 빈 값 허용.
+        // 측정하지 않은 값이 검토·승인 단계로 넘어가는 것을 막는다 (승인 관문과 같은 검사, 2026-10-15).
+        // 원본 템플릿 기록은 운송 온도(숫자 또는 '운송 없음'+사유)도 (PR-A)
+        if (input.status === 'submitted') {
+          const { findMeasurementIssues, summarizeIssues } = await import("../../../shared/dailyLogMeasurements");
+          const issues = findMeasurementIssues(clientFd);
+          if (issues.length > 0) {
+            throw new TRPCError({
+              code: 'PRECONDITION_FAILED',
+              message: `측정 기록 미완료 — ${summarizeIssues(issues)}. 실제 측정값과 측정시각을 입력한 뒤 제출하세요.`,
+            });
+          }
+          const tIssues = khaccpSubmitIssues({ ...existingFd, ...clientFd, templateCode });
+          if (tIssues.length > 0) {
+            throw new TRPCError({ code: 'PRECONDITION_FAILED', message: `제출할 수 없습니다 — ${tIssues.join(' / ')}` });
+          }
+        }
 
         let recordId: number;
         const title = `일일일지 - ${input.logDate}`;
@@ -131,14 +172,11 @@ export const dailyLogRouter = router({
         if (existingRows.length > 0) {
           // 기존 레코드 업데이트 (배치 데이터 보존, 위생 데이터 덮어씀)
           recordId = existingRows[0].id;
-          let oldFd: any = {};
-          try {
-            oldFd = typeof existingRows[0].form_data === 'string'
-              ? JSON.parse(existingRows[0].form_data) : (existingRows[0].form_data || {});
-          } catch {}
-          const merged = { ...oldFd, ...input.formData };
+          const oldFd: any = existingFd;
+          const merged: any = { ...oldFd, ...clientFd };
+          if (templateCode) merged.templateCode = templateCode; else delete merged.templateCode;
           // 배치 데이터 보존
-          if (oldFd.batches && !input.formData.batches) {
+          if (oldFd.batches && !clientFd.batches) {
             merged.batches = oldFd.batches;
             merged.totalBatches = oldFd.totalBatches;
             merged.totalPlannedQty = oldFd.totalPlannedQty;
@@ -162,7 +200,7 @@ export const dailyLogRouter = router({
             WHERE form_type = 'daily_log' AND tenant_id = ${tenantId} AND YEAR(created_at) = YEAR(NOW())
           `);
           const nextSeq = Number((seqR as any)[0]?.[0]?.ns || 1);
-          const formDataStr = JSON.stringify({ ...input.formData, date: input.logDate });
+          const formDataStr = JSON.stringify({ ...clientFd, date: input.logDate, ...(templateCode ? { templateCode } : {}) });
 
           const ins = await db.execute(sql`
             INSERT INTO h_generic_checklist_records
@@ -221,17 +259,21 @@ export const dailyLogRouter = router({
         if (!db) throw new Error("DB 연결 실패");
         // 기존 데이터와 병합 (배치 보존)
         const existing = await db.execute(sql`
-          SELECT form_data FROM h_generic_checklist_records
-          WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId}
+          SELECT status, form_data FROM h_generic_checklist_records
+          WHERE id = ${input.id} AND tenant_id = ${ctx.tenantId} AND form_type = 'daily_log'
         `);
         const oldRows = (existing as any)[0] || [];
+        if (oldRows.length === 0) throw new TRPCError({ code: 'NOT_FOUND', message: '일일일지를 찾을 수 없습니다.' });
+        // 승인된 일지는 고치지 않는다 (정정은 별도 절차)
+        if (oldRows[0].status === 'approved') throw new TRPCError({ code: 'FORBIDDEN', message: '승인된 일일일지는 수정할 수 없습니다.' });
         let oldFd: any = {};
-        if (oldRows.length > 0) {
-          try { oldFd = typeof oldRows[0].form_data === 'string' ? JSON.parse(oldRows[0].form_data) : oldRows[0].form_data; } catch {}
-        }
-        const merged = { ...oldFd, ...input.formData, lastUpdated: new Date().toISOString() };
+        try { oldFd = typeof oldRows[0].form_data === 'string' ? JSON.parse(oldRows[0].form_data) : (oldRows[0].form_data || {}); } catch {}
+        const clientFd = stripServerOwned(input.formData);
+        const merged: any = { ...oldFd, ...clientFd, lastUpdated: new Date().toISOString() };
+        // 템플릿 표시는 그 기록의 것 그대로
+        if (oldFd.templateCode) merged.templateCode = oldFd.templateCode; else delete merged.templateCode;
         // 배치 보존
-        if (oldFd.batches && !input.formData.batches) {
+        if (oldFd.batches && !clientFd.batches) {
           merged.batches = oldFd.batches;
           merged.totalBatches = oldFd.totalBatches;
           merged.totalPlannedQty = oldFd.totalPlannedQty;
@@ -243,6 +285,7 @@ export const dailyLogRouter = router({
         `);
         return { success: true };
       } catch (error) {
+        if (error instanceof TRPCError) throw error;
         console.error('[dailyLog.updateFormData]', error);
         throw new TRPCError({ code: 'INTERNAL_SERVER_ERROR', message: '수정 실패' });
       }

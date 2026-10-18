@@ -22,6 +22,7 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 import { DEFAULT_HYGIENE_CHECKS as SHARED_HYGIENE_CHECKS, DEFAULT_FOREIGN_CHECKS as SHARED_FOREIGN_CHECKS, LEGACY_HYGIENE_OBJECT_KEYS, normalizeDailyChecks } from "@shared/dailyLogChecks";
+import { isKhaccpRecord, khaccpDefaultChecks, khaccpSubmitIssues, KHACCP_SECTION_HEADERS } from "@shared/dailyLog/khaccpTemplate";
 import { findMissingMeasurements, countMissingBySection, isBlankMeasurement, findMeasurementIssues, summarizeIssues, readMeasurements, SECTION_LABELS } from "@shared/dailyLogMeasurements";
 
 /** 측정값이 비어 있는 입력칸 강조 (제출 전까지 "미측정" 상태를 눈에 보이게) */
@@ -32,6 +33,30 @@ function UnmeasuredChip() {
     <span className="ml-1 inline-block rounded border border-amber-300 bg-amber-50 px-1 text-[10px] text-amber-700 align-middle">
       미측정
     </span>
+  );
+}
+
+/** 원본 템플릿 운송 온도 칸 — 숫자(℃) 또는 '운송 없음' + 사유. 빈칸은 미기록 (PR-A) */
+function TransportTempInput({ item, onChange }: { item: any; onChange: (patch: Record<string, unknown>) => void }) {
+  const key = item.tempKey as string;
+  const na = item.notApplicable === true;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-1">
+        <Input type="number" inputMode="decimal" step="0.1" className="h-9 w-24" disabled={na}
+          value={item[key] ?? ""} placeholder="온도"
+          onChange={(e) => onChange({ [key]: e.target.value === "" ? null : Number(e.target.value) })} />
+        <span className="text-xs">℃</span>
+      </div>
+      <label className="flex items-center gap-1 text-xs">
+        <input type="checkbox" checked={na} onChange={(e) => onChange({ notApplicable: e.target.checked, ...(e.target.checked ? { [key]: null } : { notApplicableReason: "" }) })} />
+        운송 없음
+      </label>
+      {na && (
+        <Input className="h-9 w-40 text-xs" placeholder="사유 (예: 당일 출하 없음)" value={item.notApplicableReason ?? ""}
+          onChange={(e) => onChange({ notApplicableReason: e.target.value })} />
+      )}
+    </div>
   );
 }
 
@@ -108,6 +133,11 @@ export default function DailyLogForm() {
     { beforeDate: logDate },
     { enabled: !!logDate }
   );
+
+  // 원본 템플릿 — 기존 기록은 그 기록의 표시, 새 기록은 회사 설정 (서버가 저장 때 다시 정한다)
+  const { data: templateInfo, isLoading: loadingTemplate } = trpc.dailyLog.templateInfo.useQuery(undefined, { staleTime: 60000 });
+  const [recordTemplate, setRecordTemplate] = useState<string | null>(null);
+  const isKhaccp = isKhaccpRecord({ templateCode: recordTemplate });
 
   const saveMutation = trpc.dailyLog.saveFullForm.useMutation({
     onSuccess: (result: any) => {
@@ -198,20 +228,25 @@ export default function DailyLogForm() {
 
   // 데이터 로드 효과
   useEffect(() => {
-    if (loadingExisting || loadingPrev) return;
+    // 템플릿 정보를 받은 뒤에 새 양식을 만든다 — 나중에 도착해 입력 중인 내용을 지우지 않게
+    if (loadingExisting || loadingPrev || loadingTemplate) return;
     if (existingLog) {
       // 해당 날짜 데이터 존재 → 로드
       setRecordId(existingLog.id);
       setRecordStatus(existingLog.status);
+      setRecordTemplate((existingLog.formData as any)?.templateCode ?? null);
       applyFormData(existingLog.formData, false);
     } else {
       // 신규 작성 → 빈 폼. 전일 기록이 있으면 "참고" 패널로만 보여 준다 (2026-10-15, Codex 일일일지 감사 P2)
       //   이전엔 전일 form_data 를 통째로 적용해 측정값·측정시각·점검 결과까지 오늘 기록처럼 채워졌다.
       setRecordId(null);
       setRecordStatus("new");
-      setHygieneChecks(structuredClone(DEFAULT_HYGIENE_CHECKS));
+      const newTemplate = templateInfo?.templateCode ?? null;
+      setRecordTemplate(newTemplate);
+      const tpl = isKhaccpRecord({ templateCode: newTemplate }) ? khaccpDefaultChecks() : null;
+      setHygieneChecks(tpl ? (tpl.hygieneChecks as any) : structuredClone(DEFAULT_HYGIENE_CHECKS));
       setHygieneNotes({ ...EMPTY_NOTES });
-      setForeignMaterialChecks(structuredClone(DEFAULT_FOREIGN_CHECKS));
+      setForeignMaterialChecks(tpl ? (tpl.foreignMaterialChecks as any) : structuredClone(DEFAULT_FOREIGN_CHECKS));
       setForeignMaterialNotes({ ...EMPTY_NOTES });
       setTemperatureHumidity(structuredClone(DEFAULT_TEMP_HUMIDITY));
       setTemperatureHumidityIssues({ ...EMPTY_ISSUES });
@@ -221,7 +256,7 @@ export default function DailyLogForm() {
       setRefrigeratorIssues({ ...EMPTY_REF_ISSUES });
       setBatchData([]);
     }
-  }, [existingLog, previousData, loadingExisting, loadingPrev, applyFormData]);
+  }, [existingLog, previousData, loadingExisting, loadingPrev, loadingTemplate, applyFormData, templateInfo]);
 
   // formData 생성
   const buildFormData = () => ({
@@ -247,6 +282,12 @@ export default function DailyLogForm() {
   const handleSubmit = () => {
     if (measurementIssues.length > 0) {
       toast.error(`측정 기록 미완료 — ${summarizeIssues(measurementIssues)}. 실제 측정값과 측정시각을 입력한 뒤 제출하세요.`);
+      return;
+    }
+    // 원본 템플릿 기록: 운송 온도(숫자 또는 '운송 없음'+사유) — 서버도 같은 검사
+    const tIssues = khaccpSubmitIssues({ templateCode: recordTemplate, hygieneChecks });
+    if (tIssues.length > 0) {
+      toast.error(`제출할 수 없습니다 — ${tIssues.join(" / ")}`);
       return;
     }
     saveMutation.mutate({ logDate, formData: buildFormData(), status: 'submitted' });
@@ -417,7 +458,7 @@ export default function DailyLogForm() {
                     <CardDescription>매일 작성 - 적합/부적합 체크</CardDescription>
                   </div>
                   <Button size="sm" variant="outline" className="text-xs gap-1"
-                    onClick={() => setHygieneChecks(prev => prev.map(c => ({ ...c, checkResult: 'yes' })))}>
+                    onClick={() => setHygieneChecks(prev => prev.map(c => ((c as any).responseType === 'temperature' ? c : { ...c, checkResult: 'yes' })))}>
                     ✓ 일괄 적합
                   </Button>
                 </div>
@@ -432,10 +473,24 @@ export default function DailyLogForm() {
                       <th className="border p-2 w-[60px]">아니오</th>
                     </tr></thead>
                     <tbody>
-                      {hygieneChecks.map((check, idx) => (
+                      {hygieneChecks.map((check, idx) => {
+                        const rt = isKhaccp ? (check as any).responseType : undefined;
+                        const patch = (p: Record<string, unknown>) => setHygieneChecks(prev => prev.map((c, i) => (i === idx ? { ...c, ...p } : c)));
+                        if (rt === 'temperature') return (
+                          // 원본 7번 — 예/아니오 없이 ℃ 값만
+                          <tr key={idx}>
+                            <td className="border p-2 text-xs font-medium">{check.category}</td>
+                            <td className="border p-2 text-xs">{check.itemText}</td>
+                            <td className="border p-2" colSpan={2}><TransportTempInput item={check} onChange={patch} /></td>
+                          </tr>
+                        );
+                        return (
                         <tr key={idx} className={check.checkResult === 'no' ? 'bg-red-50' : ''}>
                           <td className="border p-2 text-xs font-medium">{check.category}</td>
-                          <td className="border p-2 text-xs">{check.itemText}</td>
+                          <td className="border p-2 text-xs">
+                            {check.itemText}
+                            {rt === 'check_temperature' && <div className="mt-2"><TransportTempInput item={check} onChange={patch} /></div>}
+                          </td>
                           <td className="border p-2 text-center">
                             <input type="radio" name={`h-${idx}`} checked={check.checkResult === 'yes'}
                               onChange={() => { const n = [...hygieneChecks]; n[idx] = {...n[idx], checkResult: 'yes'}; setHygieneChecks(n); }} />
@@ -445,7 +500,8 @@ export default function DailyLogForm() {
                               onChange={() => { const n = [...hygieneChecks]; n[idx] = {...n[idx], checkResult: 'no'}; setHygieneChecks(n); }} />
                           </td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -501,7 +557,7 @@ export default function DailyLogForm() {
           {/* 3. 원재료실 온습도 */}
           <TabsContent value="temperature" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle>{`${L("material")}실 온/습도 점검기록지`}</CardTitle><CardDescription>온도: 1~35 C, 습도: 65% 이하</CardDescription></CardHeader>
+              <CardHeader><CardTitle>{`${L("material")}실 온/습도 점검기록지`}</CardTitle><CardDescription>{isKhaccp ? KHACCP_SECTION_HEADERS.temperatureHumidity.criteria : "온도: 1~35 C, 습도: 65% 이하"}</CardDescription></CardHeader>
               <CardContent className="space-y-4">
                 <table className="w-full border-collapse border text-sm">
                   <thead><tr className="bg-muted">
@@ -532,7 +588,7 @@ export default function DailyLogForm() {
           {/* 4. 냉동고 온도 */}
           <TabsContent value="freezer" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle>급속냉동고 / 냉동고 온도 점검기록지</CardTitle><CardDescription>급속냉동고: -27 C 이하, 냉동고: -18 C 이하</CardDescription></CardHeader>
+              <CardHeader><CardTitle>급속냉동고 / 냉동고 온도 점검기록지</CardTitle><CardDescription>{isKhaccp ? KHACCP_SECTION_HEADERS.freezer.criteria : "급속냉동고: -27 C 이하, 냉동고: -18 C 이하"}</CardDescription></CardHeader>
               <CardContent className="space-y-4">
                 <table className="w-full border-collapse border text-sm">
                   <thead><tr className="bg-muted">
@@ -563,7 +619,7 @@ export default function DailyLogForm() {
           {/* 5. 냉장고 온도 */}
           <TabsContent value="refrigerator" className="space-y-4">
             <Card>
-              <CardHeader><CardTitle>{`${L("material")} 냉장고 온도 점검 기록지`}</CardTitle><CardDescription>온도: 0~10 C</CardDescription></CardHeader>
+              <CardHeader><CardTitle>{`${L("material")} 냉장고 온도 점검 기록지`}</CardTitle><CardDescription>{isKhaccp ? KHACCP_SECTION_HEADERS.refrigerator.criteria : "온도: 0~10 C"}</CardDescription></CardHeader>
               <CardContent className="space-y-4">
                 <table className="w-full border-collapse border text-sm">
                   <thead><tr className="bg-muted">

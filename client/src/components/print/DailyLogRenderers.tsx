@@ -12,9 +12,10 @@
 import React from "react";
 import { TitleWithApproval } from "./PrintHelpers";
 import {
-  DEFAULT_HYGIENE_CHECKS, DEFAULT_FOREIGN_CHECKS, LEGACY_HYGIENE_OBJECT_KEYS, LEGACY_FOREIGN_OBJECT_KEYS,
+  LEGACY_V0_HYGIENE_CHECKS, LEGACY_V0_FOREIGN_CHECKS, LEGACY_HYGIENE_OBJECT_KEYS, LEGACY_FOREIGN_OBJECT_KEYS,
   normalizeDailyChecks, checkVerdict, type DailyCheckItem,
 } from "@shared/dailyLogChecks";
+import { isKhaccpRecord, KHACCP_SECTION_HEADERS, KHACCP_FOREIGN_HEADER, type SectionHeader } from "@shared/dailyLog/khaccpTemplate";
 
 // 렌더러 입력: 체크리스트 폼 데이터 — 각 문서 유형별로 shape 이 다양 (40+ 타입)
 // 서버에서 JSON 파싱 후 any 로 흘러오므로 렌더러 시그니처는 any 허용,
@@ -46,6 +47,15 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
   const TitleRow = ({ title, subtitle, info }: { title: string; subtitle?: string; info?: React.ReactNode }) => (
     <TitleWithApproval title={title} subtitle={subtitle} doc={doc} infoLeft={info} />
   );
+  // 원본 템플릿 머리 정보 — 관리기준·점검방법·주기·개선조치 원문 (원본 템플릿 기록만)
+  const SectionHead = ({ h }: { h: SectionHeader }) => (
+    <div className="border border-gray-400 rounded p-3 mb-3 bg-gray-50 text-xs space-y-1">
+      <p><span className="font-bold">관리기준:</span> {h.criteria}</p>
+      <p><span className="font-bold">점검방법:</span> {h.method} | {h.cycle}</p>
+      <p className="font-bold mt-2">개선조치사항:</p>
+      {h.actions.map((a, i) => <p key={i}>{a}</p>)}
+    </div>
+  );
 
   // 자동생성 일일일지 — 위생 점검이 아직 미작성이면 안내 메시지 표시
   // ★ hygieneChecks가 작성되어 있으면 정상 렌더링으로 진행 (수동 보완 후 제출한 경우)
@@ -75,8 +85,11 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
   // 위생·이물 점검 — 저장된 질문·분류·결과 그대로 (Codex 위생 점검 DL-01, 2026-10-18)
   //   이전: 배열을 순서 번호로 다른 고정 질문 16개에 끼워 넣어 7번(운송 온도) 답이 '위생복 세탁'에 찍혔다.
   //   자동 생성 초안(객체)은 입력 화면과 같은 키 순서로 기본 질문에 놓는다 (shared/dailyLogChecks).
-  const hygieneItems = normalizeDailyChecks(d.hygieneChecks, DEFAULT_HYGIENE_CHECKS, LEGACY_HYGIENE_OBJECT_KEYS);
-  const foreignItems = normalizeDailyChecks(d.foreignMaterialChecks, DEFAULT_FOREIGN_CHECKS, LEGACY_FOREIGN_OBJECT_KEYS);
+  //   읽는 기준은 고정된 v0 정의 — 기본 질문을 바꿔도 과거 기록 재인쇄가 바뀌지 않는다 (Codex 재검토 P1)
+  const hygieneItems = normalizeDailyChecks(d.hygieneChecks, LEGACY_V0_HYGIENE_CHECKS, LEGACY_HYGIENE_OBJECT_KEYS);
+  const foreignItems = normalizeDailyChecks(d.foreignMaterialChecks, LEGACY_V0_FOREIGN_CHECKS, LEGACY_FOREIGN_OBJECT_KEYS);
+  // 원본 템플릿으로 만든 기록만 원본 머리 정보·운송 온도 칸 (PR-A). 그 밖의 기록(과거·승인 포함)은 이전 인쇄 그대로
+  const khaccp = isKhaccpRecord(d);
   const storageTemp = !Array.isArray(d.hygieneChecks) && d.hygieneChecks?.storageTemp ? String(d.hygieneChecks.storageTemp) : "";
 
   // 온도: 배열이면 객체로 변환
@@ -184,6 +197,18 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
   const verdictCls = (v: unknown) => (checkVerdict(v) === "부적합" ? " text-red-700 font-medium" : checkVerdict(v) === "미기록" ? " text-gray-400" : "");
   // 측정값 표시 — 0 은 값 그대로, 빈칸만 '-'
   const val = (v: unknown) => (v === null || v === undefined || String(v).trim() === "" ? "-" : String(v));
+  // 원본 템플릿 기록의 운송 온도 — 7번 ℃ 값만, 18번 예/아니오 + ℃. '운송 없음' 은 사유와 함께
+  const tempText = (it: any) => {
+    if (it.notApplicable === true) return `운송 없음${it.notApplicableReason ? ` (${it.notApplicableReason})` : ""}`;
+    const v = it.tempKey ? it[it.tempKey] : null;
+    return v === null || v === undefined || String(v).trim() === "" ? "미기록" : `${v}℃`;
+  };
+  const resultCell = (it: DailyCheckItem) => {
+    const x = it as any;
+    if (!khaccp || !x.responseType || x.responseType === "check") return checkVerdict(it.checkResult);
+    if (x.responseType === "temperature") return tempText(x);
+    return <>{checkVerdict(it.checkResult)}<br /><span className="text-xs">{tempText(x)}</span></>;
+  };
   // 저장된 항목을 분류별로 묶어 출력 (분류 칸 rowSpan)
   const checkRows = (items: DailyCheckItem[], withSub: boolean) => items.map((it, i) => {
     const first = i === 0 || items[i - 1].category !== it.category;
@@ -194,7 +219,7 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
         {first && <td className={secCls} rowSpan={rows}>{it.category || "-"}</td>}
         {withSub && <td className={cellCls}>{it.subcategory || "-"}</td>}
         <td className={cellCls}>{it.itemOrder}. {it.itemText}</td>
-        <td className={cellCls + " text-center" + verdictCls(it.checkResult)}>{checkVerdict(it.checkResult)}</td>
+        <td className={cellCls + " text-center" + (khaccp && (it as any).responseType === "temperature" ? "" : verdictCls(it.checkResult))}>{resultCell(it)}</td>
       </tr>
     );
   });
@@ -234,7 +259,7 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
   // 페이지 2: 이물관리 점검표
   const page2 = (
     <div>
-      <TitleRow title="이물관리 점검표" info={<><span className="font-medium">점검일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">점검자:</span> {authorName || inspector || "-"} &nbsp;&nbsp; <span className="text-gray-600">검사방법: 육안검사 | 점검주기: 1회/일</span></>} />
+      <TitleRow title="이물관리 점검표" info={<><span className="font-medium">점검일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">점검자:</span> {authorName || inspector || "-"} &nbsp;&nbsp; <span className="text-gray-600">검사방법: {khaccp ? KHACCP_FOREIGN_HEADER.method : "육안검사"} | 점검주기: {khaccp ? KHACCP_FOREIGN_HEADER.cycle : "1회/일"}</span></>} />
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead>
           <tr className="bg-blue-100">
@@ -266,6 +291,7 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
   const page3 = (
     <div>
       <TitleRow title="원재료실 온/습도 점검기록지" info={<><span className="font-medium">일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">작성자:</span> {authorName || inspector || "-"}</>} />
+      {khaccp ? <SectionHead h={KHACCP_SECTION_HEADERS.temperatureHumidity} /> : (
       <div className="border border-gray-400 rounded p-3 mb-3 bg-gray-50 text-xs space-y-1">
         <p><span className="font-bold">관리기준:</span> 온도: 1℃~35℃, 습도: 65%이하</p>
         <p><span className="font-bold">점검방법:</span> 생산팀 담당자가 관찰 수치 기록 | 일2회</p>
@@ -274,11 +300,12 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
         <p>② 설비 이상 시 수리 후 재가동</p>
         <p>③ 이상 발생 시 관리자에게 보고</p>
       </div>
+      )}
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead>
           <tr className="bg-blue-100">
             <th className={headCls}>구분</th>
-            <th className={headCls}>감시시각</th>
+            <th className={headCls}>{khaccp ? "감시시작" : "감시시각"}</th>
             <th className={headCls}>온도 (℃)</th>
             <th className={headCls}>습도 (%)</th>
             <th className={headCls}>평가</th>
@@ -305,6 +332,7 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
   const page4 = (
     <div>
       <TitleRow title="급속냉동고 / 냉동고 온도 점검기록지" info={<><span className="font-medium">일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">작성자:</span> {authorName || inspector || "-"}</>} />
+      {khaccp ? <SectionHead h={KHACCP_SECTION_HEADERS.freezer} /> : (
       <div className="border border-gray-400 rounded p-3 mb-3 bg-gray-50 text-xs space-y-1">
         <p><span className="font-bold">관리기준:</span> 급속냉동고: -27℃ 이하, 냉동고: -18℃ 이하</p>
         <p><span className="font-bold">점검방법:</span> 생산팀 담당자가 관찰 수치 기록 | 일2회</p>
@@ -313,11 +341,12 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
         <p>② 설비 이상 시 수리 후 재가동</p>
         <p>③ 이상 발생 시 관리자에게 보고</p>
       </div>
+      )}
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead>
           <tr className="bg-blue-100">
             <th className={headCls}>구분</th>
-            <th className={headCls}>감시시각</th>
+            <th className={headCls}>{khaccp ? "감시시작" : "감시시각"}</th>
             <th className={headCls}>급속냉동고 (℃)</th>
             <th className={headCls}>냉동고 (℃)</th>
             <th className={headCls}>평가</th>
@@ -342,6 +371,7 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
   const page5 = (
     <div>
       <TitleRow title="원재료 냉장고 온도 점검 기록지" info={<><span className="font-medium">일자:</span> {date} &nbsp;&nbsp; <span className="font-medium">작성자:</span> {authorName || inspector || "-"}</>} />
+      {khaccp ? <SectionHead h={KHACCP_SECTION_HEADERS.refrigerator} /> : (
       <div className="border border-gray-400 rounded p-3 mb-3 bg-gray-50 text-xs space-y-1">
         <p><span className="font-bold">관리기준:</span> 0℃~10℃</p>
         <p><span className="font-bold">점검방법:</span> 생산팀 담당자가 관찰 수치 기록 | 일2회</p>
@@ -350,11 +380,12 @@ export function renderDailyLogPages(data: FormData, doc?: DocInfo): React.ReactN
         <p>② 설비 이상 시 수리 후 재가동</p>
         <p>③ 이상 발생 시 관리자에게 보고</p>
       </div>
+      )}
       <table className="w-full border-collapse border border-gray-400 text-sm">
         <thead>
           <tr className="bg-blue-100">
             <th className={headCls}>구분</th>
-            <th className={headCls}>감시시각</th>
+            <th className={headCls}>{khaccp ? "감시시작" : "감시시각"}</th>
             <th className={headCls}>온도 (℃)</th>
             <th className={headCls}>평가</th>
           </tr>
