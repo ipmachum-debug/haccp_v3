@@ -280,16 +280,18 @@ export default function FloatingAIChatbot() {
       {isHidden && !isOpen && (
         <button
           onClick={handleShow}
-          className="fixed bottom-20 right-5 sm:bottom-24 sm:right-7 z-50 flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl active:scale-95 cursor-pointer bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+          className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 flex items-center gap-2 px-3 py-2 rounded-full shadow-lg transition-all duration-300 hover:scale-105 hover:shadow-xl active:scale-95 cursor-pointer bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
         >
           <img src="/ai-hana-character.png" alt="하나" className="h-6 w-6 object-contain" />
           <span className="text-xs font-bold text-gray-700 dark:text-gray-200">AI 하나</span>
         </button>
       )}
 
-      {/* ===== 플로팅 버튼 ===== */}
+      {/* ===== 플로팅 버튼 =====
+          ★ 2026-10-18 (지티 QA F06): 화면 맨 아래 오른쪽 구석으로 내리고 크기를 줄였다 — 이전(바닥에서 96px, 72px)엔
+            좁은 화면에서 BOM 저장 버튼 위를 덮었다. 페이지 본문은 아래 여백(DashboardLayout main)으로 이 자리를 비운다. */}
       {!isOpen && !isHidden && !hiddenByChannelTalk && (
-        <div className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-50 flex flex-col items-end gap-2">
+        <div className="fixed bottom-20 right-4 md:bottom-6 md:right-6 z-50 flex flex-col items-end gap-2">
           {/* 말풍선 */}
           {showBubble && (
             <div className="hana-bubble-enter relative flex items-center">
@@ -324,12 +326,12 @@ export default function FloatingAIChatbot() {
                 transform: "scale(1.5)",
               }} 
             />
-            <div className="relative w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-full bg-white dark:bg-gray-800 shadow-xl border-2 border-white dark:border-gray-700 overflow-hidden flex items-center justify-center group-hover:scale-105 group-active:scale-95 transition-transform duration-200"
+            <div className="relative w-14 h-14 rounded-full bg-white dark:bg-gray-800 shadow-xl border-2 border-white dark:border-gray-700 overflow-hidden flex items-center justify-center group-hover:scale-105 group-active:scale-95 transition-transform duration-200"
               style={{ animation: "hanaPulse 3s ease-in-out infinite" }}
             >
               <img 
                 src="/ai-hana-character.png" 
-                className="h-14 w-14 sm:h-16 sm:w-16 object-cover object-top" 
+                className="h-12 w-12 object-cover object-top" 
                 alt="AI 하나" 
               />
             </div>

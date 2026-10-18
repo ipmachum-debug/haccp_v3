@@ -1300,7 +1300,8 @@ function DashboardLayoutContent({
         {/* ★ 2026-05-11: min-w-0 + w-full — flex-1 만으로는 자식 wide table 이
             viewport 를 밀어내는 사고. SidebarInset 와 함께 적용해 모바일 좌우
             스와이프 + Table 자체 overflow-x-auto 가 정상 작동하게 한다. */}
-        <main className={cn("flex-1 min-w-0 w-full px-3 py-4 md:px-5 md:py-5", showBottomNav && "pb-24")}>{children}</main>
+        {/* 아래 여백 — 오른쪽 아래 AI 하나 버튼 자리를 비워 페이지 끝 버튼(저장 등)이 가려지지 않게 (지티 QA F06) */}
+        <main className="flex-1 min-w-0 w-full px-3 py-4 pb-40 md:px-5 md:py-5 md:pb-28">{children}</main>
         {showBottomNav && <AppBottomNav items={mobileNavItems} isActivePath={isActivePath} onOpenMenu={toggleSidebar} />}
       </SidebarInset>
       </HubMenuContext.Provider>
