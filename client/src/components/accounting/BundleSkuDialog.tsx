@@ -137,7 +137,7 @@ export default function BundleSkuDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="top-[10vh] translate-y-0 max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2"><Layers className="h-4 w-4 text-violet-600" /> 묶음(혼합) 상품으로 지정</DialogTitle>
           <DialogDescription>
@@ -162,6 +162,8 @@ export default function BundleSkuDialog({
               <Search className="h-3.5 w-3.5 absolute left-2.5 top-2.5 text-muted-foreground" />
               <Input className="pl-8 h-9" placeholder="묶음 이름·단품 이름 검색" value={search} onChange={(e) => setSearch(e.target.value)} />
             </div>
+            {/* 결과 영역 높이 고정 — 검색해도 창 크기가 변하지 않게 */}
+            <div className="h-[min(360px,45vh)] space-y-2 overflow-y-auto overscroll-contain pr-1">
             {parentsQuery.isLoading ? (
               <p className="text-sm text-muted-foreground py-6 text-center">불러오는 중...</p>
             ) : filteredParents.length === 0 ? (
@@ -184,6 +186,7 @@ export default function BundleSkuDialog({
                 </button>
               ))
             )}
+            </div>
           </div>
         )}
 

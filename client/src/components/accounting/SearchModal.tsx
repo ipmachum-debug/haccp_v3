@@ -120,7 +120,7 @@ export function SearchModal({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[600px] flex flex-col">
+      <DialogContent className="top-[10vh] translate-y-0 rounded-2xl max-w-2xl max-h-[600px] flex flex-col">
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">{title}</DialogTitle>
           {description && (
@@ -150,8 +150,8 @@ export function SearchModal({
         {/* 결과 목록 */}
         <div
           ref={listRef}
-          className="flex-1 overflow-y-auto border rounded-md"
-          style={{ minHeight: "300px", maxHeight: "400px" }}
+          className="overflow-y-auto overscroll-contain border border-border/60 rounded-xl"
+          style={{ height: "min(400px, 50vh)" }}
         >
           {loading ? (
             <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -170,7 +170,7 @@ export function SearchModal({
                   className={cn(
                     "flex items-center justify-between px-4 py-3 cursor-pointer transition-colors",
                     index === selectedIndex
-                      ? "bg-primary text-primary-foreground"
+                      ? "bg-muted font-medium"
                       : "hover:bg-muted"
                   )}
                 >

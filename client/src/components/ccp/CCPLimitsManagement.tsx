@@ -220,7 +220,7 @@ function ProcessGroupFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="top-[10vh] translate-y-0 max-w-3xl max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Layers className="h-5 w-5" />
@@ -452,7 +452,7 @@ function ProcessGroupFormDialog({
                     </div>
 
                     {/* 제품 목록 (체크박스 수동 매핑) */}
-                    <div className="max-h-[350px] overflow-y-auto border rounded-md">
+                    <div className="h-[min(350px,40vh)] overflow-y-auto overscroll-contain rounded-xl border border-border/60">
                       {filteredProducts.length === 0 ? (
                         <div className="text-center py-8 text-sm text-muted-foreground">
                           등록된 제품이 없습니다.

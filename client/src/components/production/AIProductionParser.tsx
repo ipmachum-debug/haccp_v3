@@ -162,12 +162,12 @@ function ProductSearchInline({ onSelect }: { onSelect: (productId: number, produ
         />
       </div>
       {searchQuery.length >= 1 && searchResults.data && (
-        <div className="space-y-0.5 max-h-[120px] overflow-y-auto">
+        <div className="h-[120px] space-y-0.5 overflow-y-auto overscroll-contain rounded-lg border border-border/60 bg-white p-1 dark:bg-zinc-900">
           {searchResults.data.length > 0 ? (
             searchResults.data.map((r: any) => (
               <button
                 key={r.productId}
-                className="w-full text-left px-2 py-1.5 rounded text-xs flex items-center justify-between hover:bg-indigo-50 dark:hover:bg-indigo-950/30 transition-colors"
+                className="w-full text-left px-2 py-1.5 rounded-md text-xs flex items-center justify-between hover:bg-muted transition-colors"
                 onClick={() => onSelect(r.productId, r.productName)}
               >
                 <span className="font-medium">{r.productName}</span>
@@ -175,7 +175,7 @@ function ProductSearchInline({ onSelect }: { onSelect: (productId: number, produ
               </button>
             ))
           ) : (
-            <p className="text-[10px] text-muted-foreground px-2 py-1">검색 결과가 없습니다</p>
+            <p className="flex h-full items-center justify-center text-[11px] text-muted-foreground">검색 결과가 없습니다</p>
           )}
         </div>
       )}

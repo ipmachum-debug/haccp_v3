@@ -569,7 +569,7 @@ function ComponentAddDialog({
     .slice(0, 50);
 
   return (
-    <DialogContent>
+    <DialogContent className="top-[10vh] translate-y-0 ">
       <DialogHeader>
         <DialogTitle>원재료 추가</DialogTitle>
       </DialogHeader>
@@ -581,7 +581,7 @@ function ComponentAddDialog({
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="border rounded mt-2 max-h-48 overflow-y-auto">
+          <div className="mt-2 h-48 overflow-y-auto overscroll-contain rounded-xl border border-border/60 p-1">
             {filteredMaterials.length === 0 ? (
               <div className="text-center py-4 text-xs text-muted-foreground">
                 {search ? "일치하는 원재료가 없습니다" : "원재료를 검색하세요"}
@@ -591,8 +591,8 @@ function ComponentAddDialog({
                 <button
                   key={m.id}
                   onClick={() => setForm({ ...form, componentMaterialId: Number(m.id) })}
-                  className={`w-full text-left px-3 py-2 text-sm hover:bg-accent ${
-                    form.componentMaterialId === Number(m.id) ? "bg-accent" : ""
+                  className={`w-full rounded-lg text-left px-3 py-2 text-sm hover:bg-muted ${
+                    form.componentMaterialId === Number(m.id) ? "bg-muted" : ""
                   }`}
                 >
                   <div className="font-medium">{m.materialName}</div>
@@ -760,7 +760,7 @@ function MatchMaterialDialog({
   });
 
   return (
-    <DialogContent className="max-w-2xl">
+    <DialogContent className="top-[10vh] translate-y-0 max-w-2xl">
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <Link2 className="w-5 h-5 text-primary" />
@@ -791,7 +791,7 @@ function MatchMaterialDialog({
             kind=MIXED 만
           </label>
         </div>
-        <div className="border rounded max-h-96 overflow-y-auto">
+        <div className="h-[min(384px,50vh)] overflow-y-auto overscroll-contain rounded-xl border border-border/60">
           {isLoading ? (
             <div className="text-center py-8 text-muted-foreground">불러오는 중...</div>
           ) : materials.length === 0 ? (
