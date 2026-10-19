@@ -743,6 +743,48 @@ async function ensureMassBasisSchema(conn: any) {
   } catch (err: any) {
     console.warn("[Migration] h_batch_recoveries / h_recovery_archive failed:", err.message);
   }
+  // 하루 생산 흐름 — 현장 확인 (2026-10-19): 새 기록지(field_mode=1)는 행마다 사람이 확인하고, 확인·수정 이력은 추가만.
+  //   기존 기록지(0)는 그대로 — 옛 화면·옛 규칙. 예정 시각(planned_time)은 측정 시각과 따로 (측정 시각 = 확인한 시각)
+  await addCol("h_ccp_form_records", "field_mode", "`field_mode` tinyint NOT NULL DEFAULT 0");
+  await addCol("h_ccp_form_records", "detector_equipment_id", "`detector_equipment_id` int NULL");
+  await addCol("h_ccp_form_rows", "planned_time", "`planned_time` varchar(5) NULL");
+  await addCol("h_ccp_form_rows", "row_version", "`row_version` int NOT NULL DEFAULT 0");
+  await addCol("h_ccp_form_rows", "row_confirmed_at", "`row_confirmed_at` datetime NULL");
+  await addCol("h_ccp_form_rows", "row_confirmed_by", "`row_confirmed_by` int NULL");
+  await addCol("h_ccp_form_rows", "row_confirmed_version", "`row_confirmed_version` int NULL");
+  // 금속검출 통과 행 → 생산 건 (새 기록지만 — 금속검출만 하는 제품은 통과 시작에서 원료 차감)
+  await addCol("h_ccp_form_rows", "batch_id", "`batch_id` bigint NULL");
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS h_ccp_row_events (
+      id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      tenant_id int NOT NULL,
+      form_record_id bigint NOT NULL,
+      form_row_id bigint NULL,
+      event varchar(20) NOT NULL,
+      user_id int NOT NULL,
+      at datetime(3) NOT NULL,
+      row_version int NULL,
+      before_json json NULL,
+      after_json json NULL,
+      request_id varchar(64) NOT NULL,
+      device_id varchar(64) NULL,
+      session_id varchar(64) NULL,
+      ip varchar(64) NULL,
+      user_agent varchar(255) NULL,
+      UNIQUE KEY uq_cre_tenant_request (tenant_id, request_id),
+      KEY idx_cre_row (tenant_id, form_row_id),
+      KEY idx_cre_form (tenant_id, form_record_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    await conn.query(`CREATE TABLE IF NOT EXISTS h_user_field_prefs (
+      tenant_id int NOT NULL,
+      user_id int NOT NULL,
+      equipment_ids json NOT NULL,
+      updated_at datetime NOT NULL,
+      PRIMARY KEY (tenant_id, user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  } catch (err: any) {
+    console.warn("[Migration] h_ccp_row_events / h_user_field_prefs failed:", err.message);
+  }
   // 원장 중복 정리 (2026-10-19, 별도 작업 — 생산 건 복구와 다른 번호): 같은 사용 사건이 원장에 두 번(원래 출고 + 보충 출고) 남은 경우
   //   원본을 지우거나 메모를 덮어쓰지 않고, 사건(투입 줄)·원 거래·보충 거래·정본 원료를 잇고 원장 전용 상계(LOT 변화 없음)를 붙인다.
   try {
@@ -1135,6 +1177,13 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_ledger_dedup_cases", column: "case_key", why: "원장 중복 정리 1회" },
   { table: "h_ledger_event_links", column: "event_key", why: "원장 중복 정리 — 사건·원 거래·보충 거래 연결" },
   { table: "h_batch_line_issue_decisions", column: "decision", why: "애매한 투입 줄 출고 확인 결정" },
+  { table: "h_ccp_form_records", column: "field_mode", why: "현장 확인 기록지 (행마다 확인)" },
+  { table: "h_ccp_form_rows", column: "row_confirmed_at", why: "행 확인" },
+  { table: "h_ccp_form_rows", column: "row_version", why: "행 버전 (확인 뒤 수정 무효)" },
+  { table: "h_ccp_form_rows", column: "planned_time", why: "예정 시각 (측정 시각과 따로)" },
+  { table: "h_ccp_form_rows", column: "batch_id", why: "금속검출 통과 행 → 생산 건" },
+  { table: "h_ccp_row_events", column: "request_id", why: "확인·수정 이력 (추가만)" },
+  { table: "h_user_field_prefs", column: "equipment_ids", why: "내 설비" },
   { table: "h_batch_mass_basis", column: "rows_json", why: "배치 기준 스냅샷 (PR B)" },
   { table: "h_batch_mass_basis", column: "sub_batch_kg", why: "CCP 행 기준량 고정 (PR C 후속)" },
   // 회사별 기능 선택 — 조회 실패를 '꺼짐' 으로 보지 않으므로(#547 검토 P1) 표가 반드시 있어야 한다
@@ -1211,6 +1260,7 @@ export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; colu
   { table: "h_ledger_event_links", index: "uq_lel_tenant_event", columns: ["tenant_id", "event_key"], why: "사건당 연결 하나" },
   { table: "h_ledger_event_links", index: "uq_lel_tenant_dup", columns: ["tenant_id", "duplicate_tx_id"], why: "중복 거래당 정리 하나" },
   { table: "h_batch_line_issue_decisions", index: "uq_blid_tenant_tx", columns: ["tenant_id", "tx_id"], why: "옛 출고 하나는 한 줄에만 인정" },
+  { table: "h_ccp_row_events", index: "uq_cre_tenant_request", columns: ["tenant_id", "request_id"], why: "같은 요청(중복 클릭·재시도)은 한 번만" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {

@@ -41,11 +41,27 @@ queryClient.getMutationCache().subscribe(event => {
   }
 });
 
+/** 기기(브라우저 저장소에 하나)·세션(탭마다 하나) 식별자 — 개인 계정 이력 보조 (사람 식별은 로그인 계정) */
+let _ids: { deviceId: string; sessionId: string } | null = null;
+function clientIds() {
+  if (_ids) return _ids;
+  const rid = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`);
+  let deviceId = "", sessionId = "";
+  try { deviceId = localStorage.getItem("mx-device-id") || ""; if (!deviceId) { deviceId = rid(); localStorage.setItem("mx-device-id", deviceId); } } catch { /* 저장소 없음 */ }
+  try { sessionId = sessionStorage.getItem("mx-session-id") || ""; if (!sessionId) { sessionId = rid(); sessionStorage.setItem("mx-session-id", sessionId); } } catch { /* 저장소 없음 */ }
+  _ids = { deviceId, sessionId };
+  return _ids;
+}
+
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
       url: "/api/trpc",
       transformer: superjson,
+      // 기기·세션 — 현장 확인·수정 이력에 남는다 (2026-10-19 하루 생산 흐름). 저장소를 못 쓰면 비워 보낸다
+      headers() {
+        return { "x-device-id": clientIds().deviceId, "x-session-id": clientIds().sessionId };
+      },
       fetch(input: any, init: any) {
         return globalThis.fetch(input, {
           ...(init ?? {}),

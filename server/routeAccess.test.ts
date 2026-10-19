@@ -36,7 +36,7 @@ describe("① 라우트 목록", () => {
     const paths = real.map((r) => r.path);
     const dups = paths.filter((p, i) => paths.indexOf(p) !== i);
     expect(dups).toEqual([]);
-    expect(paths.length).toBe(427);
+    expect(paths.length).toBe(428); // + 현장 확인 (2026-10-19 하루 생산 흐름)
     expect(routes[routes.length - 1].path).toBe("*");
     expect(routes.filter((r) => r.path === "*").length).toBe(1);
   });

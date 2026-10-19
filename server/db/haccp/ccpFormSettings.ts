@@ -180,7 +180,7 @@ export async function syncCcpRowsToFormRows(params: {
   // CCP-4P 일일 통합: batchId로 연결된 기록 + 같은 workDate의 CCP-4P 일일 기록 모두 포함
   const [formRecords] = await rawConn.execute<any[]>(
     `SELECT fr.id, fr.batch_id as fr_batch_id, fr.ccp_type, fr.process_group_id, fr.product_name, fr.planned_qty_kg, fr.bom_batch_kg, fr.batch_count,
-            DATE_FORMAT(fr.work_date, '%Y-%m-%d') as work_date
+            DATE_FORMAT(fr.work_date, '%Y-%m-%d') as work_date, fr.field_mode, fr.detector_equipment_id
      FROM h_ccp_form_records fr
      WHERE fr.tenant_id = ?
        AND (
@@ -285,6 +285,12 @@ export async function syncCcpRowsToFormRows(params: {
         continue;
       }
       processedCcp4pDates.add(dateKey);
+    }
+    // 현장 확인 기록지(field_mode) 금속검출 — 무작위 시각 없이 생산 건별 통과 행·감도점검 행만 맞춘다 (2026-10-19)
+    if (ccpType === "CCP-4P" && Number(fr.field_mode ?? 0) === 1 && fr.work_date) {
+      const { syncFieldMetalRows } = await import("../../lib/haccp/fieldMetalRows");
+      totalSynced += await syncFieldMetalRows(rawConn, { formRecordId, tenantId, workDate: String(fr.work_date).slice(0, 10), detectorId: fr.detector_equipment_id ?? null });
+      continue;
     }
 
     // 2. 기존 row 조회: 이미 모든 배치가 채워져 있으면 건너뜀
@@ -1541,6 +1547,8 @@ export async function syncCcpRowsToFormRows(params: {
           } catch { /* 설비 조회 실패 시 무시 */ }
         }
 
+        // 현장 확인 기록지(field_mode): 측정 시각은 확인할 때 서버 시각으로 — 예정 시각은 planned_time 에 따로 (2026-10-19)
+        const fieldMode = Number(fr.field_mode ?? 0) === 1;
         await rawConn.execute(
           `INSERT INTO h_ccp_form_rows
              (tenant_id, form_record_id, batch_seq,
@@ -1548,13 +1556,13 @@ export async function syncCcpRowsToFormRows(params: {
               product_name, input_qty_kg, measurement_time,
               heat_time_min, heat_temp_c, pressure_mpa,
               temp_edge_c, temp_center_c,
-              result, note, created_at, updated_at)
+              result, note, created_at, updated_at${fieldMode ? ", planned_time" : ""})
            VALUES (?, ?, ?,
                    ?, ?, NULL,
                    ?, ?, ?,
                    ?, ?, ?,
                    ?, ?,
-                   ?, ?, NOW(), NOW())`,
+                   ?, ?, NOW(), NOW()${fieldMode ? ", ?" : ""})`,
           [
             tenantId, formRecordId, batchSeq,
             row.equipment_id ?? null,
@@ -1562,7 +1570,7 @@ export async function syncCcpRowsToFormRows(params: {
             instanceProductName || frProductName || null,
             // 계획 스냅샷의 예정 투입량이 있으면 그대로 (미리보기와 같은 값), 없으면 이전 계산
             (() => { const q = row.planned_input_kg != null ? Number(row.planned_input_kg) : rowInputQty(batchSeq); return q != null ? q.toFixed(2) : null; })(),
-            measurementTime ?? null,
+            fieldMode ? null : (measurementTime ?? null),
             row.heating_min ?? null, // 가열 운전시간만 — 비면 비움 (점유시간을 가열시간으로 인쇄하지 않음, 2026-10-18)
             row.temp_c ?? null,
             pressureMpa,
@@ -1570,6 +1578,7 @@ export async function syncCcpRowsToFormRows(params: {
             tempCenter,
             row.result === "PASS" ? "적합" : "부적합",
             row.note ?? null,
+            ...(fieldMode ? [measurementTime ?? null] : []),
           ],
         );
         totalSynced++;

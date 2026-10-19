@@ -246,7 +246,7 @@ describe("#605 재검토 반영", () => {
     expect(w).toMatch(/estimated: kgPerUnit > 0 && plannedKg > 0 \? Math\.floor\(plannedKg \/ kgPerUnit\) : null/);
     expect(w).toMatch(/\{s\.inputKg\.toFixed\(1\)\}kg/); // 이전 화면과 같은 표시 규칙
     expect(w).toMatch(/Math\.abs\(diff\) >= 0\.01/);
-    expect(w).toMatch(/<SkuInputs productId=\{l\.productId\} plannedKg=\{Number\(l\.totalKg\) \|\| 0\}/);
+    expect(w).toMatch(/<SkuInputs productId=\{l\.productId\} plannedKg=\{l\.unit === "batch" \? \(preview\?\.rows\.find\(\(r\) => r\.rowKey === l\.rowKey\)\?\.plannedKg \?\? 0\) : \(Number\(l\.totalKg\) \|\| 0\)\}/);
     expect(readFileSync(join(__dirname, "routers/master/itemMaster.router.ts"), "utf-8")).toMatch(/kgPerSalesUnit: productSkus\.kgPerSalesUnit,\n\s*\}\)\n\s*\.from\(productSkus\)\n\s*\.innerJoin\(itemMaster, and\(eq\(productSkus\.itemId/);
   });
   it("공정·설비 저장은 트랜잭션 연결로 (withTransaction)", () => {

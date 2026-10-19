@@ -265,6 +265,8 @@ export async function getOrCreateCcpFormRecord(params: {
 
   const [result] = await db.insert(hCcpFormRecords).values(insertData);
   const newId = (result as any).insertId as number;
+  // 새 기록지 = 현장 확인 기록지 (행마다 사람이 확인, 측정 시각 = 확인 시각, 무작위 시각 없음 — 2026-10-19 하루 생산 흐름)
+  await markFieldMode(newId, params.tenantId);
 
   const newRecord = await db
     .select()
@@ -493,3 +495,13 @@ export async function getCcpFormRecordById(id: number, tenantId?: number) {
  * 기록지 ID로 행 목록 조회
  * P0: tenantId 필수 - 테넌트 격리
  */
+
+/** 새 기록지를 현장 확인 기록지로 표시 (칸 생성 전 DB 는 그대로) */
+export async function markFieldMode(formRecordId: number, tenantId: number, conn?: any): Promise<void> {
+  const c = conn ?? (await getRawConnection());
+  try {
+    await c.execute(`UPDATE h_ccp_form_records SET field_mode = 1 WHERE id = ? AND tenant_id = ?`, [formRecordId, tenantId]);
+  } catch (e: any) {
+    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+  }
+}

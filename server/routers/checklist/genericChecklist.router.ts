@@ -376,6 +376,9 @@ export const genericChecklistRouter = router({
       if (input.action === "approve") {
         // 일일일지 측정 기록 관문 — 부작용 전에 (2026-10-15)
         await assertDailyLogGate(ctx.tenantId, input.approvalRequestId);
+        // CCP 기록지 관문 — 덜 끝난 기록지는 검토에서도 넘기지 않는다 (2026-10-19 하루 생산 흐름)
+        const { assertCcpRequestGate } = await import("../../lib/haccp/ccpRequestGate");
+        await assertCcpRequestGate(ctx.tenantId, input.approvalRequestId);
         // 배치 검토 시 h_batches 상태를 under_review로 변경
         // ★ db.execute(sql`...`) 반환값은 MySQL2 tuple [rows, fields]
         //    → 첫 row 접근은 result[0][0] 이어야 함 (기존 result[0].field 는 undefined)

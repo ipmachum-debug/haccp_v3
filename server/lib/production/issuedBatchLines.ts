@@ -9,9 +9,10 @@
  * 줄 상태 (classifyBatchLines):
  *   - line / input_ref: 줄 id 로 연결된 출고(BATCH·batch_completion, source_line_id) 또는 reference_type='batch_input' 출고
  *   - decided_existing: 사람이 '기존 출고로 인정' 한 줄 (h_batch_line_issue_decisions)
- *   - lineless_1to1: 줄 id 없는 옛 배치 단위 출고와 1:1 — 같은 배치에서 같은 원료(정본 매핑) 줄 하나 ↔ 그 원료 줄 없는 출고(하나 또는 합),
+ *   - lineless_1to1: 줄 id 없는 옛 배치 단위 출고와 1:1 — 같은 배치에서 같은 원료(정본 매핑) 줄이 **전부 합쳐** 하나 ↔ 그 원료 줄 없는 출고(하나 또는 합),
  *       단위 같음. 수량은 줄을 나중에 고친 경우가 있어 비교하지 않는다 (예: 생산수량 축소 뒤 투입 줄 수정)
- *   - lineless_paired: 같은 원료 줄이 여럿이면 줄 수 = 출고 수 이고 수량이 하나하나 짝지어질 때만
+ *   - lineless_paired: 같은 원료 줄이 여럿이고 그중 직접 연결된 줄이 없을 때, 줄 수 = 출고 수 이고 수량이 하나하나 짝지어질 때만
+ *     (직접 연결된 줄이 있으면 남은 옛 출고가 그 사건의 보충 표현일 수 있어 애매 — #609 검토 P1)
  *   - ambiguous: 줄 없는 출고는 있는데 위처럼 유일하게 이어지지 않음 — **다시 출고하지 않고, 출고 완료로도 보지 않는다**
  *       (자동 출고는 이 줄을 보류로 남기고, 미출고 줄 수에 들어가 완료·승인이 막힌다. 생산 건 화면에서 사람이 확인해 푼다)
  *   - none: 출고 없음
@@ -119,30 +120,46 @@ export async function classifyBatchLines(batchId: number, tenantId: number, conn
     else if (base.decision === "existing") base.state = "decided_existing";
     out.set(id, base);
   }
-  // 줄 없는 옛 출고 — 사람이 이미 다른 줄에 붙인 출고는 뺀다
-  const lineless = txs.filter((t) => t.source_line_id == null && t.reference_type !== "batch_input" && !claimed.has(Number(t.id)));
-  // 아직 정해지지 않은 줄(직접 연결·인정·'새로 출고' 결정이 없는 줄)만 짝짓기 대상
-  const open = lines.filter((l) => out.get(Number(l.id))!.state === "none" && out.get(Number(l.id))!.decision == null);
+  // 원장 정리로 이미 어떤 사건(직접 연결 줄)의 다른 표현으로 연결된 출고 — 다른 줄의 후보로 쓰지 않는다 (#609 검토 P1)
+  const ledgerLinked = new Set<number>();
+  try {
+    const [lk]: any = await c.execute(
+      `SELECT original_tx_id, backfill_tx_id FROM h_ledger_event_links WHERE tenant_id = ? AND batch_id = ?`,
+      [tenantId, batchId],
+    );
+    for (const x of lk as any[]) { ledgerLinked.add(Number(x.original_tx_id)); ledgerLinked.add(Number(x.backfill_tx_id)); }
+  } catch (e: any) {
+    if (e?.code !== "ER_NO_SUCH_TABLE") throw e;
+  }
+  // 줄 없는 옛 출고 — 사람이 이미 다른 줄에 붙인 출고·원장 정리로 연결된 출고는 뺀다
+  const lineless = txs.filter((t) => t.source_line_id == null && t.reference_type !== "batch_input" && !claimed.has(Number(t.id)) && !ledgerLinked.has(Number(t.id)));
+  // 대응의 유일성은 같은 원료의 **모든** 줄로 본다 (#609 검토 P1) — 직접 연결된 줄이 있으면 남은 옛 출고가
+  //   그 줄 사건의 다른 표현(보충)인지 다른 줄의 출고인지 알 수 없다 → 미해결 줄은 애매(재출고 금지 + 승인·완료 보류).
+  //   '새로 출고' 로 정해진 줄은 옛 출고와 무관하다고 사람이 정한 것 — 짝짓기에서 빠지고 직접 연결로도 세지 않는다.
   const done = new Set<number>();
-  for (const l of open) {
+  for (const l of lines) {
     const id = Number(l.id);
     if (done.has(id)) continue;
     const m = Number(l.material_id);
-    const groupLines = open.filter((x) => sameMat(Number(x.material_id), m));
-    groupLines.forEach((x) => done.add(Number(x.id)));
+    const groupAll = lines.filter((x) => sameMat(Number(x.material_id), m));
+    groupAll.forEach((x) => done.add(Number(x.id)));
+    const infosAll = groupAll.map((x) => out.get(Number(x.id))!);
+    const open = infosAll.filter((i) => i.state === "none" && i.decision == null);
+    if (!open.length) continue;
+    const direct = infosAll.filter((i) => i.state !== "none");
     const groupTx = lineless.filter((t) => sameMat(Number(t.material_id), m));
     if (!groupTx.length) continue;
     const cand = groupTx.map((t) => ({ txId: Number(t.id), quantity: n(t.quantity), unit: unitOf(t.unit), lotId: t.lot_id != null ? Number(t.lot_id) : null, date: t.td ?? null }));
-    const infos = groupLines.map((x) => out.get(Number(x.id))!);
-    const sameUnit = cand.every((t) => infos.every((i) => i.unit === t.unit));
+    const sameUnit = cand.every((t) => open.every((i) => i.unit === t.unit));
+    const issueNew = infosAll.some((i) => i.decision === "issue_new");
     let state: LineIssueState = "ambiguous";
-    if (sameUnit && infos.length === 1) state = "lineless_1to1";
-    else if (sameUnit && infos.length === cand.length) {
-      const a = infos.map((i) => i.quantity).sort((x, y) => x - y);
+    if (sameUnit && !direct.length && !issueNew && infosAll.length === 1) state = "lineless_1to1";
+    else if (sameUnit && !direct.length && !issueNew && open.length === cand.length) {
+      const a = open.map((i) => i.quantity).sort((x, y) => x - y);
       const b = cand.map((t) => t.quantity).sort((x, y) => x - y);
       if (a.every((q, k) => Math.abs(q - b[k]) <= EPS)) state = "lineless_paired";
     }
-    for (const i of infos) { i.state = state; i.candidates = cand; }
+    for (const i of open) { i.state = state; i.candidates = cand; }
   }
   return out;
 }

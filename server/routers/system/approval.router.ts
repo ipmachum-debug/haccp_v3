@@ -513,6 +513,9 @@ export const approvalRouter = router({
 
         // 일일일지 측정 기록 관문 (2026-10-15)
         await assertDailyLogGate(ctx.tenantId, input.approvalRequestId);
+        // CCP 기록지 관문 — 덜 끝난 기록지는 작성자 제출부터 막는다 (2026-10-19 하루 생산 흐름)
+        const { assertCcpRequestGate } = await import("../../lib/haccp/ccpRequestGate");
+        await assertCcpRequestGate(ctx.tenantId, input.approvalRequestId);
 
         // pending_review 로 전이 (검토자 단계)
         await conn.execute(
@@ -577,6 +580,12 @@ export const approvalRouter = router({
           const gate = await checkDailyLogGate(ctx.tenantId, reqId);
           if (!gate.ok) {
             skipped.push({ id: reqId, reason: `daily_log_unmeasured: ${gate.message}` });
+            continue;
+          }
+          const { checkCcpRequestGate } = await import("../../lib/haccp/ccpRequestGate");
+          const ccp = await checkCcpRequestGate(ctx.tenantId, reqId);
+          if (!ccp.ok) {
+            skipped.push({ id: reqId, reason: `ccp_incomplete: ${ccp.message}` });
             continue;
           }
           submitted.push(reqId);

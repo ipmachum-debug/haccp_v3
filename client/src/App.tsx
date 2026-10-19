@@ -104,6 +104,7 @@ const HaccpVerification = lazy(() => import("./pages/haccp/HaccpVerification"));
 const ProductionOperations = lazy(() => import("./pages/production/ProductionOperations"));
 const ProductionManagement = lazy(() => import("./pages/production/ProductionManagement"));
 const TodayProduction = lazy(() => import("./pages/production/TodayProduction"));
+const FieldWork = lazy(() => import("./pages/production/FieldWork"));
 const SupplierPerformance = lazy(() => import("./pages/master/SupplierPerformance"));
 // 2-b-3: NotificationHistory 는 라우트가 중복으로 가려져 도달 불가였다 — 라우트 제거, 화면 파일은 4단계 폐기 판단까지 보존
 const ApprovalManagement = lazy(() => import("./pages/system/ApprovalManagement"));
@@ -366,6 +367,7 @@ function Router() {
           <Route path="/dashboard/haccp" component={ProductionOperations} />
           <Route path="/dashboard/production-management" component={ProductionManagement} />
           <Route path={ROUTES.PRODUCTION_TODAY} component={TodayProduction} />
+          <Route path={ROUTES.FIELD_WORK} component={FieldWork} />
       <Route path="/dashboard/cost-saving-ai" component={CostSavingAI} />
       <Route path="/dashboard/batch-cost-analysis" component={BatchCostAnalysisDashboard} />
       <Route path="/dashboard/material-receipt" component={MaterialReceiptManagement} />

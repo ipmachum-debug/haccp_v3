@@ -26,6 +26,7 @@
   ],
   "production": [
     "/dashboard/production/today | 오늘의 생산",
+    "/dashboard/field | 현장 확인",
     "/dashboard/production-management | 생산관리",
     "/dashboard/production-operations | 생산운영",
     "/dashboard/manufacturing-standards | 제조기준관리"

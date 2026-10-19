@@ -308,7 +308,9 @@ export async function createSingleBatch(
   // === 5.5 ~ 7.5 실행 단계 (생산 시작·원료 출고·기록지 제출·승인요청·일지) ===
   // ★ 2026-10-19 (현장 1): 미래 날짜 생산 건은 '예정' 으로만 만든다 — 원료 차감·진행 중·기록지 자동 제출·승인요청·일지를
   //   미리 만들지 않는다 (CEO: 미래 계획의 원료는 그날 확인 버튼을 누를 때). 그날 확인 때 activatePlannedBatch 가 같은 단계를 한 번 실행.
-  const planOnly = input.workDate > todayKST();
+  //   ★ 2026-10-19 (하루 생산 흐름): 오늘 날짜도 예정으로 — 원료는 현장 첫 확인(가열 행 확인, 금속검출만 하는 제품은 통과 시작)에서 한 번.
+  //   지난 날짜(뒤늦은 입력 — 이미 한 생산)만 지금처럼 바로 실행한다.
+  const planOnly = input.workDate >= todayKST();
   let approvalRequestId: number | null = null;
   let dailyReportCreated = false;
   let periodicLogsResult: any = null;
