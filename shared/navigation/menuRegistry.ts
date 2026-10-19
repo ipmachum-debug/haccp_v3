@@ -60,6 +60,17 @@ export function industryKeyOfCategory(category: string | null | undefined): Indu
   return category ? map[category] ?? null : null;
 }
 
+/**
+ * 생산 설계 4항목 (2026-10-19, 설계 18 §13) — 기본 메뉴와 업종 플러그인 공통 그룹이 같은 정의를 쓴다.
+ * 관리자용 (기준을 정하는 곳). 1단계는 읽기 전용, 수정은 기존 화면으로 안내.
+ */
+export const DESIGN_PLACEMENTS: readonly MenuPlacement[] = [
+  { tab: "haccp", icon: "Activity", label: "설계 현황", path: "/design", roles: ["super_admin", "admin"] },
+  { tab: "haccp", icon: "Factory", label: "우리 공장", path: "/design/factory", roles: ["super_admin", "admin"] },
+  { tab: "haccp", icon: "FlaskConical", label: "제품 배합", path: "/design/recipes", roles: ["super_admin", "admin"] },
+  { tab: "haccp", icon: "RotateCcw", label: "변경·적용 이력", path: "/design/history", roles: ["super_admin", "admin"] },
+];
+
 export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   // ── HACCP 탭 (업종 플러그인이 없을 때의 폴백 메뉴 = 기존 DashboardLayout.menuItems 그대로) ──
   { tab: "haccp", icon: "Crown", label: "슈퍼관리자 대시보드", path: "/dashboard/super-admin", roles: ["super_admin"], category: "work" },
@@ -70,6 +81,8 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   { tab: "haccp", icon: "Package", label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
   { tab: "haccp", icon: "Calendar", label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
   { tab: "haccp", icon: "FileCode", label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
+  // 생산 설계 허브 (2026-10-19, 설계 18 §13) — 관리자용. 업종 플러그인 회사는 PLUGIN_COMMON_GROUPS 의 같은 항목으로 보인다
+  ...DESIGN_PLACEMENTS.map((p) => ({ ...p, group: "생산 설계", requireModule: "haccp" })),
   { tab: "haccp", icon: "Shield", label: "CCP 관리", path: "/quality/ccp-monitoring", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], group: "품질·검사", requireModule: "haccp" },
   { tab: "haccp", icon: "ClipboardCheck", label: "검사 관리", path: "/dashboard/inspections", roles: ["super_admin", "admin", "accountant", "worker", "inspector", "monitor"], group: "품질·검사", requireModule: "haccp" },
   { tab: "haccp", icon: "ListChecks", label: "HACCP 체크리스트", path: "/quality/checklists", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], group: "품질·검사", requireModule: "haccp" },
@@ -235,6 +248,12 @@ export const PLUGIN_COMMON_GROUPS: ReadonlyArray<{ name: string; order: number; 
     ],
   },
   {
+    // 업종 플러그인 회사(단지 등)의 HACCP 메뉴에도 생산 설계 — 업종 무관 (2026-10-19)
+    name: "생산 설계",
+    order: 30,
+    items: DESIGN_PLACEMENTS,
+  },
+  {
     name: "재고·운영",
     order: 40,
     items: [
@@ -310,7 +329,7 @@ export function isChildRouteOf(menuPath: string, location: string): boolean {
 // 2-b-1 의 약속: 사용자가 보는 메뉴 항목의 **집합은 같고 배치만 바뀐다**. 항목 제거·통합은 2-b-2 (검증표와 함께).
 // ─────────────────────────────────────────────────────────────────────────────
 
-export type HubId = "today" | "trade" | "items" | "production" | "quality" | "finance" | "settings" | "platform";
+export type HubId = "today" | "trade" | "items" | "production" | "design" | "quality" | "finance" | "settings" | "platform";
 
 export interface HubDef {
   id: HubId;
@@ -332,6 +351,9 @@ export const HUBS: readonly HubDef[] = [
   { id: "trade", label: "매입·매출 관리", order: 2, icon: "ArrowLeftRight", requireModule: "erp", tone: "orange" },
   { id: "items", label: "품목·재고", order: 3, icon: "Boxes", tone: "green" },
   { id: "production", label: "생산관리", order: 4, icon: "Factory", tone: "violet" },
+  // 2026-10-19 대표 결정 (설계 18 §13): 생산 설계 = 무엇을, 어떤 원료와 설비로, 어떻게 만들 것인가 — 기준을 정하는 곳 (관리자).
+  //   생산관리(오늘 얼마나 만들고 실제로 어떻게 됐나) 와 역할 분리
+  { id: "design", label: "생산 설계", order: 4.5, icon: "Sliders", tone: "amber" },
   { id: "quality", label: "품질·규정", order: 5, icon: "ShieldCheck", tone: "red" },
   { id: "finance", label: "회계·경영", order: 7, icon: "Landmark", requireModule: "erp", tone: "teal" },
   { id: "settings", label: "환경설정", order: 8, icon: "Settings", tone: "slate" },
@@ -458,6 +480,11 @@ export function mobileNavFor(role: string, visiblePaths: ReadonlySet<string>, ic
 
 /** 경로 → 허브. 부록 14a 의 행선지 그대로. 업종 품질(/dashboard/{업종}/{기능}) 과 화장품 GMP 는 전부 품질·규정 */
 export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
+  // design — 생산 설계 (2026-10-19)
+  "/design": "design",
+  "/design/factory": "design",
+  "/design/recipes": "design",
+  "/design/history": "design",
   // today
   "/dashboard": "today",
   "/dashboard/notifications": "today",

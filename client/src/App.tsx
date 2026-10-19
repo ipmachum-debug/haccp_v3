@@ -65,6 +65,11 @@ const SelfQualityInspectionForm = lazy(() => import("./pages/quality/SelfQuality
 const ProductCcpMapping = lazy(() => import("./pages/haccp/ProductCcpMapping"));
 const DailyLogForm = lazy(() => import("./pages/production/DailyLogForm"));
 const DailyLogSettings = lazy(() => import("./pages/production/DailyLogSettings"));
+// 생산 설계 (2026-10-19, 설계 18 §13)
+const DesignOverview = lazy(() => import("./pages/design/DesignOverview"));
+const DesignFactory = lazy(() => import("./pages/design/DesignFactory"));
+const DesignRecipes = lazy(() => import("./pages/design/DesignRecipes"));
+const DesignHistory = lazy(() => import("./pages/design/DesignHistory"));
 const WeeklyLogForm = lazy(() => import("./pages/production/WeeklyLogForm"));
 const MonthlyLogForm = lazy(() => import("./pages/production/MonthlyLogForm"));
 const EquipmentManagement = lazy(() => import("./pages/system/EquipmentManagement"));
@@ -437,6 +442,10 @@ function Router() {
       <Route path="/dashboard/daily-logs" component={DailyLogs} />
       <Route path="/daily-log/daily" component={DailyLogForm} />
       <Route path={ROUTES.DAILY_LOG_SETTINGS} component={DailyLogSettings} />
+      <Route path={ROUTES.DESIGN_OVERVIEW} component={DesignOverview} />
+      <Route path={ROUTES.DESIGN_FACTORY} component={DesignFactory} />
+      <Route path={ROUTES.DESIGN_RECIPES} component={DesignRecipes} />
+      <Route path={ROUTES.DESIGN_HISTORY} component={DesignHistory} />
       <Route path="/weekly-log/form" component={WeeklyLogForm} />
       <Route path="/monthly-log/form" component={MonthlyLogForm} />
       <Route path="/dashboard/production-performance" component={ProductionPerformance} />

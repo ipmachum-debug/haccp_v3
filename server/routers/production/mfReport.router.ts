@@ -165,7 +165,26 @@ export const mfReportRouter = router({
           }
         }
         const { updateMfReport } = await import("../../db/production/mfReportAPI");
+        // 변경·적용 이력 (생산 설계, 2026-10-19): 저장 전·후를 읽어 바뀐 것만 감사 기록에 — 지금까지 BOM 수정은 기록이 없었다
+        const { getRawConnection: rawConn } = await import("../../db");
+        const { snapshotRecipe, diffRecipe } = await import("../../lib/production/designChangeDiff");
+        const auditConn: any = await rawConn();
+        const beforeSnap = await snapshotRecipe(auditConn, ctx.tenantId, input.mfReportId).catch(() => null);
         const result = await updateMfReport(input, ctx.tenantId);
+        try {
+          const afterSnap = await snapshotRecipe(auditConn, ctx.tenantId, input.mfReportId);
+          const diff = beforeSnap && afterSnap ? diffRecipe(beforeSnap, afterSnap) : [];
+          if (diff.length) {
+            const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
+            await createAuditLog({
+              action: "mf_report.update", entityType: "mf_report", entityId: input.mfReportId,
+              userId: ctx.user.id, userEmail: ctx.user.email, userRole: ctx.user.role,
+              changes: { diff }, description: `${afterSnap?.productName ?? `보고서 #${input.mfReportId}`} 배합 수정 — ${diff.length}건`,
+            }, ctx.tenantId);
+          }
+        } catch (e: any) {
+          console.error("[mfReport.update] 변경 기록 실패 (저장은 완료):", e?.message ?? e);
+        }
 
         // ★ 2026-05-10 (PR #299): MIXED type 이면 sku_bundles 자동 재동기화
         if (input.reportType === "MIXED") {
