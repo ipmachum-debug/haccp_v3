@@ -301,6 +301,9 @@ export const ccpFormRouter = router({
       }))
       .mutation(async ({ input, ctx }) => {
         const { upsertCcpFormRow } = await import("../../db/haccp/ccpFormRecords");
+        // 현장 확인 기록지면 수정 전 값을 저장 전에 읽어 둔다 (이력의 전 값)
+        const { readFieldRowBeforeLegacySave, afterLegacyRowSave } = await import("../../services/fieldWork");
+        const fieldBefore = await readFieldRowBeforeLegacySave(ctx.tenantId, input.formRecordId, input.batchSeq);
         const rowId = await upsertCcpFormRow({
           tenantId: ctx.tenantId,
           formRecordId: input.formRecordId,
@@ -337,8 +340,7 @@ export const ccpFormRouter = router({
           note: input.note,
         });
         // 현장 확인 기록지면 이 행의 확인은 무효 + 이력 (2026-10-19 하루 생산 흐름)
-        const { afterLegacyRowSave } = await import("../../services/fieldWork");
-        await afterLegacyRowSave({ tenantId: ctx.tenantId, formRecordId: input.formRecordId, rowId: Number(rowId), userId: ctx.user.id,
+        await afterLegacyRowSave({ tenantId: ctx.tenantId, formRecordId: input.formRecordId, rowId: Number(rowId), userId: ctx.user.id, before: fieldBefore,
           meta: { deviceId: (ctx.req?.headers?.["x-device-id"] as string) ?? null, sessionId: (ctx.req?.headers?.["x-session-id"] as string) ?? null } });
         return { success: true, rowId };
       }),

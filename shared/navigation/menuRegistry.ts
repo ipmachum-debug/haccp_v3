@@ -64,6 +64,14 @@ export function industryKeyOfCategory(category: string | null | undefined): Indu
  * 생산 설계 4항목 (2026-10-19, 설계 18 §13) — 기본 메뉴와 업종 플러그인 공통 그룹이 같은 정의를 쓴다.
  * 관리자용 (기준을 정하는 곳). 1단계는 읽기 전용, 수정은 기존 화면으로 안내.
  */
+/**
+ * 현장 확인 (2026-10-19 하루 생산 흐름) — 업종 무관. 기본 메뉴와 업종 플러그인 공통 그룹이 같은 정의를 쓴다
+ *   (#610 운영 확인: 식품 플러그인 회사의 메뉴·허브 사이드바에 진입점이 없었다)
+ */
+export const FIELD_PLACEMENTS: readonly MenuPlacement[] = [
+  { tab: "haccp", icon: "ClipboardCheck", label: "현장 확인", path: "/dashboard/field", roles: ["super_admin", "admin", "worker", "inspector"], highlight: true },
+];
+
 export const DESIGN_PLACEMENTS: readonly MenuPlacement[] = [
   { tab: "haccp", icon: "Activity", label: "설계 현황", path: "/design", roles: ["super_admin", "admin"] },
   { tab: "haccp", icon: "Factory", label: "우리 공장", path: "/design/factory", roles: ["super_admin", "admin"] },
@@ -78,7 +86,7 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   { tab: "haccp", icon: "Building", label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"], category: "work" },
   { tab: "haccp", icon: "LayoutDashboard", label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"], group: "대시보드" },
   { tab: "haccp", icon: "Clock", label: "오늘의 생산", path: "/dashboard/production/today", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], group: "생산", requireModule: "haccp", highlight: true },
-  { tab: "haccp", icon: "ClipboardCheck", label: "현장 확인", path: "/dashboard/field", roles: ["super_admin", "admin", "worker", "inspector"], group: "생산", requireModule: "haccp", highlight: true },
+  ...FIELD_PLACEMENTS.map((p) => ({ ...p, group: "생산", requireModule: "haccp" })),
   { tab: "haccp", icon: "Package", label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
   { tab: "haccp", icon: "Calendar", label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
   { tab: "haccp", icon: "FileCode", label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
@@ -247,6 +255,12 @@ export const PLUGIN_COMMON_GROUPS: ReadonlyArray<{ name: string; order: number; 
     items: [
       { tab: "haccp", icon: "LayoutDashboard", label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"] },
     ],
+  },
+  {
+    // 업종 플러그인 회사의 HACCP 메뉴에도 현장 확인 — 업종 무관 (2026-10-19, 플러그인 '생산'(20) 앞)
+    name: "생산 현장",
+    order: 15,
+    items: FIELD_PLACEMENTS,
   },
   {
     // 업종 플러그인 회사(단지 등)의 HACCP 메뉴에도 생산 설계 — 업종 무관 (2026-10-19)

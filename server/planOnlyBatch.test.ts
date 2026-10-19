@@ -39,7 +39,10 @@ describe("그날 첫 확인에서 한 번", () => {
   it("한 번만 (plan_only 1→0 을 먼저 잡음), 원료 출고 먼저 — 남은 줄이 있으면 예정으로 되돌리고 확인 완료로 만들지 않음", () => {
     const o = read("services/batchOrchestrator.ts");
     expect(o).toMatch(/UPDATE h_batches SET plan_only = 0 WHERE id = \? AND tenant_id = \? AND plan_only = 1/);
-    expect(o).toMatch(/if \(left > 0\) \{\s*await conn\.execute\(`UPDATE h_batches SET plan_only = 1, status = 'planned'/);
+    expect(o).toMatch(/const revert = \(\) => conn\.execute\(\s*`UPDATE h_batches SET plan_only = 1, status = \? WHERE id = \? AND tenant_id = \?`/);
+    expect(o).toMatch(/if \(left > 0\) \{\s*await revert\(\);/);
+    // 출고 중 오류(상태 변경·출고·남은 줄 세기)도 예정으로 되돌림 — plan_only = 0 이 남으면 다시 확인할 때 출고를 건너뛴다 (#610 시범 전 재확인)
+    expect(o).toMatch(/\} catch \(e\) \{\s*try \{ await revert\(\); \}[^\n]*\n\s*throw e;/);
     expect(o).toMatch(/throw new Error\(`원료 출고가 끝나지 않아 확인하지 않았습니다/);
     expect(o).toMatch(/\}, \{ startDone: true \}\);/); // 출고는 위에서 끝냈으니 실행 단계는 시작 부분 건너뜀
   });

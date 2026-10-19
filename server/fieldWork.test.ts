@@ -38,6 +38,30 @@ describe("배선 — 오늘도 예정, 첫 확인에서 출고, 결재 앞 단�
     expect(f).toMatch(/if \(input\.action === "pass_start" && kind === "passage"\) await activateBatch/);
     expect(f).not.toMatch(/UPDATE h_ccp_row_events|DELETE FROM h_ccp_row_events/);
   });
+  it("거부 검사(행 버전·값·한계기준·통과 조건)를 원료 출고보다 먼저 — 거부될 확인이 출고를 일으키지 않는다 (#610 시범 전 재확인 P1)", () => {
+    const f = read("services/fieldWork.ts");
+    const body = f.slice(f.indexOf("export async function writeFieldRow"));
+    const plan = body.indexOf("planWrite(form, row, input);");
+    const act = body.indexOf("await activateBatch");
+    const tx = body.indexOf("await c.beginTransaction();");
+    expect(plan).toBeGreaterThan(0);
+    expect(plan).toBeLessThan(act);
+    expect(act).toBeLessThan(tx);
+    // 잠근 행으로 같은 검사를 다시 (그 사이 다른 사람이 바꿨으면 거부)
+    expect(body.slice(tx)).toMatch(/const \{ sets, vals, confirm, valueChanges \} = planWrite\(form, row, input\);/);
+    const pw = f.slice(f.indexOf("function planWrite"), f.indexOf("export async function writeFieldRow"));
+    expect(pw).toMatch(/FieldConflictError/);
+    expect(pw).toMatch(/validateSheetForConfirm\(rec, \[r\]/);
+    expect(pw).not.toMatch(/execute\(|activateBatch/); // 계산만 — DB 를 바꾸지 않는다
+  });
+  it("예전 기록지 화면으로 고친 현장 행 — 수정 전 값을 저장 전에 읽어 이력의 전 값으로", () => {
+    const r = read("routers/haccp/ccpForm.router.ts");
+    const before = r.indexOf("readFieldRowBeforeLegacySave(ctx.tenantId, input.formRecordId, input.batchSeq)");
+    expect(before).toBeGreaterThan(0);
+    expect(before).toBeLessThan(r.indexOf("const rowId = await upsertCcpFormRow({"));
+    expect(r).toMatch(/afterLegacyRowSave\(\{[^}]*before: fieldBefore/);
+    expect(read("services/fieldWork.ts")).toMatch(/event: "edit_legacy"[^]*before: input\.before, after: snapshot\(saved\)/);
+  });
   it("작성자 제출·검토에도 CCP 관문", () => {
     expect(read("routers/system/approval.router.ts")).toMatch(/assertCcpRequestGate\(ctx\.tenantId, input\.approvalRequestId\)/);
     expect(read("routers/system/approval.router.ts")).toMatch(/checkCcpRequestGate\(ctx\.tenantId, reqId\)/);

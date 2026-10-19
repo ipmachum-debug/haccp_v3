@@ -70,10 +70,17 @@ describe("2-a 메뉴 레지스트리 — 탭별 결과가 2026-10-14 스냅샷�
 });
 
 describe("2-a 메뉴 레지스트리 — 정합성", () => {
-  it("플러그인 공통 그룹은 기존 clientMenuEngine 과 같은 4그룹 8항목 + 생산 설계 4항목 (2026-10-19)", () => {
+  it("플러그인 공통 그룹은 기존 clientMenuEngine 과 같은 4그룹 8항목 + 생산 현장 1항목 + 생산 설계 4항목 (2026-10-19)", () => {
     expect(PLUGIN_COMMON_GROUPS.map((g) => [g.name, g.order, g.items.length])).toEqual([
-      ["대시보드", 0, 1], ["생산 설계", 30, 4], ["재고·운영", 40, 4], ["마스터", 50, 2], ["시스템", 100, 1],
+      ["대시보드", 0, 1], ["생산 현장", 15, 1], ["생산 설계", 30, 4], ["재고·운영", 40, 4], ["마스터", 50, 2], ["시스템", 100, 1],
     ]);
+  });
+
+  it("현장 확인은 기본 메뉴와 업종 플러그인 공통 그룹(허브 사이드바) 양쪽에 있다 — 같은 정의 하나", () => {
+    expect(MENU_PLACEMENTS.some((p) => p.path === ROUTES.FIELD_WORK)).toBe(true);
+    const g = PLUGIN_COMMON_GROUPS.find((x) => x.items.some((i) => i.path === ROUTES.FIELD_WORK));
+    expect(g?.name).toBe("생산 현장");
+    expect(g?.items.find((i) => i.path === ROUTES.FIELD_WORK)?.roles).toEqual(expect.arrayContaining(["worker", "admin"]));
   });
 
   it("ROUTES 상수로 등록된 경로는 레지스트리에도 같은 문자열로 있다 (drift 차단)", () => {
