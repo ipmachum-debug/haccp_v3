@@ -22,6 +22,9 @@ const GOOD_KEYS: Record<string, any[]> = {
   uq_ibi_tenant_line_seq: uq("tenant_id", "inbound_line_id", "seq"),
   uq_invtx_tenant_reversal: uq("tenant_id", "reversal_of_id"),
   uq_br_tenant_key: uq("tenant_id", "recovery_key"),
+  uq_ldc_tenant_key: uq("tenant_id", "case_key"),
+  uq_lel_tenant_event: uq("tenant_id", "event_key"),
+  uq_lel_tenant_dup: uq("tenant_id", "duplicate_tx_id"),
 };
 // UNIQUE 대상 생성 컬럼 — MySQL 이 저장하는 모양 그대로 (Codex #561·562 검증 R5)
 const GOOD_GENERATED: Record<string, any> = {

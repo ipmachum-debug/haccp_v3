@@ -3330,4 +3330,104 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect((await planRecovery(await conn(), input)).errors.join()).toMatch(/승인되어 있습니다/);
     });
   });
+  describe("원장 중복 정리 — 같은 사용 사건의 원 출고 + 옛 보충 출고 (2026-10-19, 생산 건 복구와 별도)", () => {
+    const M = 9715, IM = 9168; // 정본 원료 / item_master 공간 id (FK 로만 이어짐)
+    const B = { a: 9711, b: 9712, c: 9713 };
+    const input = { tenantId: T, materialId: M, batchIds: [B.a, B.b], reason: "시험 — 원장 중복" };
+    const clean = async () => {
+      await q(`DELETE FROM h_inventory_transactions WHERE tenant_id = ? AND (material_id IN (?, ?) OR source_type = 'LEDGER_DEDUP')`, [T, M, IM]);
+      await q(`DELETE FROM h_batch_inputs WHERE batch_id IN (?, ?, ?)`, [B.a, B.b, B.c]);
+      await q(`DELETE FROM h_batches WHERE id IN (?, ?, ?)`, [B.a, B.b, B.c]);
+      await q(`DELETE FROM h_inventory_lots WHERE id IN (9721, 9722)`);
+      await q(`DELETE FROM h_inventory WHERE tenant_id = ? AND material_id = ?`, [T, M]);
+      await q(`DELETE FROM h_materials WHERE id = ?`, [M]);
+      for (const t of ["h_ledger_dedup_cases", "h_ledger_event_links"]) await q(`DELETE FROM ${t} WHERE tenant_id = ?`, [T]);
+    };
+    beforeEach(async () => {
+      await clean();
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (?, ?, 'RICE-T', '멥쌀(시험)')`, [M, T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES (?, ?, 'IM-RICE-T', '멥쌀(시험)', 'raw_material', 'kg', 1, ?)`, [IM, T, M]);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status) VALUES
+        (9721, ?, ?, 'L-OLD', 100, 30, 30, 'kg', 'available'), (9722, ?, ?, 'L-NEW', 100, 60, 60, 'kg', 'available')`, [T, M, T, M]);
+      await q(`INSERT INTO h_inventory (tenant_id, material_id, total_quantity, available_quantity, reserved_quantity, unit) VALUES (?, ?, 90, 90, 0, 'kg')`, [T, M]);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, mode, plan_only, created_by) VALUES
+        (?, ?, 1, 'R-A', 99901, 50, '2026-04-20', 'completed', 'auto', 0, 4), (?, ?, 1, 'R-B', 99901, 50, '2026-04-22', 'completed', 'auto', 0, 4), (?, ?, 1, 'R-C', 99901, 50, '2026-04-23', 'completed', 'auto', 0, 4)`,
+        [B.a, T, B.b, T, B.c, T]);
+      await q(`INSERT INTO h_batch_inputs (id, batch_id, tenant_id, material_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES
+        (97111, ?, ?, ?, 10, 10, 'kg', 0), (97121, ?, ?, ?, 20, 20, 'kg', 0), (97131, ?, ?, ?, 5, 5, 'kg', 0)`, [B.a, T, M, B.b, T, M, B.c, T, M]);
+      // A: 원 거래도 LOT 연결(옛 재조정이 다시 깎음) + 보충 / B: 원 거래 LOT 없음 + 보충만 LOT / C: 보충(줄 id 없음)만 — 원 거래 없음
+      await q(`INSERT INTO h_inventory_transactions (id, tenant_id, lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount, transaction_date, reference_type, reference_id, source_type, source_id, source_line_id, created_by) VALUES
+        (97201, ?, 9721, ?, 'usage', 10, 'kg', 1050, 10500, '2026-04-20', 'batch', ?, 'BATCH', ?, 97111, 4),
+        (97202, ?, 9722, ?, 'usage', 10, 'kg', 1020, 10200, '2026-04-20', NULL, NULL, 'BATCH', ?, NULL, 4),
+        (97203, ?, NULL, ?, 'usage', 20, 'kg', 2040, 40800, '2026-04-22', 'batch', ?, 'BATCH', ?, 97121, 4),
+        (97204, ?, 9722, ?, 'usage', 20, 'kg', 1020, 20400, '2026-04-22', NULL, NULL, 'BATCH', ?, NULL, 4),
+        (97205, ?, 9722, ?, 'usage', 5, 'kg', 1020, 5100, '2026-04-23', NULL, NULL, 'BATCH', ?, NULL, 4)`,
+        [T, M, B.a, B.a, T, M, B.a, T, IM, B.b, B.b, T, M, B.b, T, M, B.c]);
+    });
+    afterAll(clean);
+    const stockNow = async () => JSON.stringify([await q(`SELECT id, quantity, current_quantity, available_quantity, status FROM h_inventory_lots WHERE id IN (9721, 9722) ORDER BY id`),
+      await q(`SELECT available_quantity FROM h_inventory WHERE tenant_id = ? AND material_id = ?`, [T, M])]);
+
+    it("출고 판정: 줄 id 없는 옛 보충 출고만 있는 줄도 '이미 출고' (원료 id 가 item_master 공간이어도 FK 로 같은 사건) — 자동 출고가 다시 빼지 않음", async () => {
+      const { getIssuedBatchLineIds, countUnissuedBatchLines } = await import("./lib/production/issuedBatchLines");
+      expect([...(await getIssuedBatchLineIds(B.c, T))]).toEqual([97131]);
+      expect(await countUnissuedBatchLines(B.c, T)).toBe(0);
+      expect([...(await getIssuedBatchLineIds(B.b, T))]).toEqual([97121]); // 원 거래 원료 = item_master 9168 → FK → 9715
+      const before = await stockNow();
+      const { autoIssueMaterialsDispatch } = await import("./lib/production/autoMaterialIssueDispatcher");
+      for (const b of [B.a, B.b, B.c]) await autoIssueMaterialsDispatch(b, 4, T);
+      expect(await stockNow()).toBe(before);
+      expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE tenant_id = ? AND material_id IN (?, ?)`, [T, M, IM]))[0].n).toBe(5);
+    });
+
+    it("LOT 붙이기 안전 검사: 같은 배치·원료에 LOT 연결 출고가 이미 있으면 막힘 (옛 유령 재조정 유형)", async () => {
+      const { checkLotAttachSafety } = await import("./lib/inventory/usageEventGuard");
+      const r = await checkLotAttachSafety(await (await import("./db/connection")).getRawConnection(), T, [97203]);
+      expect(r[0]).toMatchObject({ safe: false, reason: expect.stringMatching(/두 번 차감/) });
+      await q(`DELETE FROM h_inventory_transactions WHERE id = 97204`);
+      expect((await checkLotAttachSafety(await (await import("./db/connection")).getRawConnection(), T, [97203]))[0].safe).toBe(true);
+    });
+
+    it("dry-run → 실행: B 는 원장 전용 상계(LOT·집계 그대로, 금액 비움), A 는 연결만 / 재시도·새 키·회사 격리·중간 실패", async () => {
+      const { planLedgerDedup, executeLedgerDedup, LedgerDedupBlockedError } = await import("./services/ledgerDedup");
+      const pool = await (await import("./db/connection")).getRawConnection();
+      const p = await planLedgerDedup(pool, input);
+      expect(p.errors).toEqual([]);
+      expect(p.events.map((e) => [e.batchId, e.classification, e.quantity])).toEqual([[B.a, "A", 10], [B.b, "B", 20]]);
+      expect([p.totals.ledgerUsageBefore, p.totals.ledgerUsageAfter]).toEqual([60, 40]);
+      expect(p.aLotImpact).toEqual([{ lotId: 9721, kg: 10, originalTxIds: [97201] }]);
+      expect((await planLedgerDedup(pool, { ...input, tenantId: T + 1 })).ok).toBe(false);
+      expect((await planLedgerDedup(pool, { ...input, batchIds: [B.a, B.c] })).errors.join()).toMatch(/'원 거래 1 \+ 보충 1' 모양이 아닙니다/);
+      const before = await stockNow();
+      for (const st of ["planned", "half", "written", "verified", "before_commit"]) {
+        await expect(executeLedgerDedup({ ...input, caseKey: `F-${st}`, expectedFingerprint: p.fingerprint, actorUserId: 4 }, { onStep: (x) => { if (x === st) throw new Error(`주입 ${st}`); } })).rejects.toThrow(`주입 ${st}`);
+      }
+      expect((await q(`SELECT COUNT(*) AS n FROM h_ledger_event_links WHERE tenant_id = ?`, [T]))[0].n).toBe(0);
+      const r = await executeLedgerDedup({ ...input, caseKey: "LD-1", expectedFingerprint: p.fingerprint, actorUserId: 4 });
+      expect(r.status).toBe("done");
+      expect(await stockNow()).toBe(before);
+      const off = await q(`SELECT lot_id, transaction_type, quantity + 0 AS qty, amount, reversal_of_id, source_line_id FROM h_inventory_transactions WHERE tenant_id = ? AND source_type = 'LEDGER_DEDUP'`, [T]);
+      expect(off.map((o: any) => [o.lot_id, o.transaction_type, Number(o.qty), o.amount, Number(o.reversal_of_id), Number(o.source_line_id)])).toEqual([[null, "return", 20, null, 97203, 97121]]);
+      const links = await q(`SELECT batch_input_id, original_tx_id, backfill_tx_id, classification, status FROM h_ledger_event_links WHERE tenant_id = ? ORDER BY batch_id`, [T]);
+      expect(links.map((l: any) => [Number(l.batch_input_id), Number(l.original_tx_id), Number(l.backfill_tx_id), l.classification, l.status])).toEqual([
+        [97111, 97201, 97202, "A_LOT_REDEDUCTED", "stock_review_pending"], [97121, 97203, 97204, "B_LEDGER_ONLY", "ledger_offset"]]);
+      expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE id IN (97201, 97202, 97203, 97204)`))[0].n).toBe(4); // 원본 보존
+      expect((await executeLedgerDedup({ ...input, caseKey: "LD-1", expectedFingerprint: p.fingerprint, actorUserId: 4 })).status).toBe("already_done");
+      await expect(executeLedgerDedup({ ...input, caseKey: "LD-2", expectedFingerprint: p.fingerprint, actorUserId: 4 })).rejects.toBeInstanceOf(LedgerDedupBlockedError);
+      expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE tenant_id = ? AND source_type = 'LEDGER_DEDUP'`, [T]))[0].n).toBe(1);
+    });
+
+    it("동시 실행 3번 → 한 번, dry-run 뒤 LOT 이 바뀌면 멈춤", async () => {
+      const { planLedgerDedup, executeLedgerDedup, LedgerDedupChangedError } = await import("./services/ledgerDedup");
+      const pool = await (await import("./db/connection")).getRawConnection();
+      const p = await planLedgerDedup(pool, input);
+      await q(`UPDATE h_inventory_lots SET available_quantity = 59 WHERE id = 9722`);
+      await expect(executeLedgerDedup({ ...input, caseKey: "LD-C0", expectedFingerprint: p.fingerprint, actorUserId: 4 })).rejects.toBeInstanceOf(LedgerDedupChangedError);
+      const p2 = await planLedgerDedup(pool, input);
+      const run = (k: string) => executeLedgerDedup({ ...input, caseKey: k, expectedFingerprint: p2.fingerprint, actorUserId: 4 });
+      const rs = await Promise.allSettled([run("LD-C1"), run("LD-C1"), run("LD-C2")]);
+      expect(rs.filter((x) => x.status === "fulfilled" && (x.value as any).status === "done").length).toBe(1);
+      expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE tenant_id = ? AND source_type = 'LEDGER_DEDUP'`, [T]))[0].n).toBe(1);
+    });
+  });
 });
