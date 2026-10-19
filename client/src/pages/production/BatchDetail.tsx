@@ -28,6 +28,8 @@ import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, File
 import { useState, useEffect, useRef } from "react";
 import { useParams, useLocation } from "wouter";
 import { toast } from "sonner";
+import LineIssueExceptions from "@/components/production/LineIssueExceptions";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from "recharts";
 import { CcpInspectionCard } from "@/components/ccp/CcpInspectionCard";
 import { CcpMonitoringForms } from "@/components/ccp/CcpMonitoringForms";
@@ -86,6 +88,7 @@ export default function BatchDetail() {
   const [, setLocation] = useLocation();
   const batchId = params.id ? parseInt(params.id, 10) : 0;
 
+  const { user: currentUser } = useAuth();
   const { data: batch, isLoading } = trpc.batch.getById.useQuery({ id: batchId });
   const { data: ccpList, refetch: refetchCcps, isLoading: ccpLoading } = trpc.ccp.getByBatchId.useQuery(
     { batchId },
@@ -447,6 +450,9 @@ export default function BatchDetail() {
             </span>
           </div>
         </div>
+
+        {/* 원료 출고 확인 — 보류·옛 출고와 대응이 애매한 줄만 (#608 검토 P1) */}
+        <LineIssueExceptions batchId={batchId} canResolve={["admin", "super_admin"].includes(String((currentUser as any)?.role ?? ""))} />
 
         {/* 배치 정보 카드 */}
         <Card>

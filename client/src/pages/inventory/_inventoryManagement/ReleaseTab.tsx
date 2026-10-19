@@ -527,7 +527,15 @@ export function ReleaseTab() {
                                           </div>
                                           <span className="font-mono whitespace-nowrap">
                                             {fmt(item.quantity)} <span className="text-muted-foreground">{item.unit}</span>
-                                            {item.amount > 0 && <span className="text-muted-foreground ml-2">{won(item.amount)}</span>}
+                                            {/* 원본·상계 (#608 검토 P2) — 원장 전용 정리는 재고 변화 없음, 재고 복원은 LOT 으로 돌아간 양 */}
+                                            {(item.ledgerOffsetQty > 0 || item.stockReturnQty > 0) && (
+                                              <span className="text-[10px] text-muted-foreground ml-1" data-testid="usage-offset">
+                                                (원본 {fmt(item.originalQuantity)}{item.ledgerOffsetQty > 0 ? ` · 원장 정리 −${fmt(item.ledgerOffsetQty)}` : ""}{item.stockReturnQty > 0 ? ` · 재고 복원 −${fmt(item.stockReturnQty)}` : ""})
+                                              </span>
+                                            )}
+                                            {item.amountPending
+                                              ? <span className="text-amber-700 ml-2 text-[10px]" title="원장 전용 정리가 있어 어느 금액을 뺄지 아직 정하지 않았습니다">금액 미확정</span>
+                                              : item.amount > 0 && <span className="text-muted-foreground ml-2">{won(item.amount)}</span>}
                                           </span>
                                         </div>
                                       ))}
@@ -550,6 +558,12 @@ export function ReleaseTab() {
                     <span className="text-sm font-mono font-bold text-orange-700 dark:text-orange-400">{summary.totalRecords}건</span>
                     <span className="text-xs text-muted-foreground mx-2">|</span>
                     <span className="text-sm font-mono font-bold text-orange-700 dark:text-orange-400">{fmt(summary.grandTotalQuantity)}</span>
+                    {((summary as any).grandLedgerOffsetQty > 0 || (summary as any).grandStockReturnQty > 0) && (
+                      <span className="text-[10px] text-muted-foreground">
+                        원본 {fmt((summary as any).grandOriginalQuantity)}{(summary as any).grandLedgerOffsetQty > 0 ? ` · 원장 정리 −${fmt((summary as any).grandLedgerOffsetQty)}` : ""}{(summary as any).grandStockReturnQty > 0 ? ` · 재고 복원 −${fmt((summary as any).grandStockReturnQty)}` : ""}
+                        {(summary as any).amountPendingRecords > 0 ? ` · 금액 미확정 ${(summary as any).amountPendingRecords}건` : ""}
+                      </span>
+                    )}
                     {summary.grandTotalAmount > 0 && (
                       <>
                         <span className="text-xs text-muted-foreground mx-2">|</span>

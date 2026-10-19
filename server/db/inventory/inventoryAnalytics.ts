@@ -62,7 +62,10 @@ export async function calculateInventoryTurnover(
       -- 2026-04-27 (§5.2 후속): JOIN h_inventory_lots 의존성 제거.
       -- t.material_id 가 직접 채워진 후 (PR #89), lot_id=0 트랜잭션도 포함되어 회전율 계산 정확도 향상.
       -- product 트랜잭션은 t.material_id IS NULL 이라 자연 제외됨.
-      SELECT t.material_id, SUM(ABS(t.quantity)) as total_qty
+      -- 2026-10-19 (#608 검토 P2): 원 거래를 가리키는 상계(원장 전용 정리·실제 재고 복원)는 빼고 유효 사용량으로
+      SELECT t.material_id,
+             SUM(GREATEST(0, ABS(t.quantity) - COALESCE((SELECT SUM(ABS(r.quantity)) FROM h_inventory_transactions r
+                                                        WHERE r.tenant_id = t.tenant_id AND r.reversal_of_id = t.id AND r.transaction_type = 'return'), 0))) as total_qty
       FROM h_inventory_transactions t
       WHERE t.tenant_id = ${Number(tenantId)}
         AND t.transaction_type = 'usage'

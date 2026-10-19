@@ -6,6 +6,7 @@
 import { getDb, withTransaction } from "../connection";
 import { hInventoryLots, hInventoryTransactions, hMaterials, hInventory } from "../../../drizzle/schema";
 import { eq, desc, and, gte, lte, sql } from "drizzle-orm";
+import { usageReversalJoin, usageQtyColumns, usageAmountColumns, readUsageRow } from "../../lib/inventory/effectiveUsage";
 
 /**
  * h_inventory 테이블 재고량 차감
@@ -242,7 +243,7 @@ export async function getOutboundHistory(params?: {
         t.lot_id AS lotId,
         l.lot_number AS lotNumber,
         COALESCE(m1.material_name, m2.material_name, m3.material_name) AS materialName,
-        ABS(t.quantity) AS quantity,
+        ${usageQtyColumns("t")},
         t.unit,
         t.reference_type AS referenceType,
         COALESCE(t.reference_id, t.source_id) AS referenceId,
@@ -264,6 +265,7 @@ export async function getOutboundHistory(params?: {
        AND bi.tenant_id = t.tenant_id
        AND t.source_type IN ('BATCH','batch_completion')
       LEFT JOIN h_materials m3 ON m3.id = bi.material_id
+      ${usageReversalJoin(String(Number(tenantId)), "t")}
       WHERE ${txnConditions.join(' AND ')}
     )
     UNION ALL
@@ -273,6 +275,9 @@ export async function getOutboundHistory(params?: {
         0 AS lotId,
         b.batch_code AS lotNumber,
         m.material_name AS materialName,
+        ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity), 3) AS originalQuantity,
+        0 AS ledgerOffsetQty,
+        0 AS stockReturnQty,
         ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity), 3) AS quantity,
         COALESCE(bi.unit, m.unit, 'kg') AS unit,
         'batch' AS referenceType,
@@ -305,7 +310,8 @@ export async function getOutboundHistory(params?: {
     lotId: row.lotId,
     lotNumber: row.lotNumber || null,
     materialName: row.materialName || null,
-    quantity: parseFloat(row.quantity || "0"),
+    // 유효 사용량 = 원본 − 원장 전용 상계 − 실제 재고 복원 (원본·상계도 함께 — #608 검토 P2)
+    ...readUsageRow(row),
     unit: row.unit,
     referenceType: row.referenceType,
     referenceId: row.referenceId,
@@ -359,10 +365,10 @@ export async function getConsumptionSummary(params: {
         DATE(CONVERT_TZ(COALESCE(t.transaction_date, t.created_at), '+00:00', '+09:00')) AS txDate,
         COALESCE(md.material_name, m1.material_name, m2.material_name, m3.material_name, im.item_name) AS materialName,
         COALESCE(md.id, m1.id, m2.id, m3.id, im.id) AS materialId,
-        ABS(t.quantity) AS quantity,
+        ${usageQtyColumns("t")},
         t.unit,
         COALESCE(t.unit_cost, 0) AS unitCost,
-        ABS(t.amount) AS amount,
+        ${usageAmountColumns("t")},
         t.source_type AS sourceType,
         t.source_id AS sourceId,
         l.lot_number AS lotNumber,
@@ -417,6 +423,7 @@ export async function getConsumptionSummary(params: {
        AND im.is_active = 1
        AND t.notes LIKE '원재료 #%자동출고%'
        AND im.id = CAST(SUBSTRING_INDEX(SUBSTRING_INDEX(t.notes, '#', -1), ' ', 1) AS UNSIGNED)
+      ${usageReversalJoin(String(Number(tenantId)), "t")}
       WHERE t.transaction_type = 'usage'
         AND t.tenant_id = ${tenantId}
         AND COALESCE(t.transaction_date, t.created_at) >= '${startDate}'
@@ -434,10 +441,14 @@ export async function getConsumptionSummary(params: {
         DATE(COALESCE(bi.input_time, b.start_time, b.created_at)) AS txDate,
         m.material_name AS materialName,
         bi.material_id AS materialId,
+        ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity), 3) AS originalQuantity,
+        0 AS ledgerOffsetQty,
+        0 AS stockReturnQty,
         ROUND(COALESCE(bi.actual_quantity, bi.planned_quantity), 3) AS quantity,
         COALESCE(bi.unit, m.unit, 'kg') AS unit,
         COALESCE(bi.unit_price, 0) AS unitCost,
         ROUND(COALESCE(bi.total_price, COALESCE(bi.actual_quantity, bi.planned_quantity) * COALESCE(bi.unit_price, 0)), 0) AS amount,
+        0 AS amountPending,
         'BATCH' AS sourceType,
         bi.batch_id AS sourceId,
         b.batch_code AS lotNumber,
@@ -482,6 +493,10 @@ export async function getConsumptionSummary(params: {
       lotNumber: string | null;
       notes: string | null;
       isLotMissing: boolean;  // PR-W7: 재고미등록 (lot_id=0 자동출고) 식별 플래그
+      originalQuantity: number;
+      ledgerOffsetQty: number;
+      stockReturnQty: number;
+      amountPending: boolean;
       // PR-§5.2-3: matchSource 에 'direct' 추가 (t.material_id 직접 매칭 — 가장 신뢰)
       matchSource: "direct" | "m1" | "m2" | "m3" | "im" | "none";
     }>;
@@ -513,6 +528,11 @@ export async function getConsumptionSummary(params: {
   let grandTotalQuantity = 0;
   let grandTotalAmount = 0;
   let totalRecords = 0;
+  // 원본 합계와 상계 (추적용) — grandTotalQuantity 는 유효 사용량
+  let grandOriginalQuantity = 0;
+  let grandLedgerOffsetQty = 0;
+  let grandStockReturnQty = 0;
+  let amountPendingRecords = 0;
 
   for (const row of (rows as any[])) {
     const dateStr = row.txDate ? (row.txDate instanceof Date
@@ -544,6 +564,11 @@ export async function getConsumptionSummary(params: {
       sourceId: row.sourceId ? Number(row.sourceId) : null,
       lotNumber: row.lotNumber || null,
       notes: row.notes || null,
+      // 원본·원장 전용 상계·실제 재고 복원 (#608 검토 P2) — quantity 는 유효 사용량
+      originalQuantity: readUsageRow(row).originalQuantity,
+      ledgerOffsetQty: readUsageRow(row).ledgerOffsetQty,
+      stockReturnQty: readUsageRow(row).stockReturnQty,
+      amountPending: readUsageRow(row).amountPending,
       // PR-W7: MySQL 의 0/1 → JS boolean 변환
       isLotMissing: Number(row.isLotMissing) === 1,
       // PR-MS: 매칭 분기 추적
@@ -573,6 +598,11 @@ export async function getConsumptionSummary(params: {
     grandTotalQuantity += qty;
     grandTotalAmount += amt;
     totalRecords++;
+    const u = readUsageRow(row);
+    grandOriginalQuantity += u.originalQuantity;
+    grandLedgerOffsetQty += u.ledgerOffsetQty;
+    grandStockReturnQty += u.stockReturnQty;
+    if (u.amountPending) amountPendingRecords++;
   }
 
   // 일별 그룹 내에서 원재료별로 소계 집계
@@ -621,6 +651,10 @@ export async function getConsumptionSummary(params: {
     grandTotalQuantity,
     grandTotalAmount,
     totalRecords,
+    grandOriginalQuantity,
+    grandLedgerOffsetQty,
+    grandStockReturnQty,
+    amountPendingRecords,
     // PR-MS: 4단 fallback 의존도 분포. m2~im 의 비율이 높을수록 데이터 정합성
     //   문제가 누적되고 있다는 신호. UI 에서 작은 칩으로 표시.
     matchSourceStats,

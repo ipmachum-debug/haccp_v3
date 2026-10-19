@@ -16,6 +16,8 @@ const db = vi.hoisted(() => ({
   nextId: 1000,
 }));
 
+// 출고 판정(issuedBatchLines) 은 이 시험 대상이 아님 — 미출고 줄 없음으로 (실제 판정은 saleLotStatus.mysql.test)
+vi.mock("./lib/production/issuedBatchLines", () => ({ countUnissuedBatchLines: vi.fn(async () => 0) }));
 vi.mock("./db/connection", () => {
   const exec = async (sql: string, p: any[] = []) => {
     if (/FROM h_batches/.test(sql)) return [[{ id: p[0], batch_code: "30080-20261012-001", status: "completed", planned_date: "2026-10-12", material_cost: 0, actual_cost: 0 }]];

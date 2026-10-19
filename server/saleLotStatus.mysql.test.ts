@@ -3417,6 +3417,87 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE tenant_id = ? AND source_type = 'LEDGER_DEDUP'`, [T]))[0].n).toBe(1);
     });
 
+    it("#608 검토 P1: 애매한 옛 출고(줄 10·20 에 출고 10 하나) — 둘 다 출고 완료 아님·다시 빼지 않음·보류·승인 막힘 → 화면에서 인정/새로 출고로 풀기", async () => {
+      const { classifyBatchLines, countUnissuedBatchLines } = await import("./lib/production/issuedBatchLines");
+      const D = 9714;
+      await q(`DELETE FROM h_batch_line_issue_decisions WHERE tenant_id = ?`, [T]);
+      await q(`DELETE FROM audit_logs WHERE action = 'batch_input.issue_decision'`);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, mode, plan_only, created_by) VALUES (?, ?, 1, 'R-D', 99901, 30, '2026-04-24', 'in_progress', 'auto', 0, 4)`, [D, T]);
+      await q(`INSERT INTO h_batch_inputs (id, batch_id, tenant_id, material_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES (97141, ?, ?, ?, 10, 10, 'kg', 0), (97142, ?, ?, ?, 20, 20, 'kg', 0)`, [D, T, M, D, T, M]);
+      await q(`INSERT INTO h_inventory_transactions (id, tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date, source_type, source_id, created_by) VALUES (97206, ?, NULL, ?, 'usage', 10, 'kg', '2026-04-24', 'BATCH', ?, 4)`, [T, M, D]);
+      try {
+        const st = await classifyBatchLines(D, T);
+        expect([st.get(97141)!.state, st.get(97142)!.state]).toEqual(["ambiguous", "ambiguous"]);
+        expect(await countUnissuedBatchLines(D, T)).toBe(2);
+        const before = await stockNow();
+        const { autoIssueMaterialsDispatch } = await import("./lib/production/autoMaterialIssueDispatcher");
+        await autoIssueMaterialsDispatch(D, 4, T);
+        expect(await stockNow()).toBe(before); // 다시 빼지 않음
+        expect((await q(`SELECT id, issue_hold FROM h_batch_inputs WHERE batch_id = ? ORDER BY id`, [D])).map((r: any) => Number(r.issue_hold))).toEqual([1, 1]);
+        const { prepareBatchForApproval } = await import("./lib/production/batchApprovalGate");
+        await expect(prepareBatchForApproval(D, T, 4)).rejects.toThrow();
+        // 화면에서 풀기 — 수량 다른 출고는 인정 거부, 맞는 줄에 인정, 나머지 줄은 새로 출고
+        const { resolveLineIssue } = await import("./lib/production/lineIssueDecision");
+        await expect(resolveLineIssue({ tenantId: T, batchInputId: 97142, action: "existing", txIds: [97206], userId: 4 })).rejects.toThrow(/수량이 다릅니다/);
+        await expect(resolveLineIssue({ tenantId: T + 1, batchInputId: 97141, action: "existing", txIds: [97206], userId: 4 })).rejects.toThrow(/이 회사의 투입 줄이 아닙니다/);
+        expect((await resolveLineIssue({ tenantId: T, batchInputId: 97141, action: "existing", txIds: [97206], userId: 4 })).state).toBe("decided_existing");
+        await expect(resolveLineIssue({ tenantId: T, batchInputId: 97141, action: "issue_new", userId: 4 })).rejects.toThrow(/이미 확인|이미 출고/);
+        expect((await classifyBatchLines(D, T)).get(97142)!.state).toBe("none"); // 옛 출고는 줄 97141 에 인정됨
+        expect(await countUnissuedBatchLines(D, T)).toBe(1);
+        await autoIssueMaterialsDispatch(D, 4, T);
+        expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE source_id = ? AND source_line_id = 97142`, [D]))[0].n).toBe(0); // 아직 보류
+        expect((await resolveLineIssue({ tenantId: T, batchInputId: 97142, action: "issue_new", userId: 4 })).state).toBe("none");
+        await autoIssueMaterialsDispatch(D, 4, T);
+        const issued = await q(`SELECT quantity FROM h_inventory_transactions WHERE source_id = ? AND source_line_id = 97142 AND transaction_type = 'usage'`, [D]);
+        expect(issued.reduce((a: number, r: any) => a + Number(r.quantity), 0)).toBe(20);
+        await autoIssueMaterialsDispatch(D, 4, T); // 다시 불러도 한 번
+        expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE source_id = ? AND source_line_id = 97142`, [D]))[0].n).toBe(issued.length);
+        expect(await countUnissuedBatchLines(D, T)).toBe(0);
+        expect((await q(`SELECT COUNT(*) AS n FROM audit_logs WHERE action = 'batch_input.issue_decision' AND entity_id IN (97141, 97142)`))[0].n).toBe(2);
+      } finally {
+        await q(`DELETE FROM h_inventory_transactions WHERE source_id = ? AND tenant_id = ?`, [D, T]);
+        await q(`DELETE FROM h_batch_line_issue_decisions WHERE tenant_id = ?`, [T]);
+        await q(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [D]);
+        await q(`DELETE FROM h_batches WHERE id = ?`, [D]);
+      }
+    });
+
+    it("#608 검토 P1 회귀: 줄 1 ↔ 줄 번호 없는 출고 1 은 수량이 달라도(줄을 나중에 고친 경우) 계속 출고 완료 / 단위가 다르면 애매", async () => {
+      const { classifyBatchLines } = await import("./lib/production/issuedBatchLines");
+      await q(`UPDATE h_batch_inputs SET actual_quantity = 2.533 WHERE id = 97131`); // 출고 5 → 줄 수정 2.533
+      expect((await classifyBatchLines(B.c, T)).get(97131)!.state).toBe("lineless_1to1");
+      await q(`UPDATE h_inventory_transactions SET unit = 'g' WHERE id = 97205`);
+      expect((await classifyBatchLines(B.c, T)).get(97131)!.state).toBe("ambiguous");
+    });
+
+    it("#608 검토 P2: 원장 정리는 투입 줄·원 거래·보충 거래 단위가 같아야 — 숫자만 같으면 멈춤", async () => {
+      const { planLedgerDedup } = await import("./services/ledgerDedup");
+      await q(`UPDATE h_inventory_transactions SET unit = 'g' WHERE id = 97204`);
+      const p = await planLedgerDedup(await (await import("./db/connection")).getRawConnection(), input);
+      expect(p.ok).toBe(false);
+      expect(p.errors.join()).toMatch(/단위가 같지 않습니다/);
+    });
+
+    it("#608 검토 P2: 소모 요약은 원본·원장 정리·유효 사용량을 함께 — 원장 정리 금액은 미확정, 재고는 그대로", async () => {
+      const { planLedgerDedup, executeLedgerDedup } = await import("./services/ledgerDedup");
+      const { getConsumptionSummary, getOutboundHistory } = await import("./db/production/outboundManagement");
+      const pool = await (await import("./db/connection")).getRawConnection();
+      const pick = (sum: any) => sum.dailyGroups.flatMap((d: any) => d.materialGroups.flatMap((g: any) => g.items)).filter((i: any) => i.materialId === M);
+      const before = pick(await getConsumptionSummary({ year: 2026, month: 4 }, T));
+      expect(before.reduce((a: number, i: any) => a + i.quantity, 0)).toBe(65);
+      const p = await planLedgerDedup(pool, input);
+      await executeLedgerDedup({ ...input, caseKey: "LD-SUM", expectedFingerprint: p.fingerprint, actorUserId: 4 });
+      const sum = await getConsumptionSummary({ year: 2026, month: 4 }, T);
+      const after = pick(sum);
+      expect(after.reduce((a: number, i: any) => a + i.quantity, 0)).toBe(45); // 65 − B 상계 20
+      expect(after.reduce((a: number, i: any) => a + i.originalQuantity, 0)).toBe(65); // 원본은 그대로
+      const off = after.find((i: any) => i.ledgerOffsetQty > 0);
+      expect(off).toMatchObject({ originalQuantity: 20, ledgerOffsetQty: 20, quantity: 0, amountPending: true });
+      expect(sum.amountPendingRecords).toBeGreaterThanOrEqual(1);
+      const hist = (await getOutboundHistory({ batchId: B.b, limit: 50 }, T)).filter((h: any) => h.id === 97203);
+      expect(hist[0]).toMatchObject({ originalQuantity: 20, ledgerOffsetQty: 20, quantity: 0 });
+    });
+
     it("동시 실행 3번 → 한 번, dry-run 뒤 LOT 이 바뀌면 멈춤", async () => {
       const { planLedgerDedup, executeLedgerDedup, LedgerDedupChangedError } = await import("./services/ledgerDedup");
       const pool = await (await import("./db/connection")).getRawConnection();

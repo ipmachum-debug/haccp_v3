@@ -78,6 +78,8 @@ export interface DedupEvent {
   batchInputId: number;
   productionDate: string;
   quantity: number;
+  /** 투입 줄·원 거래·보충 거래 공통 단위 (상계 거래도 같은 단위) */
+  unit: string;
   classification: "A" | "B";
   original: { id: number; lotId: number | null; materialId: number; amount: number | null; unitCost: number | null; date: string };
   backfill: { id: number; lotId: number | null; materialId: number; amount: number | null; unitCost: number | null; date: string };
@@ -126,7 +128,7 @@ export async function planLedgerDedup(conn: any, input: LedgerDedupInput): Promi
 
   // 사건 = 이 원료의 투입 줄
   const lines = await q(conn,
-    `SELECT bi.id, bi.batch_id, bi.material_id, bi.actual_quantity, bi.planned_quantity, bi.inventory_deducted FROM h_batch_inputs bi
+    `SELECT bi.id, bi.batch_id, bi.material_id, bi.unit, bi.actual_quantity, bi.planned_quantity, bi.inventory_deducted FROM h_batch_inputs bi
       WHERE bi.tenant_id = ? AND bi.batch_id IN (?) AND ${SAME_MATERIAL_SQL("bi.material_id")} ORDER BY bi.id`,
     [tenantId, batchIds, materialId, tenantId, materialId]);
   // 원장 표현 — 줄 연결 / 투입 참조 / 배치 단위(줄 없음)
@@ -160,6 +162,11 @@ export async function planLedgerDedup(conn: any, input: LedgerDedupInput): Promi
       continue;
     }
     const o = orig[0], k = back[0];
+    // 단위 — 투입 줄·원 거래·보충 거래가 같은 단위여야 같은 사건 (숫자만 같다고 같은 사건으로 보지 않는다, #608 검토 P2)
+    const u = (x: unknown) => String(x ?? "").trim().toLowerCase();
+    if (!u(line.unit) || u(line.unit) !== u(o.unit) || u(o.unit) !== u(k.unit)) {
+      errors.push(`배치 #${bid}: 단위가 같지 않습니다 (투입 줄 ${line.unit ?? "없음"} · 원 거래 ${o.unit ?? "없음"} · 보충 ${k.unit ?? "없음"}) — 환산하지 않고 멈춥니다.`); continue;
+    }
     const lineQty = num(line.actual_quantity ?? line.planned_quantity);
     if (Math.abs(num(o.quantity) - num(k.quantity)) > EPS || Math.abs(num(o.quantity) - lineQty) > EPS) {
       errors.push(`배치 #${bid}: 원 거래 ${o.quantity}·보충 ${k.quantity}·투입 줄 ${lineQty} 수량이 같지 않습니다.`); continue;
@@ -170,7 +177,7 @@ export async function planLedgerDedup(conn: any, input: LedgerDedupInput): Promi
     else if (o.lot_id != null && k.lot_id != null) cls = "A";
     else { errors.push(`배치 #${bid}: LOT 연결 모양(원 ${o.lot_id ?? "없음"} / 보충 ${k.lot_id ?? "없음"})이 A·B 어느 쪽도 아닙니다 (사람 확인).`); continue; }
     const pick = (t: any) => ({ id: Number(t.id), lotId: t.lot_id != null ? Number(t.lot_id) : null, materialId: Number(t.material_id), amount: t.amount != null ? Number(t.amount) : null, unitCost: t.unit_cost != null ? Number(t.unit_cost) : null, date: String(t.td) });
-    plan.events.push({ batchId: bid, batchInputId: Number(line.id), productionDate: String(b.wd), quantity: r3(num(o.quantity)), classification: cls, original: pick(o), backfill: pick(k) });
+    plan.events.push({ batchId: bid, batchInputId: Number(line.id), productionDate: String(b.wd), quantity: r3(num(o.quantity)), unit: String(o.unit).trim(), classification: cls, original: pick(o), backfill: pick(k) });
   }
 
   const ev = plan.events;
@@ -200,7 +207,7 @@ export async function planLedgerDedup(conn: any, input: LedgerDedupInput): Promi
 
   const state = {
     input: { tenantId, materialId, batchIds: [...batchIds].sort((x, y) => x - y), reason: String(input.reason).trim() },
-    lines: lines.map((l) => ({ id: l.id, m: l.material_id, a: l.actual_quantity, p: l.planned_quantity, d: l.inventory_deducted })),
+    lines: lines.map((l) => ({ id: l.id, m: l.material_id, u: l.unit, a: l.actual_quantity, p: l.planned_quantity, d: l.inventory_deducted })),
     txs, offsets: offsets.map((o) => o.id), links: links.map((l) => l.batch_input_id),
     lots: plan.stock.lots, agg: plan.stock.aggregate,
   };
@@ -267,8 +274,8 @@ export async function executeLedgerDedup(
             `INSERT INTO h_inventory_transactions
                (tenant_id, lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount, transaction_date,
                 reference_type, reference_id, source_type, source_id, source_line_id, action_type, notes, created_by, reversal_of_id)
-             VALUES (?, NULL, ?, 'return', ?, 'kg', NULL, NULL, ?, 'batch', ?, 'LEDGER_DEDUP', ?, ?, 'DUPLICATE_LEDGER_OFFSET', ?, ?, ?)`,
-            [tenantId, input.materialId, e.quantity, e.original.date, e.batchId, caseId, e.batchInputId,
+             VALUES (?, NULL, ?, 'return', ?, ?, NULL, NULL, ?, 'batch', ?, 'LEDGER_DEDUP', ?, ?, 'DUPLICATE_LEDGER_OFFSET', ?, ?, ?)`,
+            [tenantId, input.materialId, e.quantity, e.unit, e.original.date, e.batchId, caseId, e.batchInputId,
               `${tag} 원장 중복 상계 — 원 거래 #${e.original.id}(LOT 없음)와 보충 거래 #${e.backfill.id}(LOT #${e.backfill.lotId})가 같은 투입 줄 #${e.batchInputId} 사건. 재고 변화 없음·환불 아님`,
               input.actorUserId, e.original.id],
           );

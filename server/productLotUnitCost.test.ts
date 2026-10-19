@@ -67,6 +67,8 @@ function makeExec(pending: Array<() => void> | null) {
   };
 }
 
+// 출고 판정(issuedBatchLines) 은 이 시험 대상이 아님 — 미출고 줄 없음으로 (실제 판정은 saleLotStatus.mysql.test)
+vi.mock("./lib/production/issuedBatchLines", () => ({ countUnissuedBatchLines: vi.fn(async () => 0) }));
 vi.mock("./db/connection", () => ({
   getRawConnection: vi.fn(async () => ({ execute: makeExec(null) })),
   withTransaction: vi.fn(async (fn: any) => {
