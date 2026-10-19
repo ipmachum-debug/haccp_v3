@@ -13,6 +13,7 @@ vi.mock("./db/production/batchApprovalOverview", () => ({ getBatchApprovalOvervi
 vi.mock("./lib/production/issuedBatchLines", () => ({ countUnissuedBatchLines: (...a: any[]) => unissued(...a) }));
 vi.mock("./lib/production/autoMaterialIssueDispatcher", () => ({ autoIssueMaterialsDispatch: (...a: any[]) => dispatch(...a) }));
 vi.mock("./db/connection", () => ({ getRawConnection: async () => ({ execute }), getDb: vi.fn() }));
+vi.mock("./lib/production/batchVoidGuard", () => ({ assertBatchNotVoided: vi.fn(async () => undefined) })); // 무효 생산 건 검사는 batchRecovery.test·MySQL 시험
 vi.mock("./db/haccp/ccpStatusSync", () => ({ applyBatchDecisionToCcpForms: vi.fn(async () => ({})) }));
 vi.mock("./db/production/productOutboundManagement", () => ({
   ensureBatchLots: vi.fn(async () => ({ created: [], skipped: true, reason: "materials_not_issued", warning: "원료 1줄 미출고" })),

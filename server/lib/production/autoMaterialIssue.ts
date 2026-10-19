@@ -121,6 +121,21 @@ export async function autoIssueMaterialsForBatch(
     const tenantId = Number(batch.tenant_id);
     const plannedQuantity = parseFloat(batch.planned_quantity?.toString() || "0");
 
+    // 이력 보존형 복구로 무효 처리된 생산 건은 출고하지 않는다 (2026-10-19) — 원료는 역거래로 이미 되돌렸다
+    {
+      let voided = false;
+      try {
+        const [vr]: any = await db.execute(sql`SELECT voided_at FROM h_batches WHERE id = ${batchId} AND tenant_id = ${tenantId} LIMIT 1`);
+        voided = (vr as any[])?.[0]?.voided_at != null;
+      } catch (e: any) {
+        if (e?.cause?.code !== "ER_BAD_FIELD_ERROR" && e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+      }
+      if (voided) {
+        result.warnings.push(`배치 #${batchId} 는 무효 처리된 생산 건이라 원료를 출고하지 않았습니다.`);
+        return result;
+      }
+    }
+
     if (plannedQuantity <= 0) {
       throw new Error("계획 수량이 0 이하입니다.");
     }
@@ -163,6 +178,24 @@ export async function autoIssueMaterialsForBatch(
     const alreadyIssuedLineIds = await getIssuedBatchLineIds(batchId, tenantId);
     for (const bi of batchInputs) {
       if (alreadyIssuedLineIds.has(Number(bi.id))) bi.inventory_deducted = 1;
+    }
+
+    // 출고 보류 줄(복구 때 '별도 확인' 으로 남긴 미출고 줄)은 자동 출고하지 않는다 — 출고 안 된 줄로 남아 승인·원가 확정을 막는다
+    let heldIds = new Set<number>();
+    try {
+      const [hr]: any = await db.execute(sql`SELECT id FROM h_batch_inputs WHERE batch_id = ${batchId} AND tenant_id = ${tenantId} AND issue_hold = 1`);
+      heldIds = new Set((hr as any[]).map((r) => Number(r.id)));
+    } catch (e: any) {
+      if (e?.cause?.code !== "ER_BAD_FIELD_ERROR" && e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+    }
+    if (heldIds.size) {
+      for (let k = batchInputs.length - 1; k >= 0; k--) {
+        if (heldIds.has(Number(batchInputs[k].id)) && Number(batchInputs[k].inventory_deducted) !== 1) {
+          result.warnings.push(`투입 줄 #${batchInputs[k].id} (${batchInputs[k].material_name ?? "원료"}) 는 출고 보류 — 별도 확인 대상이라 자동 출고하지 않았습니다.`);
+          batchInputs.splice(k, 1);
+        }
+      }
+      if (!batchInputs.length) return result;
     }
 
     // 이미 전부 출고 완료인지 체크

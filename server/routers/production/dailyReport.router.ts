@@ -155,6 +155,7 @@ export const dailyReportRouter = router({
             GROUP BY fr2.batch_id
           ) ccp_time ON ccp_time.batch_id = b.id
           WHERE b.tenant_id = ${tenantId}
+        AND b.voided_at IS NULL -- 이력 보존형 복구로 무효 처리된 중복 생산 건은 생산일지·집계에서 뺀다 (원본은 보존)
             AND DATE(b.planned_date) = ${dateStr}
           ORDER BY b.batch_order ASC, b.created_at ASC
         `);
@@ -376,6 +377,7 @@ export const dailyReportRouter = router({
               SUM(CASE WHEN b.status = 'completed' THEN 1 ELSE 0 END) as completed_count
             FROM h_batches b
             WHERE b.tenant_id = ${ctx.tenantId}
+        AND b.voided_at IS NULL -- 이력 보존형 복구로 무효 처리된 중복 생산 건은 생산일지·집계에서 뺀다 (원본은 보존)
               AND b.planned_date >= ${startDate}
               AND b.planned_date < ${endDate}
             GROUP BY DATE(b.planned_date)
@@ -389,6 +391,7 @@ export const dailyReportRouter = router({
             FROM h_batches b
             LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
             WHERE b.tenant_id = ${ctx.tenantId}
+        AND b.voided_at IS NULL -- 이력 보존형 복구로 무효 처리된 중복 생산 건은 생산일지·집계에서 뺀다 (원본은 보존)
               AND b.planned_date >= ${startDate}
               AND b.planned_date < ${endDate}
             ORDER BY b.planned_date DESC, b.id

@@ -20,6 +20,9 @@ import { TRPCError } from "@trpc/server";
 import { getRawConnection } from "../../db/connection";
 
 export async function prepareBatchForApproval(batchId: number, tenantId: number, userId: number): Promise<void> {
+  // 무효 처리된 생산 건(이력 보존형 복구)은 승인하지 않는다
+  const { assertBatchNotVoided } = await import("./batchVoidGuard");
+  try { await assertBatchNotVoided(await getRawConnection(), batchId, tenantId); } catch (e: any) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message }); }
   // 예정 생산 건(미래 날짜로 만든 것)은 기록지가 작성중(draft)이라 아래 formBlockers 에서 막힌다 — 그날 확인이 먼저 (현장 1)
   const { getBatchApprovalOverview } = await import("../../db/production/batchApprovalOverview");
   const ov = await getBatchApprovalOverview(batchId, tenantId);

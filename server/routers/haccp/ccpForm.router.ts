@@ -92,7 +92,7 @@ export const ccpFormRouter = router({
            FROM h_ccp_form_records f
            LEFT JOIN h_batches b ON b.id = f.batch_id AND b.tenant_id = f.tenant_id
            LEFT JOIN h_products_v2 p ON p.id = f.product_id AND p.tenant_id = f.tenant_id
-           WHERE f.tenant_id = ? AND f.work_date = ?
+           WHERE f.tenant_id = ? AND f.work_date = ? AND f.voided_at IS NULL
            ORDER BY (f.status = 'draft') DESC, f.ccp_type, f.id`,
           [ctx.tenantId, input.workDate],
         );

@@ -41,6 +41,13 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     expect(String(ver[0].v)).toMatch(/^8\.0\./);
     await admin.query(`SET SESSION sql_mode = 'IGNORE_SPACE,ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'`);
     await admin.query(readFileSync(join(__dirname, "__fixtures__/mysql/saleLotSchema.sql"), "utf-8"));
+    // 운영에 늘 있는 CCP 표 (최소 칸) — 필수 칸(무효 표시, 이력 보존형 복구)을 이 표들에 더한다
+    await admin.query(`CREATE TABLE IF NOT EXISTS h_ccp_instances (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, batch_id bigint NULL, process_group_id int NULL, ccp_type varchar(20) NULL, status varchar(20) NULL)`);
+    const [st]: any = await admin.query(`SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'h_ccp_instances' AND COLUMN_NAME = 'status'`);
+    if (!st.length) await admin.query(`ALTER TABLE h_ccp_instances ADD COLUMN status varchar(20) NULL`); // 이전 실행이 만든 최소 표
+    await admin.query(`CREATE TABLE IF NOT EXISTS h_ccp_form_records (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, batch_id bigint NULL, ccp_type varchar(20) NULL, process_group_id int NULL, work_date date NULL,
+      product_name varchar(200) NULL, status varchar(20) NULL DEFAULT 'draft', rows_version int NOT NULL DEFAULT 0, confirmed_by int NULL, confirmed_at datetime NULL, confirmed_rows_version int NULL,
+      approval_request_id bigint NULL, batch_count int NULL, planned_qty_kg decimal(10,2) NULL, bom_batch_kg decimal(10,2) NULL)`);
     // 운영과 같게: 서버는 요청을 받기 전에 필수 스키마를 만든다 (ensureRequiredSchema — 수율 기준 PR B 컬럼 포함)
     const { ensureRequiredSchema } = await import("./db/startupMigrations");
     expect(await ensureRequiredSchema(admin, { allowDdl: true })).toMatchObject({ ok: true, missing: [] });
@@ -3186,6 +3193,141 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`DELETE FROM h_ccp_instances WHERE batch_id = 9302`).catch(() => undefined);
       expect(await ensureBatchActivated(9302, T, 4)).toEqual({ activated: true });
       expect(Number((await row(9302)).plan_only)).toBe(0);
+    });
+  });
+  describe("이력 보존형 복구 — 중복 생산 건 무효·역거래·대체 (2026-10-19)", () => {
+    const D = "2026-09-01";
+    const conn = async () => (await import("./db/connection")).getRawConnection();
+    const ids = { keep: 9501, dup: 9502, lot: 9601, mat: 9701, txKeep: 96001, txDup: 96002, apKeep: 9801, apDup: 9802 };
+    const input = { tenantId: T, businessDate: D, keepBatchIds: [ids.keep], voids: [{ batchId: ids.dup, supersededBy: ids.keep }], holdInputIds: [95012], reason: "시험 — 같은 제품 중복 생성" };
+    const clean = async () => {
+      await q(`DELETE FROM h_inventory_transactions WHERE tenant_id = ? AND (id IN (?, ?) OR reversal_of_id IS NOT NULL)`, [T, ids.txKeep, ids.txDup]);
+      await q(`DELETE FROM h_batch_inputs WHERE batch_id IN (?, ?)`, [ids.keep, ids.dup]);
+      await q(`DELETE FROM h_batches WHERE id IN (?, ?)`, [ids.keep, ids.dup]);
+      await q(`DELETE FROM h_inventory_lots WHERE id = ?`, [ids.lot]);
+      await q(`DELETE FROM h_inventory WHERE tenant_id = ? AND material_id = ?`, [T, ids.mat]);
+      await q(`DELETE FROM material_ledger_daily WHERE tenant_id = ? AND material_id = ?`, [T, ids.mat]);
+      for (const t of ["h_approval_requests", "h_approval_history", "h_batch_schedules", "h_batch_recoveries", "h_recovery_archive"]) await q(`DELETE FROM ${t} WHERE tenant_id = ?`, [T]);
+      await q(`DELETE FROM audit_logs WHERE action IN ('batch.void', 'batch.recovery')`);
+    };
+    beforeAll(async () => {
+      await q(`CREATE TABLE IF NOT EXISTS h_ccp_rows (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, instance_id bigint NOT NULL, equipment_id int NULL, equipment_name varchar(100) NULL, batch_no int NULL, sort_order int NULL,
+        row_type varchar(20) NULL, measured_at datetime NULL, temp_c decimal(6,1) NULL, duration_min int NULL, heating_min int NULL, cycle_total_min int NULL, pressure_bar decimal(6,2) NULL, result varchar(10) NULL, note text NULL,
+        auto_generated tinyint NULL DEFAULT 1, planned_start varchar(5) NULL, planned_end varchar(5) NULL, planned_input_kg decimal(10,2) NULL)`);
+      await q(`CREATE TABLE IF NOT EXISTS h_ccp_form_rows (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, form_record_id bigint NOT NULL, batch_seq int NULL, equipment_type varchar(30) NULL, product_name varchar(200) NULL,
+        pass_qty int NULL, pass_unit varchar(20) NULL, confirmed_by int NULL, action_by int NULL, is_deviation tinyint NULL DEFAULT 0, corrective_action text NULL)`);
+      await q(`CREATE TABLE IF NOT EXISTS h_approval_requests (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, request_type varchar(50) NULL, reference_type varchar(50) NULL, reference_id bigint NULL, title varchar(200) NULL, status varchar(30) NULL, notes text NULL)`);
+      await q(`CREATE TABLE IF NOT EXISTS h_approval_history (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, request_id bigint NOT NULL, step_id bigint NULL, action varchar(20) NOT NULL, action_by bigint NOT NULL, action_at timestamp NULL, comments text NULL)`);
+      await q(`CREATE TABLE IF NOT EXISTS h_batch_schedules (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, batch_id bigint NOT NULL, scheduled_date timestamp NULL, status varchar(50) NULL, notes text NULL)`);
+      await q(`CREATE TABLE IF NOT EXISTS h_production_log (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, mf_report_version_id bigint NOT NULL, production_date date NOT NULL, batch_size_kg decimal(10,2) NULL, produced_quantity int NULL, notes text NULL)`);
+      await q(`CREATE TABLE IF NOT EXISTS h_inventory_deduction_log (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, production_log_id bigint NOT NULL, material_id bigint NULL)`);
+      await q(`CREATE TABLE IF NOT EXISTS audit_logs (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NULL, action varchar(100) NULL, entity_type varchar(50) NULL, entity_id bigint NULL, user_id int NULL, user_email varchar(255) NULL, user_role varchar(50) NULL, changes json NULL, description text NULL, ip_address varchar(64) NULL, user_agent text NULL, created_at timestamp NULL)`);
+    });
+    beforeEach(async () => {
+      await clean();
+      // 원래 100kg LOT 에서 두 건이 10kg 씩 사용 → 80
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, unit_price, status) VALUES (?, ?, ?, 'L-REC', 80, 80, 80, 'kg', 1000, 'available')`, [ids.lot, T, ids.mat]);
+      await q(`INSERT INTO h_inventory (tenant_id, material_id, total_quantity, available_quantity, reserved_quantity, unit) VALUES (?, ?, 80, 80, 0, 'kg')`, [T, ids.mat]);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, mode, plan_only, created_by, day_batch_group, batch_order) VALUES
+        (?, ?, 1, 'REC-1', 99901, 50, ?, 'in_progress', 'auto', 0, 4, 'DAY-REC', 1), (?, ?, 1, 'REC-2', 99901, 50, ?, 'in_progress', 'auto', 0, 4, 'DAY-REC', 2)`, [ids.keep, T, D, ids.dup, T, D]);
+      await q(`INSERT INTO h_batch_inputs (id, batch_id, tenant_id, material_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES
+        (95011, ?, ?, ?, 10, 10, 'kg', 1), (95012, ?, ?, ?, 0.5, NULL, 'kg', 0), (95021, ?, ?, ?, 10, 10, 'kg', 1)`, [ids.keep, T, ids.mat, ids.keep, T, ids.mat, ids.dup, T, ids.mat]);
+      await q(`INSERT INTO h_inventory_transactions (id, tenant_id, lot_id, material_id, transaction_type, quantity, unit, unit_cost, amount, transaction_date, reference_type, reference_id, source_type, source_id, source_line_id, action_type, created_by) VALUES
+        (?, ?, ?, ?, 'usage', 10, 'kg', 1000, 10000, ?, 'batch', ?, 'BATCH', ?, 95011, 'AUTO_ISSUE', 4), (?, ?, ?, ?, 'usage', 10, 'kg', 987.65, 9876.5, ?, 'batch', ?, 'BATCH', ?, 95021, 'AUTO_ISSUE', 4)`,
+        [ids.txKeep, T, ids.lot, ids.mat, D, ids.keep, ids.keep, ids.txDup, T, ids.lot, ids.mat, D, ids.dup, ids.dup]);
+      await q(`INSERT INTO material_ledger_daily (tenant_id, material_id, ledger_date, usage_qty, notes, source) VALUES (?, ?, ?, 20, '배치 자동출고', 'auto')`, [T, ids.mat, D]);
+      await q(`INSERT INTO h_approval_requests (id, tenant_id, request_type, reference_type, reference_id, title, status) VALUES (?, ?, 'batch_production', 'batch', ?, 'A', 'pending_writer'), (?, ?, 'batch_production', 'batch', ?, 'B', 'pending_writer')`,
+        [ids.apKeep, T, ids.keep, ids.apDup, T, ids.dup]);
+      await q(`INSERT INTO h_batch_schedules (tenant_id, batch_id, scheduled_date, status) VALUES (?, ?, ?, 'scheduled'), (?, ?, ?, 'scheduled')`, [T, ids.keep, `${D} 12:00:00`, T, ids.dup, `${D} 12:00:00`]);
+    });
+    afterAll(clean);
+    const lotNow = async () => {
+      const r = (await q(`SELECT quantity AS q, current_quantity AS c, available_quantity AS a, status FROM h_inventory_lots WHERE id = ?`, [ids.lot]))[0];
+      return { q: Number(r.q), c: Number(r.c), a: Number(r.a), status: r.status };
+    };
+    const snapshot = async () => JSON.stringify(await Promise.all([
+      q(`SELECT * FROM h_batches WHERE id IN (?, ?) ORDER BY id`, [ids.keep, ids.dup]), q(`SELECT * FROM h_inventory_transactions WHERE tenant_id = ? ORDER BY id`, [T]),
+      q(`SELECT quantity, current_quantity, available_quantity, status FROM h_inventory_lots WHERE id = ?`, [ids.lot]), q(`SELECT usage_qty FROM material_ledger_daily WHERE tenant_id = ? AND material_id = ?`, [T, ids.mat]),
+      q(`SELECT id, status FROM h_approval_requests WHERE tenant_id = ? ORDER BY id`, [T]), q(`SELECT COUNT(*) AS n FROM h_batch_recoveries WHERE tenant_id = ?`, [T]),
+      q(`SELECT issue_hold FROM h_batch_inputs WHERE id = 95012`), q(`SELECT available_quantity FROM h_inventory WHERE tenant_id = ? AND material_id = ?`, [T, ids.mat]),
+    ]));
+
+    it("dry-run 은 아무것도 바꾸지 않고, 다른 회사 번호가 하나라도 섞이면 전부 거부", async () => {
+      const { planRecovery } = await import("./services/batchRecovery");
+      const before = await snapshot();
+      const p = await planRecovery(await conn(), input);
+      expect(p.errors).toEqual([]);
+      expect([p.batches.before, p.batches.after, p.totals.reversalCount, p.totals.reversalQty, p.totals.reversalAmount]).toEqual([{ count: 2, kg: 100 }, { count: 1, kg: 50 }, 1, 10, 9876.5]);
+      expect(p.lots[0]).toMatchObject({ lotId: ids.lot, add: 10, after: { quantity: 90, current: 90, available: 90 } });
+      expect(p.ledger).toEqual([{ materialId: ids.mat, date: D, usageBefore: 20, minus: 10, usageAfter: 10 }]);
+      expect(p.approvals.cancel.map((a) => a.id)).toEqual([ids.apDup]);
+      expect(await snapshot()).toBe(before);
+      const other = await planRecovery(await conn(), { ...input, tenantId: T + 1 });
+      expect(other.ok).toBe(false);
+      expect(other.errors.join()).toMatch(/이 회사의 생산 건이 아닌/);
+    });
+
+    it("실행: 원 거래별 역거래(원 단가·금액·거래일, 입고 아님) + LOT 3칸·집계·수불부 복원 + 무효·대체·결재 취소·보류 — 원본 보존", async () => {
+      const { planRecovery, executeRecovery } = await import("./services/batchRecovery");
+      const p = await planRecovery(await conn(), input);
+      const r = await executeRecovery({ ...input, recoveryKey: "REC-T1", expectedFingerprint: p.fingerprint, actorUserId: 4 }, { regenerateDaily: false });
+      expect(r.status).toBe("done");
+      expect(await lotNow()).toEqual({ q: 90, c: 90, a: 90, status: "available" });
+      expect(Number((await q(`SELECT available_quantity FROM h_inventory WHERE tenant_id = ? AND material_id = ?`, [T, ids.mat]))[0].available_quantity)).toBe(90);
+      expect(Number((await q(`SELECT usage_qty FROM material_ledger_daily WHERE tenant_id = ? AND material_id = ?`, [T, ids.mat]))[0].usage_qty)).toBe(10);
+      const rev = (await q(`SELECT transaction_type, quantity AS qty, unit_cost AS uc, amount AS amt, DATE_FORMAT(transaction_date, '%Y-%m-%d') AS d, reversal_of_id, source_type, action_type, source_line_id FROM h_inventory_transactions WHERE tenant_id = ? AND reversal_of_id IS NOT NULL`, [T]))
+        .map((x: any) => ({ ...x, qty: Number(x.qty), uc: Number(x.uc), amt: Number(x.amt), reversal_of_id: Number(x.reversal_of_id), source_line_id: Number(x.source_line_id) }));
+      expect(rev).toEqual([{ transaction_type: "return", qty: 10, uc: 987.65, amt: 9876.5, d: D, reversal_of_id: ids.txDup, source_type: "BATCH_VOID", action_type: "VOID_REVERSAL", source_line_id: 95021 }]);
+      expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE id IN (?, ?) AND transaction_type = 'usage'`, [ids.txKeep, ids.txDup]))[0].n).toBe(2); // 원 거래 보존
+      expect((await q(`SELECT status, superseded_by_batch_id AS s, voided_by AS v FROM h_batches WHERE id = ?`, [ids.dup]))[0]).toEqual({ status: "cancelled", s: ids.keep, v: 4 });
+      expect((await q(`SELECT status FROM h_batches WHERE id = ?`, [ids.keep]))[0].status).toBe("in_progress");
+      expect((await q(`SELECT id, status FROM h_approval_requests WHERE tenant_id = ? ORDER BY id`, [T])).map((a: any) => a.status)).toEqual(["pending_writer", "cancelled"]);
+      expect((await q(`SELECT action FROM h_approval_history WHERE tenant_id = ? AND request_id = ?`, [T, ids.apDup]))[0].action).toBe("cancelled");
+      expect((await q(`SELECT issue_hold FROM h_batch_inputs WHERE id = 95012`))[0].issue_hold).toBe(1);
+      expect((await q(`SELECT COUNT(*) AS n FROM h_recovery_archive WHERE tenant_id = ? AND table_name = 'h_batches'`, [T]))[0].n).toBe(2);
+      // 남는 생산 건: 다시 출고해도 차감 없음, 보류 줄도 출고 안 함
+      const { autoIssueMaterialsDispatch } = await import("./lib/production/autoMaterialIssueDispatcher");
+      await autoIssueMaterialsDispatch(ids.keep, 4, T);
+      expect(await lotNow()).toEqual({ q: 90, c: 90, a: 90, status: "available" });
+      expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE tenant_id = ? AND transaction_type = 'usage'`, [T]))[0].n).toBe(2);
+      // 무효 건: 시작·삭제 막힘
+      const { ensureBatchActivated } = await import("./services/batchOrchestrator");
+      await expect(ensureBatchActivated(ids.dup, T, 4)).rejects.toThrow(/무효 처리된 생산 건/);
+      const { deleteBatch } = await import("./db/production/batchCRUD");
+      await expect(deleteBatch(ids.dup, T)).rejects.toThrow(/무효 처리된 생산 건/);
+      // 같은 키 재시도 = 이미 완료, 새 키 = 거부 — 추가 변경 0
+      const after = await snapshot();
+      expect((await executeRecovery({ ...input, recoveryKey: "REC-T1", expectedFingerprint: p.fingerprint, actorUserId: 4 }, { regenerateDaily: false })).status).toBe("already_done");
+      await expect(executeRecovery({ ...input, recoveryKey: "REC-T2", expectedFingerprint: p.fingerprint, actorUserId: 4 }, { regenerateDaily: false })).rejects.toThrow(/이미 무효/);
+      expect(await snapshot()).toBe(after);
+    });
+
+    it("동시 실행 3번 (같은 키 2 + 다른 키 1) → 한 번만, 역거래 1건", async () => {
+      const { planRecovery, executeRecovery } = await import("./services/batchRecovery");
+      const p = await planRecovery(await conn(), input);
+      const run = (k: string) => executeRecovery({ ...input, recoveryKey: k, expectedFingerprint: p.fingerprint, actorUserId: 4 }, { regenerateDaily: false });
+      const rs = await Promise.allSettled([run("C1"), run("C1"), run("C2")]);
+      expect(rs.filter((x) => x.status === "fulfilled" && (x.value as any).status === "done").length).toBe(1);
+      expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE tenant_id = ? AND reversal_of_id IS NOT NULL`, [T]))[0].n).toBe(1);
+      expect(await lotNow()).toEqual({ q: 90, c: 90, a: 90, status: "available" });
+    });
+
+    it("중간 실패(단계마다) → 전부 되돌림 / dry-run 뒤 LOT·결재가 바뀌면 멈춤", async () => {
+      const { planRecovery, executeRecovery, RecoveryChangedError } = await import("./services/batchRecovery");
+      const p = await planRecovery(await conn(), input);
+      const before = await snapshot();
+      for (const st of ["archived", "reversals_half", "reversed", "voided", "metal", "replanned", "verified", "before_commit"]) {
+        await expect(executeRecovery({ ...input, recoveryKey: `F-${st}`, expectedFingerprint: p.fingerprint, actorUserId: 4 },
+          { regenerateDaily: false, onStep: (x) => { if (x === st) throw new Error(`주입 ${st}`); } })).rejects.toThrow(`주입 ${st}`);
+        expect(await snapshot()).toBe(before);
+      }
+      await q(`UPDATE h_inventory_lots SET available_quantity = 79 WHERE id = ?`, [ids.lot]);
+      const changed = await snapshot();
+      await expect(executeRecovery({ ...input, recoveryKey: "F-chg", expectedFingerprint: p.fingerprint, actorUserId: 4 }, { regenerateDaily: false })).rejects.toBeInstanceOf(RecoveryChangedError);
+      expect(await snapshot()).toBe(changed);
+      await q(`UPDATE h_inventory_lots SET available_quantity = 80 WHERE id = ?`, [ids.lot]);
+      await q(`UPDATE h_approval_requests SET status = 'approved' WHERE id = ?`, [ids.apDup]);
+      expect((await planRecovery(await conn(), input)).errors.join()).toMatch(/승인되어 있습니다/);
     });
   });
 });
