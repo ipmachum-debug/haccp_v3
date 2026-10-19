@@ -48,6 +48,8 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     await admin.query(`CREATE TABLE IF NOT EXISTS h_ccp_form_records (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, batch_id bigint NULL, ccp_type varchar(20) NULL, process_group_id int NULL, work_date date NULL,
       product_name varchar(200) NULL, status varchar(20) NULL DEFAULT 'draft', rows_version int NOT NULL DEFAULT 0, confirmed_by int NULL, confirmed_at datetime NULL, confirmed_rows_version int NULL,
       approval_request_id bigint NULL, batch_count int NULL, planned_qty_kg decimal(10,2) NULL, bom_batch_kg decimal(10,2) NULL)`);
+    await admin.query(`CREATE TABLE IF NOT EXISTS h_ccp_form_rows (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, form_record_id bigint NOT NULL, batch_seq int NULL, equipment_type varchar(30) NULL, product_name varchar(200) NULL,
+      pass_qty int NULL, pass_unit varchar(20) NULL, confirmed_by int NULL, action_by int NULL, is_deviation tinyint NULL DEFAULT 0, corrective_action text NULL)`);
     // 운영과 같게: 서버는 요청을 받기 전에 필수 스키마를 만든다 (ensureRequiredSchema — 수율 기준 PR B 컬럼 포함)
     const { ensureRequiredSchema } = await import("./db/startupMigrations");
     expect(await ensureRequiredSchema(admin, { allowDdl: true })).toMatchObject({ ok: true, missing: [] });
@@ -3459,6 +3461,37 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
         await q(`DELETE FROM h_batch_line_issue_decisions WHERE tenant_id = ?`, [T]);
         await q(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [D]);
         await q(`DELETE FROM h_batches WHERE id = ?`, [D]);
+      }
+    });
+
+    it("#609 검토 P1: 한 줄은 직접 연결 + 같은 사건 보충 출고 + 다른 줄은 출고 근거 없음 → 남은 줄은 애매(재출고 0·미출고·승인 막힘)", async () => {
+      const { classifyBatchLines, countUnissuedBatchLines } = await import("./lib/production/issuedBatchLines");
+      const E = 9716;
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, mode, plan_only, created_by) VALUES (?, ?, 1, 'R-E', 99901, 30, '2026-04-25', 'in_progress', 'auto', 0, 4)`, [E, T]);
+      await q(`INSERT INTO h_batch_inputs (id, batch_id, tenant_id, material_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES (97161, ?, ?, ?, 10, 10, 'kg', 0), (97162, ?, ?, ?, 20, 20, 'kg', 0)`, [E, T, M, E, T, M]);
+      await q(`INSERT INTO h_inventory_transactions (id, tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date, reference_type, reference_id, source_type, source_id, source_line_id, created_by) VALUES
+        (97207, ?, NULL, ?, 'usage', 10, 'kg', '2026-04-25', 'batch', ?, 'BATCH', ?, 97161, 4),
+        (97208, ?, 9722, ?, 'usage', 10, 'kg', '2026-04-25', NULL, NULL, 'BATCH', ?, NULL, 4)`, [T, M, E, E, T, M, E]);
+      try {
+        const st = await classifyBatchLines(E, T);
+        expect([st.get(97161)!.state, st.get(97162)!.state]).toEqual(["line", "ambiguous"]);
+        expect(await countUnissuedBatchLines(E, T)).toBe(1);
+        const before = await stockNow();
+        const { autoIssueMaterialsDispatch } = await import("./lib/production/autoMaterialIssueDispatcher");
+        await autoIssueMaterialsDispatch(E, 4, T);
+        expect(await stockNow()).toBe(before);
+        expect((await q(`SELECT issue_hold FROM h_batch_inputs WHERE id = 97162`))[0].issue_hold).toBe(1);
+        const { prepareBatchForApproval } = await import("./lib/production/batchApprovalGate");
+        await expect(prepareBatchForApproval(E, T, 4)).rejects.toThrow();
+        // 원장 정리로 보충 출고가 줄 97161 사건에 연결돼도, 그 출고는 줄 97162 의 후보가 아니다 → 출고 근거 없음
+        await q(`INSERT INTO h_ledger_event_links (tenant_id, case_id, event_key, batch_id, batch_input_id, canonical_material_id, original_tx_id, backfill_tx_id, classification, duplicate_tx_id, quantity, status, created_at)
+                 VALUES (?, 0, 'batch_input:97161', ?, 97161, ?, 97207, 97208, 'B_LEDGER_ONLY', 97207, 10, 'ledger_offset', NOW())`, [T, E, M]);
+        expect((await classifyBatchLines(E, T)).get(97162)!.state).toBe("none");
+      } finally {
+        await q(`DELETE FROM h_ledger_event_links WHERE tenant_id = ? AND batch_id = ?`, [T, E]);
+        await q(`DELETE FROM h_inventory_transactions WHERE source_id = ? AND tenant_id = ?`, [E, T]);
+        await q(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [E]);
+        await q(`DELETE FROM h_batches WHERE id = ?`, [E]);
       }
     });
 

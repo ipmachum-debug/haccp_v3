@@ -41,7 +41,10 @@ describe("연결", () => {
     expect(w).not.toMatch(/>배치 수</);
     expect(w).not.toMatch(/>배치당 kg</);
     expect(w).not.toMatch(/rowKeys/);
-    expect(w).toMatch(/plannedQuantityKg: parseFloat\(e\.line\.totalKg\)/);
+    // 배치 수(2026-10-19 하루 생산 흐름)는 BOM 1회 기준량으로 **한 생산 건의 kg** 으로 바뀐다 — 배치 수만큼 생산 건을 만들지 않는다 (F-PROD-01 유지)
+    expect(w).toMatch(/l\.unit === "batch" \? \{ batchCount: Math\.floor\(parseFloat\(l\.totalKg\)\) \} : \{ plannedQuantityKg: parseFloat\(l\.totalKg\) \}/);
+    expect(read("server/lib/production/planQuantity.ts")).toMatch(/kg: Math\.round\(count \* sub \* 1000\) \/ 1000/);
+    expect(read("server/routers/production/batch.crud.router.ts")).toMatch(/plannedQuantityKg: q\.kg,/);
     expect(w).toMatch(/disabled=\{[^\n]*dupLineIds\.size > 0/);
     expect(w).toMatch(/\(이미 선택됨\)/);
     expect(w).toMatch(/ex\.totalKg = String\(\(parseFloat\(ex\.totalKg\) \|\| 0\) \+/); // AI 같은 제품 합산

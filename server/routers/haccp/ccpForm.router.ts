@@ -336,6 +336,10 @@ export const ccpFormRouter = router({
           confirmedBy: input.confirmedBy,
           note: input.note,
         });
+        // 현장 확인 기록지면 이 행의 확인은 무효 + 이력 (2026-10-19 하루 생산 흐름)
+        const { afterLegacyRowSave } = await import("../../services/fieldWork");
+        await afterLegacyRowSave({ tenantId: ctx.tenantId, formRecordId: input.formRecordId, rowId: Number(rowId), userId: ctx.user.id,
+          meta: { deviceId: (ctx.req?.headers?.["x-device-id"] as string) ?? null, sessionId: (ctx.req?.headers?.["x-session-id"] as string) ?? null } });
         return { success: true, rowId };
       }),
 

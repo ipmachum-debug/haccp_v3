@@ -30,14 +30,23 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { todayLocal } from "../../lib/dateUtils";
+
+/** YYYY-MM-DD + n일 (로컬 달력) */
+function addDays(d: string, n: number): string {
+  const t = new Date(`${d}T00:00:00`);
+  t.setDate(t.getDate() + n);
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+}
 import { AlertTriangle, Check, ChevronsUpDown, Eye, Loader2, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 
 type Mode = "auto" | "manual";
 interface Line {
   id: string;
   productId: number | null;
-  /** 이 제품의 하루 총생산량 (kg) — 회차 수로 곱하지 않는다 */
+  /** 이 제품의 하루 총생산량 (kg) — 회차 수로 곱하지 않는다. unit = batch 면 배치 수 */
   totalKg: string;
+  /** kg = 하루 총생산량, batch = 배치 수 (서버가 BOM 1회 기준량으로 kg 계산 — 하루 생산 흐름 2026-10-19) */
+  unit: "kg" | "batch";
   /** 요청 키와 함께 이 생산 건은 한 번만 생성 */
   rowKey: string;
   mode: Mode;
@@ -51,11 +60,11 @@ let keySeq = 0;
 const newRowKey = (lineId: string) => `${lineId}-${++keySeq}`;
 const emptyLine = (mode: Mode): Line => {
   const id = rid();
-  return { id, productId: null, totalKg: "", rowKey: newRowKey(id), mode, startOverride: "", sku: {} };
+  return { id, productId: null, totalKg: "", unit: "kg", rowKey: newRowKey(id), mode, startOverride: "", sku: {} };
 };
 
 type PreviewRow = {
-  rowKey: string; productId: number; productName: string | null; plannedKg: number;
+  rowKey: string; productId: number; productName: string | null; plannedKg: number; batchCount?: number | null;
   bom: { versionNo: string | null; approved: boolean; subBatchKg: number | null; massBasis: string };
   roundsCount: number; metal: boolean; warnings: string[]; blocking: string[];
   processes: Array<{ processGroupId: number; name: string; ccpType: string; warnings: string[];
@@ -154,6 +163,11 @@ const TONE: Record<string, string> = {
 export default function TodayProductionWorkbench({ embedded = false }: { embedded?: boolean; [key: string]: any }) {
   const { user } = useAuth();
   const [workDate, setWorkDate] = useState(todayLocal());
+  // 여러 날 (같은 입력표를 날마다) — 1·7·14일, 뺄 날은 날짜를 눌러 끈다
+  const [days, setDays] = useState<1 | 7 | 14>(1);
+  const [offDates, setOffDates] = useState<string[]>([]);
+  const [dayResults, setDayResults] = useState<Record<string, string>>({});
+  const [otherDays, setOtherDays] = useState<Record<string, { blocked: number; reasons: string[] }>>({});
   const [dayStartTime, setDayStartTime] = useState("09:00");
   const [defaultMode, setDefaultMode] = useState<Mode>("auto");
   const [excluded, setExcluded] = useState<number[]>([]);
@@ -187,11 +201,14 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
     }
     return out;
   }, [lines]);
-  const inputKey = JSON.stringify({ workDate, dayStartTime, excluded, rows: filled.map((e) => [e.rowKey, e.line.productId, e.line.totalKg, e.line.startOverride]) });
+  const allDates = useMemo(() => Array.from({ length: days }, (_, i) => addDays(workDate, i)), [workDate, days]);
+  const dates = allDates.filter((d) => !offDates.includes(d));
+  const inputKey = JSON.stringify({ workDate, dates, dayStartTime, excluded, rows: filled.map((e) => [e.rowKey, e.line.productId, e.line.totalKg, e.line.unit, e.line.startOverride]) });
   const previewStale = !!preview && previewKey !== inputKey;
 
   const update = (id: string, patch: Partial<Line>) => setLines((ls) => ls.map((l) => (l.id === id ? { ...l, ...patch } : l)));
-  useEffect(() => { setResults({}); setSummary(""); }, [workDate]);
+  useEffect(() => { setResults({}); setSummary(""); setDayResults({}); }, [workDate, days]);
+  const utils = trpc.useUtils();
 
   const previewMut = trpc.batch.previewDay.useMutation({
     onSuccess: (data: any) => { setPreview(data as Preview); setPreviewKey(inputKey); },
@@ -223,22 +240,54 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
     if (!filled.length) { toast.error("제품과 하루 총생산량(kg)을 입력하세요."); return; }
     previewMut.mutate({
       workDate, dayStartTime, excludedEquipmentIds: excluded,
-      items: filled.map((e) => ({ rowKey: e.rowKey, productId: e.line.productId!, plannedQuantityKg: parseFloat(e.line.totalKg), startTimeOverride: e.line.startOverride || undefined })),
+      items: previewItems(),
     });
+    // 다른 날 — 막히는 줄만 모아 보여 준다 (같은 서버 계산)
+    setOtherDays({});
+    for (const d of dates.filter((x) => x !== workDate)) {
+      utils.client.batch.previewDay.mutate({ workDate: d, dayStartTime, excludedEquipmentIds: excluded, items: previewItems() })
+        .then((r: any) => setOtherDays((o) => ({ ...o, [d]: { blocked: r.rows.filter((x: any) => x.blocking.length).length, reasons: r.rows.flatMap((x: any) => x.blocking.map((b: string) => `${x.productName ?? ""}: ${b}`)).slice(0, 3) } })))
+        .catch((e: any) => setOtherDays((o) => ({ ...o, [d]: { blocked: -1, reasons: [e?.message ?? "미리보기 실패"] } })));
+    }
   };
-  const runCreate = () => {
+  // kg 또는 배치 수 — 배치 수는 서버가 BOM 1회 기준량으로 kg 계산
+  const qtyOf = (l: Line) => (l.unit === "batch" ? { batchCount: Math.floor(parseFloat(l.totalKg)) } : { plannedQuantityKg: parseFloat(l.totalKg) });
+  const previewItems = () => filled.map((e) => ({ rowKey: e.rowKey, productId: e.line.productId!, ...qtyOf(e.line), startTimeOverride: e.line.startOverride || undefined }));
+  const createItems = () => filled.map((e) => {
+    const skuOutputs = Object.entries(e.line.sku).filter(([, q]) => parseInt(q) > 0).map(([skuId, q]) => ({ skuId: Number(skuId), plannedQty: parseInt(q) }));
+    return {
+      rowKey: e.rowKey, productId: e.line.productId!, ...qtyOf(e.line), mode: e.line.mode,
+      startTimeOverride: e.line.startOverride || undefined, ...(skuOutputs.length ? { skuOutputs } : {}),
+    };
+  });
+  const [multiBusy, setMultiBusy] = useState(false);
+  const runCreate = async () => {
     if (!filled.length) return;
     if (dupLineIds.size) { toast.error("같은 제품이 여러 줄입니다 — 하루 총생산량을 한 줄에 입력하세요."); return; }
-    createMut.mutate({
-      requestKey, siteId: (user as any)?.siteId || 1, workDate, dayStartTime, defaultMode, excludedEquipmentIds: excluded,
-      items: filled.map((e) => {
-        const skuOutputs = Object.entries(e.line.sku).filter(([, q]) => parseInt(q) > 0).map(([skuId, q]) => ({ skuId: Number(skuId), plannedQty: parseInt(q) }));
-        return {
-          rowKey: e.rowKey, productId: e.line.productId!, plannedQuantityKg: parseFloat(e.line.totalKg), mode: e.line.mode,
-          startTimeOverride: e.line.startOverride || undefined, ...(skuOutputs.length ? { skuOutputs } : {}),
-        };
-      }),
-    } as any);
+    if (dates.length <= 1) {
+      createMut.mutate({ requestKey, siteId: (user as any)?.siteId || 1, workDate, dayStartTime, defaultMode, excludedEquipmentIds: excluded, items: createItems() } as any);
+      return;
+    }
+    // 여러 날 — 날마다 따로 (날짜별 요청 키: 다시 보내도 이미 만든 날·줄은 다시 만들지 않는다)
+    setMultiBusy(true);
+    const out: Record<string, string> = {};
+    let allOk = true;
+    for (const d of dates) {
+      try {
+        const r: any = await utils.client.batch.bulkCreateForDay.mutate({ requestKey: `${requestKey}-${d.replace(/-/g, "")}`.slice(0, 64), siteId: (user as any)?.siteId || 1, workDate: d, dayStartTime, defaultMode, excludedEquipmentIds: excluded, items: createItems() } as any);
+        const failed = (r.batches ?? []).filter((b: any) => b.status === "failed" || b.status === "in_progress");
+        if (failed.length) allOk = false;
+        out[d] = `생성 ${r.createdCount ?? 0}${r.reusedCount ? ` · 이미 ${r.reusedCount}` : ""}${failed.length ? ` · 실패 ${failed.length} (${failed[0].error ?? ""})` : ""}`;
+      } catch (e: any) {
+        allOk = false;
+        out[d] = `저장 안 됨 — ${e?.message ?? "통신 오류"} (다시 누르면 이 날만 이어서)`;
+      }
+      setDayResults({ ...out });
+    }
+    setMultiBusy(false);
+    board.refetch();
+    if (allOk) { toast.success(`${dates.length}일 생성을 마쳤습니다.`); setRequestKey(newRequestKey()); setPreview(null); setLines([emptyLine(defaultMode)]); }
+    else toast.error("일부 날짜가 저장되지 않았습니다 — 같은 내용으로 다시 누르면 남은 것만 만듭니다.");
   };
 
   // AI 입력 — 같은 의미(하루 총생산량). 같은 제품은 수량을 더해 한 줄로 (원래 일괄 생성 화면과 같게)
@@ -270,7 +319,8 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
     return Array.from(m.entries()).map(([eq, slots]) => ({ eq, slots: slots.sort((a, b) => a.start.localeCompare(b.start)) }));
   }, [preview]);
 
-  const totalKg = filled.reduce((s, e) => s + (parseFloat(e.line.totalKg) || 0), 0);
+  const totalKg = filled.filter((e) => e.line.unit === "kg").reduce((s, e) => s + (parseFloat(e.line.totalKg) || 0), 0);
+  const batchLines = filled.filter((e) => e.line.unit === "batch").length;
   const blockedCount = preview?.rows.filter((r) => r.blocking.length).length ?? 0;
 
   const content = (
@@ -295,7 +345,14 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="space-y-1"><Label>작업일</Label><Input type="date" className="h-11" value={workDate} onChange={(e) => setWorkDate(e.target.value)} />
               {/* 미래 날짜 = 예정 (현장 1) — 서버가 같은 기준(오늘 KST)으로 판단한다 */}
-              {workDate > todayLocal() && <p className="text-xs text-blue-800" data-testid="plan-only-note">예정으로 만듭니다 — 원료 출고·기록지 제출은 그날 확인할 때</p>}
+              {workDate >= todayLocal() && <p className="text-xs text-blue-800" data-testid="plan-only-note">예정으로 만듭니다 — 원료는 현장에서 처음 확인할 때 (금속검출만 하는 제품은 통과 시작 때) 한 번 출고</p>}
+            </div>
+            <div className="space-y-1">
+              <Label>며칠</Label>
+              <Select value={String(days)} onValueChange={(v) => { setDays(Number(v) as 1 | 7 | 14); setOffDates([]); }}>
+                <SelectTrigger className="h-11" data-testid="days"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="1">하루</SelectItem><SelectItem value="7">7일</SelectItem><SelectItem value="14">14일</SelectItem></SelectContent>
+              </Select>
             </div>
             <div className="space-y-1"><Label>기본 시작시각</Label><Input type="time" className="h-11" value={dayStartTime} onChange={(e) => setDayStartTime(e.target.value)} /></div>
             <div className="space-y-1">
@@ -306,6 +363,20 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
               </Select>
             </div>
           </div>
+          {days > 1 && (
+            <div className="flex flex-wrap gap-1.5" data-testid="date-chips">
+              {allDates.map((d) => {
+                const off = offDates.includes(d);
+                return (
+                  <button key={d} type="button" onClick={() => setOffDates((x) => (off ? x.filter((y) => y !== d) : [...x, d]))}
+                    className={cn("min-h-10 px-2.5 rounded-md border text-xs", off ? "bg-muted text-muted-foreground line-through" : "bg-blue-50 border-blue-200")}>
+                    {d.slice(5)}({"일월화수목금토"[new Date(`${d}T00:00:00`).getDay()]})
+                  </button>
+                );
+              })}
+              <span className="text-xs text-muted-foreground self-center">누르면 그날은 빼기 · {dates.length}일 만듦</span>
+            </div>
+          )}
           {(equipments as any[]).length > 0 && (
             // 설비는 자동 배정이 기본 — 고장·정비로 오늘 못 쓰는 설비가 있을 때만 펼쳐서 뺀다 (F-PROD-04)
             <details className="space-y-1" open={excluded.length > 0}>
@@ -344,8 +415,14 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
                     <ProductPicker products={products} value={l.productId} used={lines.map((x) => x.productId).filter((x): x is number => !!x)} onChange={(id) => update(l.id, { productId: id, sku: {} })} />
                   </div>
                   <div className="md:col-span-3 space-y-1">
-                    <Label className="text-xs">하루 총생산량 (kg)</Label>
-                    <Input type="number" inputMode="decimal" min={0} step="0.1" className="h-11" data-testid="total-kg" value={l.totalKg} onChange={(e) => update(l.id, { totalKg: e.target.value })} />
+                    <Label className="text-xs">{l.unit === "batch" ? "배치 수 (BOM 1회 기준량)" : "하루 총생산량 (kg)"}</Label>
+                    <div className="flex gap-1">
+                      <Input type="number" inputMode="decimal" min={0} step={l.unit === "batch" ? "1" : "0.1"} className="h-11" data-testid="total-kg" value={l.totalKg} onChange={(e) => update(l.id, { totalKg: e.target.value })} />
+                      <Select value={l.unit} onValueChange={(v) => update(l.id, { unit: v as "kg" | "batch" })}>
+                        <SelectTrigger className="h-11 w-24 shrink-0" data-testid="qty-unit"><SelectValue /></SelectTrigger>
+                        <SelectContent><SelectItem value="kg">kg</SelectItem><SelectItem value="batch">배치</SelectItem></SelectContent>
+                      </Select>
+                    </div>
                   </div>
                   <div className="md:col-span-2 space-y-1">
                     <Label className="text-xs">처리방식</Label>
@@ -369,7 +446,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
                 {l.productId && (
                   <details>
                     <summary className="text-xs text-muted-foreground cursor-pointer select-none py-1">SKU 예상수량 (이 생산 건 전체)</summary>
-                    <div className="pt-2"><SkuInputs productId={l.productId} plannedKg={Number(l.totalKg) || 0} value={l.sku} onChange={(v) => update(l.id, { sku: v })} /></div>
+                    <div className="pt-2"><SkuInputs productId={l.productId} plannedKg={l.unit === "batch" ? (preview?.rows.find((r) => r.rowKey === l.rowKey)?.plannedKg ?? 0) : (Number(l.totalKg) || 0)} value={l.sku} onChange={(v) => update(l.id, { sku: v })} /></div>
                   </details>
                 )}
                 {failed.map((r, i) => <p key={i} className="text-xs text-red-700">실패: {r!.error}</p>)}
@@ -378,7 +455,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
           })}
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" className="h-11" onClick={() => setLines((ls) => [...ls, emptyLine(defaultMode)])}><Plus className="h-4 w-4 mr-1" />줄 추가</Button>
-            <span className="text-sm text-muted-foreground ml-auto">생산 건 {filled.length}개 · 하루 총 {totalKg.toLocaleString()} kg</span>
+            <span className="text-sm text-muted-foreground ml-auto">생산 건 {filled.length}개 · 하루 총 {totalKg.toLocaleString()} kg{batchLines ? ` + 배치 수 입력 ${batchLines}줄(미리보기에서 kg)` : ""}{dates.length > 1 ? ` · ${dates.length}일` : ""}</span>
           </div>
         </CardContent>
       </Card>
@@ -393,14 +470,28 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
             <Button variant="outline" className="h-11" onClick={runPreview} disabled={previewMut.isPending || !filled.length}>
               {previewMut.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Eye className="h-4 w-4 mr-1" />}미리보기
             </Button>
-            <Button className="h-11" onClick={runCreate} disabled={createMut.isPending || !preview || previewStale || !filled.length || dupLineIds.size > 0 || (!!preview && blockedCount >= preview.rows.length)}>
-              {createMut.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
-              {Object.keys(results).length && Object.values(results).some((r) => r.status === "failed") ? "실패한 생산 건 다시 생성" : `생산 건 ${filled.length}개 생성`}
+            <Button className="h-11" onClick={runCreate} disabled={createMut.isPending || multiBusy || !preview || previewStale || !filled.length || dupLineIds.size > 0 || (!!preview && blockedCount >= preview.rows.length)}>
+              {createMut.isPending || multiBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+              {Object.keys(results).length && Object.values(results).some((r) => r.status === "failed") ? "실패한 생산 건 다시 생성" : dates.length > 1 ? `${dates.length}일 × 생산 건 ${filled.length}개 생성` : `생산 건 ${filled.length}개 생성`}
             </Button>
           </div>
         </CardHeader>
         <CardContent className="space-y-3">
           {summary && <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">{summary}</div>}
+          {Object.keys(dayResults).length > 0 && (
+            <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs space-y-0.5" data-testid="day-results">
+              {Object.entries(dayResults).map(([d, t]) => <p key={d} className={t.startsWith("저장 안 됨") ? "text-red-700" : ""}>{d}: {t}</p>)}
+            </div>
+          )}
+          {preview && !previewStale && dates.length > 1 && (
+            <div className="text-xs space-y-0.5" data-testid="other-days">
+              <p className="text-muted-foreground">아래 자세한 미리보기는 {workDate}. 다른 날:</p>
+              {dates.filter((d) => d !== workDate).map((d) => {
+                const o = otherDays[d];
+                return <p key={d} className={o && o.blocked !== 0 ? "text-red-700" : ""}>{d}: {!o ? "확인 중…" : o.blocked === 0 ? "모두 생성됨" : o.blocked < 0 ? o.reasons[0] : `${o.blocked}개 막힘 — ${o.reasons.join(" / ")}`}</p>;
+              })}
+            </div>
+          )}
           {!preview && <p className="text-sm text-muted-foreground">입력표를 채운 뒤 '미리보기'를 누르면 생산 건별 회차·설비·시각·투입량을 보여 줍니다. 생성은 미리보기 뒤에 할 수 있습니다.</p>}
           {previewStale && <p className="text-sm text-amber-700 flex items-center gap-1"><RefreshCw className="h-4 w-4" />입력이 바뀌었습니다 — 미리보기를 다시 하세요.</p>}
           {preview && !previewStale && blockedCount > 0 && (
@@ -412,7 +503,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
                 <div key={r.rowKey} className={cn("rounded-md border p-2 text-sm", r.blocking.length ? "border-red-300 bg-red-50/40" : "")}>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{i + 1}. {r.productName ?? nameOf(r.productId)}</span>
-                    <span>하루 총 {r.plannedKg} kg</span>
+                    <span>하루 총 {r.plannedKg} kg{r.batchCount ? ` (배치 ${r.batchCount})` : ""}</span>
                     <Badge variant="outline">BOM {r.bom.versionNo ? `v${r.bom.versionNo}` : "없음"}{r.bom.approved ? "" : " (미승인)"}</Badge>
                     <Badge variant="outline">회차 {r.roundsCount}{r.bom.subBatchKg ? ` (1회 ${r.bom.subBatchKg}kg)` : ""}</Badge>
                     {r.bom.massBasis === "basis" && <Badge variant="outline">원물 기준</Badge>}

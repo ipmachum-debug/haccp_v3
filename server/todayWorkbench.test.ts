@@ -32,7 +32,7 @@ describe("화면·서버 계약", () => {
     expect(ui).not.toMatch(/setLocation\(|navigate\(|confetti/i);
   });
   it("미리보기 뒤에만 생성, 입력이 바뀌면 다시 미리보기", () => {
-    expect(ui).toMatch(/disabled=\{createMut\.isPending \|\| !preview \|\| previewStale/);
+    expect(ui).toMatch(/disabled=\{createMut\.isPending \|\| multiBusy \|\| !preview \|\| previewStale/);
   });
   it("SKU 는 제품 id 로 연결된 목록 (이름으로 맞추지 않음), AI 입력은 같은 제품을 합치지 않음", () => {
     expect(ui).toMatch(/productSku\.listByProduct\.useQuery\(\{ productId \}\)/);

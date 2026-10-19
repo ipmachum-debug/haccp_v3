@@ -58,6 +58,20 @@
     "highlight": true
    },
    {
+    "icon": "ClipboardCheck",
+    "label": "현장 확인",
+    "path": "/dashboard/field",
+    "roles": [
+     "super_admin",
+     "admin",
+     "worker",
+     "inspector"
+    ],
+    "group": "생산",
+    "requireModule": "haccp",
+    "highlight": true
+   },
+   {
     "icon": "Package",
     "label": "생산관리",
     "path": "/dashboard/production-management",
@@ -1009,6 +1023,20 @@
      "worker",
      "inspector",
      "monitor"
+    ],
+    "group": "생산",
+    "requireModule": "haccp",
+    "highlight": true
+   },
+   {
+    "icon": "ClipboardCheck",
+    "label": "현장 확인",
+    "path": "/dashboard/field",
+    "roles": [
+     "super_admin",
+     "admin",
+     "worker",
+     "inspector"
     ],
     "group": "생산",
     "requireModule": "haccp",

@@ -26,12 +26,15 @@ import {
   yearlyLogsRouter,
 } from "../production";
 import { todayProductionRouter } from "../production/todayProduction.router";
+import { fieldRouter } from "../production/field.router";
 import { productionDesignRouter } from "../production/productionDesign.router";
 
 export const productionRouterMap = {
   batch: batchRouter,
   // P-2 (2026-10-14): 오늘의 생산 쓰기 — 시작 재검증·중복 방지
   todayProduction: todayProductionRouter,
+  // 현장 확인 — 하루 생산 흐름 (2026-10-19)
+  field: fieldRouter,
   // batchApproval: 2026-10-13 제거 — batch.lifecycle.router 의 approve/reject/getApprovalOverview 와 중복이던
   //   미사용 네임스페이스 (클라이언트 참조 0). #473 이 이 죽은 라우터를 고치는 바람에 배치 승인 카드가 무한 로딩이었다.
   batchCost: batchCostRouter,

@@ -78,6 +78,7 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   { tab: "haccp", icon: "Building", label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"], category: "work" },
   { tab: "haccp", icon: "LayoutDashboard", label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"], group: "대시보드" },
   { tab: "haccp", icon: "Clock", label: "오늘의 생산", path: "/dashboard/production/today", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], group: "생산", requireModule: "haccp", highlight: true },
+  { tab: "haccp", icon: "ClipboardCheck", label: "현장 확인", path: "/dashboard/field", roles: ["super_admin", "admin", "worker", "inspector"], group: "생산", requireModule: "haccp", highlight: true },
   { tab: "haccp", icon: "Package", label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
   { tab: "haccp", icon: "Calendar", label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
   { tab: "haccp", icon: "FileCode", label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
@@ -433,6 +434,7 @@ export const MOBILE_NAV_SLOTS = 3;
 /** 하단바에서 쓰는 짧은 이름 (5글자 안팎) */
 export const MOBILE_NAV_LABELS: Readonly<Record<string, string>> = {
   "/dashboard/production/today": "오늘 생산",
+  "/dashboard/field": "현장 확인",
   "/dashboard/today": "오늘",
   "/dashboard": "대시보드",
   "/quality/ccp-monitoring": "CCP",
@@ -504,6 +506,7 @@ export const HUB_BY_PATH: Readonly<Record<string, HubId>> = {
   "/dashboard/item-master": "items",
   // production
   "/dashboard/production/today": "production",
+  "/dashboard/field": "production",
   "/dashboard/production-management": "production",
   "/dashboard/production-operations": "production",
   "/dashboard/manufacturing-standards": "production",

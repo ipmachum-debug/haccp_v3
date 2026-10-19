@@ -23,6 +23,8 @@ export interface SheetRecord {
   clHeatTempLo: number | null;
   clPressureMpaLo: number | null;
   clProductTempLo: number | null;
+  /** 현장 확인 기록지 — 행마다 사람이 확인해야 제출 (2026-10-19) */
+  fieldMode?: boolean;
 }
 export interface SheetRow {
   batchSeq: number;
@@ -46,6 +48,8 @@ export interface SheetRow {
   passTimeStart: string | null;
   passTimeEnd: string | null;
   passQty: number | null;
+  /** 행 확인이 있고 그 뒤 바뀌지 않았는가 (현장 확인 기록지) */
+  rowConfirmed?: boolean;
 }
 
 const hhmm = (v: string | null) => (v ? String(v).slice(0, 5) : null);
@@ -62,6 +66,8 @@ export function validateSheetForConfirm(rec: SheetRecord, rows: SheetRow[], now:
   const label = (r: SheetRow) => `${r.batchSeq}번 행`;
 
   for (const r of rows) {
+    // 현장 확인 기록지: 행마다 사람의 확인이 있어야 한다 (확인 뒤 고치면 그 확인은 무효 — 다시 확인)
+    if (rec.fieldMode && !r.rowConfirmed) { problems.push(`${label(r)}: 현장 확인 전입니다.`); continue; }
     const kind = rec.ccpType === "CCP-4P" ? (has(r.passTimeStart) || has(r.passQty) || r.equipmentType === "passage" ? "passage" : "sensitivity") : "heat";
     const due = kind === "passage" ? hhmm(r.passTimeEnd) : kind === "sensitivity" ? hhmm(r.metalPassTime) : hhmm(r.measurementTime);
     if (today && due && due > nowHm) { problems.push(`${label(r)}: 예정 시각 ${due} 이 아직 오지 않았습니다.`); continue; }
@@ -118,7 +124,7 @@ const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
 export async function checkSheet(formRecordId: number, tenantId: number): Promise<{ record: SheetRecord & { rowsVersion: number }; problems: string[] }> {
   const conn = await getRawConnection();
   const [rs]: any = await conn.execute(
-    `SELECT id, ccp_type, DATE_FORMAT(work_date, '%Y-%m-%d') AS wd, status, rows_version,
+    `SELECT id, ccp_type, DATE_FORMAT(work_date, '%Y-%m-%d') AS wd, status, rows_version, field_mode,
             cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo, cl_pressure_mpa_lo, cl_product_temp_lo
        FROM h_ccp_form_records WHERE id = ? AND tenant_id = ? LIMIT 1`,
     [formRecordId, tenantId],
@@ -128,13 +134,13 @@ export async function checkSheet(formRecordId: number, tenantId: number): Promis
   const record = {
     id: Number(r.id), ccpType: String(r.ccp_type), workDate: String(r.wd), status: String(r.status), rowsVersion: Number(r.rows_version ?? 0),
     clHeatTimeMinLo: num(r.cl_heat_time_min_lo), clHeatTimeMinHi: num(r.cl_heat_time_min_hi), clHeatTempLo: num(r.cl_heat_temp_lo),
-    clPressureMpaLo: num(r.cl_pressure_mpa_lo), clProductTempLo: num(r.cl_product_temp_lo),
+    clPressureMpaLo: num(r.cl_pressure_mpa_lo), clProductTempLo: num(r.cl_product_temp_lo), fieldMode: Number(r.field_mode ?? 0) === 1,
   };
   const [rws]: any = await conn.execute(
     `SELECT batch_seq, equipment_type, measurement_time, heat_time_min, heat_temp_c, pressure_mpa, temp_edge_c, temp_center_c,
             result, is_deviation, deviation_note, corrective_action,
             metal_pass_time, metal_fe_mid, metal_sus_mid, metal_product_only, metal_fe_product, metal_sus_product,
-            pass_time_start, pass_time_end, pass_qty
+            pass_time_start, pass_time_end, pass_qty, row_version, row_confirmed_at, row_confirmed_version
        FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ? ORDER BY batch_seq`,
     [formRecordId, tenantId],
   );
@@ -146,6 +152,7 @@ export async function checkSheet(formRecordId: number, tenantId: number): Promis
     metalPassTime: x.metal_pass_time ?? null, metalFeMid: x.metal_fe_mid ?? null, metalSusMid: x.metal_sus_mid ?? null,
     metalProductOnly: x.metal_product_only ?? null, metalFeProduct: x.metal_fe_product ?? null, metalSusProduct: x.metal_sus_product ?? null,
     passTimeStart: x.pass_time_start ?? null, passTimeEnd: x.pass_time_end ?? null, passQty: num(x.pass_qty),
+    rowConfirmed: x.row_confirmed_at != null && Number(x.row_confirmed_version) === Number(x.row_version ?? 0),
   }));
   return { record, problems: validateSheetForConfirm(record, rows, { date: todayKST(), time: nowKST() }) };
 }

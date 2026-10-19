@@ -71,6 +71,8 @@ export const ROUTES = {
   ACCOUNTING_FIXED_ASSETS: "/dashboard/accounting/fixed-assets",
   // UI/UX 개편 P-1 (2026-10-14) — 작업자 "오늘의 생산" 읽기 전용 (14-ui-ux-restructure-spec.md §7-2)
   PRODUCTION_TODAY: "/dashboard/production/today",
+  // 하루 생산 흐름 (2026-10-19) — 현장 확인 (내 설비의 오늘 일 · 확인 · 금속검출 통과 · 마감)
+  FIELD_WORK: "/dashboard/field",
   // 일지 PR 3 (2026-10-15) — HACCP 체크리스트 시작 화면 / 옛 전체 화면 보존
   QUALITY_CHECKLISTS: "/quality/checklists",
   QUALITY_CHECKLISTS_CLASSIC: "/quality/checklists/classic",

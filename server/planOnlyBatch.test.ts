@@ -13,7 +13,7 @@ const read = (p: string) => readFileSync(join(__dirname, p), "utf-8");
 describe("미래 날짜 = 예정", () => {
   it("생산 건 만들기: 오늘 KST 보다 뒤 날짜면 실행 단계를 건너뛰고 plan_only = 1", () => {
     const o = read("services/batchOrchestrator.ts");
-    expect(o).toMatch(/const planOnly = input\.workDate > todayKST\(\);/);
+    expect(o).toMatch(/const planOnly = input\.workDate >= todayKST\(\);/); // 오늘도 예정 (하루 생산 흐름)
     expect(o).toMatch(/if \(planOnly\) \{\s*await \(await getRawConnection\(\)\)\.execute\(`UPDATE h_batches SET plan_only = 1/);
     // 실행 단계(진행 중·출고·승인요청·기록지 제출·일지)는 한 함수 — 만들 때와 그날 확인 때 같은 코드
     expect(o).toMatch(/async function runExecutionSteps\(/);
@@ -21,7 +21,7 @@ describe("미래 날짜 = 예정", () => {
   });
   it("여러 건 한꺼번에(하루 단위): 미래 날짜면 일지·금속검출 승인요청·생산일지를 미리 만들지 않음", () => {
     const r = read("routers/production/batch.crud.router.ts");
-    expect(r).toMatch(/const planOnlyDay = input\.workDate > _today\(\);/);
+    expect(r).toMatch(/const planOnlyDay = input\.workDate >= _today\(\);/);
     expect(r.match(/if \(!planOnlyDay && successResults\.length > 0\)/g)?.length).toBe(2);
     expect(r).toMatch(/if \(!planOnlyDay\) try \{\s*const \{ autoRegenerateProductionDaily \}/);
   });

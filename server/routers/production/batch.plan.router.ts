@@ -22,7 +22,9 @@ export const batchPlanRouter = router({
       items: z.array(z.object({
         rowKey: z.string().min(1).max(64),
         productId: z.number(),
-        plannedQuantityKg: z.number().positive(),
+        /** 하루 총생산량 kg — 또는 batchCount (배치 수 × BOM 1회 기준량) */
+        plannedQuantityKg: z.number().positive().optional(),
+        batchCount: z.number().int().positive().max(1000).optional(),
         startTime: z.string().regex(HHMM).optional(),
         startTimeOverride: z.string().regex(HHMM).optional(),
         /** 같은 날 같은 제품을 실제로 따로 만드는 생산 건 — 명시할 때만 (F-PROD-01) */
@@ -33,11 +35,14 @@ export const batchPlanRouter = router({
       const { planCcpForDay } = await import("../../services/ccp-batch");
       const { validateProductCcpMapping } = await import("../../services/validateProductCcpMapping");
       const conn = await getRawConnection();
+      // 배치 수 → kg (BOM 1회 기준량). 계산할 수 없으면 그 줄은 막힌다
+      const { resolvePlannedKg } = await import("../../lib/production/planQuantity");
+      const qty = await Promise.all(input.items.map((it) => resolvePlannedKg(conn, ctx.tenantId, it)));
       const day = await planCcpForDay({
         tenantId: ctx.tenantId,
         workDate: input.workDate,
-        rows: input.items.map((it) => ({
-          rowKey: it.rowKey, productId: it.productId, plannedKg: it.plannedQuantityKg,
+        rows: input.items.map((it, i) => ({
+          rowKey: it.rowKey, productId: it.productId, plannedKg: qty[i].kg ?? 0,
           startTime: it.startTime ?? input.dayStartTime, startTimeOverride: it.startTimeOverride ?? null,
         })),
         excludedEquipmentIds: input.excludedEquipmentIds,
@@ -66,6 +71,7 @@ export const batchPlanRouter = router({
           const v = await validateProductCcpMapping({ productId: it.productId, productName, tenantId: ctx.tenantId });
           if (!v.valid) blocking.push(v.message);
         }
+        if (qty[i].error) blocking.push(qty[i].error!);
         if (meta.bom.massBasis === "error") blocking.push(`원물·공정 기준 계산 불가 — ${meta.bom.error}`);
         if (dupLines.has(i)) blocking.push(dupLines.get(i)!);
         const already = sameDay.get(it.productId);
@@ -74,7 +80,8 @@ export const batchPlanRouter = router({
           rowKey: it.rowKey,
           productId: it.productId,
           productName,
-          plannedKg: it.plannedQuantityKg,
+          plannedKg: qty[i].kg ?? 0,
+          batchCount: qty[i].batchCount,
           bom: { versionId: meta.bom.versionId, versionNo: meta.bom.versionNo, approved: meta.bom.approved, subBatchKg: meta.bom.subBatchKg, massBasis: meta.bom.massBasis },
           roundsCount: plan.roundsCount,
           processes: plan.processes,
