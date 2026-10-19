@@ -8,6 +8,8 @@ export interface BoardRow {
   status: string;
   approvalStatus: string | null;
   ccpForms: { total: number; unconfirmed: number; approved: number };
+  /** 미래 날짜로 만든 예정 생산 건 — 그날 확인하면 시작·원료 출고 (현장 1) */
+  planOnly?: boolean;
 }
 
 export interface NextAction {
@@ -20,6 +22,7 @@ export interface NextAction {
 export function nextBatchAction(r: BoardRow): NextAction {
   if (r.status === "cancelled") return { label: "취소됨", tone: "stop" };
   if (r.status === "failed") return { label: "실패 — 확인 필요", tone: "stop" };
+  if (r.planOnly) return { label: "예정 — 그날 확인하면 시작 (원료는 그때 출고)", tone: "wait" };
   if (r.ccpForms.unconfirmed > 0) return { label: `CCP 기록지 확인 제출 ${r.ccpForms.unconfirmed}건`, tone: "todo" };
   if (r.status === "completed" || r.status === "shipped" || r.status === "archived") return { label: "완료", tone: "done" };
   if (r.approvalStatus && /^pending/.test(r.approvalStatus)) return { label: "승인 대기", tone: "wait" };

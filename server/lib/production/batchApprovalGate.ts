@@ -20,6 +20,7 @@ import { TRPCError } from "@trpc/server";
 import { getRawConnection } from "../../db/connection";
 
 export async function prepareBatchForApproval(batchId: number, tenantId: number, userId: number): Promise<void> {
+  // 예정 생산 건(미래 날짜로 만든 것)은 기록지가 작성중(draft)이라 아래 formBlockers 에서 막힌다 — 그날 확인이 먼저 (현장 1)
   const { getBatchApprovalOverview } = await import("../../db/production/batchApprovalOverview");
   const ov = await getBatchApprovalOverview(batchId, tenantId);
   if (ov.formBlockers.length > 0) {

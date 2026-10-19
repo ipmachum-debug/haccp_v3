@@ -3067,4 +3067,66 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await d.trialCalc(c, T + 1, 8901, 50, null)).toBeNull();
     });
   });
+
+  describe("현장 1 — 미래 날짜 생산 건은 '예정' 으로만, 그날 첫 확인에서 실행 단계 한 번 (2026-10-19, CEO 정책)", () => {
+    const today = () => new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+    const tomorrow = () => new Date(Date.now() + 9 * 3600_000 + 86400_000).toISOString().slice(0, 10);
+    beforeAll(async () => {
+      await q(`CREATE TABLE IF NOT EXISTS h_ccp_instances (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, batch_id bigint NULL, process_group_id int NULL, ccp_type varchar(20) NULL)`);
+    });
+    beforeEach(async () => {
+      await q(`DELETE FROM h_batches WHERE id IN (9301, 9302)`);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, mode, plan_only, created_by) VALUES
+        (9301, ?, 1, 'PLAN-1', 891, 96, ?, 'planned', 'manual', 1, 4), (9302, ?, 1, 'PLAN-2', 891, 96, ?, 'planned', 'auto', 1, 4)`, [T, tomorrow(), T, tomorrow()]);
+    });
+    afterAll(async () => { await q(`DELETE FROM h_batches WHERE id IN (9301, 9302)`); });
+    const row = async (id: number) => (await q(`SELECT plan_only, status FROM h_batches WHERE id = ?`, [id]))[0];
+
+    it("예정일 전에는 실행하지 않고 막는다 — 상태·예정 표시 그대로", async () => {
+      const { ensureBatchActivated } = await import("./services/batchOrchestrator");
+      await expect(ensureBatchActivated(9301, T, 4)).rejects.toThrow(/예정 생산 건입니다 — .* 에 확인하면/);
+      expect(await row(9301)).toMatchObject({ plan_only: 1, status: "planned" });
+      await expect(ensureBatchActivated(9301, T + 1, 4)).resolves.toEqual({ activated: false }); // 다른 회사는 대상 아님
+    });
+
+    it("그날이 되면 첫 확인에서 한 번만 실행 — 동시에 여러 번 눌러도 한 번, 이미 실행된 건은 그대로", async () => {
+      const { ensureBatchActivated } = await import("./services/batchOrchestrator");
+      await q(`UPDATE h_batches SET planned_date = ? WHERE id = 9301`, [today()]);
+      const rs = await Promise.all([ensureBatchActivated(9301, T, 4), ensureBatchActivated(9301, T, 4), ensureBatchActivated(9301, T, 4)]);
+      expect(rs.filter((r) => r.activated).length).toBe(1);
+      expect(Number((await row(9301)).plan_only)).toBe(0);
+      expect(await ensureBatchActivated(9301, T, 4)).toEqual({ activated: false });
+    });
+
+    it("자동 모드: 그날 첫 확인에서 원료 출고 한 번 (만들 때는 출고 없음), 다시 눌러도 다시 차감하지 않음", async () => {
+      const { ensureBatchActivated } = await import("./services/batchOrchestrator");
+      await q(`DELETE FROM h_ccp_instances WHERE batch_id = 9302`);
+      await q(`INSERT INTO h_ccp_instances (tenant_id, batch_id, process_group_id, ccp_type) VALUES (?, 9302, 8921, 'CCP-1B')`, [T]);
+      await q(`DELETE FROM h_batch_inputs WHERE batch_id = 9302`);
+      await q(`INSERT INTO h_batch_inputs (batch_id, tenant_id, material_id, planned_quantity, unit) VALUES (9302, ?, 999999, 5, 'kg')`, [T]);
+      const usage = async () => Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE source_id = 9302 AND transaction_type = 'usage'`))[0].n);
+      try {
+        await expect(ensureBatchActivated(9302, T, 4)).rejects.toThrow(/예정 생산 건/); // 예정일 전
+        expect(await usage()).toBe(0);
+        await q(`UPDATE h_batches SET planned_date = ? WHERE id = 9302`, [today()]);
+        expect(await ensureBatchActivated(9302, T, 4)).toEqual({ activated: true });
+        expect(await usage()).toBe(1);
+        expect(await row(9302)).toMatchObject({ plan_only: 0, status: "in_progress" });
+        expect(await ensureBatchActivated(9302, T, 4)).toEqual({ activated: false });
+        expect(await usage()).toBe(1);
+      } finally {
+        await q(`DELETE FROM h_inventory_transactions WHERE source_id = 9302 AND transaction_type = 'usage'`);
+        await q(`DELETE FROM h_batch_inputs WHERE batch_id = 9302`);
+        await q(`DELETE FROM h_ccp_instances WHERE batch_id = 9302`);
+      }
+    });
+
+    it("자동 모드: 출고할 줄이 없으면(또는 다 출고되면) 실행", async () => {
+      const { ensureBatchActivated } = await import("./services/batchOrchestrator");
+      await q(`UPDATE h_batches SET planned_date = ? WHERE id = 9302`, [today()]);
+      await q(`DELETE FROM h_ccp_instances WHERE batch_id = 9302`).catch(() => undefined);
+      expect(await ensureBatchActivated(9302, T, 4)).toEqual({ activated: true });
+      expect(Number((await row(9302)).plan_only)).toBe(0);
+    });
+  });
 });

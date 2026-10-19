@@ -267,7 +267,10 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="space-y-1"><Label>작업일</Label><Input type="date" className="h-11" value={workDate} onChange={(e) => setWorkDate(e.target.value)} /></div>
+            <div className="space-y-1"><Label>작업일</Label><Input type="date" className="h-11" value={workDate} onChange={(e) => setWorkDate(e.target.value)} />
+              {/* 미래 날짜 = 예정 (현장 1) — 서버가 같은 기준(오늘 KST)으로 판단한다 */}
+              {workDate > todayLocal() && <p className="text-xs text-blue-800" data-testid="plan-only-note">예정으로 만듭니다 — 원료 출고·기록지 제출은 그날 확인할 때</p>}
+            </div>
             <div className="space-y-1"><Label>기본 시작시각</Label><Input type="time" className="h-11" value={dayStartTime} onChange={(e) => setDayStartTime(e.target.value)} /></div>
             <div className="space-y-1">
               <Label>기본 처리방식</Label>

@@ -690,6 +690,8 @@ async function ensureMassBasisSchema(conn: any) {
   await addCol("h_mf_ingredients", "pretreatment_factor", "`pretreatment_factor` decimal(6,4) NULL");
   // 생산 설계 2a (2026-10-19): 공정 미지정 원료의 들어가는 곳 — direct(성형에 바로)·late(나중에 넣음)·NULL(아직 모름). 기존 행은 NULL
   await addCol("h_mf_ingredients", "entry_stage", "`entry_stage` varchar(20) NULL");
+  // 현장 1 (2026-10-19): 미래 날짜로 만든 '예정' 생산 건 — 1 이면 아직 실행(진행 중·원료 출고·승인요청·기록지 제출) 전. 기존 행은 0
+  await addCol("h_batches", "plan_only", "`plan_only` tinyint NOT NULL DEFAULT 0");
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS h_batch_mass_basis (
       batch_id bigint NOT NULL PRIMARY KEY,
@@ -1011,6 +1013,7 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_mf_ingredients", column: "basis_raw_kg", why: "운영 기준 원물 kg (PR B)" },
   { table: "h_mf_ingredients", column: "pretreatment_factor", why: "전처리 배율 (PR B)" },
   { table: "h_mf_ingredients", column: "entry_stage", why: "원료 들어가는 곳 (생산 설계 2a)" },
+  { table: "h_batches", column: "plan_only", why: "미래 날짜 예정 생산 건 (현장 1)" },
   { table: "h_batch_mass_basis", column: "rows_json", why: "배치 기준 스냅샷 (PR B)" },
   { table: "h_batch_mass_basis", column: "sub_batch_kg", why: "CCP 행 기준량 고정 (PR C 후속)" },
   // 회사별 기능 선택 — 조회 실패를 '꺼짐' 으로 보지 않으므로(#547 검토 P1) 표가 반드시 있어야 한다

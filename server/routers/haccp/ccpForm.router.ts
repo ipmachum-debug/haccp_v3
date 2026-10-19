@@ -375,9 +375,16 @@ export const ccpFormRouter = router({
         // 제출 = 시트 확인 (2026-10-18): 사람이 누른 제출만 확인 이력. 막을 이유가 있으면 상태를 바꾸기 전에 거부.
         //   배치 생성 때 자동으로 submitted 가 된 기록지는 승인요청을 새로 만들지 않고 확인만 남긴다.
         const { checkSheet, confirmSheet } = await import("../../lib/haccp/ccpSheetConfirm");
-        const pre = await checkSheet(input.formRecordId, ctx.tenantId);
+        let pre = await checkSheet(input.formRecordId, ctx.tenantId);
         if (pre.problems.length) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: `제출할 수 없습니다 — ${pre.problems.slice(0, 5).join(" / ")}${pre.problems.length > 5 ? ` 외 ${pre.problems.length - 5}건` : ""}` });
+        }
+        // 미래 날짜로 만든 예정 생산 건: 그날 첫 확인에서 실행 (진행 중·원료 출고·승인요청·기록지 제출 — 현장 1, CEO 결정)
+        const { ensureActivatedForFormRecord } = await import("../../services/batchOrchestrator");
+        try {
+          if (await ensureActivatedForFormRecord(input.formRecordId, ctx.tenantId, ctx.user.id)) pre = await checkSheet(input.formRecordId, ctx.tenantId);
+        } catch (e: any) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message ?? "예정 생산 건을 시작하지 못했습니다." });
         }
         if (pre.record.status === "submitted") {
           await confirmSheet(input.formRecordId, ctx.tenantId, ctx.user.id);
