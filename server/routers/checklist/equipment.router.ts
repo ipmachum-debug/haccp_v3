@@ -114,15 +114,18 @@ export const equipmentRouter = router({
         const { id, ...updates } = input;
         await updateEquipment(id, updates, ctx.tenantId);
         
+        // 변경·적용 이력 (생산 설계, 2026-10-19): 받은 값 전체가 아니라 실제로 바뀐 칸만 전·후로 — 이 회사 기록으로
+        const { diffFields } = await import("../../lib/production/designChangeDiff");
+        const diff = diffFields(oldEquipment as any, updates as any);
         await createAuditLog({
           userId: ctx.user.id,
           action: "equipment.update",
           entityType: "equipment",
           entityId: id,
-          changes: updates,
+          changes: diff ?? {},
           ipAddress: "",
-          description: `설비 프로필 수정: ${oldEquipment.name}`
-        });
+          description: `설비 수정: ${oldEquipment.name}${diff ? ` — ${Object.keys(diff).length}칸` : " (바뀐 값 없음)"}`
+        }, ctx.tenantId);
         
         return { success: true };
       }),

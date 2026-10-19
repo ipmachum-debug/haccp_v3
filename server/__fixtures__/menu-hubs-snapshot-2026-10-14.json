@@ -30,6 +30,12 @@
     "/dashboard/production-operations | 생산운영",
     "/dashboard/manufacturing-standards | 제조기준관리"
   ],
+  "design": [
+    "/design | 설계 현황",
+    "/design/factory | 우리 공장",
+    "/design/recipes | 제품 배합",
+    "/design/history | 변경·적용 이력"
+  ],
   "quality": [
     "/dashboard/scan-checklist | 스캔 체크리스트 입력",
     "/quality/ccp-monitoring | CCP 관리",

@@ -26,6 +26,7 @@ import {
   yearlyLogsRouter,
 } from "../production";
 import { todayProductionRouter } from "../production/todayProduction.router";
+import { productionDesignRouter } from "../production/productionDesign.router";
 
 export const productionRouterMap = {
   batch: batchRouter,
@@ -42,6 +43,8 @@ export const productionRouterMap = {
   costSavingAI: costSavingAIRouter,
   intermediate: intermediateRouter,
   mfReport: mfReportRouter,
+  // 생산 설계 (2026-10-19, 설계 18 §13) — 읽기 전용 설계 현황·공장 지도·제품 배합·변경 이력
+  productionDesign: productionDesignRouter,
   production: productionRouter,
   productionSchedule: productionScheduleRouter,
   productionDashboard: productionDashboardRouter,
