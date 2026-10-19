@@ -1,5 +1,5 @@
 import FloatingAIChatbot from "@/components/ai/FloatingAIChatbot";
-import FloatingAIBriefing from "@/components/ai/FloatingAIBriefing";
+import AIBriefingButton from "@/components/ai/AIBriefingButton";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
@@ -359,7 +359,6 @@ export default function DashboardLayout({
         </DashboardLayoutContent>
       </SidebarProvider>
       <FloatingAIChatbot />
-      <FloatingAIBriefing />
     </>
   );
 }
@@ -1277,6 +1276,7 @@ function DashboardLayoutContent({
             <div className="flex items-center gap-1">
               {hubMode && <GlobalMenuSearch compact sections={hubSections} onNavigate={(p) => setLocation(p)} />}
               {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance compact />}
+              <AIBriefingButton compact />
               <NotificationDropdown />
             </div>
           </div>
@@ -1292,6 +1292,8 @@ function DashboardLayoutContent({
             <div className="flex items-center gap-2">
               {hubMode && <GlobalMenuSearch sections={hubSections} onNavigate={(p) => setLocation(p)} />}
               {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance />}
+              {/* AI 비서 하나 — 저절로 띄우지 않고 버튼 + 오늘 확인할 것 숫자 (2026-10-20) */}
+              <AIBriefingButton />
               <NotificationDropdown />
               {user && <HeaderProfileMenu name={user.name} email={user.email} role={user.role} onLogout={logout} />}
             </div>
