@@ -30,13 +30,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { todayLocal } from "../../lib/dateUtils";
-
-/** YYYY-MM-DD + n일 (로컬 달력) */
-function addDays(d: string, n: number): string {
-  const t = new Date(`${d}T00:00:00`);
-  t.setDate(t.getDate() + n);
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-}
+import { addDays, planDates, planCreateRequests } from "@/lib/planDays";
 import { AlertTriangle, Check, ChevronsUpDown, Eye, Loader2, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 
 type Mode = "auto" | "manual";
@@ -202,7 +196,9 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
     return out;
   }, [lines]);
   const allDates = useMemo(() => Array.from({ length: days }, (_, i) => addDays(workDate, i)), [workDate, days]);
-  const dates = allDates.filter((d) => !offDates.includes(d));
+  // 생성·미리보기는 선택한 날짜로만 — 하나여도 그 날짜(기준일 아님), 0개면 만들지 않는다 (#611 추가 검토 P1)
+  const dates = planDates(workDate, days, offDates);
+  const firstDate = dates[0] ?? null;
   const inputKey = JSON.stringify({ workDate, dates, dayStartTime, excluded, rows: filled.map((e) => [e.rowKey, e.line.productId, e.line.totalKg, e.line.unit, e.line.startOverride]) });
   const previewStale = !!preview && previewKey !== inputKey;
 
@@ -238,13 +234,14 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
 
   const runPreview = () => {
     if (!filled.length) { toast.error("제품과 하루 총생산량(kg)을 입력하세요."); return; }
+    if (!firstDate) { toast.error("만들 날짜가 없습니다 — 날짜를 하나 이상 남기세요."); return; }
     previewMut.mutate({
-      workDate, dayStartTime, excludedEquipmentIds: excluded,
+      workDate: firstDate, dayStartTime, excludedEquipmentIds: excluded,
       items: previewItems(),
     });
     // 다른 날 — 막히는 줄만 모아 보여 준다 (같은 서버 계산)
     setOtherDays({});
-    for (const d of dates.filter((x) => x !== workDate)) {
+    for (const d of dates.slice(1)) {
       utils.client.batch.previewDay.mutate({ workDate: d, dayStartTime, excludedEquipmentIds: excluded, items: previewItems() })
         .then((r: any) => setOtherDays((o) => ({ ...o, [d]: { blocked: r.rows.filter((x: any) => x.blocking.length).length, reasons: r.rows.flatMap((x: any) => x.blocking.map((b: string) => `${x.productName ?? ""}: ${b}`)).slice(0, 3) } })))
         .catch((e: any) => setOtherDays((o) => ({ ...o, [d]: { blocked: -1, reasons: [e?.message ?? "미리보기 실패"] } })));
@@ -264,17 +261,20 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
   const runCreate = async () => {
     if (!filled.length) return;
     if (dupLineIds.size) { toast.error("같은 제품이 여러 줄입니다 — 하루 총생산량을 한 줄에 입력하세요."); return; }
-    if (dates.length <= 1) {
-      createMut.mutate({ requestKey, siteId: (user as any)?.siteId || 1, workDate, dayStartTime, defaultMode, excludedEquipmentIds: excluded, items: createItems() } as any);
+    const reqs = planCreateRequests(requestKey, dates);
+    if (!reqs.length) { toast.error("만들 날짜가 없습니다 — 날짜를 하나 이상 남기세요."); return; }
+    if (reqs.length === 1) {
+      // 날짜 하나 — 그 날짜로 (기준일이 아니라 선택한 날). 요청 키는 여러 날과 같은 규칙(날짜별)
+      createMut.mutate({ requestKey: reqs[0].requestKey, siteId: (user as any)?.siteId || 1, workDate: reqs[0].workDate, dayStartTime, defaultMode, excludedEquipmentIds: excluded, items: createItems() } as any);
       return;
     }
     // 여러 날 — 날마다 따로 (날짜별 요청 키: 다시 보내도 이미 만든 날·줄은 다시 만들지 않는다)
     setMultiBusy(true);
     const out: Record<string, string> = {};
     let allOk = true;
-    for (const d of dates) {
+    for (const { workDate: d, requestKey: dayKey } of reqs) {
       try {
-        const r: any = await utils.client.batch.bulkCreateForDay.mutate({ requestKey: `${requestKey}-${d.replace(/-/g, "")}`.slice(0, 64), siteId: (user as any)?.siteId || 1, workDate: d, dayStartTime, defaultMode, excludedEquipmentIds: excluded, items: createItems() } as any);
+        const r: any = await utils.client.batch.bulkCreateForDay.mutate({ requestKey: dayKey, siteId: (user as any)?.siteId || 1, workDate: d, dayStartTime, defaultMode, excludedEquipmentIds: excluded, items: createItems() } as any);
         const failed = (r.batches ?? []).filter((b: any) => b.status === "failed" || b.status === "in_progress");
         if (failed.length) allOk = false;
         out[d] = `생성 ${r.createdCount ?? 0}${r.reusedCount ? ` · 이미 ${r.reusedCount}` : ""}${failed.length ? ` · 실패 ${failed.length} (${failed[0].error ?? ""})` : ""}`;
@@ -467,10 +467,10 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
             <CardDescription>실제 생성과 같은 계산입니다. 미리보기만으로는 아무것도 저장되지 않습니다.</CardDescription>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" className="h-11" onClick={runPreview} disabled={previewMut.isPending || !filled.length}>
+            <Button variant="outline" className="h-11" onClick={runPreview} disabled={previewMut.isPending || !filled.length || !dates.length}>
               {previewMut.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Eye className="h-4 w-4 mr-1" />}미리보기
             </Button>
-            <Button className="h-11" onClick={runCreate} disabled={createMut.isPending || multiBusy || !preview || previewStale || !filled.length || dupLineIds.size > 0 || (!!preview && blockedCount >= preview.rows.length)}>
+            <Button className="h-11" onClick={runCreate} disabled={createMut.isPending || multiBusy || !preview || previewStale || !filled.length || !dates.length || dupLineIds.size > 0 || (!!preview && blockedCount >= preview.rows.length)}>
               {createMut.isPending || multiBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
               {Object.keys(results).length && Object.values(results).some((r) => r.status === "failed") ? "실패한 생산 건 다시 생성" : dates.length > 1 ? `${dates.length}일 × 생산 건 ${filled.length}개 생성` : `생산 건 ${filled.length}개 생성`}
             </Button>
@@ -485,8 +485,8 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
           )}
           {preview && !previewStale && dates.length > 1 && (
             <div className="text-xs space-y-0.5" data-testid="other-days">
-              <p className="text-muted-foreground">아래 자세한 미리보기는 {workDate}. 다른 날:</p>
-              {dates.filter((d) => d !== workDate).map((d) => {
+              <p className="text-muted-foreground">아래 자세한 미리보기는 {firstDate}. 다른 날:</p>
+              {dates.slice(1).map((d) => {
                 const o = otherDays[d];
                 return <p key={d} className={o && o.blocked !== 0 ? "text-red-700" : ""}>{d}: {!o ? "확인 중…" : o.blocked === 0 ? "모두 생성됨" : o.blocked < 0 ? o.reasons[0] : `${o.blocked}개 막힘 — ${o.reasons.join(" / ")}`}</p>;
               })}

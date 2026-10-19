@@ -23,7 +23,7 @@ export async function autoIssueMaterialsDispatch(
   batchId: number,
   userId: number,
   tenantId: number,
-  opts?: { onlyLineIds?: number[] },
+  opts?: { onlyLineIds?: number[]; txConn?: any },
 ): Promise<AutoIssueResult> {
   const t = Number(tenantId);
   if (!Number.isFinite(t) || t <= 0) throw new Error("테넌트 정보가 필요합니다 (자동출고).");

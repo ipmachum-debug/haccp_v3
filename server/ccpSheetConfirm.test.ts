@@ -95,9 +95,10 @@ describe("isConfirmed — 확인 뒤 행이 바뀌면 무효", () => {
 
 describe("연결", () => {
   const read = (p: string) => readFileSync(join(__dirname, "..", p), "utf-8");
-  it("제출 프로시저: 상태 바꾸기 전에 검사, 자동 제출된 기록지는 확인만", () => {
+  it("제출 프로시저: 상태 바꾸기 전에 검사, 확인(검사·저장 한 트랜잭션)을 먼저 — 충돌이면 상태·결재 요청 그대로, 자동 제출된 기록지는 확인만", () => {
     const s = read("server/routers/haccp/ccpForm.router.ts");
-    expect(s).toMatch(/checkSheet\(input\.formRecordId, ctx\.tenantId\)[\s\S]*pre\.record\.status === "submitted"[\s\S]*confirmSheet/);
+    expect(s).toMatch(/checkSheet\(input\.formRecordId, ctx\.tenantId\)[\s\S]*await confirmSheet\(input\.formRecordId, ctx\.tenantId, ctx\.user\.id\);[\s\S]*pre\.record\.status === "submitted"[\s\S]*submitCcpFormRecord\(/);
+    expect(s).toMatch(/SheetConfirmConflictError" \? "CONFLICT"/);
   });
   it("행 저장·삭제는 버전을 올림(승인된 기록지 거부) · 배치 승인 관문·기록지 단독 승인은 확인을 요구", () => {
     expect(read("server/db/haccp/ccpFormRowsOps.ts").match(/bumpSheetVersion\(/g)?.length).toBe(2);

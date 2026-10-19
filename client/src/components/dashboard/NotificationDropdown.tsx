@@ -80,15 +80,12 @@ export default function NotificationDropdown() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" className="relative">
-          <Bell className="h-5 w-5" />
+        <Button variant="ghost" size="icon" aria-label="알림" data-testid="header-notifications" className="relative h-9 w-9 rounded-full text-muted-foreground hover:text-foreground">
+          <Bell className="h-[18px] w-[18px]" />
           {totalUnreadCount > 0 && (
-            <Badge
-              variant="destructive"
-              className="absolute -top-1 -right-1 h-5 w-5 flex items-center justify-center p-0 text-xs"
-            >
+            <span className="absolute top-0.5 left-[19px] min-w-[16px] h-4 px-1 rounded-full bg-rose-500 text-white text-[10px] font-semibold leading-4 text-center ring-2 ring-background tabular-nums">
               {totalUnreadCount > 9 ? "9+" : totalUnreadCount}
-            </Badge>
+            </span>
           )}
         </Button>
       </DropdownMenuTrigger>

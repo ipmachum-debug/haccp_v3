@@ -185,7 +185,7 @@ export function HeaderProfileMenu({ name, email, role, onLogout }: { name?: stri
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button type="button" aria-label="내 계정" data-testid="header-profile" className="rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
+        <button type="button" aria-label="내 계정" data-testid="header-profile" className="rounded-full p-0.5 transition-shadow hover:ring-2 hover:ring-border focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40">
           <Avatar className="h-8 w-8 border">
             <AvatarFallback className="text-[11px] font-semibold bg-primary/15 text-primary">{name?.charAt(0).toUpperCase() ?? "?"}</AvatarFallback>
           </Avatar>

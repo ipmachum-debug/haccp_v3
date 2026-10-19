@@ -36,15 +36,16 @@ describe("그날 첫 확인에서 한 번", () => {
     expect(gate).not.toMatch(/batchOrchestrator/); // lib → services 의존 금지 (depcruise)
     expect(gate).toMatch(/if \(ov\.formBlockers\.length > 0\)/);
   });
-  it("한 번만 (plan_only 1→0 을 먼저 잡음), 원료 출고 먼저 — 남은 줄이 있으면 예정으로 되돌리고 확인 완료로 만들지 않음", () => {
+  it("한 번만 (생산 건 행 잠금 뒤 plan_only 1→0), 원료 출고 먼저 — 남은 줄이 있으면 throw (호출자 롤백 → 예정·출고 모두 그대로), 실행 단계는 커밋 뒤 한 번", () => {
     const o = read("services/batchOrchestrator.ts");
-    expect(o).toMatch(/UPDATE h_batches SET plan_only = 0 WHERE id = \? AND tenant_id = \? AND plan_only = 1/);
-    expect(o).toMatch(/const revert = \(\) => conn\.execute\(\s*`UPDATE h_batches SET plan_only = 1, status = \? WHERE id = \? AND tenant_id = \?`/);
-    expect(o).toMatch(/if \(left > 0\) \{\s*await revert\(\);/);
-    // 출고 중 오류(상태 변경·출고·남은 줄 세기)도 예정으로 되돌림 — plan_only = 0 이 남으면 다시 확인할 때 출고를 건너뛴다 (#610 시범 전 재확인)
-    expect(o).toMatch(/\} catch \(e\) \{\s*try \{ await revert\(\); \}[^\n]*\n\s*throw e;/);
-    expect(o).toMatch(/throw new Error\(`원료 출고가 끝나지 않아 확인하지 않았습니다/);
+    const inTx = o.slice(o.indexOf("export async function activateBatchInTx"), o.indexOf("export async function finishBatchActivation"));
+    expect(inTx).toMatch(/WHERE b\.id = \? AND b\.tenant_id = \? FOR UPDATE/);
+    expect(inTx).toMatch(/UPDATE h_batches SET plan_only = 0, activation_pending = 1 WHERE id = \? AND tenant_id = \?/);
+    expect(inTx).toMatch(/throw new Error\(`원료 출고가 끝나지 않아 확인하지 않았습니다/);
+    expect(inTx).not.toMatch(/runExecutionSteps|plan_only = 1/); // 되돌리기 없음 — 롤백이 되돌린다
+    expect(o).toMatch(/UPDATE h_batches SET activation_pending = 0 WHERE id = \? AND tenant_id = \? AND activation_pending = 1/);
     expect(o).toMatch(/\}, \{ startDone: true \}\);/); // 출고는 위에서 끝냈으니 실행 단계는 시작 부분 건너뜀
+    expect(o).toMatch(/withTransaction\(\(conn\) => activateBatchInTx\(conn, batchId, tenantId, userId\), "ensureBatchActivated"\)/);
   });
   it("오늘 생산 목록: 예정 생산 건은 '예정' 으로 (확인 제출 할 일로 보이지 않음)", () => {
     expect(nextBatchAction({ status: "planned", approvalStatus: null, ccpForms: { total: 1, unconfirmed: 1, approved: 0 }, planOnly: true }))

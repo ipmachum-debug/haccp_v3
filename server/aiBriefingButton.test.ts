@@ -13,8 +13,12 @@ describe("AI 비서 하나 브리핑 — 버튼 + 알림 표시", () => {
     const layout = read("client/src/components/dashboard/DashboardLayout.tsx");
     expect(layout).not.toMatch(/FloatingAIBriefing/);
     expect(existsSync(join(__dirname, "..", "client/src/components/ai/FloatingAIBriefing.tsx"))).toBe(false);
-    expect(layout).toMatch(/<AIBriefingButton compact \/>\s*<NotificationDropdown \/>/);
-    expect(layout).toMatch(/<AIBriefingButton \/>\s*<NotificationDropdown \/>/);
+    expect(layout).toMatch(/<AIBriefingButton compact \/>/);
+    expect(layout).toMatch(/data-testid="header-work-tools">[^]*<AIBriefingButton \/>[^]*<HeaderAttendance \/>[^]*<\/div>\s*<span aria-hidden className="mx-4 h-6 w-px bg-border" \/>\s*<div className="flex items-center gap-1.5" data-testid="header-account">\s*<NotificationDropdown \/>/);
+  });
+  it("이름이 보인다 — 프로필 사진으로 오해하지 않게 (데스크톱 'AI 비서 하나', 모바일 'AI 하나')", () => {
+    const b = read("client/src/components/ai/AIBriefingButton.tsx");
+    expect(b).toMatch(/\{compact \? "AI 하나" : "AI 비서 하나"\}/);
   });
   it("눌렀을 때만 열림 (자동 열기 타이머 없음), '확인했습니다' 는 그날 숫자 표시만 숨김", () => {
     const b = read("client/src/components/ai/AIBriefingButton.tsx");

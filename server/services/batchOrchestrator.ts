@@ -656,13 +656,24 @@ async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean 
   return { approvalRequestId, dailyReportCreated, periodicLogsResult };
 }
 
+/** 예정 생산 건 실행 — 트랜잭션 안 부분의 결과. 커밋 뒤 finishBatchActivation 에 넘긴다 */
+export interface BatchActivation {
+  batchId: number; tenantId: number; userId: number;
+  siteId: number; workDate: string; mode: "auto" | "manual"; plannedQuantityKg: number; batchCode: string; productName: string;
+  ccpGroups: Array<{ id: number; name: string; ccp_type: string }>;
+}
+
 /**
- * 예정 생산 건 실행 (현장 1, 2026-10-19) — 미래 날짜로 만든 생산 건을 그날 처음 확인할 때.
- *   만들 때 건너뛴 실행 단계(runExecutionSteps)를 같은 코드로 한 번만 실행한다 (plan_only 1 → 0 을 먼저 잡아 동시 확인에도 한 번).
- *   예정일 전이면 막는다. 이미 실행된(또는 예정이 아닌) 생산 건이면 아무것도 하지 않는다.
+ * 예정 생산 건 실행 (현장 1, 2026-10-19 / 한 단위 2026-10-20 #611 검토 P1) — 그날 처음 확인할 때.
+ *
+ * 호출자 트랜잭션(conn) 안에서: 생산 건 행 잠금 → 예정 해제(plan_only 1→0) → 진행 중 → 원료 출고(공통 엔진, 같은 연결)
+ *   → 남은 미출고 줄 0 확인. 남은 줄이 있거나 오류면 throw — 호출자가 롤백하면 해제·출고가 모두 없던 일이 된다.
+ *   현장 확인은 이 결과와 행 확인·이력을 같은 트랜잭션으로 커밋한다 (확인·차감·기록은 함께 성공 — CEO 정책).
+ * 커밋 뒤 해야 할 일(결재 요청·일지 등 실행 단계)은 activation_pending = 1 로 남겨 두고 finishBatchActivation 이 한 번 처리한다
+ *   (커밋 뒤 프로세스가 멈춰도 다음 확인·조회 때 resumeBatchActivation 이 이어서 한다).
+ * 예정일 전이면 막는다. 이미 실행된(또는 예정이 아닌) 생산 건이면 null.
  */
-export async function ensureBatchActivated(batchId: number, tenantId: number, userId: number): Promise<{ activated: boolean }> {
-  const conn = await getRawConnection();
+export async function activateBatchInTx(conn: any, batchId: number, tenantId: number, userId: number): Promise<BatchActivation | null> {
   // 무효 처리된 생산 건은 시작·확인하지 않는다 (이력 보존형 복구 — 원본 보존)
   const { assertBatchNotVoided } = await import("../lib/production/batchVoidGuard");
   await assertBatchNotVoided(conn, batchId, tenantId);
@@ -672,61 +683,106 @@ export async function ensureBatchActivated(batchId: number, tenantId: number, us
       `SELECT b.id, b.plan_only, b.status, b.site_id, b.mode, b.planned_quantity, b.batch_code, DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS work_date,
               COALESCE(p.product_name, '') AS product_name
          FROM h_batches b LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
-        WHERE b.id = ? AND b.tenant_id = ?`,
+        WHERE b.id = ? AND b.tenant_id = ? FOR UPDATE`,
       [batchId, tenantId],
     ) as any;
   } catch (e: any) {
-    if (e?.code === "ER_BAD_FIELD_ERROR") return { activated: false }; // 컬럼 생성 전 DB — 예정 생산 건 없음
+    if (e?.code === "ER_BAD_FIELD_ERROR") return null; // 컬럼 생성 전 DB — 예정 생산 건 없음
     throw e;
   }
-  if (!row || Number(row.plan_only) !== 1) return { activated: false };
+  // 생산 건 행을 잠갔으니 같은 생산 건의 다른 첫 확인은 여기서 기다렸다가 plan_only = 0 을 보고 지나간다 (한 번만)
+  if (!row || Number(row.plan_only) !== 1) return null;
   if (String(row.work_date) > todayKST()) {
     throw new Error(`예정 생산 건입니다 — ${row.work_date} 에 확인하면 시작되고 원료가 출고됩니다.`);
   }
-  const [claim]: any = await conn.execute(`UPDATE h_batches SET plan_only = 0 WHERE id = ? AND tenant_id = ? AND plan_only = 1`, [batchId, tenantId]);
-  if (Number(claim?.affectedRows ?? 0) !== 1) return { activated: false }; // 다른 요청이 먼저 실행
+  await conn.execute(`UPDATE h_batches SET plan_only = 0, activation_pending = 1 WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
   const [gRows]: any = await conn.execute(
     `SELECT DISTINCT g.id, g.name, i.ccp_type FROM h_ccp_instances i LEFT JOIN ccp_process_groups g ON g.id = i.process_group_id AND g.tenant_id = i.tenant_id
       WHERE i.batch_id = ? AND i.tenant_id = ?`,
     [batchId, tenantId],
   );
   const ccpGroups = (gRows as any[]).map((g) => ({ id: Number(g.id), name: String(g.name ?? ""), ccp_type: String(g.ccp_type) }));
-  // 원료 출고를 먼저 — 다 출고되지 않으면 확인을 완료로 만들지 않고 예정으로 되돌린다 (CEO 정책: 확인·차감·기록은 함께 성공).
-  //   출고는 줄 단위라 성공한 줄은 남고, 다시 확인하면 남은 줄만 출고된다 (중복 차감 없음).
   const isAuto = row.mode !== "manual";
   if (isAuto && ccpGroups.length > 0) {
-    // 출고 중 어느 단계에서 오류가 나도 예정으로 되돌린다 — plan_only = 0 이 남으면 다시 확인할 때 출고를 건너뛴다.
-    const revert = () => conn.execute(
-      `UPDATE h_batches SET plan_only = 1, status = ? WHERE id = ? AND tenant_id = ?`,
-      [String(row.status ?? "planned") || "planned", batchId, tenantId],
-    );
-    let left = 0;
-    let issue: any = null;
-    try {
-      const { updateBatchStatus } = await import("../db/production/batchCRUD");
-      await updateBatchStatus(batchId, "in_progress", tenantId, { keepPlannedStart: true });
-      const { autoIssueMaterialsDispatch } = await import("../lib/production/autoMaterialIssueDispatcher");
-      const { countUnissuedBatchLines } = await import("../lib/production/issuedBatchLines");
-      issue = await autoIssueMaterialsDispatch(batchId, userId, tenantId);
-      left = await countUnissuedBatchLines(batchId, tenantId);
-    } catch (e) {
-      try { await revert(); } catch (re) { console.error("[ensureBatchActivated] 예정 되돌리기 실패:", re); }
-      throw e;
-    }
-    if (left > 0) {
-      await revert();
+    // 진행 중 — 계획 시작시각 유지 (updateBatchStatus keepPlannedStart 와 같은 규칙: 시작시각이 없을 때만 지금)
+    await conn.execute(`UPDATE h_batches SET status = 'in_progress', start_time = COALESCE(start_time, ?), updated_at = ? WHERE id = ? AND tenant_id = ?`,
+      [new Date(), new Date(), batchId, tenantId]);
+    // 원료 출고 — 공통 엔진을 같은 연결로 (줄마다 SAVEPOINT). 다 출고되지 않으면 확인하지 않는다.
+    const { autoIssueMaterialsDispatch } = await import("../lib/production/autoMaterialIssueDispatcher");
+    const { countUnissuedBatchLines } = await import("../lib/production/issuedBatchLines");
+    const issue = await autoIssueMaterialsDispatch(batchId, userId, tenantId, { txConn: conn });
+    const left = await countUnissuedBatchLines(batchId, tenantId, conn);
+    if (left > 0 || issue?.busy) {
       const why = [...(issue?.errors ?? []), ...(issue?.warnings ?? [])].slice(0, 3).join(" / ");
       throw new Error(`원료 출고가 끝나지 않아 확인하지 않았습니다 (남은 원료 ${left}줄${why ? ` — ${why}` : ""}). 재고를 확인한 뒤 다시 확인하세요.`);
     }
   }
+  return {
+    batchId, tenantId, userId, siteId: Number(row.site_id), workDate: String(row.work_date), mode: row.mode === "manual" ? "manual" : "auto",
+    plannedQuantityKg: Number(row.planned_quantity), batchCode: String(row.batch_code), productName: String(row.product_name), ccpGroups,
+  };
+}
+
+/**
+ * 커밋 뒤 실행 단계(결재 요청·일지 등, 각 단계 오류는 안에서 잡음) + 감사 기록 — activation_pending 1→0 을 먼저 잡아 한 번만.
+ */
+export async function finishBatchActivation(a: BatchActivation): Promise<void> {
+  const conn = await getRawConnection();
+  const [claim]: any = await conn.execute(`UPDATE h_batches SET activation_pending = 0 WHERE id = ? AND tenant_id = ? AND activation_pending = 1`, [a.batchId, a.tenantId]);
+  if (Number(claim?.affectedRows ?? 0) !== 1) return; // 다른 요청이 이미 처리
   await runExecutionSteps({
-    input: { tenantId, userId, siteId: Number(row.site_id), workDate: String(row.work_date), mode: row.mode === "manual" ? "manual" : "auto", endTime: undefined, plannedQuantityKg: Number(row.planned_quantity), skipGroupActions: false },
-    batchId, batchCodeFinal: String(row.batch_code), productName: String(row.product_name), ccpCreated: ccpGroups.length > 0, ccpCount: ccpGroups.length, ccpGroups,
+    input: { tenantId: a.tenantId, userId: a.userId, siteId: a.siteId, workDate: a.workDate, mode: a.mode, endTime: undefined, plannedQuantityKg: a.plannedQuantityKg, skipGroupActions: false },
+    batchId: a.batchId, batchCodeFinal: a.batchCode, productName: a.productName, ccpCreated: a.ccpGroups.length > 0, ccpCount: a.ccpGroups.length, ccpGroups: a.ccpGroups,
   }, { startDone: true });
   try {
     const { createAuditLog } = await import("../db");
-    await createAuditLog({ action: "batch.plan_activate", entityType: "batch", entityId: batchId, userId, userEmail: "", userRole: "", description: `예정 생산 건 실행 (${row.batch_code}) — 그날 첫 확인`, changes: { workDate: row.work_date } } as any, tenantId);
+    await createAuditLog({ action: "batch.plan_activate", entityType: "batch", entityId: a.batchId, userId: a.userId, userEmail: "", userRole: "", description: `예정 생산 건 실행 (${a.batchCode}) — 그날 첫 확인`, changes: { workDate: a.workDate } } as any, a.tenantId);
   } catch { /* 감사 기록 실패는 기존 방식대로 무시 */ }
+}
+
+/**
+ * 커밋 뒤 실행 단계가 남은 생산 건(프로세스 중단 등)을 이어서 처리 — 남은 게 없으면 아무것도 하지 않는다.
+ */
+export async function resumeBatchActivation(batchId: number, tenantId: number, userId: number): Promise<boolean> {
+  const conn = await getRawConnection();
+  let row: any;
+  try {
+    [[row]] = await conn.execute(
+      `SELECT b.id, b.activation_pending, b.site_id, b.mode, b.planned_quantity, b.batch_code, DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS work_date,
+              COALESCE(p.product_name, '') AS product_name
+         FROM h_batches b LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+        WHERE b.id = ? AND b.tenant_id = ?`,
+      [batchId, tenantId],
+    ) as any;
+  } catch (e: any) {
+    if (e?.code === "ER_BAD_FIELD_ERROR") return false;
+    throw e;
+  }
+  if (!row || Number(row.activation_pending) !== 1) return false;
+  const [gRows]: any = await conn.execute(
+    `SELECT DISTINCT g.id, g.name, i.ccp_type FROM h_ccp_instances i LEFT JOIN ccp_process_groups g ON g.id = i.process_group_id AND g.tenant_id = i.tenant_id
+      WHERE i.batch_id = ? AND i.tenant_id = ?`,
+    [batchId, tenantId],
+  );
+  await finishBatchActivation({
+    batchId, tenantId, userId, siteId: Number(row.site_id), workDate: String(row.work_date), mode: row.mode === "manual" ? "manual" : "auto",
+    plannedQuantityKg: Number(row.planned_quantity), batchCode: String(row.batch_code), productName: String(row.product_name),
+    ccpGroups: (gRows as any[]).map((g) => ({ id: Number(g.id), name: String(g.name ?? ""), ccp_type: String(g.ccp_type) })),
+  });
+  return true;
+}
+
+/**
+ * 예정 생산 건 실행 — 혼자 쓰는 경로(기록지 확인·제출 등). 한 트랜잭션으로 실행하고 커밋 뒤 실행 단계.
+ */
+export async function ensureBatchActivated(batchId: number, tenantId: number, userId: number): Promise<{ activated: boolean }> {
+  const { withTransaction } = await import("../db/connection");
+  const a = await withTransaction((conn) => activateBatchInTx(conn, batchId, tenantId, userId), "ensureBatchActivated");
+  if (!a) {
+    await resumeBatchActivation(batchId, tenantId, userId);
+    return { activated: false };
+  }
+  await finishBatchActivation(a);
   return { activated: true };
 }
 

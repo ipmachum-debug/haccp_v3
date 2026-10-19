@@ -20,7 +20,7 @@ describe("무효(중복) 생산 건 — 오늘 생산 목록", () => {
 
 describe("무효 생산 건은 다시 시작·확인·승인·삭제하지 않는다", () => {
   it("시작·확인(그날 첫 확인)·승인 관문·삭제·날짜 일괄 삭제가 무효 검사를 먼저 한다", () => {
-    expect(read("services/batchOrchestrator.ts")).toMatch(/export async function ensureBatchActivated[\s\S]{0,300}assertBatchNotVoided\(conn, batchId, tenantId\)/);
+    expect(read("services/batchOrchestrator.ts")).toMatch(/export async function activateBatchInTx[\s\S]{0,300}assertBatchNotVoided\(conn, batchId, tenantId\)/);
     expect(read("services/batchOrchestrator.ts")).toMatch(/assertFormNotVoided\(conn, formRecordId, tenantId\)/);
     expect(read("lib/production/batchApprovalGate.ts")).toMatch(/assertBatchNotVoided\(await getRawConnection\(\), batchId, tenantId\)/);
     const crud = read("db/production/batchCRUD.ts");

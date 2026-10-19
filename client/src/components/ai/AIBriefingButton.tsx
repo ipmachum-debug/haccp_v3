@@ -2,7 +2,7 @@
  * AI 비서 "하나" 오늘의 브리핑 — 헤더 버튼 + 알림 표시 (2026-10-20, 대표 요청)
  *
  * 이전: 로그인하면 왼쪽 아래에 말풍선이 저절로 떠서 매번 닫아야 했다 (FloatingAIBriefing).
- * 지금: 헤더(알림 종 옆)에 하나 버튼만 있고, 오늘 아직 안 본 항목이 있으면 숫자(위험이면 빨강)로 알려 준다.
+ * 지금: 헤더 업무 도구 자리에 'AI 비서 하나' 이름이 보이는 버튼, 오늘 아직 안 본 항목이 있으면 숫자(위험이면 빨강)로 알려 준다.
  *       눌렀을 때만 브리핑이 열린다. '확인했습니다' 를 누르면 그날(한국 시각) 숫자 표시가 사라진다 — 버튼은 그대로.
  *
  * 원칙: 위험(Risk) + 돈(Money) + 행동(Action) 만, 3개 이하, 결정 유도용.
@@ -72,14 +72,19 @@ export default function AIBriefingButton({ compact = false }: { compact?: boolea
         <button
           type="button"
           data-testid="ai-briefing-button"
-          title={showBadge ? `AI 비서 하나 — 오늘 확인할 것 ${count}건` : "AI 비서 하나 — 오늘의 브리핑"}
-          className={`relative flex items-center justify-center rounded-full hover:bg-accent transition-colors ${compact ? "h-9 w-9" : "h-10 w-10"}`}
+          aria-label={showBadge ? `AI 비서 하나 — 오늘 확인할 것 ${count}건` : "AI 비서 하나 — 오늘의 브리핑"}
+          title={showBadge ? `오늘 확인할 것 ${count}건` : "오늘의 브리핑"}
+          className={`group inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/70 shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-all hover:border-emerald-300 hover:shadow-[0_2px_6px_rgba(16,185,129,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40 dark:border-emerald-800/60 dark:from-slate-900 dark:to-emerald-950/40 ${compact ? "h-9 pl-0.5 pr-2" : "h-9 pl-1 pr-3"}`}
         >
-          <img src="/ai-hana-character.png" alt="하나" className={`${compact ? "h-7 w-7" : "h-8 w-8"} rounded-full object-cover object-top`} />
+          <img src="/ai-hana-character.png" alt="" className="h-7 w-7 rounded-full object-cover object-top ring-1 ring-emerald-100 dark:ring-emerald-900" />
+          {/* 이름이 보이게 — 프로필 사진으로 오해하지 않도록 (2026-10-20 대표 요청) */}
+          <span className="text-[12.5px] font-semibold tracking-tight text-emerald-900 dark:text-emerald-200 whitespace-nowrap">
+            {compact ? "AI 하나" : "AI 비서 하나"}
+          </span>
           {showBadge && (
             <span
               data-testid="ai-briefing-badge"
-              className={`absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white flex items-center justify-center border-2 border-white dark:border-card ${hasCritical ? "bg-red-500" : "bg-amber-500"}`}
+              className={`min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold text-white leading-[18px] text-center tabular-nums ${hasCritical ? "bg-rose-500" : "bg-amber-500"}`}
             >
               {count}
             </span>

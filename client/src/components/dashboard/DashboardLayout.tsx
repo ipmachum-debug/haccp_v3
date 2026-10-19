@@ -1264,19 +1264,21 @@ function DashboardLayoutContent({
         {/* 데모 모드 배너 */}
         {isDemo && <DemoBanner onLogout={logout} />}
         {isMobile && (
-          <div className="flex border-b border-border h-[72px] items-center justify-between bg-white dark:bg-card backdrop-blur-xl px-4 sticky top-0 z-40">
-            <div className="flex items-center gap-3">
-              <SidebarTrigger className="h-9 w-9 p-0 flex items-center justify-center hover:bg-accent rounded-lg transition-colors">
+          <div className="flex border-b border-border h-[72px] items-center justify-between gap-2 bg-white dark:bg-card backdrop-blur-xl px-3 sticky top-0 z-40">
+            <div className="flex min-w-0 items-center gap-2">
+              <SidebarTrigger className="h-9 w-9 shrink-0 p-0 flex items-center justify-center hover:bg-accent rounded-lg transition-colors">
                 <PanelLeft className="h-4 w-4" />
               </SidebarTrigger>
-              <span className="text-sm font-semibold tracking-tight text-foreground">
+              <span className="truncate text-sm font-semibold tracking-tight text-foreground">
                 {activeMenuItem?.label ?? "Menu"}
               </span>
             </div>
-            <div className="flex items-center gap-1">
+            {/* 헤더 정리 (2026-10-20): 검색 · 업무 도구(하나·출퇴근) | 알림 */}
+            <div className="flex shrink-0 items-center gap-0.5">
               {hubMode && <GlobalMenuSearch compact sections={hubSections} onNavigate={(p) => setLocation(p)} />}
-              {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance compact />}
               <AIBriefingButton compact />
+              {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance compact />}
+              <span aria-hidden className="mx-1 h-5 w-px bg-border" />
               <NotificationDropdown />
             </div>
           </div>
@@ -1288,14 +1290,19 @@ function DashboardLayoutContent({
                 {activeMenuItem?.label ?? ""}
               </span>
             </div>
-            {/* 헤더 우측 = 전역 공통 도구 영역 (3-a: 검색 · 출퇴근 · 알림 · 프로필) */}
-            <div className="flex items-center gap-2">
+            {/* 헤더 우측 (2026-10-20 대표 요청 정리): [검색] · [업무 도구: AI 비서 하나 · 출퇴근(낮은 강조)] | [알림 · 내 계정] — 묶음은 간격·구분선으로 */}
+            <div className="flex items-center">
               {hubMode && <GlobalMenuSearch sections={hubSections} onNavigate={(p) => setLocation(p)} />}
-              {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance />}
-              {/* AI 비서 하나 — 저절로 띄우지 않고 버튼 + 오늘 확인할 것 숫자 (2026-10-20) */}
-              <AIBriefingButton />
-              <NotificationDropdown />
-              {user && <HeaderProfileMenu name={user.name} email={user.email} role={user.role} onLogout={logout} />}
+              <div className="ml-5 flex items-center gap-1.5" data-testid="header-work-tools">
+                {/* AI 비서 하나 — 저절로 띄우지 않고 이름 보이는 버튼 + 오늘 확인할 것 숫자 */}
+                <AIBriefingButton />
+                {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance />}
+              </div>
+              <span aria-hidden className="mx-4 h-6 w-px bg-border" />
+              <div className="flex items-center gap-1.5" data-testid="header-account">
+                <NotificationDropdown />
+                {user && <HeaderProfileMenu name={user.name} email={user.email} role={user.role} onLogout={logout} />}
+              </div>
             </div>
           </div>
         )}

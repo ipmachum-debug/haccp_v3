@@ -22,7 +22,11 @@ import { todayLocal } from "../../lib/dateUtils";
 import { AlertTriangle, CheckCircle2, Loader2, Pencil, Plus, RefreshCw } from "lucide-react";
 
 type Row = any;
-type Pending = { requestId: string; action: string; values?: Record<string, any>; state: "saving" | "failed"; message?: string };
+/**
+ * 행 쓰기 상태 — saving(보내는 중) · failed(통신 실패: 저장됐는지 모름 → 같은 요청 키·같은 내용으로만 다시 보내기)
+ *   · rejected(서버가 확실히 거부: 저장 안 됨 → 이유를 보이고 그 자리 편집기로 고쳐 새 요청으로) — 2026-10-20 #611 추가 검토
+ */
+type Pending = { requestId: string; action: string; values?: Record<string, any>; state: "saving" | "failed" | "rejected"; message?: string };
 
 const rid = () => `fw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -38,6 +42,15 @@ const SENS_FIELDS: Array<{ key: string; label: string }> = [
   { key: "metalFeMid", label: "Fe 단독" }, { key: "metalSusMid", label: "SUS 단독" }, { key: "metalProductOnly", label: "제품 단독" },
   { key: "metalFeProduct", label: "Fe+제품" }, { key: "metalSusProduct", label: "SUS+제품" },
 ];
+
+/** 행 종류별 고칠 칸 */
+const editKeys = (r: Row) => (r.kind === "heat" ? HEAT_FIELDS.map((f) => f.key) : r.kind === "passage" ? ["passQty", "detectedQty"] : SENS_FIELDS.map((f) => f.key));
+/** 편집기 처음 값 — 지금 값, 거부된 요청이 보낸 값이 있으면 그 값 위에 (방금 입력을 잃지 않게) */
+function editInit(r: Row, sent?: Record<string, any>): Record<string, any> {
+  const init: Record<string, any> = { result: r.values?.result ?? "적합", deviationNote: r.values?.deviationNote ?? "", correctiveAction: r.values?.correctiveAction ?? "" };
+  for (const k of editKeys(r)) init[k] = r.values?.[k] ?? null;
+  return { ...init, ...(sent ?? {}) };
+}
 
 export default function FieldWork() {
   const [workDate, setWorkDate] = useState(todayLocal());
@@ -75,9 +88,10 @@ export default function FieldWork() {
         await utils.field.work.invalidate();
         return;
       }
-      if (code === "PRECONDITION_FAILED") {
-        // 서버가 거부 (필수값·한계기준·원료 출고 실패 등) — 저장 안 됨, 이유 표시
-        setPending((p) => ({ ...p, [row.rowId]: { requestId: rid(), action, values, state: "failed", message: e.message } }));
+      if (code === "PRECONDITION_FAILED" || code === "BAD_REQUEST") {
+        // 서버가 확실히 거부 (필수값·한계기준·원료 출고 실패 등) — 저장 안 됨. 이유를 보이고, 값 문제면 그 자리에서 고치게 편집기를 연다
+        setPending((p) => ({ ...p, [row.rowId]: { requestId: rid(), action, values, state: "rejected", message: e.message } }));
+        if (action !== "pass_start") setEditing((x) => (x[row.rowId] ? x : { ...x, [row.rowId]: editInit(row, values) }));
         return;
       }
       // 통신 실패 — 서버 저장 여부를 모른다. 같은 요청 키로 다시 보내면 두 번 기록되지 않는다
@@ -95,8 +109,15 @@ export default function FieldWork() {
   }, [metal]);
   const todo = heat.filter((r) => !r.confirmed).length + (metal?.rows ?? []).filter((r: Row) => !r.confirmed).length;
 
+  /** 보내는 중이거나 저장 여부를 모르는 행 — 다른 동작을 막는다 (거부된 행은 막지 않음: 고쳐서 다시) */
+  const busy = (r: Row) => pending[r.rowId]?.state === "saving" || pending[r.rowId]?.state === "failed";
   const rowStatus = (r: Row) => {
     const p = pending[r.rowId];
+    if (p?.state === "rejected") return (
+      <span className="text-xs text-red-700 flex flex-wrap items-center gap-1" data-testid="rejected">
+        <AlertTriangle className="h-3 w-3" />확인 안 됨 — {p.message}{p.action !== "pass_start" ? " · 아래에서 값을 고쳐 다시 확인하세요" : ""}
+      </span>
+    );
     if (p?.state === "saving") return <span className="text-xs text-blue-700 flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />저장 중</span>;
     if (p?.state === "failed") return (
       <span className="text-xs text-red-700 flex flex-wrap items-center gap-1" data-testid="not-saved">
@@ -141,18 +162,16 @@ export default function FieldWork() {
           </div>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button className="h-11" onClick={() => send(r, r.kind === "passage" ? "pass_end" : "confirm", e)} disabled={pending[r.rowId]?.state === "saving"}>고친 값으로 확인</Button>
-          <Button variant="outline" className="h-11" onClick={() => send(r, "edit", e)} disabled={pending[r.rowId]?.state === "saving"}>고치기만 저장</Button>
-          <Button variant="ghost" className="h-11" onClick={() => setEditing((x) => { const n = { ...x }; delete n[r.rowId]; return n; })}>취소</Button>
+          <Button className="h-11" onClick={() => send(r, r.kind === "passage" ? "pass_end" : "confirm", e)} disabled={busy(r)}>고친 값으로 확인</Button>
+          <Button variant="outline" className="h-11" onClick={() => send(r, "edit", e)} disabled={busy(r)}>고치기만 저장</Button>
+          <Button variant="ghost" className="h-11" onClick={() => { setEditing((x) => { const n = { ...x }; delete n[r.rowId]; return n; }); setPending((p) => { if (p[r.rowId]?.state !== "rejected") return p; const n = { ...p }; delete n[r.rowId]; return n; }); }}>취소</Button>
         </div>
       </div>
     );
   };
-  const startEdit = (r: Row, keys: string[]) => {
+  const startEdit = (r: Row) => {
     if (r.confirmed && !window.confirm("이미 확인한 행입니다. 고치면 그 확인은 무효가 되고 다시 확인해야 합니다. 고칠까요?")) return;
-    const init: Record<string, any> = { result: r.values?.result ?? "적합", deviationNote: r.values?.deviationNote ?? "", correctiveAction: r.values?.correctiveAction ?? "" };
-    for (const k of keys) init[k] = r.values?.[k] ?? null;
-    setEditing((x) => ({ ...x, [r.rowId]: init }));
+    setEditing((x) => ({ ...x, [r.rowId]: editInit(r) }));
   };
 
   const content = (
@@ -198,8 +217,8 @@ export default function FieldWork() {
                 {r.values?.result && r.values.result !== "적합" ? ` · ${r.values.result}` : ""}
               </p>
               <div className="flex flex-wrap gap-2 mt-2">
-                {!r.confirmed && !editing[r.rowId] && !pending[r.rowId] && <Button className="h-12 px-6" onClick={() => send(r, "confirm")} data-testid="confirm">확인</Button>}
-                {!editing[r.rowId] && !pending[r.rowId] && <Button variant="outline" className="h-12" onClick={() => startEdit(r, HEAT_FIELDS.map((f) => f.key))}><Pencil className="h-4 w-4 mr-1" />고치기</Button>}
+                {!r.confirmed && !editing[r.rowId] && !busy(r) && <Button className="h-12 px-6" onClick={() => send(r, "confirm")} data-testid="confirm">확인</Button>}
+                {!editing[r.rowId] && !busy(r) && <Button variant="outline" className="h-12" onClick={() => startEdit(r)}><Pencil className="h-4 w-4 mr-1" />고치기</Button>}
               </div>
               {editor(r, HEAT_FIELDS, "number")}
             </div>
@@ -230,10 +249,10 @@ export default function FieldWork() {
                       <span className="ml-auto">{rowStatus(r)}</span>
                     </div>
                     <div className="flex flex-wrap gap-2 mt-2">
-                      {!pending[r.rowId] && r.kind === "passage" && !r.values?.passTimeStart && <Button className="h-12 px-6" onClick={() => send(r, "pass_start")} data-testid="pass-start">통과 시작</Button>}
-                      {!pending[r.rowId] && r.kind === "passage" && r.values?.passTimeStart && !r.confirmed && !editing[r.rowId] && <Button className="h-12 px-6" onClick={() => send(r, "pass_end")} data-testid="pass-end">통과 종료</Button>}
-                      {!pending[r.rowId] && r.kind === "sensitivity" && !r.confirmed && !editing[r.rowId] && <Button className="h-12 px-6" onClick={() => send(r, "confirm")} data-testid="confirm">확인</Button>}
-                      {!editing[r.rowId] && !pending[r.rowId] && <Button variant="outline" className="h-12" onClick={() => startEdit(r, r.kind === "passage" ? ["passQty", "detectedQty"] : SENS_FIELDS.map((f) => f.key))}><Pencil className="h-4 w-4 mr-1" />고치기</Button>}
+                      {!busy(r) && r.kind === "passage" && !r.values?.passTimeStart && <Button className="h-12 px-6" onClick={() => send(r, "pass_start")} data-testid="pass-start">통과 시작</Button>}
+                      {!busy(r) && r.kind === "passage" && r.values?.passTimeStart && !r.confirmed && !editing[r.rowId] && <Button className="h-12 px-6" onClick={() => send(r, "pass_end")} data-testid="pass-end">통과 종료</Button>}
+                      {!busy(r) && r.kind === "sensitivity" && !r.confirmed && !editing[r.rowId] && <Button className="h-12 px-6" onClick={() => send(r, "confirm")} data-testid="confirm">확인</Button>}
+                      {!editing[r.rowId] && !busy(r) && <Button variant="outline" className="h-12" onClick={() => startEdit(r)}><Pencil className="h-4 w-4 mr-1" />고치기</Button>}
                     </div>
                     {r.kind === "passage" ? editor(r, [{ key: "passQty", label: "통과량" }, { key: "detectedQty", label: "검출" }], "number") : editor(r, SENS_FIELDS, "ox")}
                   </div>

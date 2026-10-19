@@ -8,6 +8,12 @@
  *   - 검출기: 기록지에 정한 검출기(없으면 회사의 첫 활성 금속검출기)를 행에 기록
  * 사람이 손댄 행(행 버전 > 0·시각 있음·확인됨)은 지우거나 덮어쓰지 않는다. 손대지 않은 행만 맞춘다 (생산 건이 빠지면 그 행 삭제, 수량 갱신).
  * 무효 처리된 생산 건(voided_at)·취소 건은 뺀다.
+ *
+ * 통과 행의 정체성 (2026-10-20, #611 추가 검토 3): 생산 건 + SKU 번호(sku_id) — 이름으로 합치지 않는다.
+ *   - 생산 건에 수량 > 0 인 SKU 실적이 하나라도 있으면 SKU 마다 한 줄(그 SKU 판매단위·수량). 수량 0 인 SKU 는 행을 만들지 않는다.
+ *   - SKU 실적이 없으면 생산 건 하나에 kg 한 줄 — 계획 kg 를 소수 3자리까지 그대로 (20.286kg 를 20 으로 자르지 않음).
+ *   - 서로 다른 SKU 는 이름이 같아도 따로, 단위가 다르면 더하지 않는다.
+ *   - 예전에 이름으로 만든 행(sku_id 없음)을 사람이 이미 손댔으면 그 생산 건의 통과 행은 그대로 둔다 (중복 행을 만들지 않음, 다시 쓰지 않음).
  */
 
 const SENS_NORMAL = { metal_fe_mid: "O", metal_sus_mid: "O", metal_product_only: "X", metal_fe_product: "O", metal_sus_product: "O" };
@@ -39,23 +45,10 @@ export async function syncFieldMetalRows(conn: any, p: { formRecordId: number; t
       ORDER BY COALESCE(b.day_batch_group, CONCAT('_', b.id)), b.batch_order, b.id, ps.sku_code`,
     [tenantId, workDate],
   );
-  type Want = { batchId: number; name: string; product: string; qty: number; unit: string };
-  const wants: Want[] = [];
-  const seen = new Set<string>();
-  for (const r of src as any[]) {
-    const skuQty = Number(r.sku_quantity) || 0;
-    const name = r.sku_id && skuQty > 0 ? String(r.sku_name ?? r.product_name) : String(r.product_name);
-    const key = `${r.batch_id}|${name}`;
-    if (seen.has(key)) {
-      if (skuQty > 0) { const w = wants.find((x) => `${x.batchId}|${x.name}` === key); if (w) w.qty += skuQty; }
-      continue;
-    }
-    seen.add(key);
-    wants.push({ batchId: Number(r.batch_id), name, product: String(r.product_name), qty: skuQty > 0 ? skuQty : Math.round(Number(r.planned_quantity) || 0), unit: skuQty > 0 ? String(r.sales_unit || "ea") : "kg" });
-  }
+  const wants = passageWants(src as any[]);
 
   const [ex]: any = await conn.execute(
-    `SELECT id, batch_seq, equipment_type, product_name, batch_id, note, pass_qty, pass_unit, pass_time_start, pass_time_end, metal_pass_time,
+    `SELECT id, batch_seq, equipment_type, product_name, batch_id, sku_id, note, pass_qty, pass_unit, pass_time_start, pass_time_end, metal_pass_time,
             row_version, row_confirmed_at
        FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ? ORDER BY batch_seq, id`,
     [formRecordId, tenantId],
@@ -65,29 +58,34 @@ export async function syncFieldMetalRows(conn: any, p: { formRecordId: number; t
   let seq = rows.reduce((m, r) => Math.max(m, Number(r.batch_seq) || 0), 0);
   let changed = 0;
 
-  // 통과 행
+  // 통과 행 — 생산 건 + SKU 번호로 맞춘다
   const passRows = rows.filter((r) => r.equipment_type === "passage");
+  const keyOfRow = (r: any) => passageKey(Number(r.batch_id), r.sku_id != null ? Number(r.sku_id) : null, String(r.pass_unit ?? "kg"));
+  const wantKeys = new Set(wants.map((w) => passageKey(w.batchId, w.skuId, w.unit)));
+  // SKU 번호 없는 예전 행을 사람이 손댔는데 지금 구성과 맞지 않는 생산 건 — 새 행을 만들지 않는다 (중복 방지·재작성 금지)
+  const frozenBatches = new Set(passRows.filter((r) => r.sku_id == null && touched(r) && !wantKeys.has(keyOfRow(r))).map((r) => Number(r.batch_id)));
   for (const w of wants) {
-    const hit = passRows.find((r) => Number(r.batch_id) === w.batchId && String(r.product_name ?? "") === w.name);
+    const k = passageKey(w.batchId, w.skuId, w.unit);
+    const hit = passRows.find((r) => keyOfRow(r) === k);
     if (hit) {
-      if (!touched(hit) && (Number(hit.pass_qty) !== w.qty || String(hit.pass_unit ?? "") !== w.unit)) {
-        await conn.execute(`UPDATE h_ccp_form_rows SET pass_qty = ?, pass_unit = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`, [w.qty, w.unit, hit.id, tenantId]);
+      if (!touched(hit) && (Math.abs(Number(hit.pass_qty) - w.qty) > 0.0005 || String(hit.pass_unit ?? "") !== w.unit || String(hit.product_name ?? "") !== w.name)) {
+        await conn.execute(`UPDATE h_ccp_form_rows SET pass_qty = ?, pass_unit = ?, product_name = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`, [w.qty, w.unit, w.name, hit.id, tenantId]);
         changed++;
       }
       continue;
     }
+    if (frozenBatches.has(w.batchId)) continue;
     seq++;
     await conn.execute(
-      `INSERT INTO h_ccp_form_rows (tenant_id, form_record_id, batch_seq, equipment_id, equipment_name, equipment_type, product_name, batch_id,
+      `INSERT INTO h_ccp_form_rows (tenant_id, form_record_id, batch_seq, equipment_id, equipment_name, equipment_type, product_name, batch_id, sku_id,
                                     pass_qty, pass_unit, detected_qty, result, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'passage', ?, ?, ?, ?, 0, '적합', NOW(), NOW())`,
-      [tenantId, formRecordId, seq, detectorId, detectorName, w.name, w.batchId, w.qty, w.unit],
+       VALUES (?, ?, ?, ?, ?, 'passage', ?, ?, ?, ?, ?, 0, '적합', NOW(), NOW())`,
+      [tenantId, formRecordId, seq, detectorId, detectorName, w.name, w.batchId, w.skuId, w.qty, w.unit],
     );
     changed++;
   }
   for (const r of passRows) {
-    const still = wants.some((w) => Number(r.batch_id) === w.batchId && String(r.product_name ?? "") === w.name);
-    if (!still && !touched(r)) {
+    if (!wantKeys.has(keyOfRow(r)) && !touched(r)) {
       await conn.execute(`DELETE FROM h_ccp_form_rows WHERE id = ? AND tenant_id = ?`, [r.id, tenantId]);
       changed++;
     }
@@ -125,3 +123,41 @@ export async function syncFieldMetalRows(conn: any, p: { formRecordId: number; t
 }
 
 export const SENSITIVITY_NORMAL = SENS_NORMAL;
+
+export type PassageWant = { batchId: number; skuId: number | null; name: string; product: string; qty: number; unit: string };
+const r3 = (x: number) => Math.round(x * 1000) / 1000;
+export const passageKey = (batchId: number, skuId: number | null, unit: string) => `${batchId}|${skuId ?? "-"}|${skuId == null ? "kg" : unit}`;
+
+/**
+ * 그날 생산 건·SKU 실적 → 통과 행 목록 (순수 함수, 순서 = 입력 순서).
+ *   생산 건에 수량 > 0 SKU 가 있으면 SKU 번호마다 한 줄(같은 SKU 번호가 여러 실적 행이면 수량 합 — 같은 SKU 는 단위가 하나),
+ *   없으면 계획 kg 한 줄(소수 3자리). 이름은 표시용일 뿐 합치는 기준이 아니다.
+ */
+export function passageWants(src: Array<{ batch_id: unknown; planned_quantity: unknown; product_name: unknown; sku_id: unknown; sku_name: unknown; sales_unit: unknown; sku_quantity: unknown }>): PassageWant[] {
+  const order: number[] = [];
+  const byBatch = new Map<number, typeof src>();
+  for (const r of src) {
+    const b = Number(r.batch_id);
+    if (!byBatch.has(b)) { byBatch.set(b, []); order.push(b); }
+    byBatch.get(b)!.push(r);
+  }
+  const out: PassageWant[] = [];
+  for (const b of order) {
+    const rs = byBatch.get(b)!;
+    const product = String(rs[0].product_name ?? "");
+    const skus = rs.filter((r) => r.sku_id != null && Number(r.sku_quantity) > 0);
+    if (skus.length) {
+      const bySku = new Map<number, PassageWant>();
+      for (const r of skus) {
+        const id = Number(r.sku_id);
+        const cur = bySku.get(id);
+        if (cur) cur.qty += Number(r.sku_quantity);
+        else bySku.set(id, { batchId: b, skuId: id, name: String(r.sku_name ?? product), product, qty: Number(r.sku_quantity), unit: String(r.sales_unit || "ea") });
+      }
+      out.push(...Array.from(bySku.values()));
+    } else {
+      out.push({ batchId: b, skuId: null, name: product, product, qty: r3(Number(rs[0].planned_quantity) || 0), unit: "kg" });
+    }
+  }
+  return out;
+}
