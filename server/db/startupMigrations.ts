@@ -743,6 +743,47 @@ async function ensureMassBasisSchema(conn: any) {
   } catch (err: any) {
     console.warn("[Migration] h_batch_recoveries / h_recovery_archive failed:", err.message);
   }
+  // 원장 중복 정리 (2026-10-19, 별도 작업 — 생산 건 복구와 다른 번호): 같은 사용 사건이 원장에 두 번(원래 출고 + 보충 출고) 남은 경우
+  //   원본을 지우거나 메모를 덮어쓰지 않고, 사건(투입 줄)·원 거래·보충 거래·정본 원료를 잇고 원장 전용 상계(LOT 변화 없음)를 붙인다.
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS h_ledger_dedup_cases (
+      id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      tenant_id int NOT NULL,
+      case_key varchar(100) NOT NULL,
+      material_id bigint NOT NULL,
+      reason varchar(500) NOT NULL,
+      plan_json json NOT NULL,
+      fingerprint varchar(64) NOT NULL,
+      summary_json json NULL,
+      executed_by int NOT NULL,
+      executed_at datetime NOT NULL,
+      UNIQUE KEY uq_ldc_tenant_key (tenant_id, case_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    await conn.query(`CREATE TABLE IF NOT EXISTS h_ledger_event_links (
+      id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      tenant_id int NOT NULL,
+      case_id bigint NOT NULL,
+      event_key varchar(100) NOT NULL,
+      batch_id bigint NOT NULL,
+      batch_input_id bigint NOT NULL,
+      canonical_material_id bigint NOT NULL,
+      original_tx_id bigint NOT NULL,
+      backfill_tx_id bigint NOT NULL,
+      classification varchar(30) NOT NULL,
+      physical_tx_id bigint NULL,
+      duplicate_tx_id bigint NOT NULL,
+      offset_tx_id bigint NULL,
+      quantity decimal(12,3) NOT NULL,
+      status varchar(30) NOT NULL,
+      note varchar(500) NULL,
+      created_at datetime NOT NULL,
+      UNIQUE KEY uq_lel_tenant_event (tenant_id, event_key),
+      UNIQUE KEY uq_lel_tenant_dup (tenant_id, duplicate_tx_id),
+      KEY idx_lel_case (tenant_id, case_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  } catch (err: any) {
+    console.warn("[Migration] h_ledger_dedup_cases / h_ledger_event_links failed:", err.message);
+  }
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS h_batch_mass_basis (
       batch_id bigint NOT NULL PRIMARY KEY,
@@ -1073,6 +1114,8 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_inventory_transactions", column: "reversal_of_id", why: "역거래 → 원 거래" },
   { table: "h_batch_recoveries", column: "recovery_key", why: "복구 실행 1회" },
   { table: "h_recovery_archive", column: "row_json", why: "복구 원본 보관" },
+  { table: "h_ledger_dedup_cases", column: "case_key", why: "원장 중복 정리 1회" },
+  { table: "h_ledger_event_links", column: "event_key", why: "원장 중복 정리 — 사건·원 거래·보충 거래 연결" },
   { table: "h_batch_mass_basis", column: "rows_json", why: "배치 기준 스냅샷 (PR B)" },
   { table: "h_batch_mass_basis", column: "sub_batch_kg", why: "CCP 행 기준량 고정 (PR C 후속)" },
   // 회사별 기능 선택 — 조회 실패를 '꺼짐' 으로 보지 않으므로(#547 검토 P1) 표가 반드시 있어야 한다
@@ -1145,6 +1188,9 @@ export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; colu
   { table: "h_inbound_inspections", index: "uq_ibi_tenant_line_seq", columns: ["tenant_id", "inbound_line_id", "seq"], why: "검수 이력 순번 중복 방지" },
   { table: "h_inventory_transactions", index: "uq_invtx_tenant_reversal", columns: ["tenant_id", "reversal_of_id"], why: "원 거래당 역거래 하나 (복구 재시도·동시 실행)" },
   { table: "h_batch_recoveries", index: "uq_br_tenant_key", columns: ["tenant_id", "recovery_key"], why: "복구 키 한 번" },
+  { table: "h_ledger_dedup_cases", index: "uq_ldc_tenant_key", columns: ["tenant_id", "case_key"], why: "원장 정리 키 한 번" },
+  { table: "h_ledger_event_links", index: "uq_lel_tenant_event", columns: ["tenant_id", "event_key"], why: "사건당 연결 하나" },
+  { table: "h_ledger_event_links", index: "uq_lel_tenant_dup", columns: ["tenant_id", "duplicate_tx_id"], why: "중복 거래당 정리 하나" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {

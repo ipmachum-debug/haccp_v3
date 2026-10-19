@@ -29,7 +29,7 @@ import { reconcileNegativeLots, createNegativePlaceholderLot } from "../inventor
 import { NoLotsForNegativeError, type FefoAllocation } from "../inventory/fefoLotAllocation";
 import { eq, and, sql } from "drizzle-orm";
 import { toInventoryMaterialId, resolvePriceFallback } from "../identity/itemIdentityService";
-import { getIssuedBatchLineIds } from "./issuedBatchLines";
+import { getIssuedBatchLineIds, isBatchLineRepresented } from "./issuedBatchLines";
 import {
   ensureProductionLogForBatch,
   insertInventoryDeductionLog,
@@ -362,13 +362,8 @@ export async function autoIssueMaterialsForBatch(
           }
           const lineQty = parseFloat((row.actual_quantity ?? row.planned_quantity)?.toString() || "0");
           if (!(lineQty > 0)) return null;
-          //   구형 출고 유형(batch_completion) 도 같은 조건으로 (Codex #552 검토 P2)
-          const [led]: any = await conn.execute(
-            `SELECT COUNT(*) AS n FROM h_inventory_transactions
-              WHERE tenant_id = ? AND source_type IN ('BATCH', 'batch_completion') AND source_id = ? AND source_line_id = ? AND transaction_type = 'usage'`,
-            [tenantId, batchId, input.id],
-          );
-          if (Number((led as any[])[0]?.n ?? 0) > 0) return null;
+          //   구형 출고 유형(batch_completion)·투입 참조·배치 단위 옛 보충 출고까지 같은 조건으로 (Codex #552 검토 P2, 2026-10-19 원장 중복)
+          if (await isBatchLineRepresented(conn, Number(input.id), tenantId)) return null;
 
           // (b) 음수 허용: 이전 음수 LOT 상쇄 (같은 트랜잭션)
           if (allowNegative) {
