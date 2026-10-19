@@ -669,7 +669,7 @@ export async function ensureBatchActivated(batchId: number, tenantId: number, us
   let row: any;
   try {
     [[row]] = await conn.execute(
-      `SELECT b.id, b.plan_only, b.site_id, b.mode, b.planned_quantity, b.batch_code, DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS work_date,
+      `SELECT b.id, b.plan_only, b.status, b.site_id, b.mode, b.planned_quantity, b.batch_code, DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS work_date,
               COALESCE(p.product_name, '') AS product_name
          FROM h_batches b LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
         WHERE b.id = ? AND b.tenant_id = ?`,
@@ -695,14 +695,26 @@ export async function ensureBatchActivated(batchId: number, tenantId: number, us
   //   출고는 줄 단위라 성공한 줄은 남고, 다시 확인하면 남은 줄만 출고된다 (중복 차감 없음).
   const isAuto = row.mode !== "manual";
   if (isAuto && ccpGroups.length > 0) {
-    const { updateBatchStatus } = await import("../db/production/batchCRUD");
-    await updateBatchStatus(batchId, "in_progress", tenantId, { keepPlannedStart: true });
-    const { autoIssueMaterialsDispatch } = await import("../lib/production/autoMaterialIssueDispatcher");
-    const { countUnissuedBatchLines } = await import("../lib/production/issuedBatchLines");
-    const issue = await autoIssueMaterialsDispatch(batchId, userId, tenantId);
-    const left = await countUnissuedBatchLines(batchId, tenantId);
+    // 출고 중 어느 단계에서 오류가 나도 예정으로 되돌린다 — plan_only = 0 이 남으면 다시 확인할 때 출고를 건너뛴다.
+    const revert = () => conn.execute(
+      `UPDATE h_batches SET plan_only = 1, status = ? WHERE id = ? AND tenant_id = ?`,
+      [String(row.status ?? "planned") || "planned", batchId, tenantId],
+    );
+    let left = 0;
+    let issue: any = null;
+    try {
+      const { updateBatchStatus } = await import("../db/production/batchCRUD");
+      await updateBatchStatus(batchId, "in_progress", tenantId, { keepPlannedStart: true });
+      const { autoIssueMaterialsDispatch } = await import("../lib/production/autoMaterialIssueDispatcher");
+      const { countUnissuedBatchLines } = await import("../lib/production/issuedBatchLines");
+      issue = await autoIssueMaterialsDispatch(batchId, userId, tenantId);
+      left = await countUnissuedBatchLines(batchId, tenantId);
+    } catch (e) {
+      try { await revert(); } catch (re) { console.error("[ensureBatchActivated] 예정 되돌리기 실패:", re); }
+      throw e;
+    }
     if (left > 0) {
-      await conn.execute(`UPDATE h_batches SET plan_only = 1, status = 'planned' WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
+      await revert();
       const why = [...(issue?.errors ?? []), ...(issue?.warnings ?? [])].slice(0, 3).join(" / ");
       throw new Error(`원료 출고가 끝나지 않아 확인하지 않았습니다 (남은 원료 ${left}줄${why ? ` — ${why}` : ""}). 재고를 확인한 뒤 다시 확인하세요.`);
     }

@@ -167,6 +167,9 @@ export async function allocateLotsFEFO(
   const sinkCond = lotSinkableOnSql(refDate);
 
   // 1. 유통기한 순으로 사용 가능한 LOT 조회 (tenant_id 필터 적용)
+  //   ★ 2026-10-20 (#610 시범 전 재확인): 원료를 알면 그 원료의 LOT 만 — 재고 묶음(inventory_id)에 다른 원료 LOT 이
+  //   잘못 묶인 옛 데이터가 있어(예: 가루 원료 묶음에 쌀 LOT) 그 LOT 을 고르면 관문(applyLotDelta)이 거부해
+  //   그 원료는 영영 출고되지 않았다. 다른 원료 LOT 은 처음부터 후보에서 뺀다 (데이터는 고치지 않음).
   let availableLots = await db
     .select({
       id: hInventoryLots.id,
@@ -179,6 +182,7 @@ export async function allocateLotsFEFO(
       and(
         eq(hInventoryLots.inventoryId, inventoryId),
         eq(hInventoryLots.tenantId, tenantId),
+        materialId ? eq(hInventoryLots.materialId, materialId) : undefined,
         gte(hInventoryLots.availableQuantity, 0.001 as any),  // 재고 > 0
         eligibleCond,
         asOfCond

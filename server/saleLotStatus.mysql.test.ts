@@ -3464,6 +3464,90 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       }
     });
 
+    it("#610 시범 전 재확인: 단순 미출고 줄 — 판정 없이 '실제 투입 확인 — 출고' 한 번, 공통 출고 엔진으로 그 줄만 · 실패하면 확인은 남고 '다시 출고' 만", async () => {
+      const F = 9717, G = 9718;
+      const { classifyBatchLines, countUnissuedBatchLines } = await import("./lib/production/issuedBatchLines");
+      const { issueLineNow } = await import("./lib/production/lineIssueDecision");
+      await q(`DELETE FROM h_batch_line_issue_decisions WHERE tenant_id = ?`, [T]);
+      await q(`DELETE FROM audit_logs WHERE action = 'batch_input.issue_decision'`);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, mode, plan_only, created_by) VALUES
+        (?, ?, 1, 'R-F', 99901, 30, '2026-04-25', 'in_progress', 'auto', 0, 4), (?, ?, 1, 'R-G', 99901, 30, '2026-04-26', 'planned', 'auto', 1, 4)`, [F, T, G, T]);
+      await q(`INSERT INTO h_batch_inputs (id, batch_id, tenant_id, material_id, planned_quantity, actual_quantity, unit, inventory_deducted, issue_hold, issue_hold_reason) VALUES
+        (97171, ?, ?, ?, 3, NULL, 'kg', 0, 0, NULL), (97172, ?, ?, ?, 2, NULL, 'kg', 0, 1, '시험 보류'), (97173, ?, ?, 99977, 1, NULL, 'kg', 0, 0, NULL),
+        (97174, ?, ?, ?, 1000, NULL, 'kg', 0, 0, NULL), (97181, ?, ?, ?, 1, NULL, 'kg', 0, 0, NULL)`, [F, T, M, F, T, M, F, T, F, T, M, G, T, M]);
+      const lineTx = async (id: number) => (await q(`SELECT lot_id, quantity + 0 AS qty, transaction_date FROM h_inventory_transactions WHERE tenant_id = ? AND source_line_id = ? AND transaction_type = 'usage'`, [T, id]));
+      const decisions = async (id: number) => Number((await q(`SELECT COUNT(*) AS n FROM h_batch_line_issue_decisions WHERE tenant_id = ? AND batch_input_id = ?`, [T, id]))[0].n);
+      try {
+        expect(await countUnissuedBatchLines(F, T)).toBe(4);
+        // 1) 단순 미출고 줄 — 이 줄만, LOT 연결, 날짜 = 생산일. 같은 배치의 다른 미출고 줄은 그대로
+        const r1 = await issueLineNow({ tenantId: T, batchInputId: 97171, userId: 4 });
+        expect(r1.issued).toBe(true);
+        const t1 = await lineTx(97171);
+        expect(t1.reduce((a: number, x: any) => a + Number(x.qty), 0)).toBe(3);
+        expect(t1.every((x: any) => x.lot_id != null)).toBe(true);
+        expect(String(t1[0].transaction_date).slice(0, 10) === "2026-04-25" || new Date(t1[0].transaction_date).toISOString().startsWith("2026-04-2")).toBe(true);
+        expect((await lineTx(97174)).length + (await lineTx(97172)).length + (await lineTx(97173)).length).toBe(0);
+        expect(await decisions(97171)).toBe(1);
+        // 다시 눌러도(중복 클릭) 한 번 — 출고·확인 기록 그대로
+        expect((await issueLineNow({ tenantId: T, batchInputId: 97171, userId: 4 })).messages).toEqual(["이미 출고된 줄입니다."]);
+        expect((await lineTx(97171)).length).toBe(t1.length);
+        expect(await decisions(97171)).toBe(1);
+        // 2) 보류 줄 — 확인하면 보류 해제 + 출고
+        expect((await issueLineNow({ tenantId: T, batchInputId: 97172, userId: 4 })).issued).toBe(true);
+        expect(Number((await q(`SELECT issue_hold FROM h_batch_inputs WHERE id = 97172`))[0].issue_hold)).toBe(0);
+        // 3) 원료 연결이 FK 로 확인되지 않으면 거부 — 확인 기록도 안 남김 / 예정 생산 건 거부 / 다른 회사 거부
+        await expect(issueLineNow({ tenantId: T, batchInputId: 97173, userId: 4 })).rejects.toThrow(/원료 연결/);
+        expect(await decisions(97173)).toBe(0);
+        await expect(issueLineNow({ tenantId: T, batchInputId: 97181, userId: 4 })).rejects.toThrow(/예정 생산 건/);
+        await expect(issueLineNow({ tenantId: T + 1, batchInputId: 97174, userId: 4 })).rejects.toThrow(/이 회사의 투입 줄이 아닙니다/);
+        // 4) 출고 실패(재고 부족 + 음수 금지 회사) → 확인 기록은 남고 미출고 / 고친 뒤 다시 출고 — 판정 기록은 늘지 않음
+        process.env.INVENTORY_ALLOW_NEGATIVE_DENY_TENANTS = String(T);
+        let r4: any;
+        try { r4 = await issueLineNow({ tenantId: T, batchInputId: 97174, userId: 4 }); } finally { delete process.env.INVENTORY_ALLOW_NEGATIVE_DENY_TENANTS; }
+        expect(r4.issued).toBe(false);
+        expect(r4.messages.length).toBeGreaterThan(0);
+        expect((await classifyBatchLines(F, T)).get(97174)!.decision).toBe("issue_new");
+        expect((await lineTx(97174)).length).toBe(0);
+        expect((await issueLineNow({ tenantId: T, batchInputId: 97174, userId: 4 })).issued).toBe(true);
+        expect(await decisions(97174)).toBe(1);
+        expect(await countUnissuedBatchLines(F, T)).toBe(1); // 연결 안 된 97173 만 남음
+        expect(Number((await q(`SELECT plan_only FROM h_batches WHERE id = ?`, [G]))[0].plan_only)).toBe(1);
+      } finally {
+        delete process.env.INVENTORY_ALLOW_NEGATIVE_DENY_TENANTS;
+        await q(`DELETE FROM h_inventory_transactions WHERE tenant_id = ? AND source_id IN (?, ?)`, [T, F, G]);
+        await q(`DELETE FROM h_batch_line_issue_decisions WHERE tenant_id = ?`, [T]);
+        await q(`DELETE FROM h_batch_inputs WHERE batch_id IN (?, ?)`, [F, G]);
+        await q(`DELETE FROM h_batches WHERE id IN (?, ?)`, [F, G]);
+      }
+    });
+
+    it("#610 시범 전 재확인: 재고 묶음(inventory_id)에 다른 원료 LOT 이 잘못 묶여 있어도 그 LOT 은 고르지 않는다 — 같은 원료 LOT 으로 출고 (데이터는 그대로)", async () => {
+      const H = 9719, OTHER = 9720;
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (?, ?, 'OTHER-T', '다른 원료(시험)')`, [OTHER, T]);
+      const [[inv]]: any = await admin.query(`SELECT id FROM h_inventory WHERE tenant_id = ? AND material_id = ?`, [T, M]);
+      // 이 원료 묶음에 다른 원료 LOT (기한이 더 빨라 FEFO 가 먼저 고르려 함)
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, inventory_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status, expiry_date) VALUES (9723, ?, ?, ?, 'L-WRONG', 500, 500, 500, 'kg', 'available', '2027-01-01')`, [T, inv.id, OTHER]);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, mode, plan_only, created_by) VALUES (?, ?, 1, 'R-H', 99901, 30, '2026-04-27', 'in_progress', 'auto', 0, 4)`, [H, T]);
+      await q(`INSERT INTO h_batch_inputs (id, batch_id, tenant_id, material_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES (97191, ?, ?, ?, 3, NULL, 'kg', 0)`, [H, T, M]);
+      try {
+        const { issueLineNow } = await import("./lib/production/lineIssueDecision");
+        const r = await issueLineNow({ tenantId: T, batchInputId: 97191, userId: 4 });
+        expect(r).toMatchObject({ issued: true });
+        const tx = await q(`SELECT lot_id FROM h_inventory_transactions WHERE tenant_id = ? AND source_line_id = 97191`, [T]);
+        expect(tx.length).toBeGreaterThan(0);
+        expect(tx.every((t: any) => [9721, 9722].includes(Number(t.lot_id)))).toBe(true);
+        const wrong = (await q(`SELECT inventory_id, material_id, current_quantity + 0 AS cq FROM h_inventory_lots WHERE id = 9723`))[0];
+        expect([Number(wrong.inventory_id), Number(wrong.material_id), Number(wrong.cq)]).toEqual([Number(inv.id), OTHER, 500]); // 잘못 묶인 LOT 은 건드리지 않음
+      } finally {
+        await q(`DELETE FROM h_inventory_transactions WHERE tenant_id = ? AND source_id = ?`, [T, H]);
+        await q(`DELETE FROM h_batch_line_issue_decisions WHERE tenant_id = ?`, [T]);
+        await q(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [H]);
+        await q(`DELETE FROM h_batches WHERE id = ?`, [H]);
+        await q(`DELETE FROM h_inventory_lots WHERE id = 9723`);
+        await q(`DELETE FROM h_materials WHERE id = ?`, [OTHER]);
+      }
+    });
+
     it("#609 검토 P1: 한 줄은 직접 연결 + 같은 사건 보충 출고 + 다른 줄은 출고 근거 없음 → 남은 줄은 애매(재출고 0·미출고·승인 막힘)", async () => {
       const { classifyBatchLines, countUnissuedBatchLines } = await import("./lib/production/issuedBatchLines");
       const E = 9716;

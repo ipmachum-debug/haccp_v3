@@ -112,15 +112,68 @@ async function activateBatch(c: any, batchId: number | null, tenantId: number, u
 }
 
 type Values = Partial<Record<keyof typeof EDITABLE, string | number | null>>;
+type WriteAction = "confirm" | "edit" | "pass_start" | "pass_end";
+
+/**
+ * 한 행에 쓸 내용 계산 + 거부 검사 (DB 를 바꾸지 않는다).
+ *   원료 출고(첫 확인) 전에 한 번, 행 잠금 뒤 한 번 — 거부될 확인이 출고를 먼저 일으키지 않도록.
+ */
+function planWrite(form: any, row: any, input: { action: WriteAction; expectedRowVersion: number; values?: Values }) {
+  if (Number(row.row_version) !== Number(input.expectedRowVersion)) {
+    throw new FieldConflictError("다른 사람이 먼저 이 행을 바꿨습니다 — 새 값을 확인한 뒤 다시 누르세요.");
+  }
+  const kind = kindOf(form, row);
+  const sets: string[] = [];
+  const vals: unknown[] = [];
+  const after: Record<string, unknown> = { ...row };
+  // 값 고치기 (화이트리스트)
+  for (const [k, v] of Object.entries(input.values ?? {})) {
+    const col = EDITABLE[k];
+    if (!col) throw new FieldRejectedError([`고칠 수 없는 칸입니다: ${k}`]);
+    if (String(row[col] ?? "") === String(v ?? "")) continue;
+    sets.push(`${col} = ?`); vals.push(v ?? null); after[col] = v ?? null;
+  }
+  const valueChanges = sets.length;
+  if ("result" in (input.values ?? {})) { sets.push("is_deviation = ?"); vals.push(after.result === "부적합" ? 1 : 0); after.is_deviation = after.result === "부적합" ? 1 : 0; }
+
+  let confirm = false;
+  const t = hm();
+  if (input.action === "confirm") {
+    if (kind === "passage") throw new FieldRejectedError(["통과 행은 [통과 종료] 로 확인합니다."]);
+    if (kind === "heat") { sets.push("measurement_time = ?"); vals.push(t); after.measurement_time = t; }
+    else { sets.push("metal_pass_time = ?"); vals.push(t); after.metal_pass_time = t; }
+    confirm = true;
+  } else if (input.action === "pass_start") {
+    if (kind !== "passage") throw new FieldRejectedError(["통과 행이 아닙니다."]);
+    if (row.pass_time_start) throw new FieldRejectedError([`이미 ${String(row.pass_time_start).slice(0, 5)} 에 통과를 시작했습니다.`]);
+    const det = form.detector_equipment_id != null ? Number(form.detector_equipment_id) : null;
+    sets.push("pass_time_start = ?"); vals.push(t); after.pass_time_start = t;
+    if (det) { sets.push("equipment_id = ?"); vals.push(det); after.equipment_id = det; }
+  } else if (input.action === "pass_end") {
+    if (kind !== "passage") throw new FieldRejectedError(["통과 행이 아닙니다."]);
+    if (!row.pass_time_start) throw new FieldRejectedError(["먼저 [통과 시작] 을 누르세요."]);
+    if (!row.pass_time_end) { sets.push("pass_time_end = ?"); vals.push(t); after.pass_time_end = t; }
+    confirm = true;
+  }
+  if (confirm) {
+    // 확인 = 이 행 검사 통과 — 필수값·한계기준·부적합 조치 (기록지 제출과 같은 규칙)
+    const { rec, r } = toSheet(form, after);
+    const problems = validateSheetForConfirm(rec, [r], { date: todayKST(), time: t + ":59" });
+    if (problems.length) throw new FieldRejectedError(problems);
+  }
+  return { kind, sets, vals, confirm, valueChanges };
+}
 
 /**
  * 한 행에 쓰기 — 확인 / 고치기 / 통과 시작 / 통과 종료. 한 트랜잭션, 같은 요청 키 한 번.
  *   confirm: 값(있으면 고친 값)을 저장하고 확인 — 측정(점검) 시각 = 지금. 검사(필수값·한계기준·이탈 조치)에 걸리면 저장하지 않음
  *   edit: 값만 저장 — 확인돼 있었으면 그 확인은 무효
  *   pass_start / pass_end: 금속검출 통과 행. 종료 = 그 행 확인
+ * 순서: 거부 검사(행 버전·값·한계기준·통과 조건) → 통과하면 원료 출고(첫 확인) → 행 트랜잭션에서 같은 검사를 다시 하고 저장.
+ *   출고 뒤 저장이 실패하면(드묾) 같은 요청 키로 다시 보내면 된다 — 생산 건은 이미 실행돼 출고는 다시 하지 않고 확인만 저장된다.
  */
 export async function writeFieldRow(input: {
-  tenantId: number; userId: number; rowId: number; action: "confirm" | "edit" | "pass_start" | "pass_end";
+  tenantId: number; userId: number; rowId: number; action: WriteAction;
   expectedRowVersion: number; values?: Values; requestId: string; meta?: ClientMeta;
 }, pool?: any): Promise<{ status: "done" | "duplicate"; rowId: number; rowVersion: number; confirmed: boolean }> {
   const p = pool ?? (await getRawConnection());
@@ -130,11 +183,11 @@ export async function writeFieldRow(input: {
   const prev = await priorResult(p, input.tenantId, input.requestId);
   if (prev) return await currentState(p, Number(prev.form_row_id), input.tenantId, "duplicate");
 
-  // 원료 출고(첫 확인) — 행 트랜잭션 전에. 이미 출고된 생산 건은 아무것도 하지 않는다
+  // 거부 검사를 먼저, 통과한 경우에만 원료 출고(첫 확인). 이미 출고된 생산 건은 아무것도 하지 않는다
   {
     const { row, form } = await loadRow(p, input.rowId, input.tenantId, false);
-    const kind = kindOf(form, row);
     if (form.wd > todayKST()) throw new FieldRejectedError([`작업일(${form.wd})이 아직 오지 않았습니다.`]);
+    const { kind } = planWrite(form, row, input);
     if (input.action === "confirm" && kind === "heat") await activateBatch(p, form.batch_id != null ? Number(form.batch_id) : null, input.tenantId, input.userId);
     if (input.action === "pass_start" && kind === "passage") await activateBatch(p, row.row_batch_id != null ? Number(row.row_batch_id) : null, input.tenantId, input.userId);
   }
@@ -147,49 +200,8 @@ export async function writeFieldRow(input: {
       const { row, form } = await loadRow(c, input.rowId, input.tenantId, true);
       const again = await priorResult(c, input.tenantId, input.requestId);
       if (again) { await c.rollback(); return await currentState(p, Number(again.form_row_id), input.tenantId, "duplicate"); }
-      if (Number(row.row_version) !== Number(input.expectedRowVersion)) {
-        throw new FieldConflictError("다른 사람이 먼저 이 행을 바꿨습니다 — 새 값을 확인한 뒤 다시 누르세요.");
-      }
-      const kind = kindOf(form, row);
       const before = snapshot(row);
-      const sets: string[] = [];
-      const vals: unknown[] = [];
-      const after: Record<string, unknown> = { ...row };
-      // 값 고치기 (화이트리스트)
-      for (const [k, v] of Object.entries(input.values ?? {})) {
-        const col = EDITABLE[k];
-        if (!col) throw new FieldRejectedError([`고칠 수 없는 칸입니다: ${k}`]);
-        if (String(row[col] ?? "") === String(v ?? "")) continue;
-        sets.push(`${col} = ?`); vals.push(v ?? null); after[col] = v ?? null;
-      }
-      const valueChanges = sets.length;
-      if ("result" in (input.values ?? {})) { sets.push("is_deviation = ?"); vals.push(after.result === "부적합" ? 1 : 0); after.is_deviation = after.result === "부적합" ? 1 : 0; }
-
-      let confirm = false;
-      if (input.action === "confirm") {
-        if (kind === "passage") throw new FieldRejectedError(["통과 행은 [통과 종료] 로 확인합니다."]);
-        const t = hm();
-        if (kind === "heat") { sets.push("measurement_time = ?"); vals.push(t); after.measurement_time = t; }
-        else { sets.push("metal_pass_time = ?"); vals.push(t); after.metal_pass_time = t; }
-        confirm = true;
-      } else if (input.action === "pass_start") {
-        if (kind !== "passage") throw new FieldRejectedError(["통과 행이 아닙니다."]);
-        if (row.pass_time_start) throw new FieldRejectedError([`이미 ${String(row.pass_time_start).slice(0, 5)} 에 통과를 시작했습니다.`]);
-        const det = form.detector_equipment_id != null ? Number(form.detector_equipment_id) : null;
-        sets.push("pass_time_start = ?"); vals.push(hm()); after.pass_time_start = hm();
-        if (det) { sets.push("equipment_id = ?"); vals.push(det); after.equipment_id = det; }
-      } else if (input.action === "pass_end") {
-        if (kind !== "passage") throw new FieldRejectedError(["통과 행이 아닙니다."]);
-        if (!row.pass_time_start) throw new FieldRejectedError(["먼저 [통과 시작] 을 누르세요."]);
-        if (!row.pass_time_end) { sets.push("pass_time_end = ?"); vals.push(hm()); after.pass_time_end = hm(); }
-        confirm = true;
-      }
-      if (confirm) {
-        // 확인 = 이 행 검사 통과 — 필수값·한계기준·부적합 조치 (기록지 제출과 같은 규칙)
-        const { rec, r } = toSheet(form, after);
-        const problems = validateSheetForConfirm(rec, [r], { date: todayKST(), time: hm() + ":59" });
-        if (problems.length) throw new FieldRejectedError(problems);
-      }
+      const { sets, vals, confirm, valueChanges } = planWrite(form, row, input);
       if (!sets.length && !confirm) {
         await c.rollback();
         return { status: "done", rowId: Number(row.id), rowVersion: Number(row.row_version), confirmed: !!before.confirmed };
@@ -341,22 +353,38 @@ export async function listFieldWork(tenantId: number, workDate: string, equipmen
 }
 
 /**
- * 예전 기록지 화면(행 저장)으로 현장 확인 기록지의 행을 고친 경우 — 그 행 확인은 무효, 이력에 남긴다.
+ * 예전 기록지 화면(행 저장) 전에 현장 확인 기록지 행의 지금 값 — 수정 전 값을 이력에 남기기 위해 저장 전에 읽는다.
+ * 예전 기록지(field_mode = 0)이거나 새 행이면 null.
+ */
+export async function readFieldRowBeforeLegacySave(tenantId: number, formRecordId: number, batchSeq: number): Promise<Record<string, unknown> | null> {
+  const c = await getRawConnection();
+  const [[f]]: any = await c.execute(`SELECT field_mode FROM h_ccp_form_records WHERE id = ? AND tenant_id = ?`, [formRecordId, tenantId]);
+  if (!f || Number(f.field_mode) !== 1) return null;
+  const [[row]]: any = await c.execute(
+    `SELECT ${ROW_COLS} FROM h_ccp_form_rows r WHERE r.form_record_id = ? AND r.batch_seq = ? AND r.tenant_id = ? ORDER BY r.id LIMIT 1`,
+    [formRecordId, batchSeq, tenantId],
+  );
+  return row ? snapshot(row) : null;
+}
+
+/**
+ * 예전 기록지 화면(행 저장)으로 현장 확인 기록지의 행을 고친 경우 — 그 행 확인은 무효, 이력에 수정 전/후 값을 남긴다.
+ *   before = 저장 전에 readFieldRowBeforeLegacySave 로 읽은 값 (없으면 새 행).
  * 예전 기록지(field_mode = 0)는 아무것도 하지 않는다.
  */
-export async function afterLegacyRowSave(input: { tenantId: number; formRecordId: number; rowId: number; userId: number; meta?: ClientMeta }): Promise<void> {
+export async function afterLegacyRowSave(input: { tenantId: number; formRecordId: number; rowId: number; userId: number; before: Record<string, unknown> | null; meta?: ClientMeta }): Promise<void> {
   const c = await getRawConnection();
   const [[f]]: any = await c.execute(`SELECT field_mode FROM h_ccp_form_records WHERE id = ? AND tenant_id = ?`, [input.formRecordId, input.tenantId]);
   if (!f || Number(f.field_mode) !== 1) return;
-  const [[before]]: any = await c.execute(`SELECT ${ROW_COLS} FROM h_ccp_form_rows r WHERE r.id = ? AND r.tenant_id = ?`, [input.rowId, input.tenantId]);
-  if (!before) return;
   await c.execute(
     `UPDATE h_ccp_form_rows SET row_version = row_version + 1, row_confirmed_at = NULL, row_confirmed_by = NULL, row_confirmed_version = NULL WHERE id = ? AND tenant_id = ?`,
     [input.rowId, input.tenantId],
   );
+  const [[saved]]: any = await c.execute(`SELECT ${ROW_COLS} FROM h_ccp_form_rows r WHERE r.id = ? AND r.tenant_id = ?`, [input.rowId, input.tenantId]);
+  if (!saved) return;
   await addEvent(c, {
     tenantId: input.tenantId, formId: input.formRecordId, rowId: input.rowId, event: "edit_legacy", userId: input.userId,
-    rowVersion: Number(before.row_version ?? 0) + 1, before: { confirmed: !!snapshot(before).confirmed }, after: snapshot({ ...before, row_confirmed_at: null }),
+    rowVersion: Number(saved.row_version ?? 0), before: input.before, after: snapshot(saved),
     requestId: `legacy-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`, meta: input.meta ?? {},
   });
 }

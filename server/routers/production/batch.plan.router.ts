@@ -132,32 +132,65 @@ export const batchPlanRouter = router({
     return (rows as any[]).map((r) => ({ id: Number(r.id), name: String(r.name), processes: r.processes ? String(r.processes) : "" }));
   }),
 
-  /** 원료 출고 확인이 필요한 줄 — 보류(issue_hold)·줄 번호 없는 옛 출고와 대응이 애매한 줄 (#608 검토 P1) */
+  /**
+   * 원료 출고 확인이 필요한 줄 — 생산 건 화면 카드 (#608 검토 P1, 2026-10-20 #610 시범 전 재확인)
+   *   ambiguous  — 줄 번호 없는 옛 출고와 대응이 애매 → '기존 출고로 인정' / '옛 출고와 무관 — 지금 출고'
+   *   unissued   — 출고가 없는 줄(보류 줄 포함, 옛 출고 후보 없음) → 판정할 것 없이 '실제 투입 확인 — 출고' 하나
+   *   pending    — '새로 출고' 로 정했지만 아직 출고 안 됨(재고·연결 오류 등) → '다시 출고' (다시 판정하지 않음)
+   * 단순 미출고는 시작된 생산 건에서만 — 예정 생산 건(첫 확인 때 출고)·수동 모드 진행 중(생산완료 때 출고)은 정상 대기라 보이지 않는다.
+   * 원료 연결(FK 정본 매핑)·LOT 수·남은 양을 함께 보여 준다 (출고 전 확인용, 읽기만).
+   */
   lineIssueExceptions: tenantRequiredProcedure
     .input(z.object({ batchId: z.number() }))
     .query(async ({ input, ctx }) => {
       const conn = await getRawConnection();
-      const [[b]]: any = await conn.execute(`SELECT id FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.batchId, ctx.tenantId]);
-      if (!b) return [];
+      const [[b]]: any = await conn.execute(`SELECT id, plan_only, mode, status, voided_at FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.batchId, ctx.tenantId]);
+      if (!b || b.voided_at) return [];
+      const started = Number(b.plan_only ?? 0) !== 1 && String(b.status) !== "cancelled" && !(b.mode === "manual" && ["planned", "in_progress"].includes(String(b.status)));
       const { classifyBatchLines, isRepresented } = await import("../../lib/production/issuedBatchLines");
       const m = await classifyBatchLines(input.batchId, ctx.tenantId, conn);
-      const list = Array.from(m.values()).filter((i) => !i.inventoryDeducted && i.quantity > 0 && !isRepresented(i.state) && (i.issueHold || i.state === "ambiguous"));
+      const kindOf = (i: any): "ambiguous" | "unissued" | "pending" | null => {
+        if (i.inventoryDeducted || !(i.quantity > 0) || isRepresented(i.state)) return null;
+        if (i.state === "ambiguous") return "ambiguous";
+        if (i.decision === "issue_new") return "pending";
+        if (i.issueHold || started) return "unissued";
+        return null;
+      };
+      const list = Array.from(m.values()).map((i) => ({ i, kind: kindOf(i) })).filter((x) => x.kind != null);
       if (!list.length) return [];
       const [names]: any = await conn.query(
         `SELECT bi.id, bi.issue_hold_reason, COALESCE(m.material_name, im.item_name) AS name
            FROM h_batch_inputs bi LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
            LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id
           WHERE bi.tenant_id = ? AND bi.id IN (?)`,
-        [ctx.tenantId, list.map((i) => i.lineId)],
+        [ctx.tenantId, list.map((x) => x.i.lineId)],
       );
       const nm = new Map((names as any[]).map((r) => [Number(r.id), r]));
-      return list.map((i) => ({
-        lineId: i.lineId, materialName: nm.get(i.lineId)?.name ?? `원료 #${i.materialId}`, quantity: i.quantity, unit: i.unit,
-        state: i.state, held: i.issueHold, reason: nm.get(i.lineId)?.issue_hold_reason ?? null, candidates: i.candidates,
-      }));
+      const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
+      const out = [];
+      for (const { i, kind } of list) {
+        // 원료 연결·LOT (읽기만) — 출고하면 먼저 들어온 LOT 부터, 모자라면 회사 음수 정책대로
+        let stock: { trusted: boolean; lots: number; available: number } | null = null;
+        try {
+          const mapped = await toInventoryMaterialId(i.materialId, ctx.tenantId, conn);
+          const [[s]]: any = await conn.execute(
+            // 남은 양 = 출고가 쓰는 기준과 같게 (fefoLotAllocation: 폐기·보류·만료 상태 제외, 가용량 > 0)
+            `SELECT COUNT(*) AS lots,
+                    COALESCE(SUM(CASE WHEN (status IS NULL OR status NOT IN ('expired', 'disposed', 'reserved')) AND available_quantity >= 0.001 THEN available_quantity ELSE 0 END), 0) AS avail
+               FROM h_inventory_lots WHERE tenant_id = ? AND material_id = ? AND LOWER(COALESCE(unit, 'kg')) = ?`,
+            [ctx.tenantId, mapped.id, i.unit],
+          );
+          stock = { trusted: mapped.trusted, lots: Number(s?.lots ?? 0), available: Math.round(Number(s?.avail ?? 0) * 1000) / 1000 };
+        } catch { stock = null; }
+        out.push({
+          lineId: i.lineId, materialName: nm.get(i.lineId)?.name ?? `원료 #${i.materialId}`, quantity: i.quantity, unit: i.unit,
+          kind, state: i.state, held: i.issueHold, reason: nm.get(i.lineId)?.issue_hold_reason ?? null, candidates: i.candidates, stock,
+        });
+      }
+      return out;
     }),
 
-  /** 원료 출고 확인 결정 — 기존 옛 출고로 인정 / 새로 출고 (관리자, 추가만) */
+  /** 원료 출고 확인 결정 — 기존 옛 출고로 인정 / 옛 출고와 무관 (관리자, 추가만). 무관이면 이어서 이 줄을 바로 출고 */
   resolveLineIssue: adminProcedure
     .input(z.object({
       batchInputId: z.number(),
@@ -166,11 +199,26 @@ export const batchPlanRouter = router({
       note: z.string().max(500).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const { resolveLineIssue } = await import("../../lib/production/lineIssueDecision");
+      const { resolveLineIssue, issueLineNow } = await import("../../lib/production/lineIssueDecision");
       try {
-        return await resolveLineIssue({ ...input, tenantId: ctx.tenantId, userId: ctx.user.id });
+        const r = await resolveLineIssue({ ...input, tenantId: ctx.tenantId, userId: ctx.user.id });
+        if (input.action !== "issue_new") return { ...r, issued: true, messages: [] as string[] };
+        const issued = await issueLineNow({ tenantId: ctx.tenantId, batchInputId: input.batchInputId, userId: ctx.user.id });
+        return { batchId: r.batchId, state: issued.state, issued: issued.issued, messages: issued.messages };
       } catch (e: any) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message ?? "확인하지 못했습니다." });
+      }
+    }),
+
+  /** 실제 투입을 확인한 줄을 지금 출고 — 단순 미출고·출고 대기 줄 (관리자). 공통 출고 엔진, 이 줄만 */
+  issueLine: adminProcedure
+    .input(z.object({ batchInputId: z.number(), note: z.string().max(500).optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const { issueLineNow } = await import("../../lib/production/lineIssueDecision");
+      try {
+        return await issueLineNow({ tenantId: ctx.tenantId, batchInputId: input.batchInputId, userId: ctx.user.id, note: input.note ?? null });
+      } catch (e: any) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message ?? "출고하지 못했습니다." });
       }
     }),
 

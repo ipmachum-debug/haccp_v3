@@ -23,13 +23,14 @@ export async function autoIssueMaterialsDispatch(
   batchId: number,
   userId: number,
   tenantId: number,
+  opts?: { onlyLineIds?: number[] },
 ): Promise<AutoIssueResult> {
   const t = Number(tenantId);
   if (!Number.isFinite(t) || t <= 0) throw new Error("테넌트 정보가 필요합니다 (자동출고).");
   if (process.env.USE_AUTO_ISSUE_V2 || process.env.USE_AUTO_ISSUE_V2_TENANTS) {
     console.warn("[autoIssueDispatcher] USE_AUTO_ISSUE_V2* 설정은 더 이상 쓰지 않습니다 — 단일 엔진으로 출고합니다.");
   }
-  const locked = await withBatchIssueLock(t, batchId, () => autoIssueMaterialsForBatch(batchId, userId, t));
+  const locked = await withBatchIssueLock(t, batchId, () => autoIssueMaterialsForBatch(batchId, userId, t, opts));
   if (!locked.locked) {
     return {
       success: false,

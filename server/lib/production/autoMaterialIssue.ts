@@ -82,6 +82,7 @@ export async function autoIssueMaterialsForBatch(
   batchId: number,
   userId: number,
   expectedTenantId?: number,
+  opts?: { onlyLineIds?: number[] },
 ): Promise<AutoIssueResult> {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
@@ -170,6 +171,15 @@ export async function autoIssueMaterialsForBatch(
     if (!batchInputs || batchInputs.length === 0) {
       result.warnings.push(`배치 #${batchId}에 원재료 투입 계획이 없습니다.`);
       return result;
+    }
+    // 줄 지정 출고 (2026-10-20) — 생산 건 화면에서 사람이 실제 투입을 확인한 줄만. 같은 엔진·같은 검사, 다른 줄은 건드리지 않는다
+    if (opts?.onlyLineIds) {
+      const only = new Set(opts.onlyLineIds.map(Number));
+      for (let k = batchInputs.length - 1; k >= 0; k--) if (!only.has(Number(batchInputs[k].id))) batchInputs.splice(k, 1);
+      if (!batchInputs.length) {
+        result.warnings.push(`배치 #${batchId}에 지정한 투입 줄이 없습니다.`);
+        return result;
+      }
     }
 
     // 2026-10-14: 이미 출고 기록(h_inventory_transactions BATCH usage)이 있는 투입은 다시 출고하지 않는다.
