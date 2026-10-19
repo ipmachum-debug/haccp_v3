@@ -65,9 +65,11 @@ export default function DesignFactory() {
                       <div key={e.id} className="rounded-md border bg-muted/30 px-2 py-1.5 text-xs">
                         <div className="font-medium text-sm">{e.name}{users.length > 1 && <span className="ml-1 rounded bg-blue-100 px-1 text-[10px] text-blue-800" title={users.join(", ")}>공유</span>}</div>
                         {g.ccpType !== "CCP-4P" && (
-                          <div className="text-muted-foreground">
-                            {[e.tempC != null ? `${e.tempC}℃` : null, e.timeMin != null ? `기본 가열 ${e.timeMin}분` : "기본 가열 ?", e.cycleMin != null ? `한 번 ${e.cycleMin}분` : "한 번 ?"].filter(Boolean).join(" · ")}
-                          </div>
+                          <>
+                            {/* 이 공정에서 계획이 쓰는 값 — 공정 시간 설정이 있으면 그 가열, 설비 점유 = 설비 사이클 + (적용 가열 − 설비 기본 가열) */}
+                            <div>{[e.tempC != null ? `${e.tempC}℃` : null, `이 공정 가열 ${e.appliedHeatMin ?? "?"}분`, `설비 점유 ${e.occupancyMin ?? "?"}분`].filter(Boolean).join(" · ")}</div>
+                            <div className="text-muted-foreground">설비 기본값: 가열 {e.timeMin ?? "?"}분 · 한 번 {e.cycleMin ?? "?"}분</div>
+                          </>
                         )}
                       </div>
                     );

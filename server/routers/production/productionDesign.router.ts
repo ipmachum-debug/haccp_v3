@@ -1,11 +1,13 @@
 /**
  * 생산 설계 — 설계 현황 · 우리 공장 지도 · 제품 배합 목록 · 변경·적용 이력 (2026-10-19 설계 18 §13 1단계)
  *
- * 읽기 전용. 기준을 정하고 바꾸는 사람(관리자·공장장)용 — 현장 작업 메뉴(생산관리)와 분리.
+ * 기준을 정하고 바꾸는 사람(관리자·공장장)용 — 현장 작업 메뉴(생산관리)와 분리.
+ * 쓰기는 2a 의 '원료 들어가는 곳' 분류 하나뿐 (원료 차감·CCP 계산에 영향 없음). 나머지는 읽기 전용.
  * 수정은 아직 기존 화면(품목제조보고·CCP 설비·공정)에서 하고, 이 화면은 '무엇이 준비 안 됐고 무엇이 바뀌었나' 를 보여 준다.
  */
 import { router, adminProcedure } from "../../_core/trpc";
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 
 async function conn() {
   const { getRawConnection } = await import("../../db");
@@ -32,6 +34,48 @@ export const productionDesignRouter = router({
     const { loadRecipeStatuses } = await import("../../lib/production/designOverview");
     return loadRecipeStatuses(await conn(), ctx.tenantId);
   }),
+
+  /** 제품 배합 상세 — 배합표 | 공정 흐름도 (생산 설계 2a) */
+  recipeDetail: adminProcedure
+    .input(z.object({ reportId: z.number().int().positive() }))
+    .query(async ({ ctx, input }) => {
+      const { loadRecipeDetail } = await import("../../lib/production/designOverview");
+      const d = await loadRecipeDetail(await conn(), ctx.tenantId, input.reportId);
+      if (!d) throw new TRPCError({ code: "NOT_FOUND", message: "이 회사의 사용 중인 품목제조보고가 아닙니다." });
+      return d;
+    }),
+
+  /**
+   * 원료 들어가는 곳 저장 (생산 설계 2a) — 공정이 없는 원료 줄의 '성형에 바로 · 나중에 넣음 · 아직 모름' 만.
+   *   분류 정보라 원료 차감·CCP 계산은 바뀌지 않는다. 바뀐 것은 변경·적용 이력에 남긴다.
+   */
+  setEntryStages: adminProcedure
+    .input(z.object({
+      reportId: z.number().int().positive(),
+      versionId: z.number().int().positive(),
+      items: z.array(z.object({ ingredientId: z.number().int().positive(), stage: z.enum(["direct", "late"]).nullable() })).min(1).max(300),
+    }))
+    .mutation(async ({ ctx, input }) => {
+      const { saveEntryStages } = await import("../../lib/production/designOverview");
+      const c = await conn();
+      let changed: Array<{ name: string; before: string; after: string }>;
+      try {
+        changed = await saveEntryStages(c, ctx.tenantId, input.reportId, input.versionId, input.items);
+      } catch (e: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "저장하지 못했습니다." });
+      }
+      if (changed.length) {
+        const [[p]]: any = await c.execute(`SELECT COALESCE(m.item_name, CONCAT('보고서 #', r.id)) AS n FROM h_mf_reports r LEFT JOIN item_master m ON m.id = r.product_id AND m.tenant_id = r.tenant_id WHERE r.id = ? AND r.tenant_id = ?`, [input.reportId, ctx.tenantId]);
+        const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
+        await createAuditLog({
+          action: "mf_report.entry_stage", entityType: "mf_report", entityId: input.reportId,
+          userId: ctx.user.id, userEmail: ctx.user.email, userRole: ctx.user.role,
+          changes: { diff: changed.map((x) => ({ field: `${x.name} 들어가는 곳`, before: x.before, after: x.after })) },
+          description: `${p?.n ?? `보고서 #${input.reportId}`} 원료 분류 — ${changed.length}건`,
+        }, ctx.tenantId);
+      }
+      return { changed: changed.length };
+    }),
 
   /** 변경·적용 이력 */
   history: adminProcedure

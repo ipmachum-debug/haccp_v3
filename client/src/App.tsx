@@ -69,6 +69,7 @@ const DailyLogSettings = lazy(() => import("./pages/production/DailyLogSettings"
 const DesignOverview = lazy(() => import("./pages/design/DesignOverview"));
 const DesignFactory = lazy(() => import("./pages/design/DesignFactory"));
 const DesignRecipes = lazy(() => import("./pages/design/DesignRecipes"));
+const DesignRecipeDetail = lazy(() => import("./pages/design/DesignRecipeDetail"));
 const DesignHistory = lazy(() => import("./pages/design/DesignHistory"));
 const WeeklyLogForm = lazy(() => import("./pages/production/WeeklyLogForm"));
 const MonthlyLogForm = lazy(() => import("./pages/production/MonthlyLogForm"));
@@ -445,6 +446,7 @@ function Router() {
       <Route path={ROUTES.DESIGN_OVERVIEW} component={DesignOverview} />
       <Route path={ROUTES.DESIGN_FACTORY} component={DesignFactory} />
       <Route path={ROUTES.DESIGN_RECIPES} component={DesignRecipes} />
+      <Route path={ROUTES.DESIGN_RECIPE_DETAIL} component={DesignRecipeDetail} />
       <Route path={ROUTES.DESIGN_HISTORY} component={DesignHistory} />
       <Route path="/weekly-log/form" component={WeeklyLogForm} />
       <Route path="/monthly-log/form" component={MonthlyLogForm} />

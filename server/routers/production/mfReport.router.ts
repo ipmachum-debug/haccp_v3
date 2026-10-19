@@ -150,6 +150,8 @@ export const mfReportRouter = router({
               adjustedWeightKg: z.number().nullable().optional(),
               basisRawKg: z.number().nonnegative().nullable().optional(),
               pretreatmentFactor: z.number().positive().nullable().optional(),
+              /** 공정 미지정 원료의 들어가는 곳 — 생산 설계 2a (생략 = 유지) */
+              entryStage: z.enum(["direct", "late"]).nullable().optional(),
               isAdditional: z.number().optional()
             })
           ).optional()

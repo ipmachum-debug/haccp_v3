@@ -31,6 +31,8 @@ export interface IncomingIngredient {
   basisRawKg?: number | null;
   /** 전처리 배율 (NULL = 1.0) */
   pretreatmentFactor?: number | null;
+  /** 공정 미지정 원료의 들어가는 곳 — direct·late·null (생략 = 유지, 생산 설계 2a) */
+  entryStage?: "direct" | "late" | null;
 }
 
 export interface ExistingIngredient {
@@ -44,6 +46,7 @@ export interface ExistingIngredient {
   isAdditional?: number | null;
   basisRawKg?: string | number | null;
   pretreatmentFactor?: string | number | null;
+  entryStage?: string | null;
 }
 
 const keep = <T,>(incoming: T | undefined, original: T | null | undefined): T | null =>
@@ -54,6 +57,7 @@ export function mergeIngredientRows(incoming: IncomingIngredient[], existing: Ex
   const byId = new Map(existing.map((e) => [Number(e.id), e]));
   return incoming.map((ing, index) => {
     const orig = ing.id != null ? byId.get(Number(ing.id)) : undefined;
+    const processGroupId = keep(ing.processGroupId, orig?.processGroupId);
     return {
       mfReportVersionId: versionId,
       lineNo: index + 1,
@@ -68,11 +72,13 @@ export function mergeIngredientRows(incoming: IncomingIngredient[], existing: Ex
       isDeductible: ing.isDeductible,
       materialType: ing.materialType,
       flavorName: ing.flavorName || null,
-      processGroupId: keep(ing.processGroupId, orig?.processGroupId),
+      processGroupId,
       adjustedWeightKg: str(keep(ing.adjustedWeightKg, orig?.adjustedWeightKg as any)),
       isAdditional: ing.isAdditional ?? orig?.isAdditional ?? 0,
       basisRawKg: str(keep(ing.basisRawKg, orig?.basisRawKg as any)),
       pretreatmentFactor: str(keep(ing.pretreatmentFactor, orig?.pretreatmentFactor as any)),
+      // 들어가는 곳: 공정이 있으면(보냈거나 이어받은) 비움 (공정이 우선), 아니면 보낸 값 또는 원래 값 (배합 수정 화면이 몰라도 지워지지 않게)
+      entryStage: processGroupId != null ? null : str(keep(ing.entryStage as any, orig?.entryStage as any)),
     };
   });
 }

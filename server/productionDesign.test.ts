@@ -4,7 +4,8 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkRecipe, groupIssues, processLoads, type DesignGroup } from "../shared/production/designReadiness";
+import { checkRecipe, groupIssues, processLoads, entryLabel, type DesignGroup } from "../shared/production/designReadiness";
+import { mergeIngredientRows } from "./lib/production/mfIngredientMerge";
 import { diffRecipe, diffFields } from "./lib/production/designChangeDiff";
 import { HUBS, HUB_BY_PATH, MENU_PLACEMENTS } from "../shared/navigation/menuRegistry";
 import { ROUTES } from "../client/src/lib/routePaths";
@@ -23,12 +24,28 @@ describe("준비 상태 신호등", () => {
     const r = checkRecipe(wang, groups);
     expect(r.signal).toBe("yellow");
     expect(r.issues.map((i) => i.code)).toEqual(["unassigned"]);
-    expect(r.issues[0].text).toMatch(/공정이 지정되지 않은 원료 2개 \(통팥앙금, 옥수수전분\)/);
+    expect(r.issues[0].text).toMatch(/들어가는 곳을 정하지 않은 원료 2개 \(통팥앙금, 옥수수전분\)/);
   });
 
-  it("공정별 1배치 투입량 = 배합비 % × 1배치 총 생산량 → 교반 60.1kg · 공정 지정 없음 35.9kg (합 96)", () => {
+  it("공정별 1배치 투입량 = 배합비 % × 1배치 총 생산량 → 교반 60.1kg · 아직 모름 35.9kg (합 96)", () => {
     const loads = processLoads(wang, groups);
-    expect(loads).toEqual([{ label: "교반-가열공정", kg: 60.1 }, { label: "공정 지정 없음", kg: 35.9 }]);
+    expect(loads).toEqual([{ label: "교반-가열공정", kg: 60.1 }, { label: "아직 모름", kg: 35.9 }]);
+  });
+
+  it("2a: 들어가는 곳(성형에 바로·나중에 넣음)을 정한 원료는 정상 → 초록, 요약도 그 이름으로", () => {
+    const classified = { ...wang, ingredients: [ing("찹쌀", 62.6, 1), ing("통팥앙금", 30, null, { entryStage: "direct" }), ing("옥수수전분", 7.4, null, { entryStage: "late" })] };
+    expect(checkRecipe(classified, groups).signal).toBe("green");
+    expect(processLoads(classified, groups)).toEqual([{ label: "교반-가열공정", kg: 60.1 }, { label: "성형에 바로", kg: 28.8 }, { label: "나중에 넣음", kg: 7.1 }]);
+    // 모르는 값은 분류로 보지 않는다
+    expect(checkRecipe({ ...wang, ingredients: [ing("찹쌀", 62.6, 1), ing("통팥앙금", 37.4, null, { entryStage: "xx" })] }, groups).signal).toBe("yellow");
+    expect(entryLabel({ processGroupId: 1, entryStage: "direct" }, "교반")).toBe("교반"); // 공정이 우선
+  });
+
+  it("F600-01: 서버가 실제 계획 규칙으로 계산한 kgPerBatch 를 그대로 쓴다 (원물·공정 환산 5.17kg), null 은 합계에서 뺀다", () => {
+    const r = { approved: true, batchTargetKg: 5, ingredients: [ing("멥쌀", 73.3, 1, { kgPerBatch: 4 }), ing("설탕", 26.7, 1, { kgPerBatch: 1.172 }), ing("중간재", 0, null, { kgPerBatch: null })] };
+    expect(processLoads(r, groups)).toEqual([{ label: "교반-가열공정", kg: 5.17 }]);
+    expect(checkRecipe({ ...r, calcError: "기준 완제품 kg 가 없습니다" }, groups).issues.map((i) => i.code)).toContain("mass-basis-error");
+    expect(checkRecipe({ ...r, ingredients: r.ingredients.slice(0, 2), calcNote: "다른 버전" }, groups)).toMatchObject({ signal: "yellow" });
   });
 
   it("모두 지정·승인·100% → 초록", () => {
@@ -46,6 +63,16 @@ describe("준비 상태 신호등", () => {
 
   it("추가 원재료(정제수 등)는 배합비 합계에 넣지 않는다", () => {
     expect(checkRecipe({ approved: true, batchTargetKg: 50, ingredients: [ing("찹쌀", 100, 1), { name: "정제수", unit: "kg", quantity: 3, processGroupId: 1, isAdditional: true }] }, groups).signal).toBe("green");
+  });
+});
+
+describe("배합 저장이 들어가는 곳을 지우지 않음 (2a)", () => {
+  const base = { quantity: 30, unit: "%", isDeductible: 1, materialType: "RAW" };
+  it("배합 수정 화면이 보내지 않으면 원래 값 유지 · 공정을 지정하면(보냈거나 이어받은) 비움", () => {
+    const existing = [{ id: 1, processGroupId: null, entryStage: "direct" }, { id: 2, processGroupId: 3, entryStage: null }];
+    const m = mergeIngredientRows([{ ...base, id: 1, materialId: 10 }, { ...base, id: 2, materialId: 11, entryStage: "late" }, { ...base, id: 1, materialId: 10, processGroupId: 3 }], existing, 9);
+    expect(m.map((r) => r.entryStage)).toEqual(["direct", null, null]);
+    expect(mergeIngredientRows([{ ...base, id: 1, materialId: 10, entryStage: null }], existing, 9)[0].entryStage).toBeNull(); // 명시적으로 비움
   });
 });
 
@@ -75,6 +102,15 @@ describe("변경 전후 비교", () => {
     ]);
     expect(diffRecipe(before, before)).toEqual([]);
   });
+  it("#600 후속: 계산 보조 칸(기준 원물·전처리 배율·조정량·보정 수량·들어가는 곳)만 바뀌어도 기록", () => {
+    const b = snap(5, [{ ...row("a", "멥쌀", "73.3", "증숙"), basisRawKg: "8.000", pretreatmentFactor: "1.25", adjustedWeightKg: null, correctedQuantity: null, entryStage: null }]);
+    const a = snap(5, [{ ...row("a", "멥쌀", "73.3", "증숙"), basisRawKg: 8, pretreatmentFactor: "1.30", adjustedWeightKg: "4.1", correctedQuantity: null, entryStage: "direct" }]);
+    expect(diffRecipe(b, a)).toEqual([
+      { field: "멥쌀 전처리 배율", before: "1.25", after: "1.30" },
+      { field: "멥쌀 조정량(kg)", before: null, after: "4.1" },
+      { field: "멥쌀 들어가는 곳", before: null, after: "성형에 바로" },
+    ]);
+  });
   it("설비: 받은 값 중 실제로 바뀐 칸만, 빈 값은 '바꾸지 않음'", () => {
     expect(diffFields({ defaultTime: 10, defaultTemperature: "99.00", name: "증숙기1호" }, { defaultTime: 35, defaultTemperature: "99", name: "", notes: undefined } as any))
       .toEqual({ defaultTime: { before: 10, after: 35 } });
@@ -91,12 +127,20 @@ describe("메뉴·화면 연결", () => {
     expect(items.every((p) => p.roles.join() === "super_admin,admin")).toBe(true);
     expect(items.map((p) => p.path)).toEqual([ROUTES.DESIGN_OVERVIEW, ROUTES.DESIGN_FACTORY, ROUTES.DESIGN_RECIPES, ROUTES.DESIGN_HISTORY]);
   });
-  it("라우트는 ROUTES 상수, 서버는 읽기 전용(관리자)", () => {
+  it("라우트는 ROUTES 상수, 서버 쓰기는 '들어가는 곳 저장' 하나뿐(관리자·감사 기록)", () => {
     const app = readFileSync(join(__dirname, "..", "client/src/App.tsx"), "utf-8");
-    for (const k of ["DESIGN_OVERVIEW", "DESIGN_FACTORY", "DESIGN_RECIPES", "DESIGN_HISTORY"]) expect(app).toMatch(new RegExp(`path=\\{ROUTES\\.${k}\\}`));
+    for (const k of ["DESIGN_OVERVIEW", "DESIGN_FACTORY", "DESIGN_RECIPES", "DESIGN_HISTORY", "DESIGN_RECIPE_DETAIL"]) expect(app).toMatch(new RegExp(`path=\\{ROUTES\\.${k}\\}`));
     const r = readFileSync(join(__dirname, "routers/production/productionDesign.router.ts"), "utf-8");
-    expect(r).not.toMatch(/\.mutation\(/);
-    expect(r.match(/adminProcedure/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(r.match(/\.mutation\(/g)?.length).toBe(1);
+    expect(r).toMatch(/setEntryStages: adminProcedure/);
+    expect(r).toMatch(/recipeDetail: adminProcedure/);
+    expect(r).toMatch(/action: "mf_report\.entry_stage"/);
+    expect(r.match(/adminProcedure/g)?.length).toBeGreaterThanOrEqual(6);
+  });
+  it("들어가는 곳 저장: 이 회사·이 버전·공정 없는 줄만 (SQL 조건)", () => {
+    const d = readFileSync(join(__dirname, "lib/production/designOverview.ts"), "utf-8");
+    expect(d).toMatch(/WHERE v\.id = \? AND r\.id = \? AND r\.tenant_id = \?/);
+    expect(d).toMatch(/UPDATE h_mf_ingredients SET entry_stage = \? WHERE id = \? AND mf_report_version_id = \? AND process_group_id IS NULL/);
   });
   it("배합 저장은 전·후를 읽어 바뀐 것만 감사 기록에 (저장 실패와 무관)", () => {
     const m = readFileSync(join(__dirname, "routers/production/mfReport.router.ts"), "utf-8");

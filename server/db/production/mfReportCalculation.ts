@@ -1007,6 +1007,7 @@ export async function updateMfReport(data: {
     correctedQuantity?: number | null;
     basisRawKg?: number | null;
     pretreatmentFactor?: number | null;
+    entryStage?: "direct" | "late" | null;
   }>;
 }, tenantId: number) {
   const db = await getDb();

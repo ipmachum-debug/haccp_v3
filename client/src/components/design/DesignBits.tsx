@@ -35,6 +35,8 @@ export function fmtVal(v: unknown): string {
 /** 기존 수정 화면 경로 — 1단계는 수정을 기존 화면에서 */
 export const EDIT_PATHS = {
   recipe: (reportId: number) => `/dashboard/mf-report/edit/${reportId}`,
+  /** 생산 설계 제품 배합 상세 (배합표 | 공정 흐름도) */
+  recipeDetail: (reportId: number) => `/design/recipes/${reportId}`,
   equipment: "/quality/ccp-monitoring",
   process: "/quality/ccp-limits",
   approval: "/dashboard/approval",

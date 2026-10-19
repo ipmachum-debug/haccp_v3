@@ -53,6 +53,7 @@ export const ROUTES = {
   DESIGN_OVERVIEW: "/design",
   DESIGN_FACTORY: "/design/factory",
   DESIGN_RECIPES: "/design/recipes",
+  DESIGN_RECIPE_DETAIL: "/design/recipes/:id",
   DESIGN_HISTORY: "/design/history",
   // ── 회계 탭 / 기준정보 그룹 ──
   ACCOUNTING_PARTNERS: "/dashboard/accounting/partners",
