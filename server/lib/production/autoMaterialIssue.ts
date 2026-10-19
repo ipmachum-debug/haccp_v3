@@ -29,7 +29,7 @@ import { reconcileNegativeLots, createNegativePlaceholderLot } from "../inventor
 import { NoLotsForNegativeError, type FefoAllocation } from "../inventory/fefoLotAllocation";
 import { eq, and, sql } from "drizzle-orm";
 import { toInventoryMaterialId, resolvePriceFallback } from "../identity/itemIdentityService";
-import { getIssuedBatchLineIds, isBatchLineRepresented } from "./issuedBatchLines";
+import { classifyBatchLines, isRepresented, batchLineIssueState } from "./issuedBatchLines";
 import {
   ensureProductionLogForBatch,
   insertInventoryDeductionLog,
@@ -175,9 +175,25 @@ export async function autoIssueMaterialsForBatch(
     // 2026-10-14: 이미 출고 기록(h_inventory_transactions BATCH usage)이 있는 투입은 다시 출고하지 않는다.
     //   inventory_deducted 는 "LOT 실제 차감" 플래그라, LOT 없이 출고 기록만 남긴 과거 투입(덤프 10/14 기준 755건,
     //   음수 허용 정책 10/8 이전)은 0 으로 남아 있다. 플래그만 보면 재실행 시 같은 투입이 두 번 출고된다.
-    const alreadyIssuedLineIds = await getIssuedBatchLineIds(batchId, tenantId);
+    const lineStates = await classifyBatchLines(batchId, tenantId);
     for (const bi of batchInputs) {
-      if (alreadyIssuedLineIds.has(Number(bi.id))) bi.inventory_deducted = 1;
+      if (isRepresented(lineStates.get(Number(bi.id))?.state ?? "none")) bi.inventory_deducted = 1;
+    }
+    // 줄 id 없는 옛 출고와 대응이 애매한 줄 — 다시 출고하지 않고 '확인 필요' 보류로 남긴다 (출고 완료로도 보지 않음 → 승인·완료 막힘, #608 검토 P1)
+    const ambiguous = batchInputs.filter((bi) => Number(bi.inventory_deducted) !== 1 && lineStates.get(Number(bi.id))?.state === "ambiguous");
+    if (ambiguous.length) {
+      try {
+        await db.execute(sql`UPDATE h_batch_inputs SET issue_hold = 1, issue_hold_reason = ${"줄 번호 없는 옛 출고와 대응이 애매 — 생산 건 화면에서 '기존 출고로 인정' 또는 '새로 출고' 로 확인"}
+                              WHERE batch_id = ${batchId} AND tenant_id = ${tenantId} AND issue_hold = 0 AND id IN (${sql.join(ambiguous.map((b) => sql`${Number(b.id)}`), sql`, `)})`);
+      } catch (e: any) {
+        if (e?.cause?.code !== "ER_BAD_FIELD_ERROR" && e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+      }
+      for (const bi of ambiguous) {
+        bi.issue_hold_marked = 1;
+        result.warnings.push(`투입 줄 #${bi.id} (${bi.material_name ?? "원료"}) 는 줄 번호 없는 옛 출고와 대응이 애매해 출고하지 않았습니다 — 생산 건 화면에서 확인하세요.`);
+      }
+      for (let k = batchInputs.length - 1; k >= 0; k--) if (batchInputs[k].issue_hold_marked) batchInputs.splice(k, 1);
+      if (!batchInputs.length) return result;
     }
 
     // 출고 보류 줄(복구 때 '별도 확인' 으로 남긴 미출고 줄)은 자동 출고하지 않는다 — 출고 안 된 줄로 남아 승인·원가 확정을 막는다
@@ -363,7 +379,7 @@ export async function autoIssueMaterialsForBatch(
           const lineQty = parseFloat((row.actual_quantity ?? row.planned_quantity)?.toString() || "0");
           if (!(lineQty > 0)) return null;
           //   구형 출고 유형(batch_completion)·투입 참조·배치 단위 옛 보충 출고까지 같은 조건으로 (Codex #552 검토 P2, 2026-10-19 원장 중복)
-          if (await isBatchLineRepresented(conn, Number(input.id), tenantId)) return null;
+          if ((await batchLineIssueState(conn, Number(input.id), tenantId)) !== "none") return null; // 출고됨 또는 애매(보류)
 
           // (b) 음수 허용: 이전 음수 LOT 상쇄 (같은 트랜잭션)
           if (allowNegative) {

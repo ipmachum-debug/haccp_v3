@@ -784,6 +784,24 @@ async function ensureMassBasisSchema(conn: any) {
   } catch (err: any) {
     console.warn("[Migration] h_ledger_dedup_cases / h_ledger_event_links failed:", err.message);
   }
+  // 투입 줄 출고 확인 결정 (2026-10-19, #608 검토 P1): 줄 번호 없는 옛 출고와 대응이 애매한 줄을 사람이 생산 건 화면에서 정한 것
+  //   existing = 그 옛 출고(tx_id)가 이 줄의 출고 / issue_new = 이 줄은 옛 출고와 무관 — 새로 출고. 추가만 (고치지 않음)
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS h_batch_line_issue_decisions (
+      id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      tenant_id int NOT NULL,
+      batch_input_id bigint NOT NULL,
+      decision varchar(20) NOT NULL,
+      tx_id bigint NULL,
+      decided_by int NOT NULL,
+      decided_at datetime NOT NULL,
+      note varchar(500) NULL,
+      UNIQUE KEY uq_blid_tenant_tx (tenant_id, tx_id),
+      KEY idx_blid_line (tenant_id, batch_input_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  } catch (err: any) {
+    console.warn("[Migration] h_batch_line_issue_decisions failed:", err.message);
+  }
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS h_batch_mass_basis (
       batch_id bigint NOT NULL PRIMARY KEY,
@@ -1116,6 +1134,7 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_recovery_archive", column: "row_json", why: "복구 원본 보관" },
   { table: "h_ledger_dedup_cases", column: "case_key", why: "원장 중복 정리 1회" },
   { table: "h_ledger_event_links", column: "event_key", why: "원장 중복 정리 — 사건·원 거래·보충 거래 연결" },
+  { table: "h_batch_line_issue_decisions", column: "decision", why: "애매한 투입 줄 출고 확인 결정" },
   { table: "h_batch_mass_basis", column: "rows_json", why: "배치 기준 스냅샷 (PR B)" },
   { table: "h_batch_mass_basis", column: "sub_batch_kg", why: "CCP 행 기준량 고정 (PR C 후속)" },
   // 회사별 기능 선택 — 조회 실패를 '꺼짐' 으로 보지 않으므로(#547 검토 P1) 표가 반드시 있어야 한다
@@ -1191,6 +1210,7 @@ export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; colu
   { table: "h_ledger_dedup_cases", index: "uq_ldc_tenant_key", columns: ["tenant_id", "case_key"], why: "원장 정리 키 한 번" },
   { table: "h_ledger_event_links", index: "uq_lel_tenant_event", columns: ["tenant_id", "event_key"], why: "사건당 연결 하나" },
   { table: "h_ledger_event_links", index: "uq_lel_tenant_dup", columns: ["tenant_id", "duplicate_tx_id"], why: "중복 거래당 정리 하나" },
+  { table: "h_batch_line_issue_decisions", index: "uq_blid_tenant_tx", columns: ["tenant_id", "tx_id"], why: "옛 출고 하나는 한 줄에만 인정" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {

@@ -4,7 +4,8 @@
  * previewDay 는 배치 생성(bulkCreateForDay → createSingleBatch → ccp-batch)과 같은 계획 함수(planCcpForDay)를 쓴다.
  * 쓰기 없음 — 재고 차감·기록 확정·배치 생성이 일어나지 않는다.
  */
-import { router, tenantRequiredProcedure, workerProcedure } from "../../_core/trpc";
+import { router, tenantRequiredProcedure, workerProcedure, adminProcedure } from "../../_core/trpc";
+import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { getRawConnection } from "../../db";
 import { nextBatchAction } from "../../lib/production/todayBoard";
@@ -123,6 +124,48 @@ export const batchPlanRouter = router({
     );
     return (rows as any[]).map((r) => ({ id: Number(r.id), name: String(r.name), processes: r.processes ? String(r.processes) : "" }));
   }),
+
+  /** 원료 출고 확인이 필요한 줄 — 보류(issue_hold)·줄 번호 없는 옛 출고와 대응이 애매한 줄 (#608 검토 P1) */
+  lineIssueExceptions: tenantRequiredProcedure
+    .input(z.object({ batchId: z.number() }))
+    .query(async ({ input, ctx }) => {
+      const conn = await getRawConnection();
+      const [[b]]: any = await conn.execute(`SELECT id FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.batchId, ctx.tenantId]);
+      if (!b) return [];
+      const { classifyBatchLines, isRepresented } = await import("../../lib/production/issuedBatchLines");
+      const m = await classifyBatchLines(input.batchId, ctx.tenantId, conn);
+      const list = Array.from(m.values()).filter((i) => !i.inventoryDeducted && i.quantity > 0 && !isRepresented(i.state) && (i.issueHold || i.state === "ambiguous"));
+      if (!list.length) return [];
+      const [names]: any = await conn.query(
+        `SELECT bi.id, bi.issue_hold_reason, COALESCE(m.material_name, im.item_name) AS name
+           FROM h_batch_inputs bi LEFT JOIN h_materials m ON m.id = bi.material_id AND m.tenant_id = bi.tenant_id
+           LEFT JOIN item_master im ON im.id = bi.material_id AND im.tenant_id = bi.tenant_id
+          WHERE bi.tenant_id = ? AND bi.id IN (?)`,
+        [ctx.tenantId, list.map((i) => i.lineId)],
+      );
+      const nm = new Map((names as any[]).map((r) => [Number(r.id), r]));
+      return list.map((i) => ({
+        lineId: i.lineId, materialName: nm.get(i.lineId)?.name ?? `원료 #${i.materialId}`, quantity: i.quantity, unit: i.unit,
+        state: i.state, held: i.issueHold, reason: nm.get(i.lineId)?.issue_hold_reason ?? null, candidates: i.candidates,
+      }));
+    }),
+
+  /** 원료 출고 확인 결정 — 기존 옛 출고로 인정 / 새로 출고 (관리자, 추가만) */
+  resolveLineIssue: adminProcedure
+    .input(z.object({
+      batchInputId: z.number(),
+      action: z.enum(["existing", "issue_new"]),
+      txIds: z.array(z.number()).max(20).optional(),
+      note: z.string().max(500).optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const { resolveLineIssue } = await import("../../lib/production/lineIssueDecision");
+      try {
+        return await resolveLineIssue({ ...input, tenantId: ctx.tenantId, userId: ctx.user.id });
+      } catch (e: any) {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message ?? "확인하지 못했습니다." });
+      }
+    }),
 
   /** 오늘 배치 목록 — 서버에 저장된 실제 배치만, 지금 할 일 한 가지 */
   todayBoard: tenantRequiredProcedure
