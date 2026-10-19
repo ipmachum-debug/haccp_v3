@@ -119,9 +119,11 @@ export async function getEquipmentsForProcessGroup(
  * 이 제품의 공정그룹 목록을 반환 (deduplication 포함)
  *
  * 우선순위:
- *  1. BOM(APPROVED 버전) 기반 공정그룹  → BOM 우선
- *  2. 수동매핑(ccp_process_group_products) → BOM에 없는 것만 추가
- *  3. CCP-4P(금속검출공정) → BOM/수동에 없어도 항상 포함
+ *  1. BOM(생산에 쓰는 버전 하나 — selectBomVersion) 의 원료 공정
+ *  2. 수동매핑(ccp_process_group_products) → **BOM 이 없는 제품만** (2026-10-19)
+ *     BOM 이 있으면 BOM 이 정본 — 배합에서 공정을 뺐는데 옛 수동 연결이 증숙 기록을 되살리던 문제 (단지 송편 6줄).
+ *     옛 연결 데이터는 지우지 않고 읽지만 않는다 (정리는 별도 승인).
+ *  3. CCP-4P(금속검출공정) → 항상 포함
  */
 export async function getProcessGroupsForProduct(args: {
   productId: number;
@@ -185,8 +187,8 @@ export async function getProcessGroupsForProduct(args: {
     [tenantId, bomPick.versionId],
   ) : [[] as any[]];
 
-  // ── 2. 수동 매핑 (ccp_process_group_products)
-  const [manualRows] = await conn.execute<any[]>(
+  // ── 2. 수동 매핑 (ccp_process_group_products) — BOM 이 없는 제품만
+  const [manualRows] = bomPick ? [[] as any[]] : await conn.execute<any[]>(
     `SELECT
        g.id, g.name, g.ccp_type,
        g.temperature_min, g.temperature_max,

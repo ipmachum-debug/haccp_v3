@@ -67,13 +67,13 @@ export default function DesignRecipeDetail() {
     const proc = (d.processes as any[]).map((p) => {
       const list = rows.filter((r) => r.processGroupId === p.id);
       const equip = `${p.equipmentNames.length ? `${p.equipmentNames.length}대 · ${MODE(p)}` : "설비 없음"}${p.profileTimeMin != null ? ` · 가열 ${p.profileTimeMin}분` : ""}`;
-      return { key: `p:${p.id}`, title: p.name, sub: p.source === "manual" ? `제품에 직접 연결 · 원료 지정 없음 (투입량 빈칸) · ${equip}` : equip, list, kg: sum(list), kind: p.source === "manual" ? ("manual" as const) : ("process" as const) };
+      return { key: `p:${p.id}`, title: p.name, sub: equip, list, kg: sum(list), kind: "process" as const };
     });
     const stageLane = (s: string, title: string, kind: "direct" | "late" | "unknown") => {
       const list = rows.filter((r) => r.processGroupId == null && (stageOf(r) ?? "unknown") === s);
       return { key: `s:${s}`, title, sub: kind === "direct" ? "가공된 재료 등 — 공정 없이" : kind === "late" ? "공정 없이 따로 넣음 (넣는 시점은 아직 기록하지 않음)" : "들어가는 곳을 정하세요", list, kg: sum(list), kind };
     };
-    return [...proc, stageLane("direct", "성형에 바로", "direct"), stageLane("unknown", "아직 모름", "unknown"), stageLane("late", "나중에 넣음", "late")].filter((l) => l.list.length || l.kind === "process" || l.kind === "manual");
+    return [...proc, stageLane("direct", "성형에 바로", "direct"), stageLane("unknown", "아직 모름", "unknown"), stageLane("late", "나중에 넣음", "late")].filter((l) => l.list.length || l.kind === "process");
   }, [d, rows, draft]);
 
   const openLane = (key: string) => { setFocus(key); setTab("table"); };
@@ -201,7 +201,7 @@ export default function DesignRecipeDetail() {
                               <div className="text-sm">{l.list.length ? l.list.map((r: any) => r.name).join(", ") : "원료 없음"}</div>
                             </div>
                             <ArrowRight className="hidden sm:block h-5 w-5 self-center text-muted-foreground" />
-                            <div className={cn("w-full sm:w-56 rounded-md border p-2", l.kind === "process" ? "border-violet-300 bg-violet-50" : l.kind === "manual" ? "border-dashed border-violet-300 bg-violet-50/40" : l.kind === "unknown" ? "border-amber-400" : "bg-background")}>
+                            <div className={cn("w-full sm:w-56 rounded-md border p-2", l.kind === "process" ? "border-violet-300 bg-violet-50" : l.kind === "unknown" ? "border-amber-400" : "bg-background")}>
                               <div className="font-medium">{l.title}</div>
                               <div className="text-xs text-muted-foreground">{l.sub}</div>
                             </div>

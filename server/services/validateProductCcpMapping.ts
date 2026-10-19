@@ -17,7 +17,7 @@
  */
 
 import { getRawConnection } from "../db/connection";
-import { resolveBomProductIds, inPlaceholders } from "../lib/identity/itemIdentityService";
+import { selectBomVersion } from "../lib/identity/itemIdentityService";
 
 export interface MappingValidation {
   /** 진행 가능 여부 */
@@ -39,12 +39,13 @@ export interface MappingValidation {
 /**
  * 제품의 CCP 공정그룹 매핑 검증.
  *
- * 정책:
- *   - BOM 매핑 (APPROVED 버전 + ingredients.process_group_id) ≥ 1 → OK
- *   - 수동 매핑 (ccp_process_group_products) ≥ 1 → OK
- *   - 둘 다 0 이면 valid=false (CCP-4P 만으로는 불충분 — 제품별 명시 매핑 필요)
- *
- * 단, 시스템 운영자가 의도적으로 CCP-4P 만 사용하는 케이스도 있으므로 hasMetalDetection 정보 함께 반환.
+ * 정책 (2026-10-19 — 생산 계획 getProcessGroupsForProduct 와 같은 기준, 설계 현황 신호등과 같은 판정):
+ *   - 생산에 쓰는 BOM 버전 하나(selectBomVersion)가 있으면 그 버전만 본다 (옛 승인 버전을 합치지 않음)
+ *       · 원료에 가열 공정이 있으면 통과
+ *       · 가열 공정이 없으면 '금속검출만 하는 제품'(송편·멥쌀가루 등) — 금속검출이 활성이고 원료 들어가는 곳이 모두 정해졌을 때 통과
+ *       · 둘 다 없으면 CCP 기록이 하나도 안 생기므로 막는다
+ *     수동 연결은 보지 않는다 (BOM 이 정본 — 계획도 BOM 이 있으면 수동 연결을 쓰지 않음)
+ *   - BOM 버전이 없으면 이전처럼 수동 연결(가열 공정) ≥ 1 이어야 통과 (4월 흑임자인절미 0건 사고 방지)
  */
 export async function validateProductCcpMapping(args: {
   productId: number;
@@ -53,30 +54,40 @@ export async function validateProductCcpMapping(args: {
 }): Promise<MappingValidation> {
   const { productId, productName, tenantId } = args;
   const conn = await getRawConnection();
-  // 2026-10-07: BOM product_id 가 v2 id 또는 item_master id (bomProductResolver)
-  const bomPids = await resolveBomProductIds(productId, tenantId, conn);
+  const pick = await selectBomVersion(productId, tenantId, conn);
 
-  // 1. APPROVED BOM 버전 존재 여부 + ingredients 의 process_group_id ≥ 1 카운트
-  const [bomRows] = await conn.execute<any[]>(
-    `SELECT
-       COUNT(DISTINCT v.id) AS approved_versions,
-       COUNT(DISTINCT i.process_group_id) AS group_mappings
-     FROM h_mf_reports r
-     LEFT JOIN h_mf_report_versions v
-       ON v.mf_report_id = r.id
-      AND v.approval_status = 'APPROVED'
-     LEFT JOIN h_mf_ingredients i
-       ON i.mf_report_version_id = v.id
-      AND i.process_group_id IS NOT NULL
-     WHERE r.product_id IN (${inPlaceholders(bomPids)})
-       AND r.tenant_id = ?`,
-    [...bomPids, tenantId],
-  );
-  const approvedVersions = Number((bomRows as any[])[0]?.approved_versions ?? 0);
-  const bomMappingCount = Number((bomRows as any[])[0]?.group_mappings ?? 0);
-  const hasApprovedBom = approvedVersions > 0;
+  // 1. 생산에 쓰는 버전의 원료에 지정된 가열 공정 (활성, 금속검출 제외)
+  let bomMappingCount = 0;
+  if (pick) {
+    const [bomRows] = await conn.execute<any[]>(
+      `SELECT COUNT(DISTINCT i.process_group_id) AS group_mappings
+         FROM h_mf_ingredients i
+         JOIN ccp_process_groups g ON g.id = i.process_group_id AND g.tenant_id = ? AND g.status = 'active' AND g.ccp_type != 'CCP-4P'
+        WHERE i.mf_report_version_id = ?`,
+      [tenantId, pick.versionId],
+    );
+    bomMappingCount = Number((bomRows as any[])[0]?.group_mappings ?? 0);
+  }
+  const hasApprovedBom = !!pick?.approved;
 
-  // 2. 수동 매핑 (ccp_process_group_products)
+  // 가열 공정이 없는 배합: 원료마다 '들어가는 곳'(성형에 바로·나중에 넣음)이 모두 정해졌을 때만 '금속검출만 하는 제품' 으로 본다.
+  //   정하지 않은 줄이 있으면 가열 공정을 빠뜨린 것일 수 있다 (예: 시루떡) — 증숙 CCP 없이 만들지 않게 막는다.
+  let unclassified = 0;
+  if (pick && bomMappingCount === 0) {
+    try {
+      const [uRows] = await conn.execute<any[]>(
+        `SELECT COUNT(*) AS n FROM h_mf_ingredients WHERE mf_report_version_id = ? AND process_group_id IS NULL AND (entry_stage IS NULL OR entry_stage NOT IN ('direct', 'late'))`,
+        [pick.versionId],
+      );
+      unclassified = Number((uRows as any[])[0]?.n ?? 0);
+    } catch (e: any) {
+      if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+      const [uRows] = await conn.execute<any[]>(`SELECT COUNT(*) AS n FROM h_mf_ingredients WHERE mf_report_version_id = ? AND process_group_id IS NULL`, [pick.versionId]);
+      unclassified = Number((uRows as any[])[0]?.n ?? 0);
+    }
+  }
+
+  // 2. 수동 매핑 (ccp_process_group_products) — BOM 이 없는 제품에만 쓰인다
   const [manualRows] = await conn.execute<any[]>(
     `SELECT COUNT(*) AS cnt
      FROM ccp_process_group_products gp
@@ -100,60 +111,22 @@ export async function validateProductCcpMapping(args: {
   );
   const hasMetalDetection = Number((metalRows as any[])[0]?.cnt ?? 0) > 0;
 
-  // 판정: BOM 또는 수동 매핑 ≥ 1 이면 통과
-  const valid = bomMappingCount > 0 || manualMappingCount > 0;
-
+  const valid = pick ? bomMappingCount > 0 || (hasMetalDetection && unclassified === 0) : manualMappingCount > 0;
   if (valid) {
-    return {
-      valid: true,
-      bomMappingCount,
-      manualMappingCount,
-      hasApprovedBom,
-      hasMetalDetection,
-      message: "",
-      guidance: [],
-    };
+    return { valid: true, bomMappingCount, manualMappingCount, hasApprovedBom, hasMetalDetection, message: "", guidance: [] };
   }
 
-  // 안내 메시지 생성 (사용자 행동 가이드)
   const guidance: string[] = [];
   let message: string;
-
-  if (!hasApprovedBom && manualMappingCount === 0) {
-    message = `'${productName}' 제품의 CCP 공정그룹 매핑이 없습니다. 배치 생성을 진행할 수 없습니다.`;
-    guidance.push(
-      "[1] 마스터 데이터 → 제품-CCP 매핑 메뉴에서 이 제품에 CCP 공정그룹을 매핑해주세요.",
-    );
-    guidance.push(
-      "[2] 또는 품목제조보고(BOM) 를 작성한 뒤 APPROVED 처리하면 BOM 의 공정그룹이 자동 적용됩니다.",
-    );
-  } else if (hasApprovedBom && bomMappingCount === 0 && manualMappingCount === 0) {
-    message = `'${productName}' 제품의 BOM 은 승인됐지만 CCP 공정그룹이 연결된 원재료가 없습니다.`;
-    guidance.push(
-      "BOM 의 각 원재료에 process_group_id 를 설정하거나, 마스터 데이터 → 제품-CCP 매핑에서 직접 매핑하세요.",
-    );
-  } else if (!hasApprovedBom && manualMappingCount === 0) {
-    message = `'${productName}' 제품의 BOM 이 아직 승인되지 않았고 (DRAFT), 수동 매핑도 없습니다.`;
-    guidance.push("[1] BOM 을 APPROVED 처리하거나");
-    guidance.push("[2] 마스터 데이터 → 제품-CCP 매핑에서 직접 매핑해주세요.");
+  if (!pick) {
+    message = `'${productName}' 제품의 품목제조보고(배합)가 없습니다. 생산 건을 만들 수 없습니다.`;
+    guidance.push("품목제조보고(배합)를 등록하고, 원료마다 들어가는 공정을 정해 주세요.");
+  } else if (!hasMetalDetection) {
+    message = `'${productName}' 제품은 가열 공정도, 사용 중인 금속검출 공정도 없어 CCP 기록이 하나도 생기지 않습니다.`;
+    guidance.push("배합에서 원료가 들어가는 가열 공정을 정하거나, 금속검출 공정을 사용으로 바꿔 주세요.");
   } else {
-    message = `'${productName}' 제품의 CCP 매핑 검증 실패.`;
-    guidance.push("관리자에게 문의해주세요.");
+    message = `'${productName}' 제품의 배합에 가열 공정이 없고, 들어가는 곳을 정하지 않은 원료가 ${unclassified}개 있습니다. 가열하는 제품이면 공정을 빠뜨린 것일 수 있어 생산 건을 만들지 않았습니다.`;
+    guidance.push("배합에서 원료마다 들어가는 곳(가열 공정 또는 성형에 바로)을 정해 주세요. 모두 성형에 바로라면 금속검출만으로 생산됩니다.");
   }
-
-  if (hasMetalDetection) {
-    guidance.push(
-      "참고: 시스템에 CCP-4P (금속검출) 그룹은 활성화되어 있으나, 제품별 매핑이 있어야 자동 생성됩니다.",
-    );
-  }
-
-  return {
-    valid: false,
-    bomMappingCount,
-    manualMappingCount,
-    hasApprovedBom,
-    hasMetalDetection,
-    message,
-    guidance,
-  };
+  return { valid: false, bomMappingCount, manualMappingCount, hasApprovedBom, hasMetalDetection, message, guidance };
 }

@@ -62,8 +62,6 @@ export interface RecipeInput {
   calcError?: string | null;
   /** 계산은 되지만 확인이 필요한 이유 */
   calcNote?: string | null;
-  /** 원료 지정과 별개로 제품에 직접 연결된 공정(수동 연결, ccp_process_group_products) — 실제 생산 계획이 CCP 기록을 만든다 */
-  manualGroupIds?: number[];
   /** 이 버전의 자리: production = 지금 생산에 쓰는 버전(기본) · draft = 그보다 새 초안(승인 전) · old = 옛 버전(생산에 안 씀) */
   versionRole?: "production" | "draft" | "old";
 }
@@ -90,7 +88,7 @@ export function groupIssues(g: DesignGroup): ReadinessIssue[] {
 }
 
 /** 제품 배합 한 개의 준비 상태 */
-export function checkRecipe(r: RecipeInput, groups: Map<number, DesignGroup>): { signal: Signal; issues: ReadinessIssue[]; usedGroupIds: number[]; manualGroupIds: number[] } {
+export function checkRecipe(r: RecipeInput, groups: Map<number, DesignGroup>): { signal: Signal; issues: ReadinessIssue[]; usedGroupIds: number[] } {
   const issues: ReadinessIssue[] = [];
   const role = r.versionRole ?? "production";
   if (role === "draft") issues.push({ level: "yellow", code: "draft-version", text: "승인 전 수정안입니다 — 승인되면 이 버전으로 생산합니다 (지금 생산은 승인된 버전)" });
@@ -126,16 +124,15 @@ export function checkRecipe(r: RecipeInput, groups: Map<number, DesignGroup>): {
     for (const gi of groupIssues(g)) if (gi.level === "red") issues.push(gi);
   }
 
-  // 제품에 직접 연결된 공정 — 원료 지정에 없는 것만 (실제 계획: BOM 우선, 수동은 BOM 에 없는 것만, 금속검출은 공통). 없거나 사용 중지면 계획도 쓰지 않는다
-  const manual = Array.from(new Set(r.manualGroupIds ?? [])).filter((id) => !used.includes(id) && groups.has(id) && groups.get(id)!.ccpType !== "CCP-4P");
-  for (const id of manual) {
-    const g = groups.get(id)!;
-    issues.push({ level: "yellow", code: "manual-group-no-input", text: `${g.name}: 원료 지정 없이 제품에 직접 연결된 공정 — CCP 기록은 생기지만 투입량이 비어 기록됩니다. 이 공정에 들어가는 원료를 배합에서 지정하거나 연결을 확인하세요` });
-    for (const gi of groupIssues(g)) if (gi.level === "red") issues.push(gi);
+  // 가열 공정이 없는 배합 — 생산 판정(validateProductCcpMapping)과 같은 기준
+  if (!used.length && (r.versionRole ?? "production") === "production") {
+    const hasMetal = Array.from(groups.values()).some((g) => g.ccpType === "CCP-4P");
+    if (!hasMetal) issues.push({ level: "red", code: "no-ccp-at-all", text: "가열 공정도 사용 중인 금속검출 공정도 없어 CCP 기록이 생기지 않습니다 — 생산 건을 만들 수 없습니다" });
+    else if (unassigned.length) issues.push({ level: "red", code: "no-heat-unclassified", text: "가열 공정이 없는데 들어가는 곳을 정하지 않은 원료가 있어 생산 건을 만들 수 없습니다 — 모두 성형에 바로라면 그렇게 정하세요 (금속검출만으로 생산)" });
   }
 
   const signal: Signal = issues.some((i) => i.level === "red") ? "red" : issues.length ? "yellow" : "green";
-  return { signal, issues, usedGroupIds: used, manualGroupIds: manual };
+  return { signal, issues, usedGroupIds: used };
 }
 
 /** 원료 1배치 kg 의 공정별 합계 (흐름 요약용). 서버가 계산한 kgPerBatch 우선, 없으면 % × 1배치 총 생산량 (추가 원재료는 kg 그대로) */
