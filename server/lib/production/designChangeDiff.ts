@@ -9,8 +9,18 @@ export interface RecipeSnapshot {
   /** 기록 제목용 제품 이름 (비교하지 않음) */
   productName?: string;
   version: Record<string, unknown>;
-  ingredients: Array<{ key: string; name: string; quantity: unknown; unit: unknown; processGroup: string | null; deductible: unknown; additional: unknown }>;
+  ingredients: Array<{
+    key: string; name: string; quantity: unknown; unit: unknown; processGroup: string | null; deductible: unknown; additional: unknown;
+    /** 계산에 쓰이는 보조 칸 — 원물·공정 환산(기준 원물 kg·전처리 배율)·조정량·보정 수량·들어가는 곳 (#600 검토: 이 칸만 바뀌어도 기록) */
+    basisRawKg?: unknown; pretreatmentFactor?: unknown; adjustedWeightKg?: unknown; correctedQuantity?: unknown; entryStage?: unknown;
+  }>;
 }
+
+const ING_EXTRA: Array<[keyof RecipeSnapshot["ingredients"][number], string]> = [
+  ["basisRawKg", "기준 원물(kg)"], ["pretreatmentFactor", "전처리 배율"], ["adjustedWeightKg", "조정량(kg)"],
+  ["correctedQuantity", "보정 수량"], ["entryStage", "들어가는 곳"],
+];
+const ENTRY_STAGE_TEXT: Record<string, string> = { direct: "성형에 바로", late: "나중에 넣음" };
 
 const norm = (v: unknown) => (v == null || v === "" ? null : Number.isFinite(Number(v)) && typeof v !== "boolean" ? Number(v) : String(v));
 const same = (a: unknown, b: unknown) => norm(a) === norm(b);
@@ -30,6 +40,11 @@ export function diffRecipe(before: RecipeSnapshot, after: RecipeSnapshot): Array
     if (!same(b.quantity, a.quantity) || !same(b.unit, a.unit)) out.push({ field: `${a.name} 배합`, before: `${b.quantity}${b.unit ?? ""}`, after: `${a.quantity}${a.unit ?? ""}` });
     if ((b.processGroup ?? null) !== (a.processGroup ?? null)) out.push({ field: `${a.name} 공정`, before: b.processGroup ?? "지정 없음", after: a.processGroup ?? "지정 없음" });
     if (!same(b.deductible, a.deductible)) out.push({ field: `${a.name} 재고 차감`, before: Number(b.deductible) ? "차감" : "안 함", after: Number(a.deductible) ? "차감" : "안 함" });
+    for (const [k, label] of ING_EXTRA) {
+      if (same(b[k], a[k])) continue;
+      const txt = (v: unknown) => (v == null || v === "" ? null : k === "entryStage" ? ENTRY_STAGE_TEXT[String(v)] ?? v : v);
+      out.push({ field: `${a.name} ${label}`, before: txt(b[k]), after: txt(a[k]) });
+    }
   }
   for (const [k, b] of bMap) if (!aMap.has(k)) out.push({ field: `원료 삭제: ${b.name}`, before: show(b), after: null });
   return out;
@@ -59,12 +74,13 @@ export async function snapshotRecipe(conn: any, tenantId: number, mfReportId: nu
   );
   if (!rep) return null;
   const [[v]]: any = await conn.execute(
-    `SELECT id, version_no, batch_target_kg, yield_basis, unit_weight_g, mass_basis_enabled, reference_finished_kg FROM h_mf_report_versions WHERE mf_report_id = ? ORDER BY version_no DESC, id DESC LIMIT 1`,
+    `SELECT id, version_no, batch_target_kg, yield_basis, unit_weight_g, mass_basis_enabled, reference_finished_kg, reference_raw_total_kg FROM h_mf_report_versions WHERE mf_report_id = ? ORDER BY version_no DESC, id DESC LIMIT 1`,
     [mfReportId],
   );
   if (!v) return null;
   const [iRows]: any = await conn.execute(
     `SELECT i.material_id, i.intermediate_id, i.quantity, i.unit, i.is_deductible, i.is_additional, g.name AS pg,
+            i.basis_raw_kg, i.pretreatment_factor, i.adjusted_weight_kg, i.corrected_quantity, i.entry_stage,
             COALESCE(m.item_name, CONCAT('원료 #', COALESCE(i.material_id, i.intermediate_id))) AS name
        FROM h_mf_ingredients i
        LEFT JOIN item_master m ON m.id = i.material_id AND m.tenant_id = ?
@@ -77,13 +93,15 @@ export async function snapshotRecipe(conn: any, tenantId: number, mfReportId: nu
     const base = `${r.material_id ?? "-"}:${r.intermediate_id ?? "-"}:${Number(r.is_additional) ? "add" : "main"}`;
     const n = (seen.get(base) ?? 0) + 1;
     seen.set(base, n);
-    return { key: `${base}#${n}`, name: String(r.name), quantity: r.quantity, unit: r.unit, processGroup: r.pg ?? null, deductible: r.is_deductible, additional: r.is_additional };
+    return { key: `${base}#${n}`, name: String(r.name), quantity: r.quantity, unit: r.unit, processGroup: r.pg ?? null, deductible: r.is_deductible, additional: r.is_additional,
+      basisRawKg: r.basis_raw_kg, pretreatmentFactor: r.pretreatment_factor, adjustedWeightKg: r.adjusted_weight_kg, correctedQuantity: r.corrected_quantity, entryStage: r.entry_stage };
   });
   return {
     productName: rep.product_name ?? undefined,
     version: {
       reportNo: rep.report_no, reportDate: rep.report_date, batchTargetKg: v.batch_target_kg, yieldBasis: v.yield_basis,
       unitWeightG: v.unit_weight_g, massBasisEnabled: Number(v.mass_basis_enabled) === 1 ? "켬" : "끔", referenceFinishedKg: v.reference_finished_kg,
+      referenceRawTotalKg: v.reference_raw_total_kg,
     },
     ingredients,
   };

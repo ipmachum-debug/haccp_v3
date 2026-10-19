@@ -132,6 +132,9 @@ export const hMfIngredients = mysqlTable("h_mf_ingredients", {
   // ★ 2026-10-16 (수율 기준 PR B): 운영 기준 원물 kg (엑셀 kg 등 — 법적 배합비 quantity 와 분리), 전처리 배율 (NULL = 1.0)
   basisRawKg: decimal("basis_raw_kg", { precision: 12, scale: 4 }),
   pretreatmentFactor: decimal("pretreatment_factor", { precision: 6, scale: 4 }),
+  // ★ 2026-10-19 생산 설계 2a: 공정이 지정되지 않은 원료가 어디로 들어가는지 — 'direct'(성형에 바로) · 'late'(나중에 넣음) · NULL(아직 모름).
+  //   공정 지정 줄은 공정이 우선. 분류 정보일 뿐 원료 차감·CCP 계산에 쓰지 않는다.
+  entryStage: varchar("entry_stage", { length: 20 }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

@@ -61,7 +61,9 @@ export default function DesignHistory() {
                   </table>
                 )}
                 {h.appliedCount != null && (
-                  <p className="text-xs text-muted-foreground">적용: {h.appliedLabel} <b className="text-foreground">{h.appliedCount}건</b>{h.appliedFirst ? ` (첫 ${h.appliedFirst})` : ""}</p>
+                  <p className="text-xs text-muted-foreground" title="변경 시각 뒤에 만들어진 건수입니다. 그 건이 이 설정 버전을 썼다는 기록은 아닙니다 (버전 기록은 다음 단계).">
+                    참고: {h.appliedLabel} <b className="text-foreground">{h.appliedCount}건</b>{h.appliedFirst ? ` (첫 ${h.appliedFirst})` : ""} — 변경 뒤 만들어진 건수 (사용한 버전 기록 아님)
+                  </p>
                 )}
               </CardContent>
             </Card>

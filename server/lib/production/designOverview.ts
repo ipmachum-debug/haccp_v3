@@ -9,6 +9,8 @@
  */
 import { checkRecipe, groupIssues, processLoads, type DesignGroup, type RecipeIngredient, type ReadinessIssue, type Signal } from "../../../shared/production/designReadiness";
 import { toProductionProductId } from "../identity/itemIdentityService";
+import { rowKg } from "./ccpBomInput";
+import { occupancyFor, type PlannerEquipment } from "./ccpDayPlanner";
 
 const num = (v: unknown) => (v == null ? null : Number(v));
 
@@ -44,11 +46,16 @@ export async function loadDesignGroups(conn: any, tenantId: number): Promise<Des
   }
   return (gRows as any[]).map((r) => {
     const profileCount = Number(r.profile_count ?? 0);
+    const profileTimeMin = profileCount === 1 ? num(r.profile_time) : null;
     return {
       id: Number(r.id), name: String(r.name), ccpType: String(r.ccp_type ?? ""),
       mode: String(r.equip_group_mode ?? "sequential"), batchSize: Number(r.equip_batch_size ?? 1) || 1,
-      profileCount, profileTimeMin: profileCount === 1 ? num(r.profile_time) : null,
-      equipments: byGroup.get(Number(r.id)) ?? [],
+      profileCount, profileTimeMin,
+      // 설비 기본값(마스터)과 이 공정에 적용되는 값(계획과 같은 occupancyFor)을 나눠 보여 준다
+      equipments: (byGroup.get(Number(r.id)) ?? []).map((e) => {
+        const heat = profileTimeMin ?? e.timeMin;
+        return { ...e, appliedHeatMin: heat, occupancyMin: occupancyFor({ cycleTotalMin: e.cycleMin, defaultTimeMin: e.timeMin } as PlannerEquipment, heat) };
+      }),
     };
   });
 }
@@ -63,8 +70,46 @@ export interface RecipeRow {
   approved: boolean;
   approvalStatus: string;
   batchTargetKg: number | null;
+  /** 실제 계획이 원물·공정 환산으로 계산하는가 (회사 기능 켜짐 + 버전 켜짐 + 계산 성공) */
   massBasis: boolean;
-  ingredients: RecipeIngredient[];
+  /** 버전은 켜졌는데 환산 계산이 안 되는 이유 — 생산 건을 만들 수 없다 */
+  calcError: string | null;
+  /** 계산은 되지만 확인이 필요한 이유 (실제 계획이 다른 버전을 쓰는 등) */
+  calcNote: string | null;
+  ingredients: Array<RecipeIngredient & { id: number; deductible: boolean; rawKgPerBatch: number | null }>;
+}
+
+const kg2 = (n: number) => Math.round(n * 1000) / 1000;
+
+/**
+ * 1배치 원료 kg — 실제 계획(loadPlanBom · 배치 생성)과 같은 규칙 (#600 F600-01: 따로 % × 총량을 계산해 원물·공정 환산 제품이 어긋났다)
+ *   기존 계산: rowKg (조정량 > 보정 수량 > 수량, % 는 버전의 1배치 총 생산량 기준, g → kg)
+ *   원물·공정 환산 버전: prepareBatchMassBasis 스냅샷 (1배치 총 생산량을 계획량으로) — 공정 kg = 전처리 후 kg, 원물 kg 따로
+ *   원료 품목이 없는 줄(중간재)은 두 계산 모두 공정 투입에 넣지 않으므로 kgPerBatch = null (배합량은 rawKgPerBatch 로 표시)
+ */
+async function applyBatchKg(conn: any, tenantId: number, r: RecipeRow, rows: any[], versionFlag: boolean): Promise<void> {
+  const target = r.batchTargetKg;
+  const legacy = () => {
+    r.ingredients = rows.map((x, k) => {
+      const kg = kg2(rowKg({ ...x, version_id: r.versionId, version_no: r.versionNo, batch_target_kg: target }));
+      return { ...r.ingredients[k], kgPerBatch: x.material_id == null ? null : kg, rawKgPerBatch: kg };
+    });
+  };
+  if (!versionFlag || !(target != null && target > 0)) return legacy();
+  const pid = await toProductionProductId(r.productItemId, tenantId, conn);
+  if (!pid) return legacy();
+  const { prepareBatchMassBasis } = await import("../../db/production/batchMassBasis");
+  const mb = await prepareBatchMassBasis(tenantId, pid, target, conn);
+  if (mb.mode === "legacy") return legacy();
+  if (mb.mode === "error") { r.calcError = mb.reason; return legacy(); }
+  if (mb.snapshot.versionId !== r.versionId) { r.calcNote = `생산 계획은 다른 배합 버전(#${mb.snapshot.versionId})으로 환산합니다 — 이 화면(#${r.versionId})의 kg 은 기존 계산입니다`; return legacy(); }
+  const scale = mb.subBatchKg && mb.subBatchKg > 0 && mb.snapshot.plannedFinishedKg > 0 ? mb.subBatchKg / mb.snapshot.plannedFinishedKg : 1;
+  const byId = new Map(mb.snapshot.rows.map((x) => [x.ingredientId, x]));
+  r.massBasis = true;
+  r.ingredients = r.ingredients.map((i) => {
+    const s = byId.get(i.id);
+    return { ...i, kgPerBatch: s ? kg2(s.processKg * scale) : null, rawKgPerBatch: s ? kg2(s.rawKg * scale) : i.rawKgPerBatch };
+  });
 }
 
 export async function loadRecipes(conn: any, tenantId: number): Promise<RecipeRow[]> {
@@ -82,26 +127,37 @@ export async function loadRecipes(conn: any, tenantId: number): Promise<RecipeRo
   const picked = new Map<number, any>();
   for (const r of vRows as any[]) if (!picked.has(Number(r.report_id))) picked.set(Number(r.report_id), r);
   const versionIds = Array.from(picked.values()).map((r) => Number(r.version_id));
-  const ings = new Map<number, RecipeIngredient[]>();
+  const rowsByVersion = new Map<number, any[]>();
   if (versionIds.length) {
     const [iRows]: any = await conn.query(
-      `SELECT i.mf_report_version_id, COALESCE(m.item_name, CONCAT('원료 #', COALESCE(i.material_id, i.intermediate_id))) AS name,
-              i.unit, i.quantity, i.process_group_id, i.is_additional
+      `SELECT i.id, i.mf_report_version_id, i.material_id, COALESCE(m.item_name, CONCAT('원료 #', COALESCE(i.material_id, i.intermediate_id))) AS name,
+              i.unit, i.quantity, i.corrected_quantity, i.adjusted_weight_kg, i.process_group_id, i.is_additional, i.is_deductible, i.entry_stage
          FROM h_mf_ingredients i LEFT JOIN item_master m ON m.id = i.material_id AND m.tenant_id = ?
         WHERE i.mf_report_version_id IN (?) ORDER BY i.mf_report_version_id, i.line_no, i.id`,
       [tenantId, versionIds],
     );
     for (const r of iRows as any[]) {
       const k = Number(r.mf_report_version_id);
-      ings.set(k, [...(ings.get(k) ?? []), { name: String(r.name), unit: String(r.unit ?? "%"), quantity: Number(r.quantity) || 0, processGroupId: num(r.process_group_id), isAdditional: Number(r.is_additional) === 1 }]);
+      rowsByVersion.set(k, [...(rowsByVersion.get(k) ?? []), r]);
     }
   }
-  return Array.from(picked.values()).map((r) => ({
-    reportId: Number(r.report_id), reportNo: String(r.report_no ?? ""), productItemId: Number(r.product_id), productName: String(r.product_name),
-    versionId: Number(r.version_id), versionNo: Number(r.version_no), approvalStatus: String(r.approval_status), approved: r.approval_status === "APPROVED",
-    batchTargetKg: num(r.batch_target_kg), massBasis: Number(r.mass_basis_enabled) === 1,
-    ingredients: ings.get(Number(r.version_id)) ?? [],
-  }));
+  const out: RecipeRow[] = [];
+  for (const r of picked.values()) {
+    const rows = rowsByVersion.get(Number(r.version_id)) ?? [];
+    const row: RecipeRow = {
+      reportId: Number(r.report_id), reportNo: String(r.report_no ?? ""), productItemId: Number(r.product_id), productName: String(r.product_name),
+      versionId: Number(r.version_id), versionNo: Number(r.version_no), approvalStatus: String(r.approval_status), approved: r.approval_status === "APPROVED",
+      batchTargetKg: num(r.batch_target_kg), massBasis: false, calcError: null, calcNote: null,
+      ingredients: rows.map((x) => ({
+        id: Number(x.id), name: String(x.name), unit: String(x.unit ?? "%"), quantity: Number(x.quantity) || 0, processGroupId: num(x.process_group_id),
+        isAdditional: Number(x.is_additional) === 1, deductible: Number(x.is_deductible) === 1, entryStage: x.entry_stage ?? null,
+        kgPerBatch: undefined, rawKgPerBatch: null,
+      })),
+    };
+    await applyBatchKg(conn, tenantId, row, rows, Number(r.mass_basis_enabled) === 1);
+    out.push(row);
+  }
+  return out;
 }
 
 export interface RecipeStatus extends Omit<RecipeRow, "ingredients"> {
@@ -117,8 +173,9 @@ export async function loadRecipeStatuses(conn: any, tenantId: number, groups?: D
   const order: Record<Signal, number> = { red: 0, yellow: 1, green: 2 };
   return (await loadRecipes(conn, tenantId))
     .map(({ ingredients, ...r }) => {
-      const c = checkRecipe({ approved: r.approved, batchTargetKg: r.batchTargetKg, ingredients }, gMap);
-      return { ...r, signal: c.signal, issues: c.issues, ingredientCount: ingredients.length, loads: processLoads({ approved: r.approved, batchTargetKg: r.batchTargetKg, ingredients }, gMap) };
+      const input = { approved: r.approved, batchTargetKg: r.batchTargetKg, ingredients, calcError: r.calcError, calcNote: r.calcNote };
+      const c = checkRecipe(input, gMap);
+      return { ...r, signal: c.signal, issues: c.issues, ingredientCount: ingredients.length, loads: processLoads(input, gMap) };
     })
     .sort((a, b) => order[a.signal] - order[b.signal] || a.productName.localeCompare(b.productName, "ko"));
 }
@@ -262,3 +319,61 @@ export async function loadOverview(conn: any, tenantId: number) {
     recent: (await loadHistory(conn, tenantId, 8)),
   };
 }
+
+/**
+ * 제품 배합 상세 (생산 설계 2a) — 생산에 쓰는 버전의 원료 줄 · 1배치 kg · 들어가는 곳 · 공정(설비) · 공통 후속 공정
+ *   흐름도(분류도)와 배합표가 같은 데이터를 쓴다. 공정끼리의 순서·합류는 데이터에 없으므로 추측하지 않는다.
+ */
+export async function loadRecipeDetail(conn: any, tenantId: number, reportId: number) {
+  const recipes = await loadRecipes(conn, tenantId);
+  const r = recipes.find((x) => x.reportId === reportId);
+  if (!r) return null;
+  const groups = await loadDesignGroups(conn, tenantId);
+  const gMap = new Map(groups.map((g) => [g.id, g]));
+  const ingredients = r.ingredients.map((i) => ({
+    ...i, kgPerBatch: i.kgPerBatch ?? null,
+    processName: i.processGroupId != null ? gMap.get(i.processGroupId)?.name ?? `공정 #${i.processGroupId}` : null,
+  }));
+  const c = checkRecipe({ approved: r.approved, batchTargetKg: r.batchTargetKg, ingredients: r.ingredients, calcError: r.calcError, calcNote: r.calcNote }, gMap);
+  return {
+    reportId: r.reportId, reportNo: r.reportNo, productName: r.productName, versionId: r.versionId, versionNo: r.versionNo,
+    approved: r.approved, batchTargetKg: r.batchTargetKg, massBasis: r.massBasis, calcError: r.calcError,
+    signal: c.signal, issues: c.issues, ingredients,
+    processes: groups.filter((g) => c.usedGroupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name, ccpType: g.ccpType, mode: g.mode, batchSize: g.batchSize, profileTimeMin: g.profileTimeMin, equipmentNames: g.equipments.map((e) => e.name) })),
+    // 모든 제품이 거치는 공통 후속 공정 — 지금 코드(배치 생성)가 활성 CCP-4P 를 모든 제품에 넣는 것과 같은 범위
+    common: groups.filter((g) => g.ccpType === "CCP-4P").map((g) => ({ id: g.id, name: g.name })),
+  };
+}
+
+/** 들어가는 곳 저장 — 공정이 없는 원료 줄만, 이 회사·이 버전의 줄만. 바뀐 것만 돌려준다 */
+export async function saveEntryStages(
+  conn: any, tenantId: number, reportId: number, versionId: number, items: Array<{ ingredientId: number; stage: "direct" | "late" | null }>,
+): Promise<Array<{ name: string; before: string; after: string }>> {
+  const [[own]]: any = await conn.execute(
+    `SELECT v.id FROM h_mf_report_versions v JOIN h_mf_reports r ON r.id = v.mf_report_id WHERE v.id = ? AND r.id = ? AND r.tenant_id = ?`,
+    [versionId, reportId, tenantId],
+  );
+  if (!own) throw new Error("이 회사의 품목제조보고 버전이 아닙니다.");
+  const ids = Array.from(new Set(items.map((i) => i.ingredientId)));
+  if (!ids.length) return [];
+  const [rows]: any = await conn.query(
+    `SELECT i.id, i.process_group_id, i.entry_stage, COALESCE(m.item_name, CONCAT('원료 #', COALESCE(i.material_id, i.intermediate_id))) AS name
+       FROM h_mf_ingredients i LEFT JOIN item_master m ON m.id = i.material_id AND m.tenant_id = ?
+      WHERE i.mf_report_version_id = ? AND i.id IN (?)`,
+    [tenantId, versionId, ids],
+  );
+  const byId = new Map((rows as any[]).map((r) => [Number(r.id), r]));
+  if (byId.size !== ids.length) throw new Error("이 버전의 원료 줄이 아닌 번호가 있습니다 — 새로고침 후 다시 하세요.");
+  const label = (s: string | null) => (s ? ENTRY_LABEL[s] ?? s : "아직 모름");
+  const changed: Array<{ name: string; before: string; after: string }> = [];
+  for (const it of items) {
+    const row = byId.get(it.ingredientId)!;
+    if (row.process_group_id != null) continue; // 공정이 지정된 줄은 공정이 우선 — 들어가는 곳을 따로 두지 않는다
+    const before = row.entry_stage ?? null;
+    if ((before ?? null) === (it.stage ?? null)) continue;
+    await conn.execute(`UPDATE h_mf_ingredients SET entry_stage = ? WHERE id = ? AND mf_report_version_id = ? AND process_group_id IS NULL`, [it.stage, it.ingredientId, versionId]);
+    changed.push({ name: String(row.name), before: label(before), after: label(it.stage) });
+  }
+  return changed;
+}
+const ENTRY_LABEL: Record<string, string> = { direct: "성형에 바로", late: "나중에 넣음" };

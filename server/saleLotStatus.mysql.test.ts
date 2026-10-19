@@ -1014,6 +1014,47 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batch_mass_basis WHERE batch_id = ?`, [bid]))[0].n)).toBe(1);
     });
 
+    it("생산 설계 제품 배합의 공정 투입 = 실제 계획(loadPlanBom)과 같은 계산 — 5kg 아닌 5.172kg, 원물·전처리 근거 그대로 (#600 F600-01)", async () => {
+      await q(`DELETE FROM h_products_v2 WHERE id = 38`);
+      await q(`INSERT INTO h_products_v2 (id, tenant_id, product_code, product_name) VALUES (38, ?, 'P38', '우유설기')`, [T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES (1038, ?, 'P38', '우유설기', 'own_product', 38, 1)`, [T]);
+      await q(`UPDATE h_mf_reports SET product_id = 1038 WHERE id = 373`);
+      try {
+        const { loadRecipes } = await import("./lib/production/designOverview");
+        const { loadPlanBom } = await import("./lib/production/ccpPlanContext");
+        const { processLoads } = await import("../shared/production/designReadiness");
+        const { getRawConnection } = await import("./db/connection");
+        const conn = await getRawConnection();
+        const plan = await loadPlanBom(conn, T, 38, 5);
+        expect(plan.massBasis).toBe("basis");
+        const r = (await loadRecipes(conn, T)).find((x) => x.reportId === 373)!;
+        expect(r.massBasis).toBe(true);
+        expect(r.calcError).toBeNull();
+        const rice = r.ingredients.find((i) => i.id === 6852)!;
+        expect([rice.rawKgPerBatch, rice.kgPerBatch]).toEqual([3.2, 4]); // 생멥쌀 3.2kg × 전처리 1.25 = 공정 4kg
+        const loads = processLoads({ approved: true, batchTargetKg: 5, ingredients: r.ingredients }, new Map());
+        expect(loads).toEqual([{ label: "공정 #2", kg: 5.17 }]);
+        expect(Math.round(r.ingredients.reduce((s, i) => s + (i.kgPerBatch ?? 0), 0) * 1000) / 1000).toBe(plan.inputByGroup[2]);
+        expect(plan.inputByGroup[2]).toBe(5.172);
+
+        // 환산을 끈 버전 → 둘 다 기존 계산 (73.3% × 5 = 3.665 …, 공정 합 5)
+        await q(`UPDATE h_mf_report_versions SET mass_basis_enabled = 0 WHERE id = 472`);
+        const off = (await loadRecipes(conn, T)).find((x) => x.reportId === 373)!;
+        expect(off.massBasis).toBe(false);
+        expect(off.ingredients.find((i) => i.id === 6852)!.kgPerBatch).toBe(3.665);
+        expect((await loadPlanBom(conn, T, 38, 5)).inputByGroup[2]).toBe(5);
+
+        // 켜진 버전의 계산 실패 → 빨강 이유로 보인다 (기존 계산으로 덮지 않는 실제 생성과 같은 판단)
+        await q(`UPDATE h_mf_report_versions SET mass_basis_enabled = 1 WHERE id = 472`);
+        await q(`UPDATE h_mf_ingredients SET basis_raw_kg = NULL WHERE id = 6854`);
+        const bad = (await loadRecipes(conn, T)).find((x) => x.reportId === 373)!;
+        expect(bad.massBasis).toBe(false);
+        expect(bad.calcError).toBeTruthy();
+      } finally {
+        await q(`DELETE FROM h_products_v2 WHERE id = 38`);
+      }
+    });
+
     it("계획량에 비례 (12.5kg = 준비 5판 → 생멥쌀 8)", async () => {
       const bid = await newBatch("12.5", "MILK-125");
       expect((await inputs(bid)).find((r: any) => r[0] === 168)).toEqual([168, 8]);

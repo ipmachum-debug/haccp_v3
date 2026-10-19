@@ -56,7 +56,7 @@ export default function DesignOverview() {
                       </div>
                       <ul className="text-sm list-disc pl-5">{(r.issues as any[]).map((i, k) => <li key={k} className={i.level === "red" ? "text-red-700" : "text-amber-800"}>{i.text}</li>)}</ul>
                     </div>
-                    <Button variant="outline" className="h-11" onClick={() => navigate(EDIT_PATHS.recipe(r.reportId))}>배합 열기</Button>
+                    <Button variant="outline" className="h-11" onClick={() => navigate(EDIT_PATHS.recipeDetail(r.reportId))}>배합표 · 흐름도</Button>
                   </div>
                 ))}
                 {attention.length > 12 && <Link href={ROUTES.DESIGN_RECIPES} className="text-sm text-blue-700 hover:underline">전체 {attention.length}개 보기 →</Link>}
