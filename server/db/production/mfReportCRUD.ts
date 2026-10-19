@@ -161,7 +161,8 @@ export async function getMfReportDetail(mfReportId: number, tenantId?: number) {
         adjustedWeightKg: hMfIngredients.adjustedWeightKg,
         isAdditional: hMfIngredients.isAdditional,
         basisRawKg: hMfIngredients.basisRawKg,
-        pretreatmentFactor: hMfIngredients.pretreatmentFactor
+        pretreatmentFactor: hMfIngredients.pretreatmentFactor,
+        entryStage: hMfIngredients.entryStage
       })
       .from(hMfIngredients)
       .leftJoin(itemMaster, eq(hMfIngredients.materialId, itemMaster.id))

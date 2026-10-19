@@ -18,7 +18,7 @@ export async function loadDesignGroups(conn: any, tenantId: number): Promise<Des
   let gRows: any[];
   try {
     [gRows] = await conn.execute(
-      `SELECT g.id, g.name, g.ccp_type, g.sort_order, g.equip_group_mode, g.equip_batch_size,
+      `SELECT g.id, g.name, g.ccp_type, g.sort_order, g.equip_group_mode, g.equip_batch_size, g.equip_interval_min,
               (SELECT COUNT(*) FROM ccp_time_profiles tp WHERE tp.tenant_id = g.tenant_id AND tp.ccp_process_group_id = g.id AND tp.is_active = 1) AS profile_count,
               (SELECT MAX(tp.time_minutes) FROM ccp_time_profiles tp WHERE tp.tenant_id = g.tenant_id AND tp.ccp_process_group_id = g.id AND tp.is_active = 1) AS profile_time
          FROM ccp_process_groups g WHERE g.tenant_id = ? AND g.status = 'active' ORDER BY g.sort_order, g.id`,
@@ -27,13 +27,13 @@ export async function loadDesignGroups(conn: any, tenantId: number): Promise<Des
   } catch (e: any) {
     if (e?.code !== "ER_BAD_FIELD_ERROR" && e?.code !== "ER_NO_SUCH_TABLE") throw e;
     [gRows] = await conn.execute(
-      `SELECT g.id, g.name, g.ccp_type, g.sort_order, 'sequential' AS equip_group_mode, 1 AS equip_batch_size, 0 AS profile_count, NULL AS profile_time
+      `SELECT g.id, g.name, g.ccp_type, g.sort_order, 'sequential' AS equip_group_mode, 1 AS equip_batch_size, 10 AS equip_interval_min, 0 AS profile_count, NULL AS profile_time
          FROM ccp_process_groups g WHERE g.tenant_id = ? AND g.status = 'active' ORDER BY g.sort_order, g.id`,
       [tenantId],
     );
   }
   const [eRows]: any = await conn.execute(
-    `SELECT ge.process_group_id, e.id, e.name, e.default_temperature, e.default_time, e.batch_operation_time
+    `SELECT ge.process_group_id, e.id, e.name, e.default_temperature, e.default_time, e.batch_operation_time, e.work_start_time
        FROM ccp_process_group_equipments ge
        JOIN equipments e ON e.id = ge.equipment_id AND e.tenant_id = ge.tenant_id AND e.status = 'active'
       WHERE ge.tenant_id = ? ORDER BY ge.process_group_id, ge.sort_order, ge.equipment_id`,
@@ -42,7 +42,10 @@ export async function loadDesignGroups(conn: any, tenantId: number): Promise<Des
   const byGroup = new Map<number, DesignGroup["equipments"]>();
   for (const r of eRows as any[]) {
     const k = Number(r.process_group_id);
-    byGroup.set(k, [...(byGroup.get(k) ?? []), { id: Number(r.id), name: String(r.name), tempC: num(r.default_temperature), timeMin: num(r.default_time), cycleMin: num(r.batch_operation_time) }]);
+    byGroup.set(k, [...(byGroup.get(k) ?? []), {
+      id: Number(r.id), name: String(r.name), tempC: num(r.default_temperature), timeMin: num(r.default_time), cycleMin: num(r.batch_operation_time),
+      workStartTime: r.work_start_time ? String(r.work_start_time).slice(0, 5) : null,
+    }]);
   }
   return (gRows as any[]).map((r) => {
     const profileCount = Number(r.profile_count ?? 0);
@@ -50,6 +53,7 @@ export async function loadDesignGroups(conn: any, tenantId: number): Promise<Des
     return {
       id: Number(r.id), name: String(r.name), ccpType: String(r.ccp_type ?? ""),
       mode: String(r.equip_group_mode ?? "sequential"), batchSize: Number(r.equip_batch_size ?? 1) || 1,
+      intervalMin: r.equip_interval_min != null ? Number(r.equip_interval_min) : 10,
       profileCount, profileTimeMin,
       // 설비 기본값(마스터)과 이 공정에 적용되는 값(계획과 같은 occupancyFor)을 나눠 보여 준다
       equipments: (byGroup.get(Number(r.id)) ?? []).map((e) => {
@@ -238,6 +242,7 @@ const FIELD_LABEL: Record<string, string> = {
   equip_group_mode: "운전 방식", equip_interval_min: "투입 간격(분)", equip_batch_size: "묶음 대수",
   defaultTemperature: "평소 온도", defaultPressure: "평소 압력", defaultTime: "가열시간(분)", batchOperationTime: "한 번 도는 시간(분)",
   edgeTemperature: "가장자리 품온", centerTemperature: "중심 품온", workStartTime: "작업 시작", workEndTime: "작업 종료", status: "상태",
+  heat_min: "운영 가열시간(분)", equipment_ids: "연결 설비",
   batchTargetKg: "1배치 총 생산량(kg)", referenceFinishedKg: "기준 완제품량(kg)", yieldBasis: "수율 기준", unitWeightG: "단위 중량(g)", reportNo: "보고서 번호", reportDate: "보고 일자", massBasisEnabled: "원물·공정 환산",
 };
 export const fieldLabel = (f: string) => FIELD_LABEL[f] ?? f;
@@ -410,38 +415,7 @@ export async function loadRecipeDetail(conn: any, tenantId: number, reportId: nu
   };
 }
 
-/** 들어가는 곳 저장 — 공정이 없는 원료 줄만, 이 회사·이 버전의 줄만. 바뀐 것만 돌려준다 */
-export async function saveEntryStages(
-  conn: any, tenantId: number, reportId: number, versionId: number, items: Array<{ ingredientId: number; stage: "direct" | "late" | null }>,
-): Promise<Array<{ name: string; before: string; after: string }>> {
-  const [[own]]: any = await conn.execute(
-    `SELECT v.id FROM h_mf_report_versions v JOIN h_mf_reports r ON r.id = v.mf_report_id WHERE v.id = ? AND r.id = ? AND r.tenant_id = ?`,
-    [versionId, reportId, tenantId],
-  );
-  if (!own) throw new Error("이 회사의 품목제조보고 버전이 아닙니다.");
-  const ids = Array.from(new Set(items.map((i) => i.ingredientId)));
-  if (!ids.length) return [];
-  const [rows]: any = await conn.query(
-    `SELECT i.id, i.process_group_id, i.entry_stage, COALESCE(m.item_name, CONCAT('원료 #', COALESCE(i.material_id, i.intermediate_id))) AS name
-       FROM h_mf_ingredients i LEFT JOIN item_master m ON m.id = i.material_id AND m.tenant_id = ?
-      WHERE i.mf_report_version_id = ? AND i.id IN (?)`,
-    [tenantId, versionId, ids],
-  );
-  const byId = new Map((rows as any[]).map((r) => [Number(r.id), r]));
-  if (byId.size !== ids.length) throw new Error("이 버전의 원료 줄이 아닌 번호가 있습니다 — 새로고침 후 다시 하세요.");
-  const label = (s: string | null) => (s ? ENTRY_LABEL[s] ?? s : "아직 모름");
-  const changed: Array<{ name: string; before: string; after: string }> = [];
-  for (const it of items) {
-    const row = byId.get(it.ingredientId)!;
-    if (row.process_group_id != null) continue; // 공정이 지정된 줄은 공정이 우선 — 들어가는 곳을 따로 두지 않는다
-    const before = row.entry_stage ?? null;
-    if ((before ?? null) === (it.stage ?? null)) continue;
-    await conn.execute(`UPDATE h_mf_ingredients SET entry_stage = ? WHERE id = ? AND mf_report_version_id = ? AND process_group_id IS NULL`, [it.stage, it.ingredientId, versionId]);
-    changed.push({ name: String(row.name), before: label(before), after: label(it.stage) });
-  }
-  return changed;
-}
-const ENTRY_LABEL: Record<string, string> = { direct: "성형에 바로", late: "나중에 넣음" };
+
 
 /**
  * 시험 계산 (생산 설계 2b) — 총 생산량을 넣으면 '오늘 생산' 과 같은 계산으로 회차·공정·설비 시각·원료 양을 보여 준다. 저장 없음.

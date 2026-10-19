@@ -2852,6 +2852,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await addCols("ccp_process_groups", ["temperature_min decimal(6,2) NULL", "temperature_max decimal(6,2) NULL", "time_min int NULL", "time_max int NULL",
         "pressure_min decimal(6,3) NULL", "pressure_max decimal(6,3) NULL", "equip_group_mode varchar(20) NULL DEFAULT 'sequential'", "equip_interval_min int NULL DEFAULT 10", "equip_batch_size int NULL DEFAULT 1"]);
       await addCols("equipments", ["type varchar(50) NULL", "default_pressure decimal(6,3) NULL", "work_start_time varchar(8) NULL"]);
+      await addCols("ccp_time_profiles", ["process_type varchar(50) NULL", "profile_name varchar(255) NULL", "description text NULL"]);
     });
     beforeEach(async () => {
       await q(`DELETE FROM h_mf_ingredients WHERE mf_report_version_id IN (8901, 8902, 8903, 8904)`);
@@ -2863,6 +2864,8 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`DELETE FROM equipments WHERE id IN (8931)`);
       await q(`DELETE FROM ccp_process_group_equipments WHERE process_group_id IN (8921, 8922)`);
       await q(`DELETE FROM ccp_process_group_products WHERE product_id IN (891, 892)`);
+      await q(`DELETE FROM ccp_time_profiles WHERE ccp_process_group_id IN (8921, 8922)`);
+      await q(`DELETE FROM equipments WHERE id IN (8932, 8939)`);
       await q(`INSERT INTO h_products_v2 (id, tenant_id, product_code, product_name) VALUES (891, ?, 'P891', '왕찹쌀떡'), (892, ?, 'P892', '카스테라앙금인절미')`, [T, T]);
       await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES
         (89101, ?, 'P891', '왕찹쌀떡', 'own_product', 891, 1), (89102, ?, 'P892', '카스테라앙금인절미', 'own_product', 892, 1),
@@ -2901,24 +2904,18 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await d.loadRecipeDetail(await conn(), T + 1, 8901)).toBeNull(); // 다른 회사
     });
 
-    it("들어가는 곳을 일부만 정하면 남은 경고 유지, 모두 정하면 서버 재판정으로 초록 — 수정안 분류는 생산 신호등을 바꾸지 않음", async () => {
-      expect((await status(8901)).signal).toBe("yellow");
-      const c = await conn();
-      // 수정안(v2) 에만 정함 → 생산(v1) 은 그대로 노랑
-      await d.saveEntryStages(c, T, 8901, 8902, [{ ingredientId: 89022, stage: "direct" }]);
-      expect((await status(8901)).signal).toBe("yellow");
-      // 생산 버전에 하나만 → 남은 1개 경고
-      expect(await d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89012, stage: "direct" }])).toEqual([{ name: "통팥앙금", before: "아직 모름", after: "성형에 바로" }]);
-      expect((await status(8901)).issues.map((i: any) => i.text)).toEqual([expect.stringMatching(/정하지 않은 원료 1개 \(옥수수전분\)/)]);
-      await d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89013, stage: "direct" }]);
+    it("들어가는 곳은 배합 저장 한 번으로 (따로 분류 저장 없음) — 정하면 서버 재판정으로 초록, 공정 있는 줄은 비움, 다른 회사 거부", async () => {
+      const api = await import("./db/production/mfReportAPI");
+      await q(`UPDATE h_mf_report_versions SET approval_status = 'APPROVED' WHERE id = 8902`); // 생산 버전 = 최신 v2 (원료 2줄: 교반 + 미정)
+      const row = (id: number, mat: number, qty: number, pg: number | null, stage: "direct" | "late" | null) => ({ id, materialId: mat, quantity: qty, unit: "%", isDeductible: 1, materialType: "RAW", processGroupId: pg, entryStage: stage });
+      expect((await status(8901)).issues.map((i: any) => i.code)).toEqual(["unassigned"]);
+      await api.updateMfReport({ mfReportId: 8901, ingredients: [row(89021, 89111, 62.6, 8921, "late"), row(89022, 89112, 37.4, null, "direct")] } as any, T);
       expect((await status(8901)).signal).toBe("green");
-      // 같은 저장 반복 → 바뀐 것 없음 (안전한 재시도)
-      expect(await d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89013, stage: "direct" }])).toEqual([]);
-      // 공정이 지정된 줄 · 다른 회사 · 다른 버전 줄은 바꾸지 않음
-      expect(await d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89011, stage: "late" }])).toEqual([]);
-      await expect(d.saveEntryStages(c, T + 1, 8901, 8901, [{ ingredientId: 89012, stage: null }])).rejects.toThrow(/이 회사/);
-      await expect(d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89022, stage: null }])).rejects.toThrow(/이 버전의 원료 줄이 아닌/);
-      expect((await q(`SELECT entry_stage FROM h_mf_ingredients WHERE id IN (89011, 89012) ORDER BY id`)).map((r: any) => r.entry_stage)).toEqual([null, "direct"]);
+      expect((await q(`SELECT entry_stage FROM h_mf_ingredients WHERE id IN (89021, 89022) ORDER BY id`)).map((r: any) => r.entry_stage)).toEqual([null, "direct"]);
+      // 배합 수정 화면처럼 들어가는 곳을 안 보내면 그대로 유지
+      await api.updateMfReport({ mfReportId: 8901, batchTargetKg: 96, ingredients: [{ id: 89021, materialId: 89111, quantity: 62.6, unit: "%", isDeductible: 1, materialType: "RAW" }, { id: 89022, materialId: 89112, quantity: 37.4, unit: "%", isDeductible: 1, materialType: "RAW" }] } as any, T);
+      expect((await q(`SELECT entry_stage FROM h_mf_ingredients WHERE id = 89022`))[0].entry_stage).toBe("direct");
+      await expect(api.updateMfReport({ mfReportId: 8901, ingredients: [row(89022, 89112, 100, null, null)] } as any, T + 1)).rejects.toThrow(/이 회사/);
     });
 
     it("BOM 이 정본 — 옛 직접 연결(증숙)은 BOM 이 있으면 계획·판정에 안 쓰임 (데이터는 그대로), 금속검출만 하는 제품도 생산 가능 판정 (송편·멥쌀가루)", async () => {
@@ -2972,6 +2969,48 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
         await q(`DELETE FROM h_products_v2 WHERE id = 893`);
       }
     });
+    it("우리 공장 공정 저장: 운영 가열시간 하나 (계획이 읽는 시간 설정 1개로) · 비우면 설비 기본값 · 몇 대씩·간격 · 연결 설비는 이 회사만", async () => {
+      const { saveProcess } = await import("./lib/production/designFactorySave");
+      const { getProcessGroupsForProduct } = await import("./services/ccp-batch");
+      const c = await conn();
+      const heatOf = async () => (await getProcessGroupsForProduct({ productId: 891, tenantId: T })).find((g: any) => g.id === 8921)?.profile_time_min ?? null;
+      const active = async () => Number((await q(`SELECT COUNT(*) AS n FROM ccp_time_profiles WHERE ccp_process_group_id = 8921 AND is_active = 1`))[0].n);
+      expect(await heatOf()).toBeNull(); // 처음엔 설비 기본값(10분)을 쓴다
+      expect((await saveProcess(c, T, { groupId: 8921, heatMin: 35 })).changes).toEqual({ heat_min: { before: null, after: 35 } });
+      expect([await heatOf(), await active()]).toEqual([35, 1]);
+      await saveProcess(c, T, { groupId: 8921, heatMin: 40 });
+      expect([await heatOf(), await active()]).toEqual([40, 1]);
+      // 예전처럼 시간 설정이 여러 개면 계획이 안 쓰던 상태 → 저장하면 하나로 정리
+      await q(`INSERT INTO ccp_time_profiles (tenant_id, process_type, profile_name, time_minutes, ccp_process_group_id, is_active) VALUES (?, 'MIX', '두 번째', 20, 8921, 1)`, [T]);
+      expect(await heatOf()).toBeNull();
+      await saveProcess(c, T, { groupId: 8921, heatMin: 45 });
+      expect([await heatOf(), await active()]).toEqual([45, 1]);
+      // 비우면 시간 설정을 끄고 설비 기본값으로 (지우지 않음)
+      await saveProcess(c, T, { groupId: 8921, heatMin: null });
+      expect([await heatOf(), await active()]).toEqual([null, 0]);
+      // 몇 대씩·간격 — 바뀐 것만 기록
+      const r = await saveProcess(c, T, { groupId: 8921, mode: "grouped", batchSize: 3, intervalMin: 5 });
+      expect(Object.keys(r.changes).sort()).toEqual(["equip_batch_size", "equip_group_mode", "equip_interval_min"]);
+      expect((await saveProcess(c, T, { groupId: 8921, mode: "grouped", batchSize: 3, intervalMin: 5 })).changes).toEqual({});
+      // 연결 설비: 다른 회사 설비는 거부, 이 회사 설비는 순서대로
+      await q(`INSERT INTO equipments (id, tenant_id, name, default_time, batch_operation_time) VALUES (8932, ?, '교반기2호기', 10, 70), (8939, ?, '남의 설비', 10, 70)`, [T, T + 1]);
+      await expect(saveProcess(c, T, { groupId: 8921, equipmentIds: [8931, 8939] })).rejects.toThrow(/이 회사의 설비가 아닌/);
+      expect((await saveProcess(c, T, { groupId: 8921, equipmentIds: [8932, 8931] })).changes.equipment_ids).toEqual({ before: "교반기1호기", after: "교반기2호기, 교반기1호기" });
+      expect((await q(`SELECT equipment_id FROM ccp_process_group_equipments WHERE process_group_id = 8921 ORDER BY sort_order`)).map((x: any) => Number(x.equipment_id))).toEqual([8932, 8931]);
+      await expect(saveProcess(c, T + 1, { groupId: 8921, heatMin: 10 })).rejects.toThrow(/이 회사의 공정이 아닙니다/);
+    });
+
+    it("우리 공장 설비 저장: 한 번 도는 시간·온도·작업 시작 시각 — 바뀐 것만, 다른 회사 거부", async () => {
+      const { saveEquipment } = await import("./lib/production/designFactorySave");
+      const c = await conn();
+      const r = await saveEquipment(c, T, { equipmentId: 8931, cycleMin: 60, tempC: 98, workStartTime: "08:30" });
+      expect(Object.keys(r.changes).sort()).toEqual(["batchOperationTime", "defaultTemperature", "workStartTime"]);
+      const e = (await q(`SELECT batch_operation_time, default_temperature + 0 AS t, work_start_time FROM equipments WHERE id = 8931`))[0];
+      expect([Number(e.batch_operation_time), Number(e.t), String(e.work_start_time).slice(0, 5)]).toEqual([60, 98, "08:30"]);
+      expect((await saveEquipment(c, T, { equipmentId: 8931, cycleMin: 60, tempC: 98, workStartTime: "08:30" })).changes).toEqual({});
+      await expect(saveEquipment(c, T + 1, { equipmentId: 8931, cycleMin: 1 })).rejects.toThrow(/이 회사의 설비가 아닙니다/);
+    });
+
     it("2b 시험 계산: 배치 생성과 같은 원료 양 · 오늘 생산과 같은 회차, 저장 없음 (배치·투입·CCP 그대로)", async () => {
       const c = await conn();
       const counts = async () => [

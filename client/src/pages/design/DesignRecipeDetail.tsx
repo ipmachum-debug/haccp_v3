@@ -1,13 +1,12 @@
 /**
  * 생산 설계 > 제품 배합 > 상세 (2026-10-19, 설계 18 §13 2a) — [배합표 | 공정 흐름도] 같은 데이터
  *
- * 배합표: 원료 · 배합비 · 1배치 kg · 들어가는 곳. 공정이 없는 원료는 여기서 '성형에 바로 · 나중에 넣음 · 아직 모름' 을 고른다.
+ * 배합표: 원료 · 배합비 · 1배치 kg · 들어가는 곳 (보기).
+ * 배합 고치기: 품목제조보고 편집기를 이 화면 안에서 연다 — 배합비·공정·들어가는 곳(성형에 바로 등)·재고 차감을 한 번에 저장 (2026-10-19, 다른 메뉴로 이동 없음).
  * 흐름도: 원료 → (공정·설비) → 성형·합류 → 완제품 → 공통 후속 공정. 지금 데이터로 그릴 수 있는 '분류도' 다 —
  *   공정끼리의 순서·합류 위치는 저장된 정보가 없어 나란히 그린다 (추측해서 선을 긋지 않는다).
- * 시험 계산: 총 생산량으로 오늘 생산과 같은 계산 (저장 없음, 2b).
- * 공정 지정·배합비 같은 계산에 쓰이는 값은 '배합 고치기' (기존 품목제조보고 화면) 에서.
  */
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation, useParams, useSearch } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -18,17 +17,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { trpc } from "@/lib/trpc";
 import { ROUTES } from "@/lib/routePaths";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
 import { SignalBadge, EDIT_PATHS, fmtKg } from "@/components/design/DesignBits";
-import { TrialCalcPanel } from "@/components/design/TrialCalcPanel";
-import { ArrowDown, ArrowRight, Loader2, Pencil, Save } from "lucide-react";
+import { MfReportEditor } from "@/pages/production/MfReportEdit";
+import { ArrowDown, ArrowRight, Loader2, Pencil } from "lucide-react";
 
 type Stage = "direct" | "late" | null;
-const STAGES: Array<{ v: Stage; label: string }> = [
-  { v: "direct", label: "성형에 바로" },
-  { v: "late", label: "나중에 넣음" },
-  { v: null, label: "아직 모름" },
-];
 const MODE = (p: any) => (p.mode === "concurrent" ? "동시에" : p.mode === "grouped" && p.batchSize > 1 ? `${p.batchSize}대씩 묶어서` : "한 대씩");
 
 export default function DesignRecipeDetail() {
@@ -38,27 +31,14 @@ export default function DesignRecipeDetail() {
   const search = new URLSearchParams(useSearch());
   const versionParam = Number(search.get("version")) || undefined;
   const q = trpc.productionDesign.recipeDetail.useQuery({ reportId, versionId: versionParam }, { enabled: reportId > 0, retry: 1 });
-  const utils = trpc.useUtils();
   const d: any = q.data;
-  const [tab, setTab] = useState("table");
-  const [draft, setDraft] = useState<Record<number, Stage>>({});
-  // 설계 현황 경고에서 왔으면(focus=unknown) 들어가는 곳 미정 원료를 바로 보여 준다
-  const [focus, setFocus] = useState<string | null>(search.get("focus") === "unknown" ? "s:unknown" : null);
-  useEffect(() => { setDraft({}); }, [d?.versionId]);
-  useEffect(() => {
-    if (d && focus === "s:unknown") document.querySelector("[data-unknown-row]")?.scrollIntoView({ block: "center" });
-  }, [d?.versionId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 저장 성공 뒤에만 서버가 다시 판정한 결과로 현황·목록·이력을 새로 읽는다 (실패·취소면 화면 그대로)
-  const save = trpc.productionDesign.setEntryStages.useMutation({
-    onSuccess: (r: any) => { toast.success(r.changed ? `${r.changed}개 원료의 들어가는 곳을 저장했습니다.` : "바뀐 것이 없습니다."); setDraft({}); utils.productionDesign.invalidate(); },
-    onError: (e: { message: string }) => toast.error(e.message),
-  });
+  // 설계 현황 경고에서 왔으면(focus=unknown) 바로 '배합 고치기' — 들어가는 곳은 공정 칸에서 고른다
+  const [tab, setTab] = useState(search.get("focus") === "unknown" ? "edit" : "table");
+  const [focus, setFocus] = useState<string | null>(null);
 
   const rows: any[] = d?.ingredients ?? [];
-  const stageOf = (r: any): Stage => (r.id in draft ? draft[r.id] : (r.entryStage as Stage) ?? null);
+  const stageOf = (r: any): Stage => (r.entryStage as Stage) ?? null;
   const laneOf = (r: any) => (r.processGroupId != null ? `p:${r.processGroupId}` : `s:${stageOf(r) ?? "unknown"}`);
-  const dirty = Object.keys(draft).filter((k) => (draft[Number(k)] ?? null) !== (rows.find((r) => r.id === Number(k))?.entryStage ?? null));
   const unknownRows = rows.filter((r) => r.processGroupId == null && stageOf(r) == null);
 
   const lanes = useMemo(() => {
@@ -74,15 +54,15 @@ export default function DesignRecipeDetail() {
       return { key: `s:${s}`, title, sub: kind === "direct" ? "가공된 재료 등 — 공정 없이" : kind === "late" ? "공정 없이 따로 넣음 (넣는 시점은 아직 기록하지 않음)" : "들어가는 곳을 정하세요", list, kg: sum(list), kind };
     };
     return [...proc, stageLane("direct", "성형에 바로", "direct"), stageLane("unknown", "아직 모름", "unknown"), stageLane("late", "나중에 넣음", "late")].filter((l) => l.list.length || l.kind === "process");
-  }, [d, rows, draft]);
+  }, [d, rows]);
 
   const openLane = (key: string) => { setFocus(key); setTab("table"); };
 
   return (
     <DashboardLayout>
       <div className="space-y-4">
-        <PageHeader title={d ? d.productName : "제품 배합"} description="배합표와 공정 흐름도는 같은 데이터입니다. 공정이 없는 원료는 들어가는 곳만 여기서 정하고, 배합비·공정은 '배합 고치기' 에서."
-          primary={d ? { label: "배합 고치기", icon: Pencil, onClick: () => navigate(EDIT_PATHS.recipe(d.reportId)) } : undefined}
+        <PageHeader title={d ? d.productName : "제품 배합"} description="배합표와 공정 흐름도는 같은 데이터입니다. 고칠 때는 '배합 고치기' — 이 화면 안에서 고치고 저장하면 끝납니다."
+          primary={d ? { label: "배합 고치기", icon: Pencil, onClick: () => setTab("edit") } : undefined}
           secondary={{ label: "목록", onClick: () => navigate(ROUTES.DESIGN_RECIPES) }} />
         {q.isLoading && <Card><CardContent className="py-10 text-center text-sm text-muted-foreground"><Loader2 className="inline h-4 w-4 mr-1 animate-spin" />불러오는 중…</CardContent></Card>}
         {q.isError && <Card><CardContent className="py-8 text-center text-sm text-red-700">{q.error?.message}</CardContent></Card>}
@@ -109,7 +89,7 @@ export default function DesignRecipeDetail() {
                 )}
                 {d.versionRole !== "production" && (
                   <span className="basis-full rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-900">
-                    이 버전은 지금 생산에 쓰이지 않습니다 ({d.versionRole === "draft" ? "승인 전 수정안" : "옛 버전"}). 여기서 정한 내용은 이 버전에만 남고, 지금 생산 상태(신호등)는 생산에 쓰는 버전 기준입니다.{" "}
+                    이 버전은 지금 생산에 쓰이지 않습니다 ({d.versionRole === "draft" ? "승인 전 수정안" : "옛 버전"}). 지금 생산 상태(신호등)는 생산에 쓰는 버전 기준입니다.{" "}
                     <button type="button" className="underline" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId))}>생산에 쓰는 버전 보기</button>
                   </span>
                 )}
@@ -119,35 +99,26 @@ export default function DesignRecipeDetail() {
               </CardContent>
             </Card>
 
-            {unknownRows.length > 0 && (
+            {unknownRows.length > 0 && tab !== "edit" && (
               <Card className="border-amber-300 bg-amber-50/50">
                 <CardContent className="py-3 flex flex-wrap items-center justify-between gap-2 text-sm">
                   <span>들어가는 곳을 정하지 않은 원료 <b>{unknownRows.length}개</b> ({unknownRows.slice(0, 4).map((r) => r.name).join(", ")}{unknownRows.length > 4 ? " 외" : ""})</span>
-                  <Button className="h-11" variant="outline" onClick={() => setDraft((x) => ({ ...x, ...Object.fromEntries(unknownRows.map((r) => [r.id, "direct"])) }))}>모두 '성형에 바로' 로 (아닌 것만 바꾸세요)</Button>
+                  <Button className="h-11" variant="outline" onClick={() => setTab("edit")}>배합 고치기에서 정하기</Button>
                 </CardContent>
               </Card>
-            )}
-            {dirty.length > 0 && (
-              <div className="sticky top-2 z-10 flex items-center justify-between gap-2 rounded-md border bg-background p-2 shadow-sm">
-                <span className="text-sm">저장하지 않은 변경 {dirty.length}개</span>
-                <div className="flex gap-2">
-                  <Button variant="outline" className="h-11" onClick={() => setDraft({})}>되돌리기</Button>
-                  <Button className="h-11" disabled={save.isPending} onClick={() => save.mutate({ reportId: d.reportId, versionId: d.versionId, items: dirty.map((k) => ({ ingredientId: Number(k), stage: draft[Number(k)] ?? null })) })}>
-                    {save.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Save className="h-4 w-4 mr-1" />}저장
-                  </Button>
-                </div>
-              </div>
             )}
 
             <Tabs value={tab} onValueChange={setTab}>
               <TabsList className="h-auto">
                 <TabsTrigger value="table" className="min-h-11 px-5">배합표</TabsTrigger>
                 <TabsTrigger value="flow" className="min-h-11 px-5">공정 흐름도</TabsTrigger>
-                <TabsTrigger value="trial" className="min-h-11 px-5">시험 계산</TabsTrigger>
+                <TabsTrigger value="edit" className="min-h-11 px-5">배합 고치기</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="trial">
-                <TrialCalcPanel reportId={d.reportId} batchTargetKg={d.batchTargetKg} isProductionVersion={d.versionRole === "production"} />
+              <TabsContent value="edit">
+                {/* 제조기준관리의 품목제조보고 편집기와 같은 것 — 저장하면 현황·배합표·흐름도가 서버 판정으로 새로 읽힌다 */}
+                <p className="mb-2 text-xs text-muted-foreground">원료마다 '공정' 칸에서 가열 공정 또는 성형에 바로·나중에 넣음을 고르고 저장하세요. 가장 최신 버전을 고칩니다.</p>
+                <MfReportEditor reportId={d.reportId} embedded onCancel={() => setTab("table")} />
               </TabsContent>
 
               <TabsContent value="table">
@@ -167,16 +138,9 @@ export default function DesignRecipeDetail() {
                               {r.kgPerBatch != null ? fmtKg(r.kgPerBatch) : <span className="text-xs text-muted-foreground" title="원료 품목이 없는 줄은 공정 투입량 계산에 들어가지 않습니다">{fmtKg(r.rawKgPerBatch)} (계산 제외)</span>}
                             </td>
                             <td className="p-2">
-                              {r.processGroupId != null ? <Badge variant="outline">{r.processName}</Badge> : (
-                                <div className="flex flex-wrap gap-1">
-                                  {STAGES.map((s) => (
-                                    <button key={String(s.v)} type="button" onClick={() => setDraft((x) => ({ ...x, [r.id]: s.v }))}
-                                      className={cn("min-h-11 rounded-md border px-3 text-xs", stageOf(r) === s.v ? (s.v ? "bg-primary text-primary-foreground border-primary" : "bg-amber-100 border-amber-400") : "bg-background hover:bg-accent")}>
-                                      {s.label}
-                                    </button>
-                                  ))}
-                                </div>
-                              )}
+                              {r.processGroupId != null ? <Badge variant="outline">{r.processName}</Badge>
+                                : stageOf(r) ? <span>{stageOf(r) === "direct" ? "성형에 바로" : "나중에 넣음"}</span>
+                                : <span className="text-amber-800">아직 모름</span>}
                             </td>
                             <td className="p-2 text-xs">{r.deductible ? "차감" : "안 함"}</td>
                           </tr>

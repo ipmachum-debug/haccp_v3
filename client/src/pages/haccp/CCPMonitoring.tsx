@@ -569,6 +569,7 @@ function EquipmentCcpSettingsForm({
       basePayload.batchLinkMode = settings.batchLinkMode || "linked";
     } else {
       // 가열 공정 필드
+      basePayload.workStartTime = settings.workStartTime || undefined;
       basePayload.defaultTemperature = settings.temperatureC || undefined;
       basePayload.edgeTemperature = settings.tempEdgeC || undefined;
       basePayload.centerTemperature = settings.tempCenterC || undefined;
@@ -707,6 +708,11 @@ function EquipmentCcpSettingsForm({
               <div className="space-y-1.5">
                 <Label className="text-xs">1배치당 운영시간 (분)</Label>
                 <Input type="number" placeholder="예: 45 (가열+유휴)" value={settings.batchOperationTimeMin} onChange={(e) => updateSetting("batchOperationTimeMin", e.target.value)} className="h-9" />
+              </div>
+              {/* 가열 설비도 작업 시작 시각을 생산 계획이 쓴다 (없으면 09:00) — 2026-10-19 이전엔 금속검출에만 칸이 있었다 */}
+              <div className="space-y-1.5">
+                <Label className="text-xs">작업 시작 시각</Label>
+                <Input type="time" value={settings.workStartTime} onChange={(e) => updateSetting("workStartTime", e.target.value)} className="h-9" />
               </div>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
