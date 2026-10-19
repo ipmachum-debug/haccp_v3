@@ -238,9 +238,13 @@ export const ccpFormRouter = router({
           [input.batchId, tenantId]
         );
         
+        // 사람 손이 닿은 기록지(승인·확인·저장·행 확인)는 지우지 않는다 (2026-10-20, #611 검토)
+        const { isFormRecordProtected } = await import("../../db/haccp/ccpFormSettings");
+        const editable: any[] = [];
+        for (const fr of frRows as any[]) if (!(await isFormRecordProtected(pool, Number(fr.id), tenantId))) editable.push(fr);
         if (input.forceReset) {
           // 강제 리셋: 모든 행 삭제 후 재생성
-          for (const fr of frRows as any[]) {
+          for (const fr of editable) {
             await pool.execute(
               `DELETE FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ?`,
               [fr.id, tenantId]
@@ -248,7 +252,7 @@ export const ccpFormRouter = router({
           }
         } else {
           // 스마트 리셋: batch_count 초과 빈 행만 삭제
-          for (const fr of frRows as any[]) {
+          for (const fr of editable) {
             if (fr.ccp_type !== 'CCP-4P') {
               const bc = fr.batch_count ? Number(fr.batch_count) : 1;
               await pool.execute(
@@ -300,11 +304,8 @@ export const ccpFormRouter = router({
         note: z.string().optional(),
       }))
       .mutation(async ({ input, ctx }) => {
-        const { upsertCcpFormRow } = await import("../../db/haccp/ccpFormRecords");
-        // 현장 확인 기록지면 수정 전 값을 저장 전에 읽어 둔다 (이력의 전 값)
-        const { readFieldRowBeforeLegacySave, afterLegacyRowSave } = await import("../../services/fieldWork");
-        const fieldBefore = await readFieldRowBeforeLegacySave(ctx.tenantId, input.formRecordId, input.batchSeq);
-        const rowId = await upsertCcpFormRow({
+        const { upsertCcpFormRow, syncFormRowToCcpRow } = await import("../../db/haccp/ccpFormRecords");
+        const data = {
           tenantId: ctx.tenantId,
           formRecordId: input.formRecordId,
           batchSeq: input.batchSeq,
@@ -338,10 +339,18 @@ export const ccpFormRouter = router({
           actionBy: input.actionBy,
           confirmedBy: input.confirmedBy,
           note: input.note,
-        });
-        // 현장 확인 기록지면 이 행의 확인은 무효 + 이력 (2026-10-19 하루 생산 흐름)
-        await afterLegacyRowSave({ tenantId: ctx.tenantId, formRecordId: input.formRecordId, rowId: Number(rowId), userId: ctx.user.id, before: fieldBefore,
+        };
+        // 현장 확인 기록지면 저장·확인 무효·이력을 한 트랜잭션으로 (2026-10-20, #611 검토). 예전 기록지는 예전 저장 그대로
+        const { saveFieldRowFromLegacy } = await import("../../services/fieldWork");
+        const fieldRowId = await saveFieldRowFromLegacy({ tenantId: ctx.tenantId, userId: ctx.user.id, formRecordId: input.formRecordId, batchSeq: input.batchSeq, data: data as any,
           meta: { deviceId: (ctx.req?.headers?.["x-device-id"] as string) ?? null, sessionId: (ctx.req?.headers?.["x-session-id"] as string) ?? null } });
+        let rowId: number;
+        if (fieldRowId != null) {
+          rowId = fieldRowId;
+          await syncFormRowToCcpRow(data as any); // 점검 기록(h_ccp_rows) 동기화 — 예전 저장과 같은 보조 동기화
+        } else {
+          rowId = await upsertCcpFormRow(data as any);
+        }
         return { success: true, rowId };
       }),
 
@@ -392,8 +401,13 @@ export const ccpFormRouter = router({
         } catch (e: any) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message ?? "예정 생산 건을 시작하지 못했습니다." });
         }
-        if (pre.record.status === "submitted") {
+        // 확인(검사·저장 한 트랜잭션)을 먼저 — 충돌·거부면 상태·결재 요청을 바꾸지 않는다 (#611 추가 검토)
+        try {
           await confirmSheet(input.formRecordId, ctx.tenantId, ctx.user.id);
+        } catch (e: any) {
+          throw new TRPCError({ code: e?.name === "SheetConfirmConflictError" ? "CONFLICT" : "PRECONDITION_FAILED", message: e?.message ?? "제출할 수 없습니다." });
+        }
+        if (pre.record.status === "submitted") {
           return { success: true, approvalRequestId: null, confirmedOnly: true };
         }
         const { submitCcpFormRecord } = await import("../../db/haccp/ccpFormRecords");
@@ -407,7 +421,6 @@ export const ccpFormRouter = router({
           ccpType: input.ccpType,
           workDate: pre.record.workDate,
         });
-        await confirmSheet(input.formRecordId, ctx.tenantId, ctx.user.id);
         return { success: true, approvalRequestId: approvalId, confirmedOnly: false };
       }),
 
@@ -473,44 +486,41 @@ export const ccpFormRouter = router({
       .input(z.object({ batchId: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getRawConnection } = await import("../../db");
-        let conn: any = null;
-        try {
-          conn = await getRawConnection();
-          // CCP 인스턴스에서 공정그룹 확인 후 설비 목록 조회
-          const [instRows] = await conn.execute(
-            `SELECT DISTINCT ci.process_group_id, pg.name as group_name, ci.ccp_type
-             FROM h_ccp_instances ci
-             LEFT JOIN ccp_process_groups pg ON ci.process_group_id = pg.id
-             WHERE ci.batch_id = ?`,
-            [input.batchId, ctx.tenantId]
+        const conn: any = await getRawConnection();
+        // 이 회사의 생산 건인지 먼저 (2026-10-20, #611 추가 검토 6) — 다른 회사 번호는 아무것도 보여 주지 않는다
+        const [[own]]: any = await conn.execute(`SELECT id FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.batchId, ctx.tenantId]);
+        if (!own) throw new TRPCError({ code: "NOT_FOUND", message: "생산 건을 찾을 수 없습니다." });
+        // CCP 인스턴스에서 공정그룹 확인 후 설비 목록 조회 — 인스턴스·공정 모두 회사 조건 (이전: 첫 조회에 회사 조건이 없고 인자 개수가 달라 조회 오류를 [] 로 감췄다)
+        const [instRows] = await conn.execute(
+          `SELECT DISTINCT ci.process_group_id, pg.name as group_name, ci.ccp_type
+           FROM h_ccp_instances ci
+           LEFT JOIN ccp_process_groups pg ON pg.id = ci.process_group_id AND pg.tenant_id = ci.tenant_id
+           WHERE ci.batch_id = ? AND ci.tenant_id = ?`,
+          [input.batchId, ctx.tenantId]
+        );
+        const result = [];
+        for (const inst of instRows as any[]) {
+          if (!inst.process_group_id) continue;
+          const [equipRows] = await conn.execute(
+            `SELECT eq.id as id, eq.name as equipment_name, eq.type as equipment_type,
+                    NULL as equipment_code, pge.sort_order,
+                    eq.default_temperature, eq.default_pressure,
+                    eq.batch_operation_time, eq.default_time
+             FROM ccp_process_group_equipments pge
+             JOIN equipments eq ON pge.equipment_id = eq.id
+             WHERE pge.process_group_id = ? AND pge.tenant_id = ? AND pge.tenant_id = eq.tenant_id
+               AND eq.status = 'active'
+             ORDER BY pge.sort_order ASC`,
+            [inst.process_group_id, ctx.tenantId]
           );
-          const result = [];
-          for (const inst of instRows as any[]) {
-            if (!inst.process_group_id) continue;
-            const [equipRows] = await conn.execute(
-              `SELECT eq.id as id, eq.name as equipment_name, eq.type as equipment_type,
-                      NULL as equipment_code, pge.sort_order,
-                      eq.default_temperature, eq.default_pressure,
-                      eq.batch_operation_time, eq.default_time
-               FROM ccp_process_group_equipments pge
-               JOIN equipments eq ON pge.equipment_id = eq.id
-               WHERE pge.process_group_id = ? AND pge.tenant_id = ? AND pge.tenant_id = eq.tenant_id
-                 AND eq.status = 'active'
-               ORDER BY pge.sort_order ASC`,
-              [inst.process_group_id, ctx.tenantId]
-            );
-            result.push({
-              processGroupId: inst.process_group_id,
-              processGroupName: inst.group_name,
-              ccpType: inst.ccp_type,
-              equipment: equipRows,
-            });
-          }
-          return result;
-        } catch (e: any) {
-          console.error("[getEquipmentForBatch] error:", e.message);
-          return [];
+          result.push({
+            processGroupId: inst.process_group_id,
+            processGroupName: inst.group_name,
+            ccpType: inst.ccp_type,
+            equipment: equipRows,
+          });
         }
+        return result;
         // ※ getRawConnection()은 Pool 싱글턴 - end() 호출 금지
       }),
 

@@ -82,10 +82,29 @@ export async function autoIssueMaterialsForBatch(
   batchId: number,
   userId: number,
   expectedTenantId?: number,
-  opts?: { onlyLineIds?: number[] },
+  opts?: { onlyLineIds?: number[]; txConn?: any },
 ): Promise<AutoIssueResult> {
   const db = await getDb();
   if (!db) throw new Error("Database connection not available");
+  // 호출자 트랜잭션 안에서 출고 (2026-10-20, #611 검토 P1) — 예정 생산 건의 첫 확인처럼 출고·확인·이력을 한 번에 성공/실패시켜야 할 때.
+  //   txConn 이 있으면 쓰기는 모두 그 연결로(줄마다 SAVEPOINT — 줄 하나 실패는 그 줄만 되돌림), 커밋·롤백은 호출자가 한다.
+  //   txConn 이 없으면 예전처럼 줄마다 독립 트랜잭션.
+  const txConn = opts?.txConn ?? null;
+  const lineTx = async <R>(fn: (conn: any) => Promise<R>, label: string): Promise<R> => {
+    if (!txConn) {
+      const { withInventoryTx } = await import("../inventory/applyInventoryDelta");
+      return withInventoryTx(fn, label);
+    }
+    await txConn.query("SAVEPOINT auto_issue_line");
+    try {
+      const r = await fn(txConn);
+      await txConn.query("RELEASE SAVEPOINT auto_issue_line");
+      return r;
+    } catch (e) {
+      await txConn.query("ROLLBACK TO SAVEPOINT auto_issue_line");
+      throw e;
+    }
+  };
 
   const result: AutoIssueResult = {
     success: true,
@@ -185,7 +204,7 @@ export async function autoIssueMaterialsForBatch(
     // 2026-10-14: 이미 출고 기록(h_inventory_transactions BATCH usage)이 있는 투입은 다시 출고하지 않는다.
     //   inventory_deducted 는 "LOT 실제 차감" 플래그라, LOT 없이 출고 기록만 남긴 과거 투입(덤프 10/14 기준 755건,
     //   음수 허용 정책 10/8 이전)은 0 으로 남아 있다. 플래그만 보면 재실행 시 같은 투입이 두 번 출고된다.
-    const lineStates = await classifyBatchLines(batchId, tenantId);
+    const lineStates = await classifyBatchLines(batchId, tenantId, txConn ?? undefined);
     for (const bi of batchInputs) {
       if (isRepresented(lineStates.get(Number(bi.id))?.state ?? "none")) bi.inventory_deducted = 1;
     }
@@ -193,8 +212,14 @@ export async function autoIssueMaterialsForBatch(
     const ambiguous = batchInputs.filter((bi) => Number(bi.inventory_deducted) !== 1 && lineStates.get(Number(bi.id))?.state === "ambiguous");
     if (ambiguous.length) {
       try {
-        await db.execute(sql`UPDATE h_batch_inputs SET issue_hold = 1, issue_hold_reason = ${"줄 번호 없는 옛 출고와 대응이 애매 — 생산 건 화면에서 '기존 출고로 인정' 또는 '새로 출고' 로 확인"}
+        const reason = "줄 번호 없는 옛 출고와 대응이 애매 — 생산 건 화면에서 '기존 출고로 인정' 또는 '새로 출고' 로 확인";
+        if (txConn) {
+          await txConn.query(`UPDATE h_batch_inputs SET issue_hold = 1, issue_hold_reason = ? WHERE batch_id = ? AND tenant_id = ? AND issue_hold = 0 AND id IN (?)`,
+            [reason, batchId, tenantId, ambiguous.map((b) => Number(b.id))]);
+        } else {
+          await db.execute(sql`UPDATE h_batch_inputs SET issue_hold = 1, issue_hold_reason = ${reason}
                               WHERE batch_id = ${batchId} AND tenant_id = ${tenantId} AND issue_hold = 0 AND id IN (${sql.join(ambiguous.map((b) => sql`${Number(b.id)}`), sql`, `)})`);
+        }
       } catch (e: any) {
         if (e?.cause?.code !== "ER_BAD_FIELD_ERROR" && e?.code !== "ER_BAD_FIELD_ERROR") throw e;
       }
@@ -209,7 +234,9 @@ export async function autoIssueMaterialsForBatch(
     // 출고 보류 줄(복구 때 '별도 확인' 으로 남긴 미출고 줄)은 자동 출고하지 않는다 — 출고 안 된 줄로 남아 승인·원가 확정을 막는다
     let heldIds = new Set<number>();
     try {
-      const [hr]: any = await db.execute(sql`SELECT id FROM h_batch_inputs WHERE batch_id = ${batchId} AND tenant_id = ${tenantId} AND issue_hold = 1`);
+      const [hr]: any = txConn
+        ? await txConn.execute(`SELECT id FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ? AND issue_hold = 1`, [batchId, tenantId])
+        : await db.execute(sql`SELECT id FROM h_batch_inputs WHERE batch_id = ${batchId} AND tenant_id = ${tenantId} AND issue_hold = 1`);
       heldIds = new Set((hr as any[]).map((r) => Number(r.id)));
     } catch (e: any) {
       if (e?.cause?.code !== "ER_BAD_FIELD_ERROR" && e?.code !== "ER_BAD_FIELD_ERROR") throw e;
@@ -243,7 +270,7 @@ export async function autoIssueMaterialsForBatch(
     //   계속 — deduction_log 는 best-effort 보고용 이력일 뿐.
     let productionLogIdForDeduction: number | null = null;
     try {
-      const rawConn = await getRawConnection();
+      const rawConn = txConn ?? (await getRawConnection());
       productionLogIdForDeduction = await ensureProductionLogForBatch(
         batchId,
         tenantId,
@@ -338,8 +365,7 @@ export async function autoIssueMaterialsForBatch(
         const { getStockExemptMaterialIds } = await import("../inventory/stockExemptPolicy");
         const rawConn = await getRawConnection();
         if ((await getStockExemptMaterialIds(rawConn, tenantId, [canonicalId])).has(canonicalId)) {
-          const { withInventoryTx } = await import("../inventory/applyInventoryDelta");
-          const done = await withInventoryTx(async (conn) => {
+          const done = await lineTx(async (conn) => {
             const [bRows]: any = await conn.execute(
               `SELECT inventory_deducted, actual_quantity, planned_quantity FROM h_batch_inputs WHERE id = ? AND tenant_id = ? AND batch_id = ? LIMIT 1 FOR UPDATE`,
               [input.id, tenantId, batchId],
@@ -369,10 +395,10 @@ export async function autoIssueMaterialsForBatch(
       }
 
       try {
-        const { withInventoryTx, applyLotDelta } = await import("../inventory/applyInventoryDelta");
+        const { applyLotDelta } = await import("../inventory/applyInventoryDelta");
         const { allocateLotsFEFO } = await import("../inventory/fefoLotAllocation");
 
-        const line = await withInventoryTx(async (conn) => {
+        const line = await lineTx(async (conn) => {
           // (a) 줄 잠금 + 재확인 — 동시에 다른 실행이 출고했으면 건너뜀.
           //   ★ Codex #552 검토 P1: 출고 기준(수량·단위·자재)은 **잠근 행** 에서 다시 읽는다 — 바깥에서 읽은 뒤
           //   사용자가 실투입을 고쳤으면 그 값으로 (이전: 잠금 전 계획 60 을 빼고 실투입 20 을 60 으로 덮어씀).
@@ -485,7 +511,7 @@ export async function autoIssueMaterialsForBatch(
         // h_inventory_deduction_log — best-effort 보고용 이력 (커밋 뒤)
         if (productionLogIdForDeduction && issuedQuantity > 0 && !isWater) {
           try {
-            const rawConn = await getRawConnection();
+            const rawConn = txConn ?? (await getRawConnection());
             await insertInventoryDeductionLog(
               { productionLogId: productionLogIdForDeduction, materialId: canonicalId, materialType: "raw_material", deductedQuantity: issuedQuantity, unit },
               rawConn,
@@ -514,7 +540,9 @@ export async function autoIssueMaterialsForBatch(
 
     // 배치의 planned_cost 업데이트
     if (result.totalCost > 0) {
-      await db.execute(sql`
+      // 호출자 트랜잭션이 생산 건 행을 잡고 있으면 같은 연결로 (다른 연결이면 그 잠금을 기다리다 멈춘다)
+      if (txConn) await txConn.execute(`UPDATE h_batches SET planned_cost = ? WHERE id = ? AND tenant_id = ?`, [result.totalCost.toFixed(2), batchId, tenantId]);
+      else await db.execute(sql`
         UPDATE h_batches
         SET planned_cost = ${result.totalCost.toFixed(2)}
         WHERE id = ${batchId} AND tenant_id = ${tenantId}

@@ -48,6 +48,11 @@ export interface SheetRow {
   passTimeStart: string | null;
   passTimeEnd: string | null;
   passQty: number | null;
+  /** 통과량 단위 — kg 는 소수 3자리까지, SKU 판매단위는 개수(정수) */
+  passUnit?: string | null;
+  detectedQty?: number | null;
+  /** 통과 시작과 종료가 다른 날(자정을 넘긴 작업) — 현장 이력(서버 시각)으로 확인된 경우만 true */
+  passCrossesMidnight?: boolean;
   /** 행 확인이 있고 그 뒤 바뀌지 않았는가 (현장 확인 기록지) */
   rowConfirmed?: boolean;
 }
@@ -107,7 +112,13 @@ export function validateSheetForConfirm(rec: SheetRecord, rows: SheetRow[], now:
     }
     if (kind === "passage") {
       if (!has(r.passTimeStart) || !has(r.passTimeEnd)) problems.push(`${label(r)}: 통과 시작·종료 시각이 없습니다.`);
+      // 종료가 시작보다 앞서면 막는다 — 자정을 넘긴 작업은 현장 이력(서버 시각 날짜)으로 확인된 경우만 허용 (#611 추가 검토 4)
+      else if (String(hhmm(r.passTimeEnd)) < String(hhmm(r.passTimeStart)) && !r.passCrossesMidnight) {
+        problems.push(`${label(r)}: 통과 종료(${hhmm(r.passTimeEnd)})가 시작(${hhmm(r.passTimeStart)})보다 앞섭니다.`);
+      }
       if (r.passQty == null) problems.push(`${label(r)}: 통과량이 없습니다.`);
+      else problems.push(...quantityProblems(label(r), "통과량", r.passQty, r.passUnit ?? "kg"));
+      if (r.detectedQty != null) problems.push(...quantityProblems(label(r), "검출 수", r.detectedQty, "ea"));
     }
     // 부적합(이탈)은 이탈내용과 개선조치 둘 다 있어야 한다 (Codex #590 R590-04)
     if (r.result === "부적합" || r.isDeviation === 1) {
@@ -120,13 +131,53 @@ export function validateSheetForConfirm(rec: SheetRecord, rows: SheetRow[], now:
 
 const num = (v: unknown) => (v == null || v === "" ? null : Number(v));
 
+/**
+ * 수량 칸 검사 — 유한한 숫자, 음수 아님, 단위에 맞는 자릿수 (kg 소수 3자리, 그 밖의 단위는 개수라 정수).
+ *   0 을 허용할지는 업무 정책 몫이라 여기서 정하지 않는다 (이 검사는 0 을 막지 않음).
+ */
+export function quantityProblems(label: string, name: string, v: unknown, unit: string): string[] {
+  const x = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(x)) return [`${label}: ${name}이 숫자가 아닙니다.`];
+  if (x < 0) return [`${label}: ${name}이 음수입니다 (${x}).`];
+  const u = String(unit || "kg").toLowerCase();
+  if (u === "kg") { if (Math.abs(Math.round(x * 1000) - x * 1000) > 1e-6) return [`${label}: ${name}은 kg 소수 3자리까지입니다 (${x}).`]; }
+  else if (!Number.isInteger(x)) return [`${label}: ${name}은 개수(정수)입니다 (${x}${unit}).`];
+  return [];
+}
+
+/**
+ * 자정을 넘긴 통과 행 — 종료 시각이 시작보다 앞선 행 중, 현장 이력(통과 시작·종료 서버 시각)의 날짜가 다른 것만.
+ *   rows 는 id·pass_time_start·pass_time_end 를 가진 기록 행. 이력 표가 없는 DB 는 빈 집합.
+ *   endAtNow: 지금 통과 종료를 저장하려는 행 — 종료 날짜를 '오늘(KST)' 로 본다.
+ */
+export async function passCrossedMidnightRows(conn: any, tenantId: number, rows: Array<{ id: unknown; pass_time_start: unknown; pass_time_end: unknown }>, endAtNow?: number): Promise<Set<number>> {
+  const out = new Set<number>();
+  const back = rows.filter((x) => x.pass_time_start && x.pass_time_end && String(x.pass_time_end).slice(0, 5) < String(x.pass_time_start).slice(0, 5));
+  if (!back.length) return out;
+  try {
+    const [ev]: any = await conn.query(
+      `SELECT form_row_id, MIN(CASE WHEN event = 'pass_start' THEN DATE_FORMAT(at, '%Y-%m-%d') END) AS s,
+              MAX(CASE WHEN event = 'pass_end' THEN DATE_FORMAT(at, '%Y-%m-%d') END) AS e
+         FROM h_ccp_row_events WHERE tenant_id = ? AND form_row_id IN (?) GROUP BY form_row_id`,
+      [tenantId, back.map((x) => Number(x.id))],
+    );
+    for (const e of ev as any[]) {
+      const end = Number(e.form_row_id) === endAtNow ? todayKST() : e.e;
+      if (e.s && end && String(end) > String(e.s)) out.add(Number(e.form_row_id));
+    }
+  } catch (e: any) {
+    if (e?.code !== "ER_NO_SUCH_TABLE") throw e;
+  }
+  return out;
+}
+
 /** 기록지·행을 읽어 검사 */
-export async function checkSheet(formRecordId: number, tenantId: number): Promise<{ record: SheetRecord & { rowsVersion: number }; problems: string[] }> {
-  const conn = await getRawConnection();
+export async function checkSheet(formRecordId: number, tenantId: number, opts: { conn?: any; lock?: boolean } = {}): Promise<{ record: SheetRecord & { rowsVersion: number }; problems: string[] }> {
+  const conn = opts.conn ?? (await getRawConnection());
   const [rs]: any = await conn.execute(
     `SELECT id, ccp_type, DATE_FORMAT(work_date, '%Y-%m-%d') AS wd, status, rows_version, field_mode,
             cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo, cl_pressure_mpa_lo, cl_product_temp_lo
-       FROM h_ccp_form_records WHERE id = ? AND tenant_id = ? LIMIT 1`,
+       FROM h_ccp_form_records WHERE id = ? AND tenant_id = ? LIMIT 1${opts.lock ? " FOR UPDATE" : ""}`,
     [formRecordId, tenantId],
   );
   const r = (rs as any[])[0];
@@ -140,10 +191,11 @@ export async function checkSheet(formRecordId: number, tenantId: number): Promis
     `SELECT batch_seq, equipment_type, measurement_time, heat_time_min, heat_temp_c, pressure_mpa, temp_edge_c, temp_center_c,
             result, is_deviation, deviation_note, corrective_action,
             metal_pass_time, metal_fe_mid, metal_sus_mid, metal_product_only, metal_fe_product, metal_sus_product,
-            pass_time_start, pass_time_end, pass_qty, row_version, row_confirmed_at, row_confirmed_version
+            pass_time_start, pass_time_end, pass_qty, pass_unit, detected_qty, id, row_version, row_confirmed_at, row_confirmed_version
        FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ? ORDER BY batch_seq`,
     [formRecordId, tenantId],
   );
+  const crossed = await passCrossedMidnightRows(conn, tenantId, rws as any[]);
   const rows: SheetRow[] = (rws as any[]).map((x) => ({
     batchSeq: Number(x.batch_seq), equipmentType: x.equipment_type ?? null, measurementTime: x.measurement_time ?? null,
     heatTimeMin: num(x.heat_time_min), heatTempC: num(x.heat_temp_c), pressureMpa: num(x.pressure_mpa),
@@ -152,24 +204,47 @@ export async function checkSheet(formRecordId: number, tenantId: number): Promis
     metalPassTime: x.metal_pass_time ?? null, metalFeMid: x.metal_fe_mid ?? null, metalSusMid: x.metal_sus_mid ?? null,
     metalProductOnly: x.metal_product_only ?? null, metalFeProduct: x.metal_fe_product ?? null, metalSusProduct: x.metal_sus_product ?? null,
     passTimeStart: x.pass_time_start ?? null, passTimeEnd: x.pass_time_end ?? null, passQty: num(x.pass_qty),
+    passUnit: x.pass_unit ?? null, detectedQty: num(x.detected_qty), passCrossesMidnight: crossed.has(Number(x.id)),
     rowConfirmed: x.row_confirmed_at != null && Number(x.row_confirmed_version) === Number(x.row_version ?? 0),
   }));
   return { record, problems: validateSheetForConfirm(record, rows, { date: todayKST(), time: nowKST() }) };
 }
 
-/** 사람이 누른 제출 — 검사 통과 시 확인 이력 저장. 막히면 이유와 함께 오류 */
+/** 그 사이 다른 저장으로 기록지가 바뀌어 확인을 저장하지 못함 — 성공으로 돌려주지 않는다 */
+export class SheetConfirmConflictError extends Error {
+  constructor() { super("그 사이 다른 저장으로 기록지가 바뀌었습니다 — 새 값을 확인한 뒤 다시 제출하세요."); this.name = "SheetConfirmConflictError"; }
+}
+
+/**
+ * 사람이 누른 제출 — 검사 통과 시 확인 이력 저장. 막히면 이유와 함께 오류.
+ *   한 트랜잭션 (2026-10-20, #611 추가 검토): 기록지 잠금 → 행 읽기·검사 → 같은 행 버전일 때만 확인 저장 → 1건이 아니면 충돌 오류.
+ *   행을 고치는 쓰기(bumpSheetVersion)도 같은 기록지 행을 갱신하므로 검사와 저장 사이에 끼어들 수 없다.
+ */
 export async function confirmSheet(formRecordId: number, tenantId: number, userId: number): Promise<{ rowsVersion: number }> {
-  const { record, problems } = await checkSheet(formRecordId, tenantId);
-  if (problems.length) {
-    const head = problems.slice(0, 5).join(" / ");
-    throw new Error(`제출할 수 없습니다 — ${head}${problems.length > 5 ? ` 외 ${problems.length - 5}건` : ""}`);
+  const pool: any = await getRawConnection();
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    try {
+      const { record, problems } = await checkSheet(formRecordId, tenantId, { conn, lock: true });
+      if (problems.length) {
+        const head = problems.slice(0, 5).join(" / ");
+        throw new Error(`제출할 수 없습니다 — ${head}${problems.length > 5 ? ` 외 ${problems.length - 5}건` : ""}`);
+      }
+      const [res]: any = await conn.execute(
+        `UPDATE h_ccp_form_records SET confirmed_by = ?, confirmed_at = NOW(), confirmed_rows_version = ? WHERE id = ? AND tenant_id = ? AND rows_version = ?`,
+        [userId, record.rowsVersion, formRecordId, tenantId, record.rowsVersion],
+      );
+      if (Number(res?.affectedRows ?? 0) !== 1) throw new SheetConfirmConflictError();
+      await conn.commit();
+      return { rowsVersion: record.rowsVersion };
+    } catch (e) {
+      try { await conn.rollback(); } catch { /* 원래 오류 */ }
+      throw e;
+    }
+  } finally {
+    conn.release();
   }
-  const conn = await getRawConnection();
-  await conn.execute(
-    `UPDATE h_ccp_form_records SET confirmed_by = ?, confirmed_at = NOW(), confirmed_rows_version = ? WHERE id = ? AND tenant_id = ? AND rows_version = ?`,
-    [userId, record.rowsVersion, formRecordId, tenantId, record.rowsVersion],
-  );
-  return { rowsVersion: record.rowsVersion };
 }
 
 /** 행이 바뀔 때 — 승인된 기록지는 거부, 그 밖에는 버전을 올려 기존 확인을 무효화 */

@@ -402,7 +402,7 @@ function RowInputForm({
       metalFeMid, metalSusMid, metalProductOnly, metalFeProduct, metalSusProduct,
       passTimeStart: passTimeStart || undefined,
       passTimeEnd: passTimeEnd || undefined,
-      passQty: passQty ? parseInt(passQty) : undefined,
+      passQty: passQty ? parseFloat(passQty) : undefined, // kg 통과량은 소수 (2026-10-20)
       detectedQty: detectedQty ? parseInt(detectedQty) : undefined,
       specialNote: specialNote || undefined,
       isDeviation,
@@ -1119,24 +1119,8 @@ export function CcpMonitoringForms({
 
   const handleRefresh = () => { refetchForms(); onFormSaved?.(); };
 
-  // ★ 자동 재동기화: 페이지 로드 시 CCP-1B/2B 누락 행 자동 추가
-  //    syncCcpRowsToFormRows는 기존 행을 보호하고 누락분만 추가하므로 안전
-  //    getByBatch 결과에 rowCount가 없으므로, batchCount > 1인 기록이 하나라도 있으면 실행
-  const [autoSynced, setAutoSynced] = useState(false);
-  useEffect(() => {
-    if (autoSynced || !formRecords || !Array.isArray(formRecords) || (formRecords as any[]).length === 0) return;
-    if (resyncRowsMutation.isPending) return;
-    
-    // batchCount > 1인 CCP-1B/2B 기록이 있으면 자동 재동기화 (누락 행만 추가, 기존 데이터 보호)
-    const hasBatchRecords = (formRecords as any[]).some((fr: any) => 
-      fr.ccpType !== "CCP-4P" && fr.batchCount && Number(fr.batchCount) > 1
-    );
-    
-    if (hasBatchRecords) {
-      setAutoSynced(true);
-      resyncRowsMutation.mutate({ batchId });
-    }
-  }, [formRecords, autoSynced, batchId]);
+  // 화면을 여는 것만으로는 저장하지 않는다 (2026-10-20, #611 검토 — 페이지를 열 때 자동 재동기화가 기록지 머리글을 바꿨다).
+  //   누락 행 맞추기는 [배치행 재생성] 버튼으로만. 서버도 사람 손이 닿은 기록지는 지우거나 다시 만들지 않는다.
 
   if (formsLoading) {
     return (

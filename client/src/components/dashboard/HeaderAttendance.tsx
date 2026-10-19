@@ -1,7 +1,7 @@
 /**
  * 상단 헤더 출퇴근 (2026-10-14 대표 지시 — 사이드바 하단의 대형 출근/퇴근 버튼을 헤더로 이동, 같은 날 디자인 개편)
  *
- * 헤더 버튼: 아이콘 타일 + 두 줄(상태 / 값) + 상태 점
+ * 헤더 버튼: 아이콘 + 한 줄(출근하기 / 근무 3시간 12분 / 퇴근 · 8.1시간) + 상태 점 — 낮은 강조 (2026-10-20 헤더 정리)
  *   - 출근 전: "출근 전 / 출근하기" — 누르면 바로 출근 (기존 사이드바 버튼과 같은 동작)
  *   - 근무 중: "근무 중 / 3시간 12분" (출근 후 경과, 30초마다 갱신) — 누르면 팝오버
  *   - 퇴근 후: "퇴근 완료 / 8.1시간" (서버 근무시간) — 누르면 팝오버
@@ -76,22 +76,18 @@ export default function HeaderAttendance({ compact = false }: { compact?: boolea
   const inMin = minutesOf(myToday?.clockIn);
   const elapsed = inMin === null ? 0 : (now - inMin + 1440) % 1440;
   const workHours = Number(myToday?.workHours ?? 0);
-  const value = state === "before" ? "출근하기" : state === "working" ? fmtDuration(elapsed) : `${workHours.toFixed(1)}시간`;
   const Icon = state === "before" ? LogIn : state === "working" ? Clock : CheckCircle2;
 
+  // 헤더 정리 (2026-10-20 대표 요청): 출퇴근은 업무 도구 중 하나 — 한 줄·작은 크기·낮은 강조 (타일·두 줄·그림자 없음)
   const shell = cn(
-    "h-10 inline-flex items-center gap-2.5 rounded-xl border border-border bg-card pl-1.5 pr-3 shadow-sm",
-    "transition-all hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40", tone.ring,
+    "h-8 inline-flex items-center gap-1.5 rounded-full px-2.5 text-[12px] text-muted-foreground",
+    "transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
   );
+  const short = state === "before" ? "출근하기" : state === "working" ? `근무 ${fmtDuration(elapsed)}` : `퇴근 · ${workHours.toFixed(1)}시간`;
   const body = (
     <>
-      <span className={cn("h-7 w-7 rounded-lg flex items-center justify-center shrink-0", tone.tile)}>
-        <Icon className={cn("h-4 w-4", tone.icon)} />
-      </span>
-      <span className="flex flex-col items-start leading-tight">
-        <span className="text-[10px] font-medium text-muted-foreground">{tone.label}</span>
-        <span className={cn("text-[13px] font-semibold tabular-nums", state === "before" ? "text-emerald-600 dark:text-emerald-400" : "text-foreground")}>{value}</span>
-      </span>
+      <Icon className={cn("h-3.5 w-3.5", tone.icon)} />
+      <span className={cn("tabular-nums", state === "before" ? "font-medium text-foreground/80" : "")}>{short}</span>
       <StatusDot state={state} />
     </>
   );

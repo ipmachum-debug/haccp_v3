@@ -220,7 +220,8 @@ export const hCcpFormRows = mysqlTable("h_ccp_form_rows", {
   // CCP-4P 통과량
   passTimeStart: varchar("pass_time_start", { length: 10 }),
   passTimeEnd: varchar("pass_time_end", { length: 10 }),
-  passQty: int("pass_qty"),
+  // 통과량 — kg 생산 건은 소수 (2026-10-20 int → decimal(13,3)), SKU 는 판매단위 개수
+  passQty: decimal("pass_qty", { precision: 13, scale: 3, mode: "number" }),
   detectedQty: int("detected_qty"),
   specialNote: text("special_note"),
 

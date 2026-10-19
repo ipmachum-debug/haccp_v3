@@ -692,6 +692,8 @@ async function ensureMassBasisSchema(conn: any) {
   await addCol("h_mf_ingredients", "entry_stage", "`entry_stage` varchar(20) NULL");
   // 현장 1 (2026-10-19): 미래 날짜로 만든 '예정' 생산 건 — 1 이면 아직 실행(진행 중·원료 출고·승인요청·기록지 제출) 전. 기존 행은 0
   await addCol("h_batches", "plan_only", "`plan_only` tinyint NOT NULL DEFAULT 0");
+  // 예정 생산 건 실행의 커밋 뒤 단계(결재 요청·일지 등)가 남았는지 (2026-10-20, #611 검토 P1) — 1 이면 다음 확인·조회 때 이어서 처리. 기존 행은 0
+  await addCol("h_batches", "activation_pending", "`activation_pending` tinyint NOT NULL DEFAULT 0");
   // 이력 보존형 복구 (2026-10-19, 같은 날 같은 제품 중복 생산 건): 지우지 않고 '무효' 표시 + 대체 생산 건 연결.
   //   상태는 기존 'cancelled' 를 쓰고(집계 제외), 무효 여부·사유·대체 관계는 아래 칸으로 구분한다. 기존 행은 NULL.
   await addCol("h_batches", "voided_at", "`voided_at` datetime NULL");
@@ -1091,6 +1093,20 @@ async function ensureInboundDocumentSchema(conn: any) {
   await addCol("h_ccp_form_records", "confirmed_rows_version", "`confirmed_rows_version` int NULL");
   // 금속검출 통과량 단위 — 통과량 = 생산량(SKU 판매단위 또는 kg), 인쇄에 단위 표기 (2026-10-18)
   await addCol("h_ccp_form_rows", "pass_unit", "`pass_unit` varchar(20) NULL");
+  // 금속검출 통과 행 = 생산 건 + SKU 번호 (2026-10-20, #611 추가 검토 3) — 이름으로 합치지 않는다. 기존 행은 NULL
+  await addCol("h_ccp_form_rows", "sku_id", "`sku_id` bigint NULL");
+  // 통과량 소수 (같은 검토 3-A) — kg 통과량이 정수 칸이라 20.286kg 가 20 으로 잘렸다. 넓히기만 (기존 값 그대로)
+  try {
+    const [pq]: any = await conn.query(
+      `SELECT DATA_TYPE AS t FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'h_ccp_form_rows' AND COLUMN_NAME = 'pass_qty'`,
+    );
+    if (String((pq as any[])[0]?.t ?? "") === "int") {
+      await conn.query("ALTER TABLE `h_ccp_form_rows` MODIFY COLUMN `pass_qty` decimal(13,3) NULL");
+      console.log("[Migration] h_ccp_form_rows.pass_qty int → decimal(13,3)");
+    }
+  } catch (err: any) {
+    if (err.code !== "ER_NO_SUCH_TABLE") console.warn("[Migration] h_ccp_form_rows.pass_qty widen failed:", err.message);
+  }
   // 교육 참가자 = 구성원(h_employees) 명단 (Codex #592 EDU-06, 2026-10-18) — 로그인 계정 없는 직원도 참석 기록
   await addCol("h_training_participants", "employee_id", "`employee_id` bigint NULL");
   try {
@@ -1166,6 +1182,7 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_mf_ingredients", column: "pretreatment_factor", why: "전처리 배율 (PR B)" },
   { table: "h_mf_ingredients", column: "entry_stage", why: "원료 들어가는 곳 (생산 설계 2a)" },
   { table: "h_batches", column: "plan_only", why: "미래 날짜 예정 생산 건 (현장 1)" },
+  { table: "h_batches", column: "activation_pending", why: "예정 생산 건 실행 — 커밋 뒤 단계 남음 (#611 검토)" },
   { table: "h_batches", column: "voided_at", why: "이력 보존형 복구 — 무효 생산 건" },
   { table: "h_batches", column: "superseded_by_batch_id", why: "이력 보존형 복구 — 대체 생산 건" },
   { table: "h_ccp_form_records", column: "voided_at", why: "이력 보존형 복구 — 무효 기록지" },
@@ -1182,6 +1199,7 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_ccp_form_rows", column: "row_version", why: "행 버전 (확인 뒤 수정 무효)" },
   { table: "h_ccp_form_rows", column: "planned_time", why: "예정 시각 (측정 시각과 따로)" },
   { table: "h_ccp_form_rows", column: "batch_id", why: "금속검출 통과 행 → 생산 건" },
+  { table: "h_ccp_form_rows", column: "sku_id", why: "금속검출 통과 행 → SKU (#611 추가 검토)" },
   { table: "h_ccp_row_events", column: "request_id", why: "확인·수정 이력 (추가만)" },
   { table: "h_user_field_prefs", column: "equipment_ids", why: "내 설비" },
   { table: "h_batch_mass_basis", column: "rows_json", why: "배치 기준 스냅샷 (PR B)" },

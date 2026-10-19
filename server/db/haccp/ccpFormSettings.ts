@@ -164,6 +164,29 @@ export async function submitCcpFormRecord(params: {
  *  - CCP-1B/CCP-2B: 설비별 온도/시간/압력 → form row
  *  - CCP-4P: Fe/SUS 검출 행 → form row
  */
+/**
+ * 사람 손이 닿은 기록지 — 행 동기화가 지우거나 다시 만들거나 머리글을 바꾸지 않는다 (2026-10-20, #611 검토: 조회가 쓰기를 부르지 않게).
+ *   승인·제출 확인됨·기록지 행 버전 > 0(사람이 저장)·행 하나라도 사람이 확인/수정함.
+ */
+export async function isFormRecordProtected(conn: any, formRecordId: number, tenantId: number): Promise<boolean> {
+  try {
+    const [[st]]: any = await conn.execute(
+      `SELECT fr.status, fr.rows_version, fr.confirmed_at,
+              (SELECT COUNT(*) FROM h_ccp_form_rows r WHERE r.form_record_id = fr.id AND r.tenant_id = fr.tenant_id
+                 AND (r.row_confirmed_at IS NOT NULL OR r.row_version > 0)) AS touched_rows
+         FROM h_ccp_form_records fr WHERE fr.id = ? AND fr.tenant_id = ?`,
+      [formRecordId, tenantId],
+    );
+    if (!st) return false;
+    return st.status === "approved" || Number(st.rows_version ?? 0) > 0 || st.confirmed_at != null || Number(st.touched_rows ?? 0) > 0;
+  } catch (e: any) {
+    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+    // 확인 칸 생성 전 DB — 승인 여부만
+    const [[st]]: any = await conn.execute(`SELECT status FROM h_ccp_form_records WHERE id = ? AND tenant_id = ?`, [formRecordId, tenantId]);
+    return st?.status === "approved";
+  }
+}
+
 export async function syncCcpRowsToFormRows(params: {
   batchId: number;
   tenantId: number;
@@ -292,6 +315,9 @@ export async function syncCcpRowsToFormRows(params: {
       totalSynced += await syncFieldMetalRows(rawConn, { formRecordId, tenantId, workDate: String(fr.work_date).slice(0, 10), detectorId: fr.detector_equipment_id ?? null });
       continue;
     }
+
+    // 사람 손이 닿은 가열·증숙 기록지는 건드리지 않는다 — 중복 정리·빈 행 재생성·배치 수 맞춤 삭제·머리글 갱신 모두 (2026-10-20)
+    if (ccpType !== "CCP-4P" && (await isFormRecordProtected(rawConn, Number(formRecordId), tenantId))) continue;
 
     // 2. 기존 row 조회: 이미 모든 배치가 채워져 있으면 건너뜀
     //    부분적으로 채워진 경우(예: batch_count=10인데 row 1개만 있으면) → 누락된 행만 추가
@@ -699,13 +725,13 @@ export async function syncCcpRowsToFormRows(params: {
       try {
         if (localBomBatchKg && localBomBatchKg > 0) {
           await rawConn.execute(
-            `UPDATE h_ccp_form_records SET batch_count = ?, bom_batch_kg = ? WHERE id = ? AND tenant_id = ?`,
-            [totalBatchCount, localBomBatchKg, formRecordId, tenantId],
+            `UPDATE h_ccp_form_records SET batch_count = ?, bom_batch_kg = ? WHERE id = ? AND tenant_id = ? AND NOT (batch_count <=> ? AND bom_batch_kg <=> ?)`,
+            [totalBatchCount, localBomBatchKg, formRecordId, tenantId, totalBatchCount, localBomBatchKg],
           );
         } else {
           await rawConn.execute(
-            `UPDATE h_ccp_form_records SET batch_count = ? WHERE id = ? AND tenant_id = ?`,
-            [totalBatchCount, formRecordId, tenantId],
+            `UPDATE h_ccp_form_records SET batch_count = ? WHERE id = ? AND tenant_id = ? AND NOT (batch_count <=> ?)`,
+            [totalBatchCount, formRecordId, tenantId, totalBatchCount],
           );
         }
       } catch { /* 업데이트 실패 시 무시 */ }
@@ -720,8 +746,8 @@ export async function syncCcpRowsToFormRows(params: {
         if (totalBatchCount < 1) totalBatchCount = 1;
         // DB에도 batch_count 업데이트
         await rawConn.execute(
-          `UPDATE h_ccp_form_records SET batch_count = ?, bom_batch_kg = ? WHERE id = ? AND tenant_id = ?`,
-          [totalBatchCount, localBomBatchKg, formRecordId, tenantId],
+          `UPDATE h_ccp_form_records SET batch_count = ?, bom_batch_kg = ? WHERE id = ? AND tenant_id = ? AND NOT (batch_count <=> ? AND bom_batch_kg <=> ?)`,
+          [totalBatchCount, localBomBatchKg, formRecordId, tenantId, totalBatchCount, localBomBatchKg],
         );
       }
     }

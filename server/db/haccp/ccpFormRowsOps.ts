@@ -128,7 +128,7 @@ export async function upsertCcpFormRow(data: InsertCcpFormRow) {
  * h_ccp_form_rows 저장 시 h_ccp_rows에도 동기화
  * CCP 카드 UI(h_ccp_form_rows) → CCP 점검 기록 페이지(h_ccp_rows) 데이터 일관성 보장
  */
-async function syncFormRowToCcpRow(data: InsertCcpFormRow) {
+export async function syncFormRowToCcpRow(data: InsertCcpFormRow) {
   try {
     const rawConn = await getRawConnection();
     const tenantId = data.tenantId;
