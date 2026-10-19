@@ -35,8 +35,14 @@ export function fmtVal(v: unknown): string {
 /** 기존 수정 화면 경로 — 1단계는 수정을 기존 화면에서 */
 export const EDIT_PATHS = {
   recipe: (reportId: number) => `/dashboard/mf-report/edit/${reportId}`,
-  /** 생산 설계 제품 배합 상세 (배합표 | 공정 흐름도) */
-  recipeDetail: (reportId: number) => `/design/recipes/${reportId}`,
+  /** 생산 설계 제품 배합 상세 (배합표 | 공정 흐름도). versionId = 그 버전 그대로, focus=unknown = 들어가는 곳 미정 원료로 바로 */
+  recipeDetail: (reportId: number, opts?: { versionId?: number; focus?: "unknown" }) => {
+    const q = new URLSearchParams();
+    if (opts?.versionId) q.set("version", String(opts.versionId));
+    if (opts?.focus) q.set("focus", opts.focus);
+    const qs = q.toString();
+    return `/design/recipes/${reportId}${qs ? `?${qs}` : ""}`;
+  },
   equipment: "/quality/ccp-monitoring",
   process: "/quality/ccp-limits",
   approval: "/dashboard/approval",

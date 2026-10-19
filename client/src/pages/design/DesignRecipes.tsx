@@ -49,7 +49,8 @@ export default function DesignRecipes() {
                   <button type="button" className="font-medium hover:underline text-left" onClick={() => navigate(EDIT_PATHS.recipeDetail(r.reportId))}>{r.productName}</button>
                   <span className="text-xs text-muted-foreground">배합 v{r.versionNo}{r.approved ? " · 승인" : " · 초안"}{r.massBasis ? " · 원물·공정 환산" : ""}</span>
                   <span className="text-sm">1배치 {fmtKg(r.batchTargetKg)}</span>
-                  <Button variant="outline" className="h-11 ml-auto" onClick={() => navigate(EDIT_PATHS.recipeDetail(r.reportId))}>배합표 · 흐름도</Button>
+                  {r.newerDraft && <span className="rounded border border-blue-200 bg-blue-50 px-1.5 text-xs text-blue-800">수정안 v{r.newerDraft.versionNo} 승인 전</span>}
+                  <Button variant="outline" className="h-11 ml-auto" onClick={() => navigate(EDIT_PATHS.recipeDetail(r.reportId, (r.issues as any[]).some((i) => i.code === "unassigned") ? { focus: "unknown" } : undefined))}>배합표 · 흐름도</Button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 text-xs">
                   {(r.loads as any[]).map((l) => (

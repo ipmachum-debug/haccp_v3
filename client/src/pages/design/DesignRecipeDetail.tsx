@@ -7,7 +7,7 @@
  * 공정 지정·배합비 같은 계산에 쓰이는 값은 '배합 고치기' (기존 품목제조보고 화면) 에서.
  */
 import { useEffect, useMemo, useState } from "react";
-import { useLocation, useParams } from "wouter";
+import { useLocation, useParams, useSearch } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -33,15 +33,23 @@ export default function DesignRecipeDetail() {
   const [, navigate] = useLocation();
   const { id } = useParams<{ id: string }>();
   const reportId = Number(id);
-  const q = trpc.productionDesign.recipeDetail.useQuery({ reportId }, { enabled: reportId > 0, retry: 1 });
+  const search = new URLSearchParams(useSearch());
+  const versionParam = Number(search.get("version")) || undefined;
+  const q = trpc.productionDesign.recipeDetail.useQuery({ reportId, versionId: versionParam }, { enabled: reportId > 0, retry: 1 });
+  const utils = trpc.useUtils();
   const d: any = q.data;
   const [tab, setTab] = useState("table");
   const [draft, setDraft] = useState<Record<number, Stage>>({});
-  const [focus, setFocus] = useState<string | null>(null);
+  // 설계 현황 경고에서 왔으면(focus=unknown) 들어가는 곳 미정 원료를 바로 보여 준다
+  const [focus, setFocus] = useState<string | null>(search.get("focus") === "unknown" ? "s:unknown" : null);
   useEffect(() => { setDraft({}); }, [d?.versionId]);
+  useEffect(() => {
+    if (d && focus === "s:unknown") document.querySelector("[data-unknown-row]")?.scrollIntoView({ block: "center" });
+  }, [d?.versionId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // 저장 성공 뒤에만 서버가 다시 판정한 결과로 현황·목록·이력을 새로 읽는다 (실패·취소면 화면 그대로)
   const save = trpc.productionDesign.setEntryStages.useMutation({
-    onSuccess: (r: any) => { toast.success(r.changed ? `${r.changed}개 원료의 들어가는 곳을 저장했습니다.` : "바뀐 것이 없습니다."); setDraft({}); q.refetch(); },
+    onSuccess: (r: any) => { toast.success(r.changed ? `${r.changed}개 원료의 들어가는 곳을 저장했습니다.` : "바뀐 것이 없습니다."); setDraft({}); utils.productionDesign.invalidate(); },
     onError: (e: { message: string }) => toast.error(e.message),
   });
 
@@ -56,13 +64,14 @@ export default function DesignRecipeDetail() {
     const sum = (list: any[]) => list.reduce((s, r) => s + (r.kgPerBatch || 0), 0);
     const proc = (d.processes as any[]).map((p) => {
       const list = rows.filter((r) => r.processGroupId === p.id);
-      return { key: `p:${p.id}`, title: p.name, sub: `${p.equipmentNames.length ? `${p.equipmentNames.length}대 · ${MODE(p)}` : "설비 없음"}${p.profileTimeMin != null ? ` · 가열 ${p.profileTimeMin}분` : ""}`, list, kg: sum(list), kind: "process" as const };
+      const equip = `${p.equipmentNames.length ? `${p.equipmentNames.length}대 · ${MODE(p)}` : "설비 없음"}${p.profileTimeMin != null ? ` · 가열 ${p.profileTimeMin}분` : ""}`;
+      return { key: `p:${p.id}`, title: p.name, sub: p.source === "manual" ? `제품에 직접 연결 · 원료 지정 없음 (투입량 빈칸) · ${equip}` : equip, list, kg: sum(list), kind: p.source === "manual" ? ("manual" as const) : ("process" as const) };
     });
     const stageLane = (s: string, title: string, kind: "direct" | "late" | "unknown") => {
       const list = rows.filter((r) => r.processGroupId == null && (stageOf(r) ?? "unknown") === s);
-      return { key: `s:${s}`, title, sub: kind === "direct" ? "가공된 재료 등 — 공정 없이" : kind === "late" ? "성형 뒤에 넣는 재료" : "들어가는 곳을 정하세요", list, kg: sum(list), kind };
+      return { key: `s:${s}`, title, sub: kind === "direct" ? "가공된 재료 등 — 공정 없이" : kind === "late" ? "공정 없이 따로 넣음 (넣는 시점은 아직 기록하지 않음)" : "들어가는 곳을 정하세요", list, kg: sum(list), kind };
     };
-    return [...proc, stageLane("direct", "성형에 바로", "direct"), stageLane("unknown", "아직 모름", "unknown"), stageLane("late", "나중에 넣음", "late")].filter((l) => l.list.length || l.kind === "process");
+    return [...proc, stageLane("direct", "성형에 바로", "direct"), stageLane("unknown", "아직 모름", "unknown"), stageLane("late", "나중에 넣음", "late")].filter((l) => l.list.length || l.kind === "process" || l.kind === "manual");
   }, [d, rows, draft]);
 
   const openLane = (key: string) => { setFocus(key); setTab("table"); };
@@ -82,6 +91,26 @@ export default function DesignRecipeDetail() {
                 <SignalBadge signal={d.signal} />
                 <span>배합 v{d.versionNo} · {d.approved ? "승인" : "초안"}{d.massBasis ? " · 원물·공정 환산" : ""}</span>
                 <span className="font-medium">1배치 총 생산량 {fmtKg(d.batchTargetKg)}</span>
+                {/* 버전 고르기 — 지금 생산에 쓰는 버전과 수정안·옛 버전을 구분 (승인 대기 목록은 정확한 버전으로 연다) */}
+                <span className="basis-full flex flex-wrap items-center gap-1.5 text-xs" data-testid="version-chips">
+                  <span className="text-muted-foreground">버전:</span>
+                  {(d.versions as any[]).map((v) => (
+                    <button key={v.versionId} type="button" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId, { versionId: v.versionId }))}
+                      className={cn("min-h-9 rounded-full border px-3", v.versionId === d.versionId ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent")}>
+                      v{v.versionNo} {v.status === "APPROVED" ? "승인" : v.status === "REJECTED" ? "반려" : "초안"}
+                    </button>
+                  ))}
+                </span>
+                {d.versionRole === "production" && d.newerDraft && (
+                  <span className="basis-full text-xs text-blue-800">수정안 v{d.newerDraft.versionNo}(승인 전)이 있습니다 — 승인되면 그 버전으로 생산합니다.{" "}
+                    <button type="button" className="underline" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId, { versionId: d.newerDraft.versionId }))}>수정안 보기</button></span>
+                )}
+                {d.versionRole !== "production" && (
+                  <span className="basis-full rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-900">
+                    이 버전은 지금 생산에 쓰이지 않습니다 ({d.versionRole === "draft" ? "승인 전 수정안" : "옛 버전"}). 여기서 정한 내용은 이 버전에만 남고, 지금 생산 상태(신호등)는 생산에 쓰는 버전 기준입니다.{" "}
+                    <button type="button" className="underline" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId))}>생산에 쓰는 버전 보기</button>
+                  </span>
+                )}
                 {(d.issues as any[]).length > 0 && (
                   <ul className="basis-full list-disc pl-5">{(d.issues as any[]).map((i, k) => <li key={k} className={i.level === "red" ? "text-red-700" : "text-amber-800"}>{i.text}</li>)}</ul>
                 )}
@@ -123,7 +152,7 @@ export default function DesignRecipeDetail() {
                       </tr></thead>
                       <tbody>
                         {rows.map((r) => (
-                          <tr key={r.id} className={cn("border-b last:border-0", focus && laneOf(r) === focus && "bg-blue-50", r.processGroupId == null && stageOf(r) == null && "bg-amber-50/60")}>
+                          <tr key={r.id} data-unknown-row={r.processGroupId == null && stageOf(r) == null ? "" : undefined} className={cn("border-b last:border-0", focus && laneOf(r) === focus && "bg-blue-50", r.processGroupId == null && stageOf(r) == null && "bg-amber-50/60")}>
                             <td className="p-2">{r.name}{r.isAdditional && <span className="ml-1 text-xs text-muted-foreground">(추가)</span>}</td>
                             <td className="p-2 text-right whitespace-nowrap">{r.quantity}{r.unit}</td>
                             {d.massBasis && <td className="p-2 text-right whitespace-nowrap">{fmtKg(r.rawKgPerBatch)}</td>}
@@ -165,7 +194,7 @@ export default function DesignRecipeDetail() {
                               <div className="text-sm">{l.list.length ? l.list.map((r: any) => r.name).join(", ") : "원료 없음"}</div>
                             </div>
                             <ArrowRight className="hidden sm:block h-5 w-5 self-center text-muted-foreground" />
-                            <div className={cn("w-full sm:w-56 rounded-md border p-2", l.kind === "process" ? "border-violet-300 bg-violet-50" : l.kind === "unknown" ? "border-amber-400" : "bg-background")}>
+                            <div className={cn("w-full sm:w-56 rounded-md border p-2", l.kind === "process" ? "border-violet-300 bg-violet-50" : l.kind === "manual" ? "border-dashed border-violet-300 bg-violet-50/40" : l.kind === "unknown" ? "border-amber-400" : "bg-background")}>
                               <div className="font-medium">{l.title}</div>
                               <div className="text-xs text-muted-foreground">{l.sub}</div>
                             </div>

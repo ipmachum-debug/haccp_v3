@@ -37,11 +37,12 @@ export const productionDesignRouter = router({
 
   /** 제품 배합 상세 — 배합표 | 공정 흐름도 (생산 설계 2a) */
   recipeDetail: adminProcedure
-    .input(z.object({ reportId: z.number().int().positive() }))
+    .input(z.object({ reportId: z.number().int().positive(), versionId: z.number().int().positive().optional() }))
     .query(async ({ ctx, input }) => {
       const { loadRecipeDetail } = await import("../../lib/production/designOverview");
-      const d = await loadRecipeDetail(await conn(), ctx.tenantId, input.reportId);
-      if (!d) throw new TRPCError({ code: "NOT_FOUND", message: "이 회사의 사용 중인 품목제조보고가 아닙니다." });
+      // versionId 가 있으면 그 버전 그대로 (승인 대기 목록에서 정확한 대상 버전), 없으면 생산에 쓰는 버전
+      const d = await loadRecipeDetail(await conn(), ctx.tenantId, input.reportId, input.versionId);
+      if (!d) throw new TRPCError({ code: "NOT_FOUND", message: "이 회사의 사용 중인 품목제조보고(버전)가 아닙니다." });
       return d;
     }),
 
@@ -65,13 +66,19 @@ export const productionDesignRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "저장하지 못했습니다." });
       }
       if (changed.length) {
-        const [[p]]: any = await c.execute(`SELECT COALESCE(m.item_name, CONCAT('보고서 #', r.id)) AS n FROM h_mf_reports r LEFT JOIN item_master m ON m.id = r.product_id AND m.tenant_id = r.tenant_id WHERE r.id = ? AND r.tenant_id = ?`, [input.reportId, ctx.tenantId]);
+        const [[p]]: any = await c.execute(
+          `SELECT COALESCE(m.item_name, CONCAT('보고서 #', r.id)) AS n, v.version_no, v.approval_status
+             FROM h_mf_reports r JOIN h_mf_report_versions v ON v.mf_report_id = r.id AND v.id = ?
+             LEFT JOIN item_master m ON m.id = r.product_id AND m.tenant_id = r.tenant_id WHERE r.id = ? AND r.tenant_id = ?`,
+          [input.versionId, input.reportId, ctx.tenantId],
+        );
         const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
         await createAuditLog({
           action: "mf_report.entry_stage", entityType: "mf_report", entityId: input.reportId,
           userId: ctx.user.id, userEmail: ctx.user.email, userRole: ctx.user.role,
-          changes: { diff: changed.map((x) => ({ field: `${x.name} 들어가는 곳`, before: x.before, after: x.after })) },
-          description: `${p?.n ?? `보고서 #${input.reportId}`} 원료 분류 — ${changed.length}건`,
+          // 어느 버전의 어느 원료 줄을 정했는지 (#600 검토 A4) — 버전 id·번호를 함께 남긴다
+          changes: { versionId: input.versionId, versionNo: p?.version_no ?? null, diff: changed.map((x) => ({ field: `${x.name} 들어가는 곳`, before: x.before, after: x.after })) },
+          description: `${p?.n ?? `보고서 #${input.reportId}`} v${p?.version_no ?? "?"}${p?.approval_status === "APPROVED" ? "(승인)" : "(초안)"} 원료 분류 — ${changed.length}건`,
         }, ctx.tenantId);
       }
       return { changed: changed.length };

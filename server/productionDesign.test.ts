@@ -69,10 +69,39 @@ describe("준비 상태 신호등", () => {
 describe("배합 저장이 들어가는 곳을 지우지 않음 (2a)", () => {
   const base = { quantity: 30, unit: "%", isDeductible: 1, materialType: "RAW" };
   it("배합 수정 화면이 보내지 않으면 원래 값 유지 · 공정을 지정하면(보냈거나 이어받은) 비움", () => {
-    const existing = [{ id: 1, processGroupId: null, entryStage: "direct" }, { id: 2, processGroupId: 3, entryStage: null }];
+    const existing = [{ id: 1, materialId: 10, processGroupId: null, entryStage: "direct" }, { id: 2, materialId: 11, processGroupId: 3, entryStage: null }];
     const m = mergeIngredientRows([{ ...base, id: 1, materialId: 10 }, { ...base, id: 2, materialId: 11, entryStage: "late" }, { ...base, id: 1, materialId: 10, processGroupId: 3 }], existing, 9);
     expect(m.map((r) => r.entryStage)).toEqual(["direct", null, null]);
     expect(mergeIngredientRows([{ ...base, id: 1, materialId: 10, entryStage: null }], existing, 9)[0].entryStage).toBeNull(); // 명시적으로 비움
+  });
+  it("#600 검토 A4: 같은 줄이라도 원료를 바꾸면 들어가는 곳 확인을 이어받지 않음 (다시 확인)", () => {
+    const existing = [{ id: 1, materialId: 10, processGroupId: null, entryStage: "direct" }];
+    expect(mergeIngredientRows([{ ...base, id: 1, materialId: 99 }], existing, 9)[0].entryStage).toBeNull();
+    expect(mergeIngredientRows([{ ...base, id: 1, materialId: 99, entryStage: "late" }], existing, 9)[0].entryStage).toBe("late"); // 새로 정해 보내면 그 값
+  });
+});
+
+describe("확인 완료 흐름 (#600 검토 A3·A4)", () => {
+  const wangDone = { approved: true, batchTargetKg: 96, ingredients: [ing("찹쌀", 62.6, 1), ing("통팥앙금", 30, null, { entryStage: "direct" }), ing("옥수수전분", 7.4, null, { entryStage: "direct" })] };
+  it("일부만 정하면 남은 원료 경고는 그대로, 모두 정하면 초록", () => {
+    const half = { ...wangDone, ingredients: [wangDone.ingredients[0], wangDone.ingredients[1], ing("옥수수전분", 7.4, null)] };
+    expect(checkRecipe(half, groups).issues.map((i) => i.text)).toEqual([expect.stringMatching(/들어가는 곳을 정하지 않은 원료 1개 \(옥수수전분\)/)]);
+    expect(checkRecipe(wangDone, groups).signal).toBe("green");
+  });
+  it("승인 전 수정안·옛 버전은 '지금 생산 가능' 으로 보이지 않음 (모두 정해도 노랑 + 자리 안내)", () => {
+    expect(checkRecipe({ ...wangDone, approved: false, versionRole: "draft" }, groups)).toMatchObject({ signal: "yellow", issues: [{ code: "draft-version" }] });
+    expect(checkRecipe({ ...wangDone, versionRole: "old" }, groups).issues.map((i) => i.code)).toEqual(["old-version"]);
+    expect(checkRecipe({ ...wangDone, approved: false }, groups).signal).toBe("red"); // 생산에 쓰는 버전이 초안 → 빨강 그대로
+  });
+  it("원료 지정 없이 제품에 직접 연결된 공정(수동) — 계획이 CCP 기록을 만들므로 확인 필요, 설비 없으면 빨강. 금속검출·원료로 이미 쓰는 공정·없는 공정은 제외", () => {
+    const steam: DesignGroup = { ...mixing, id: 2, name: "증숙(설기류)공정" };
+    const g2 = new Map([[1, mixing], [2, steam], [5, metal]]);
+    const c = checkRecipe({ ...wangDone, manualGroupIds: [1, 2, 5, 9] }, g2);
+    expect(c.signal).toBe("yellow");
+    expect(c.issues.map((i) => i.code)).toEqual(["manual-group-no-input"]);
+    expect(c.manualGroupIds).toEqual([2]);
+    const empty = new Map([[1, mixing], [2, { ...steam, equipments: [] }]]);
+    expect(checkRecipe({ ...wangDone, manualGroupIds: [2] }, empty).signal).toBe("red");
   });
 });
 

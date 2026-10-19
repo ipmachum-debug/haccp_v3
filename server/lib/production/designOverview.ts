@@ -8,7 +8,7 @@
  *                       그 변경 뒤에 만들어진 생산 건(또는 CCP 기록) 수
  */
 import { checkRecipe, groupIssues, processLoads, type DesignGroup, type RecipeIngredient, type ReadinessIssue, type Signal } from "../../../shared/production/designReadiness";
-import { toProductionProductId } from "../identity/itemIdentityService";
+import { toProductionProductId, toProductionProductIds } from "../identity/itemIdentityService";
 import { rowKg } from "./ccpBomInput";
 import { occupancyFor, type PlannerEquipment } from "./ccpDayPlanner";
 
@@ -76,6 +76,12 @@ export interface RecipeRow {
   calcError: string | null;
   /** 계산은 되지만 확인이 필요한 이유 (실제 계획이 다른 버전을 쓰는 등) */
   calcNote: string | null;
+  /** 이 버전의 자리 — production(지금 생산에 씀) · draft(그보다 새 수정안, 승인 전) · old(생산에 안 쓰는 옛 버전) */
+  versionRole: "production" | "draft" | "old";
+  /** 생산에 쓰는 버전보다 새 수정안(승인 전)이 있으면 그 버전 — 현재 신호등과 구분해 보여 준다 */
+  newerDraft: { versionId: number; versionNo: number } | null;
+  /** 원료 지정과 별개로 제품에 직접 연결된 공정 (실제 계획이 쓰는 수동 연결) */
+  manualGroupIds: number[];
   ingredients: Array<RecipeIngredient & { id: number; deductible: boolean; rawKgPerBatch: number | null }>;
 }
 
@@ -87,7 +93,7 @@ const kg2 = (n: number) => Math.round(n * 1000) / 1000;
  *   원물·공정 환산 버전: prepareBatchMassBasis 스냅샷 (1배치 총 생산량을 계획량으로) — 공정 kg = 전처리 후 kg, 원물 kg 따로
  *   원료 품목이 없는 줄(중간재)은 두 계산 모두 공정 투입에 넣지 않으므로 kgPerBatch = null (배합량은 rawKgPerBatch 로 표시)
  */
-async function applyBatchKg(conn: any, tenantId: number, r: RecipeRow, rows: any[], versionFlag: boolean): Promise<void> {
+async function applyBatchKg(conn: any, tenantId: number, r: RecipeRow, rows: any[], versionFlag: boolean, pid: number | null): Promise<void> {
   const target = r.batchTargetKg;
   const legacy = () => {
     r.ingredients = rows.map((x, k) => {
@@ -96,7 +102,11 @@ async function applyBatchKg(conn: any, tenantId: number, r: RecipeRow, rows: any
     });
   };
   if (!versionFlag || !(target != null && target > 0)) return legacy();
-  const pid = await toProductionProductId(r.productItemId, tenantId, conn);
+  if (r.versionRole !== "production") {
+    // 실제 계획은 생산에 쓰는 버전만 환산한다 — 수정안·옛 버전은 같은 함수로 계산할 근거가 없어 기존 계산으로 보여 준다
+    r.calcNote = "원물·공정 환산 버전 — 이 버전이 생산에 쓰일 때 환산됩니다 (지금 보이는 kg 은 배합비 기준)";
+    return legacy();
+  }
   if (!pid) return legacy();
   const { prepareBatchMassBasis } = await import("../../db/production/batchMassBasis");
   const mb = await prepareBatchMassBasis(tenantId, pid, target, conn);
@@ -112,21 +122,37 @@ async function applyBatchKg(conn: any, tenantId: number, r: RecipeRow, rows: any
   });
 }
 
-export async function loadRecipes(conn: any, tenantId: number): Promise<RecipeRow[]> {
+/**
+ * @param only 한 보고서(·한 버전)만 — 제품 배합 상세. versionId 가 없으면 생산에 쓰는 버전
+ */
+export async function loadRecipes(conn: any, tenantId: number, only?: { reportId: number; versionId?: number }): Promise<RecipeRow[]> {
   const [vRows]: any = await conn.execute(
     `SELECT r.id AS report_id, r.report_no, r.product_id, COALESCE(p.item_name, CONCAT('품목 #', r.product_id)) AS product_name,
             v.id AS version_id, v.version_no, v.approval_status, v.batch_target_kg, v.mass_basis_enabled
        FROM h_mf_reports r
        JOIN h_mf_report_versions v ON v.mf_report_id = r.id
        LEFT JOIN item_master p ON p.id = r.product_id AND p.tenant_id = r.tenant_id
-      WHERE r.tenant_id = ? AND r.status = 'ACTIVE'
+      WHERE r.tenant_id = ? AND r.status = 'ACTIVE' ${only ? "AND r.id = ?" : ""}
       ORDER BY r.id, (v.approval_status = 'APPROVED') DESC, v.version_no DESC, v.id DESC`,
-    [tenantId],
+    only ? [tenantId, only.reportId] : [tenantId],
   );
-  // 보고서마다 첫 줄 = 생산에 쓰는 버전 (승인 우선 · 최신)
-  const picked = new Map<number, any>();
-  for (const r of vRows as any[]) if (!picked.has(Number(r.report_id))) picked.set(Number(r.report_id), r);
-  const versionIds = Array.from(picked.values()).map((r) => Number(r.version_id));
+  // 보고서마다 첫 줄 = 생산에 쓰는 버전 (승인 우선 · 최신 — selectBomVersion 과 같은 규칙)
+  const production = new Map<number, any>();
+  const allByReport = new Map<number, any[]>();
+  for (const r of vRows as any[]) {
+    const k = Number(r.report_id);
+    if (!production.has(k)) production.set(k, r);
+    allByReport.set(k, [...(allByReport.get(k) ?? []), r]);
+  }
+  const roleOf = (v: any): RecipeRow["versionRole"] => {
+    const prod = production.get(Number(v.report_id));
+    if (Number(v.version_id) === Number(prod.version_id)) return "production";
+    return v.approval_status !== "APPROVED" && Number(v.version_no) > Number(prod.version_no) ? "draft" : "old";
+  };
+  let picked: any[] = Array.from(production.values());
+  if (only?.versionId) picked = (vRows as any[]).filter((v) => Number(v.version_id) === only.versionId);
+
+  const versionIds = picked.map((r) => Number(r.version_id));
   const rowsByVersion = new Map<number, any[]>();
   if (versionIds.length) {
     const [iRows]: any = await conn.query(
@@ -141,24 +167,47 @@ export async function loadRecipes(conn: any, tenantId: number): Promise<RecipeRo
       rowsByVersion.set(k, [...(rowsByVersion.get(k) ?? []), r]);
     }
   }
+  // 생산 품목 id (수동 연결 · 원물 환산이 쓰는 id) — 이름·번호 추측 없이 item_master.legacy_product_id 연결만
+  const pidByItem = await toProductionProductIds(picked.map((r) => Number(r.product_id)), tenantId, conn);
+  const manualByPid = new Map<number, number[]>();
+  try {
+    const [mRows]: any = await conn.execute(`SELECT product_id, process_group_id FROM ccp_process_group_products WHERE tenant_id = ?`, [tenantId]);
+    for (const m of mRows as any[]) manualByPid.set(Number(m.product_id), [...(manualByPid.get(Number(m.product_id)) ?? []), Number(m.process_group_id)]);
+  } catch (e: any) {
+    if (e?.code !== "ER_NO_SUCH_TABLE") throw e;
+  }
+
   const out: RecipeRow[] = [];
-  for (const r of picked.values()) {
+  for (const r of picked) {
     const rows = rowsByVersion.get(Number(r.version_id)) ?? [];
+    const prod = production.get(Number(r.report_id));
+    const draft = (allByReport.get(Number(r.report_id)) ?? [])
+      .filter((v) => v.approval_status !== "APPROVED" && Number(v.version_no) > Number(prod.version_no))
+      .sort((a, b) => Number(b.version_no) - Number(a.version_no))[0];
+    const pid = pidByItem.get(Number(r.product_id)) ?? null;
     const row: RecipeRow = {
       reportId: Number(r.report_id), reportNo: String(r.report_no ?? ""), productItemId: Number(r.product_id), productName: String(r.product_name),
       versionId: Number(r.version_id), versionNo: Number(r.version_no), approvalStatus: String(r.approval_status), approved: r.approval_status === "APPROVED",
       batchTargetKg: num(r.batch_target_kg), massBasis: false, calcError: null, calcNote: null,
+      versionRole: roleOf(r),
+      newerDraft: draft ? { versionId: Number(draft.version_id), versionNo: Number(draft.version_no) } : null,
+      manualGroupIds: pid ? manualByPid.get(pid) ?? [] : [],
       ingredients: rows.map((x) => ({
         id: Number(x.id), name: String(x.name), unit: String(x.unit ?? "%"), quantity: Number(x.quantity) || 0, processGroupId: num(x.process_group_id),
         isAdditional: Number(x.is_additional) === 1, deductible: Number(x.is_deductible) === 1, entryStage: x.entry_stage ?? null,
         kgPerBatch: undefined, rawKgPerBatch: null,
       })),
     };
-    await applyBatchKg(conn, tenantId, row, rows, Number(r.mass_basis_enabled) === 1);
+    await applyBatchKg(conn, tenantId, row, rows, Number(r.mass_basis_enabled) === 1, pid);
     out.push(row);
   }
   return out;
 }
+
+const readinessInput = (r: RecipeRow) => ({
+  approved: r.approved, batchTargetKg: r.batchTargetKg, ingredients: r.ingredients,
+  calcError: r.calcError, calcNote: r.calcNote, manualGroupIds: r.manualGroupIds, versionRole: r.versionRole,
+});
 
 export interface RecipeStatus extends Omit<RecipeRow, "ingredients"> {
   signal: Signal;
@@ -172,8 +221,9 @@ export async function loadRecipeStatuses(conn: any, tenantId: number, groups?: D
   const gMap = new Map(gs.map((g) => [g.id, g]));
   const order: Record<Signal, number> = { red: 0, yellow: 1, green: 2 };
   return (await loadRecipes(conn, tenantId))
-    .map(({ ingredients, ...r }) => {
-      const input = { approved: r.approved, batchTargetKg: r.batchTargetKg, ingredients, calcError: r.calcError, calcNote: r.calcNote };
+    .map((full) => {
+      const { ingredients, ...r } = full;
+      const input = readinessInput(full);
       const c = checkRecipe(input, gMap);
       return { ...r, signal: c.signal, issues: c.issues, ingredientCount: ingredients.length, loads: processLoads(input, gMap) };
     })
@@ -295,13 +345,12 @@ export async function loadHistory(conn: any, tenantId: number, limit = 100): Pro
     .map(({ rawAt, ...e }) => e);
 }
 
-export async function loadOverview(conn: any, tenantId: number) {
-  const groups = await loadDesignGroups(conn, tenantId);
-  const recipes = await loadRecipeStatuses(conn, tenantId, groups);
-  const settingIssues = groups.flatMap(groupIssues);
+/** 승인되지 않은 버전 목록 — 자리(수정안·옛 초안·반려·유일 초안)만 구분, 처리하지 않는다 */
+export async function loadPendingVersions(conn: any, tenantId: number) {
   const [pRows]: any = await conn.execute(
     `SELECT r.id AS report_id, COALESCE(p.item_name, CONCAT('품목 #', r.product_id)) AS product_name, v.id AS version_id, v.version_no, v.approval_status,
-            DATE_FORMAT(v.created_at, '%Y-%m-%d') AS created
+            DATE_FORMAT(v.created_at, '%Y-%m-%d') AS created,
+            (SELECT MAX(a.version_no) FROM h_mf_report_versions a WHERE a.mf_report_id = v.mf_report_id AND a.approval_status = 'APPROVED') AS approved_no
        FROM h_mf_report_versions v
        JOIN h_mf_reports r ON r.id = v.mf_report_id AND r.tenant_id = ? AND r.status = 'ACTIVE'
        LEFT JOIN item_master p ON p.id = r.product_id AND p.tenant_id = r.tenant_id
@@ -309,12 +358,32 @@ export async function loadOverview(conn: any, tenantId: number) {
       ORDER BY v.created_at DESC`,
     [tenantId],
   );
+  // 승인되지 않은 버전의 자리 (#600 검토 A6) — 처리(승인·반려·정리)는 하지 않고 구분만:
+  //   draft      : 승인 버전보다 새 수정안 → 승인 대기
+  //   superseded : 더 새 승인 버전이 이미 생산에 쓰임 → 옛 초안 (처리 방법은 사람이 정함)
+  //   rejected   : 반려됨
+  //   only       : 승인 버전이 하나도 없음 (이 초안으로 생산 중 — 신호등 빨강)
+  const pendingKind = (r: any) => {
+    if (String(r.approval_status) === "REJECTED") return "rejected";
+    if (r.approved_no == null) return "only";
+    return Number(r.version_no) > Number(r.approved_no) ? "draft" : "superseded";
+  };
+  return (pRows as any[]).map((r) => ({
+    reportId: Number(r.report_id), productName: String(r.product_name), versionId: Number(r.version_id), versionNo: Number(r.version_no),
+    status: String(r.approval_status), created: r.created ?? null, kind: pendingKind(r), approvedVersionNo: r.approved_no != null ? Number(r.approved_no) : null,
+  }));
+}
+
+export async function loadOverview(conn: any, tenantId: number) {
+  const groups = await loadDesignGroups(conn, tenantId);
+  const recipes = await loadRecipeStatuses(conn, tenantId, groups);
+  const settingIssues = groups.flatMap(groupIssues);
   const counts = { green: 0, yellow: 0, red: 0 };
   for (const r of recipes) counts[r.signal]++;
   return {
     counts,
     recipes,
-    pending: (pRows as any[]).map((r) => ({ reportId: Number(r.report_id), productName: String(r.product_name), versionId: Number(r.version_id), versionNo: Number(r.version_no), status: String(r.approval_status), created: r.created ?? null })),
+    pending: await loadPendingVersions(conn, tenantId),
     settingIssues,
     recent: (await loadHistory(conn, tenantId, 8)),
   };
@@ -324,9 +393,8 @@ export async function loadOverview(conn: any, tenantId: number) {
  * 제품 배합 상세 (생산 설계 2a) — 생산에 쓰는 버전의 원료 줄 · 1배치 kg · 들어가는 곳 · 공정(설비) · 공통 후속 공정
  *   흐름도(분류도)와 배합표가 같은 데이터를 쓴다. 공정끼리의 순서·합류는 데이터에 없으므로 추측하지 않는다.
  */
-export async function loadRecipeDetail(conn: any, tenantId: number, reportId: number) {
-  const recipes = await loadRecipes(conn, tenantId);
-  const r = recipes.find((x) => x.reportId === reportId);
+export async function loadRecipeDetail(conn: any, tenantId: number, reportId: number, versionId?: number) {
+  const [r] = await loadRecipes(conn, tenantId, { reportId, versionId });
   if (!r) return null;
   const groups = await loadDesignGroups(conn, tenantId);
   const gMap = new Map(groups.map((g) => [g.id, g]));
@@ -334,14 +402,26 @@ export async function loadRecipeDetail(conn: any, tenantId: number, reportId: nu
     ...i, kgPerBatch: i.kgPerBatch ?? null,
     processName: i.processGroupId != null ? gMap.get(i.processGroupId)?.name ?? `공정 #${i.processGroupId}` : null,
   }));
-  const c = checkRecipe({ approved: r.approved, batchTargetKg: r.batchTargetKg, ingredients: r.ingredients, calcError: r.calcError, calcNote: r.calcNote }, gMap);
+  const c = checkRecipe(readinessInput(r), gMap);
+  const [vRows]: any = await conn.execute(
+    `SELECT v.id, v.version_no, v.approval_status FROM h_mf_report_versions v JOIN h_mf_reports r ON r.id = v.mf_report_id AND r.tenant_id = ?
+      WHERE v.mf_report_id = ? ORDER BY v.version_no DESC, v.id DESC`,
+    [tenantId, reportId],
+  );
+  const proc = (g: DesignGroup, source: "bom" | "manual") => ({ id: g.id, name: g.name, ccpType: g.ccpType, mode: g.mode, batchSize: g.batchSize, profileTimeMin: g.profileTimeMin, equipmentNames: g.equipments.map((e) => e.name), source });
   return {
     reportId: r.reportId, reportNo: r.reportNo, productName: r.productName, versionId: r.versionId, versionNo: r.versionNo,
-    approved: r.approved, batchTargetKg: r.batchTargetKg, massBasis: r.massBasis, calcError: r.calcError,
+    approved: r.approved, versionRole: r.versionRole, newerDraft: r.newerDraft,
+    batchTargetKg: r.batchTargetKg, massBasis: r.massBasis, calcError: r.calcError,
     signal: c.signal, issues: c.issues, ingredients,
-    processes: groups.filter((g) => c.usedGroupIds.includes(g.id)).map((g) => ({ id: g.id, name: g.name, ccpType: g.ccpType, mode: g.mode, batchSize: g.batchSize, profileTimeMin: g.profileTimeMin, equipmentNames: g.equipments.map((e) => e.name) })),
+    processes: [
+      ...groups.filter((g) => c.usedGroupIds.includes(g.id)).map((g) => proc(g, "bom")),
+      // 원료 지정 없이 제품에 직접 연결된 공정 — 실제 계획이 CCP 기록을 만든다 (투입량은 비어 기록)
+      ...groups.filter((g) => c.manualGroupIds.includes(g.id)).map((g) => proc(g, "manual")),
+    ],
     // 모든 제품이 거치는 공통 후속 공정 — 지금 코드(배치 생성)가 활성 CCP-4P 를 모든 제품에 넣는 것과 같은 범위
     common: groups.filter((g) => g.ccpType === "CCP-4P").map((g) => ({ id: g.id, name: g.name })),
+    versions: (vRows as any[]).map((v) => ({ versionId: Number(v.id), versionNo: Number(v.version_no), status: String(v.approval_status) })),
   };
 }
 
