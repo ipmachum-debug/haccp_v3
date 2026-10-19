@@ -44,6 +44,8 @@ export interface DesignGroup {
   ccpType: string;
   mode: string;
   batchSize: number;
+  /** 차례로·묶음 운전 때 다음 시작까지 간격 (분) */
+  intervalMin?: number;
   /** 활성 시간 프로필 수 — 2개 이상이면 계획 계산이 프로필을 쓰지 않는다 */
   profileCount: number;
   profileTimeMin: number | null;
@@ -51,6 +53,8 @@ export interface DesignGroup {
     id: number; name: string; tempC: number | null; timeMin: number | null; cycleMin: number | null;
     /** 이 공정에서 실제 계획이 쓰는 가열 분 (공정 시간 프로필 1개면 그 값, 아니면 설비 기본 가열) · 설비 점유 분 (#600 U600-01) */
     appliedHeatMin?: number | null; occupancyMin?: number | null;
+    /** 작업 시작 시각 HH:MM (없으면 계획 기본 09:00) */
+    workStartTime?: string | null;
   }>;
 }
 

@@ -122,24 +122,16 @@ export const processGroupsRouter = router({
       if (input.ccpType !== undefined) setClauses.push(sql`ccp_type = ${input.ccpType}`);
       if (input.description !== undefined) setClauses.push(sql`description = ${input.description}`);
 
-      // Numeric nullable fields - always update
-      const tempMin = input.temperatureMin !== undefined ? input.temperatureMin : null;
-      const tempMax = input.temperatureMax !== undefined ? input.temperatureMax : null;
-      const tMin = input.timeMin !== undefined ? input.timeMin : null;
-      const tMax = input.timeMax !== undefined ? input.timeMax : null;
-      const pMin = input.pressureMin !== undefined ? input.pressureMin : null;
-      const pMax = input.pressureMax !== undefined ? input.pressureMax : null;
-      const phMinVal = input.phMin !== undefined ? input.phMin : null;
-      const phMaxVal = input.phMax !== undefined ? input.phMax : null;
-
-      setClauses.push(sql`temperature_min = ${tempMin}`);
-      setClauses.push(sql`temperature_max = ${tempMax}`);
-      setClauses.push(sql`time_min = ${tMin}`);
-      setClauses.push(sql`time_max = ${tMax}`);
-      setClauses.push(sql`pressure_min = ${pMin}`);
-      setClauses.push(sql`pressure_max = ${pMax}`);
-      setClauses.push(sql`ph_min = ${phMinVal}`);
-      setClauses.push(sql`ph_max = ${phMaxVal}`);
+      // 숫자 칸: 보낸 것만 바꾼다 (null = 비움). ★ 2026-10-19: 이전엔 안 보낸 칸도 NULL 로 덮어
+      //   '시간 설정 관리' 창(시간만 보냄)에서 저장하면 pH 한계기준이 지워졌다.
+      if (input.temperatureMin !== undefined) setClauses.push(sql`temperature_min = ${input.temperatureMin}`);
+      if (input.temperatureMax !== undefined) setClauses.push(sql`temperature_max = ${input.temperatureMax}`);
+      if (input.timeMin !== undefined) setClauses.push(sql`time_min = ${input.timeMin}`);
+      if (input.timeMax !== undefined) setClauses.push(sql`time_max = ${input.timeMax}`);
+      if (input.pressureMin !== undefined) setClauses.push(sql`pressure_min = ${input.pressureMin}`);
+      if (input.pressureMax !== undefined) setClauses.push(sql`pressure_max = ${input.pressureMax}`);
+      if (input.phMin !== undefined) setClauses.push(sql`ph_min = ${input.phMin}`);
+      if (input.phMax !== undefined) setClauses.push(sql`ph_max = ${input.phMax}`);
 
       if (input.monitoringMethod !== undefined) setClauses.push(sql`monitoring_method = ${input.monitoringMethod}`);
       if (input.monitoringCycle !== undefined) setClauses.push(sql`monitoring_cycle = ${input.monitoringCycle}`);

@@ -181,14 +181,14 @@ function ProcessGroupFormDialog({
       name: form.name,
       ccpType: form.ccpType,
       description: form.description || undefined,
-      temperatureMin: form.temperatureMin ? Number(form.temperatureMin) : undefined,
-      temperatureMax: form.temperatureMax ? Number(form.temperatureMax) : undefined,
-      timeMin: form.timeMin ? Number(form.timeMin) : undefined,
-      timeMax: form.timeMax ? Number(form.timeMax) : undefined,
-      pressureMin: form.pressureMin ? Number(form.pressureMin) : undefined,
-      pressureMax: form.pressureMax ? Number(form.pressureMax) : undefined,
-      phMin: form.phMin ? Number(form.phMin) : undefined,
-      phMax: form.phMax ? Number(form.phMax) : undefined,
+      temperatureMin: form.temperatureMin !== "" && form.temperatureMin != null ? Number(form.temperatureMin) : null, // 빈 칸 = 비움 (서버는 보낸 칸만 바꿈)
+      temperatureMax: form.temperatureMax !== "" && form.temperatureMax != null ? Number(form.temperatureMax) : null, // 빈 칸 = 비움 (서버는 보낸 칸만 바꿈)
+      timeMin: form.timeMin !== "" && form.timeMin != null ? Number(form.timeMin) : null, // 빈 칸 = 비움 (서버는 보낸 칸만 바꿈)
+      timeMax: form.timeMax !== "" && form.timeMax != null ? Number(form.timeMax) : null, // 빈 칸 = 비움 (서버는 보낸 칸만 바꿈)
+      pressureMin: form.pressureMin !== "" && form.pressureMin != null ? Number(form.pressureMin) : null, // 빈 칸 = 비움 (서버는 보낸 칸만 바꿈)
+      pressureMax: form.pressureMax !== "" && form.pressureMax != null ? Number(form.pressureMax) : null, // 빈 칸 = 비움 (서버는 보낸 칸만 바꿈)
+      phMin: form.phMin !== "" && form.phMin != null ? Number(form.phMin) : null, // 빈 칸 = 비움 (서버는 보낸 칸만 바꿈)
+      phMax: form.phMax !== "" && form.phMax != null ? Number(form.phMax) : null, // 빈 칸 = 비움 (서버는 보낸 칸만 바꿈)
       monitoringMethod: form.monitoringMethod || undefined,
       monitoringCycle: form.monitoringCycle || undefined,
       correctiveAction: form.correctiveAction || undefined,

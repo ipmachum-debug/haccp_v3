@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, type ReactNode } from "react";
 import { useParams, useLocation } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -22,10 +22,22 @@ import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 const HEAT_CCP_TYPES = ["CCP-1B", "CCP-2B"];
 
 export default function MfReportEdit() {
-  const L = useIndustryLabel();
   const { id } = useParams<{ id: string }>();
+  return <MfReportEditor reportId={parseInt(id || "0")} />;
+}
+
+/** 공정 칸 하나로 '어디에 넣나' 를 정한다 — 가열 공정 · 성형에 바로 · 나중에 넣음 · 아직 모름 (2026-10-19, 따로 분류 저장하지 않게) */
+const stageValue = (ing: { processGroupId?: number | null; entryStage?: string | null }) =>
+  ing.processGroupId != null && ing.processGroupId > 0 ? String(ing.processGroupId) : ing.entryStage === "direct" || ing.entryStage === "late" ? `s:${ing.entryStage}` : "none";
+
+/**
+ * 품목제조보고(배합) 편집 — 제조기준관리에서도, 생산 설계 > 제품 배합 안에서도 같은 편집기 (embedded: 바깥 화면 틀 없이)
+ */
+export function MfReportEditor({ reportId, embedded = false, onCancel }: { reportId: number; embedded?: boolean; onCancel?: () => void }) {
+  const L = useIndustryLabel();
   const [, setLocation] = useLocation();
-  const reportId = parseInt(id || "0");
+  const Frame = embedded ? EmbeddedFrame : DashboardLayout;
+  const goBack = () => (onCancel ? onCancel() : setLocation("/dashboard/mf-reports"));
 
   // === 데이터 로드 ===
   const { data: reportDetail, isLoading: isLoadingReport } = trpc.mfReport.getById.useQuery({ id: reportId });
@@ -88,6 +100,7 @@ export default function MfReportEdit() {
     isAdditional: number;
     basisRawKg?: number | null; // 운영 기준 원물 kg (수율 기준 PR B)
     pretreatmentFactor?: number | null; // 전처리 배율 (비우면 1.0)
+    entryStage?: string | null; // 공정 없는 원료의 들어가는 곳 — direct(성형에 바로)·late(나중에 넣음)·null(아직 모름)
   }>>([]);
 
   // === 추가 원재료 (배합비 100%에 미포함, 정제수 등) ===
@@ -157,6 +170,7 @@ export default function MfReportEdit() {
               isAdditional: 0,
               basisRawKg: (ing as any).basisRawKg != null ? Number((ing as any).basisRawKg) : null,
               pretreatmentFactor: (ing as any).pretreatmentFactor != null ? Number((ing as any).pretreatmentFactor) : null,
+              entryStage: (ing as any).entryStage ?? null,
             });
           }
         }
@@ -396,6 +410,8 @@ export default function MfReportEdit() {
         isAdditional: 0,
         basisRawKg: ing.basisRawKg != null && ing.basisRawKg >= 0 ? ing.basisRawKg : null,
         pretreatmentFactor: ing.pretreatmentFactor != null && ing.pretreatmentFactor > 0 ? ing.pretreatmentFactor : null,
+        // 공정이 있으면 공정이 우선 (들어가는 곳 비움), 없으면 고른 들어가는 곳
+        entryStage: (ing.processGroupId != null && ing.processGroupId > 0) ? null : ((ing.entryStage === "direct" || ing.entryStage === "late") ? ing.entryStage : null),
       })),
       ...additionalIngredients.map(add => ({
         id: add.id,
@@ -433,47 +449,49 @@ export default function MfReportEdit() {
   // === 로딩/에러 ===
   if (isLoadingReport || isLoadingVersion) {
     return (
-      <DashboardLayout>
-        <div className="flex items-center justify-center min-h-screen">
+      <Frame>
+        <div className="flex items-center justify-center min-h-[200px]">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>
-      </DashboardLayout>
+      </Frame>
     );
   }
 
   if (!reportDetail) {
     return (
-      <DashboardLayout>
+      <Frame>
         <div className="space-y-6">
           <Card>
             <CardContent className="py-8">
               <p className="text-center text-muted-foreground">품목제조보고를 찾을 수 없습니다</p>
               <div className="flex justify-center mt-4">
-                <Button variant="outline" onClick={() => setLocation("/dashboard/mf-reports")}>
+                <Button variant="outline" onClick={goBack}>
                   <ArrowLeft className="w-4 h-4 mr-2" />목록으로
                 </Button>
               </div>
             </CardContent>
           </Card>
         </div>
-      </DashboardLayout>
+      </Frame>
     );
   }
 
   // === 렌더링 ===
   return (
-    <DashboardLayout>
-      <div className="space-y-6 pb-24">
-        {/* 헤더 */}
-        <div className="flex items-center justify-between mb-3">
-          <div>
-            <h1 className="text-lg font-bold">품목제조보고 수정</h1>
-            <p className="text-sm text-muted-foreground">{productName}</p>
+    <Frame>
+      <div className={embedded ? "space-y-4 pb-24" : "space-y-6 pb-24"}>
+        {/* 헤더 — 생산 설계 안에서 열면 바깥 화면이 제목을 보여 준다 */}
+        {!embedded && (
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <h1 className="text-lg font-bold">품목제조보고 수정</h1>
+              <p className="text-sm text-muted-foreground">{productName}</p>
+            </div>
+            <Button variant="outline" size="sm" onClick={goBack}>
+              <ArrowLeft className="w-4 h-4 mr-1" />목록
+            </Button>
           </div>
-          <Button variant="outline" size="sm" onClick={() => setLocation("/dashboard/mf-reports")}>
-            <ArrowLeft className="w-4 h-4 mr-1" />목록
-          </Button>
-        </div>
+        )}
 
         <form onSubmit={handleSubmit}>
           {/* 기본 정보 */}
@@ -681,14 +699,18 @@ export default function MfReportEdit() {
                             </td></>}
                             <td className="px-3 py-1.5">
                               <Select
-                                value={ing.processGroupId?.toString() || "none"}
-                                onValueChange={(v) => updateIngredient(index, "processGroupId", v === "none" ? null : parseInt(v))}
+                                value={stageValue(ing)}
+                                onValueChange={(v) => setIngredients((list) => list.map((x, i) => i !== index ? x : v.startsWith("s:")
+                                  ? { ...x, processGroupId: null, entryStage: v.slice(2) }
+                                  : v === "none" ? { ...x, processGroupId: null, entryStage: null } : { ...x, processGroupId: parseInt(v), entryStage: null }))}
                               >
-                                <SelectTrigger className="h-8 text-sm border-0 shadow-none bg-transparent px-1">
-                                  <SelectValue placeholder="미지정" />
+                                <SelectTrigger className={`h-8 text-sm border-0 shadow-none bg-transparent px-1 ${stageValue(ing) === "none" ? "text-amber-700" : ""}`}>
+                                  <SelectValue placeholder="아직 모름" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value="none">미지정</SelectItem>
+                                  <SelectItem value="none">아직 모름</SelectItem>
+                                  <SelectItem value="s:direct">성형에 바로 (가열 안 함)</SelectItem>
+                                  <SelectItem value="s:late">나중에 넣음 (가열 안 함)</SelectItem>
                                   {heatProcessGroups.map((pg: any) => (
                                     <SelectItem key={pg.id} value={pg.id.toString()}>
                                       {pg.name}
@@ -884,7 +906,7 @@ export default function MfReportEdit() {
               `}</Button>
             </div>
             <div className="flex gap-2">
-              <Button type="button" variant="outline" size="sm" onClick={() => setLocation("/dashboard/mf-reports")}>취소</Button>
+              <Button type="button" variant="outline" size="sm" onClick={goBack}>취소</Button>
               <Button type="submit" size="sm" disabled={updateMutation.isPending || !isValid100Percent}>
                 {updateMutation.isPending ? (
                   <><Loader2 className="w-4 h-4 mr-1 animate-spin" />저장 중...</>
@@ -986,6 +1008,11 @@ export default function MfReportEdit() {
           </DialogContent>
         </Dialog>
       </div>
-    </DashboardLayout>
+    </Frame>
   );
+}
+
+/** 생산 설계 안에 넣을 때 — 바깥 화면 틀(사이드바 등) 없이 내용만 */
+function EmbeddedFrame({ children }: { children: ReactNode }) {
+  return <div data-testid="embedded-recipe-editor">{children}</div>;
 }

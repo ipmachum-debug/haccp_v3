@@ -153,20 +153,19 @@ describe("메뉴·화면 연결", () => {
     expect(items.every((p) => p.roles.join() === "super_admin,admin")).toBe(true);
     expect(items.map((p) => p.path)).toEqual([ROUTES.DESIGN_OVERVIEW, ROUTES.DESIGN_FACTORY, ROUTES.DESIGN_RECIPES, ROUTES.DESIGN_HISTORY]);
   });
-  it("라우트는 ROUTES 상수, 서버 쓰기는 '들어가는 곳 저장' 하나뿐(관리자·감사 기록)", () => {
+  it("라우트는 ROUTES 상수, 생산 설계의 쓰기는 공장 설정 둘뿐 — 공정·설비 (관리자·변경 이력). 배합은 기존 편집기 그대로", () => {
     const app = readFileSync(join(__dirname, "..", "client/src/App.tsx"), "utf-8");
     for (const k of ["DESIGN_OVERVIEW", "DESIGN_FACTORY", "DESIGN_RECIPES", "DESIGN_HISTORY", "DESIGN_RECIPE_DETAIL"]) expect(app).toMatch(new RegExp(`path=\\{ROUTES\\.${k}\\}`));
     const r = readFileSync(join(__dirname, "routers/production/productionDesign.router.ts"), "utf-8");
-    expect(r.match(/\.mutation\(/g)?.length).toBe(1);
-    expect(r).toMatch(/setEntryStages: adminProcedure/);
-    expect(r).toMatch(/recipeDetail: adminProcedure/);
-    expect(r).toMatch(/action: "mf_report\.entry_stage"/);
-    expect(r.match(/adminProcedure/g)?.length).toBeGreaterThanOrEqual(6);
-  });
-  it("들어가는 곳 저장: 이 회사·이 버전·공정 없는 줄만 (SQL 조건)", () => {
-    const d = readFileSync(join(__dirname, "lib/production/designOverview.ts"), "utf-8");
-    expect(d).toMatch(/WHERE v\.id = \? AND r\.id = \? AND r\.tenant_id = \?/);
-    expect(d).toMatch(/UPDATE h_mf_ingredients SET entry_stage = \? WHERE id = \? AND mf_report_version_id = \? AND process_group_id IS NULL/);
+    expect(r.match(/\.mutation\(/g)?.length).toBe(2);
+    expect(r).toMatch(/saveProcess: adminProcedure/);
+    expect(r).toMatch(/saveEquipment: adminProcedure/);
+    expect(r).not.toMatch(/setEntryStages|trialCalc/); // 따로 분류 저장·시험 계산은 없앰 (배합 편집기·오늘 생산에 있음)
+    expect(r).toMatch(/action: "ccp_process_group\.update"/);
+    expect(r).toMatch(/action: "equipment\.update"/);
+    const detail = readFileSync(join(__dirname, "..", "client/src/pages/design/DesignRecipeDetail.tsx"), "utf-8");
+    expect(detail).toMatch(/<MfReportEditor reportId=\{d\.reportId\} embedded/); // 다른 메뉴로 가지 않고 그 자리에서 편집
+    expect(detail).not.toMatch(/navigate\(EDIT_PATHS\.recipe\(/);
   });
   it("배합 저장은 전·후를 읽어 바뀐 것만 감사 기록에 (저장 실패와 무관)", () => {
     const m = readFileSync(join(__dirname, "routers/production/mfReport.router.ts"), "utf-8");
@@ -187,13 +186,10 @@ describe("2b 시험 계산 · 배포 전환 회복", () => {
     expect(crud).toMatch(/ingredients\.filter\(\(ing: any\) => isPlannedInputRow\(ing\)\)/);
     expect(crud).toMatch(/let plannedQ = legacyInputQty\(ing, plannedQty\)/);
   });
-  it("시험 계산은 조회(저장 없음)·관리자, 빈 공장 기준으로 오늘 생산과 같은 계획 함수", () => {
-    const r = readFileSync(join(__dirname, "routers/production/productionDesign.router.ts"), "utf-8");
-    expect(r).toMatch(/trialCalc: adminProcedure[\s\S]*?\.query\(/);
-    expect(r.match(/\.mutation\(/g)?.length).toBe(1);
+  it("시험 계산 함수(검증용)는 저장 없이 오늘 생산과 같은 계획 함수 — 화면 탭은 없앰", () => {
     const d = readFileSync(join(__dirname, "lib/production/designOverview.ts"), "utf-8");
     expect(d).toMatch(/await planCcpForDay\(\{ tenantId, workDate: todayKST\(\), rows: .*ignoreBusy: true \}\);/);
-    expect(d).not.toMatch(/INSERT INTO|UPDATE h_batch|createBatch\(/);
+    expect(d).not.toMatch(/INSERT INTO|UPDATE h_batch|UPDATE h_mf|createBatch\(/);
   });
   it("화면 조각 불러오기 실패만 골라 한 번만 다시 불러옴 (60초 안 두 번째는 안내 화면)", async () => {
     const { isChunkLoadError, reloadOnceForNewVersion } = await import("../client/src/lib/chunkReload");
@@ -212,5 +208,19 @@ describe("2b 시험 계산 · 배포 전환 회복", () => {
       delete (globalThis as any).sessionStorage;
       delete (globalThis as any).window;
     }
+  });
+});
+
+describe("버그 — 공정 저장이 안 보낸 한계기준을 지우지 않음 · 가열 설비 시작 시각", () => {
+  it("updateProcessGroup 은 보낸 숫자 칸만 바꾼다 ('시간 설정 관리' 저장이 pH 를 지우던 문제), 공정 등록 창은 빈 칸을 null 로 보내 비운다", () => {
+    const r = readFileSync(join(__dirname, "routers/ccpMonitoring/processGroups.router.ts"), "utf-8");
+    expect(r).not.toMatch(/always update/);
+    for (const c of ["temperature_min", "time_min", "pressure_min", "ph_min", "ph_max"]) expect(r).toMatch(new RegExp(`!== undefined\\) setClauses\\.push\\(sql\`${c} = `));
+    const ui = readFileSync(join(__dirname, "..", "client/src/pages/haccp/CCPLimitsManagement.tsx"), "utf-8");
+    expect(ui).toMatch(/phMin: form\.phMin !== "" && form\.phMin != null \? Number\(form\.phMin\) : null/);
+  });
+  it("가열 설비 운영기준에도 작업 시작 시각 칸 — 계획이 쓰는 값", () => {
+    const ui = readFileSync(join(__dirname, "..", "client/src/pages/haccp/CCPMonitoring.tsx"), "utf-8");
+    expect(ui).toMatch(/\/\/ 가열 공정 필드\n\s+basePayload\.workStartTime = settings\.workStartTime/);
   });
 });
