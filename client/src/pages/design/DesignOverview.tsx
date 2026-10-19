@@ -21,6 +21,11 @@ export default function DesignOverview() {
 
   const counts: Record<Signal, number> = d?.counts ?? { green: 0, yellow: 0, red: 0 };
   const attention = ((d?.recipes ?? []) as any[]).filter((r) => r.signal !== "green");
+  // 경고에서 바로 그 원료로 — 들어가는 곳 미정이면 그 줄을 보여 주는 링크 (열기만으로는 아무것도 바뀌지 않는다)
+  const fixPath = (r: any) => EDIT_PATHS.recipeDetail(r.reportId, (r.issues as any[]).some((i) => i.code === "unassigned") ? { focus: "unknown" } : undefined);
+  const pending = ((d?.pending ?? []) as any[]);
+  const waiting = pending.filter((p) => p.kind === "draft" || p.kind === "only");
+  const others = pending.filter((p) => p.kind === "superseded" || p.kind === "rejected");
 
   return (
     <DashboardLayout>
@@ -56,7 +61,7 @@ export default function DesignOverview() {
                       </div>
                       <ul className="text-sm list-disc pl-5">{(r.issues as any[]).map((i, k) => <li key={k} className={i.level === "red" ? "text-red-700" : "text-amber-800"}>{i.text}</li>)}</ul>
                     </div>
-                    <Button variant="outline" className="h-11" onClick={() => navigate(EDIT_PATHS.recipeDetail(r.reportId))}>배합표 · 흐름도</Button>
+                    <Button variant="outline" className="h-11" onClick={() => navigate(fixPath(r))}>고칠 곳 열기</Button>
                   </div>
                 ))}
                 {attention.length > 12 && <Link href={ROUTES.DESIGN_RECIPES} className="text-sm text-blue-700 hover:underline">전체 {attention.length}개 보기 →</Link>}
@@ -65,15 +70,27 @@ export default function DesignOverview() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <Card>
-                <CardHeader className="pb-2"><CardTitle className="text-base">승인 대기 ({d.pending.length})</CardTitle></CardHeader>
-                <CardContent className="space-y-1 text-sm">
-                  {!d.pending.length && <p className="text-muted-foreground">승인을 기다리는 배합이 없습니다.</p>}
-                  {(d.pending as any[]).map((p) => (
+                <CardHeader className="pb-2"><CardTitle className="text-base">승인 대기 ({waiting.length})</CardTitle></CardHeader>
+                <CardContent className="space-y-1 text-sm" data-testid="pending-list">
+                  {!waiting.length && <p className="text-muted-foreground">승인을 기다리는 수정안이 없습니다.</p>}
+                  {waiting.map((p) => (
                     <div key={p.versionId} className="flex items-center justify-between gap-2 border-b py-1.5 last:border-0">
-                      <span>{p.productName} <span className="text-muted-foreground">v{p.versionNo} · {p.status === "DRAFT" ? "초안" : p.status}{p.created ? ` · ${p.created}` : ""}</span></span>
-                      <Link href={EDIT_PATHS.recipe(p.reportId)} className="text-blue-700 hover:underline whitespace-nowrap">열기</Link>
+                      <span>{p.productName} <span className="text-muted-foreground">v{p.versionNo} 초안{p.kind === "only" ? " · 승인 버전 없음" : ` · 지금 생산은 v${p.approvedVersionNo}`}{p.created ? ` · ${p.created}` : ""}</span></span>
+                      {/* 그 버전 그대로 연다 (다른 버전을 열거나 처리하지 않도록) */}
+                      <Link href={EDIT_PATHS.recipeDetail(p.reportId, { versionId: p.versionId })} className="text-blue-700 hover:underline whitespace-nowrap">v{p.versionNo} 열기</Link>
                     </div>
                   ))}
+                  {others.length > 0 && (
+                    <div className="pt-2">
+                      <p className="text-xs text-muted-foreground">생산에 쓰이지 않는 옛 초안·반려 {others.length}개 — 자동으로 처리하지 않습니다 (정리 방법은 담당자가 정함)</p>
+                      {others.map((p) => (
+                        <div key={p.versionId} className="flex items-center justify-between gap-2 py-1 text-xs text-muted-foreground">
+                          <span>{p.productName} v{p.versionNo} {p.kind === "rejected" ? "반려" : `초안 · 더 새 v${p.approvedVersionNo} 승인으로 생산 중`}</span>
+                          <Link href={EDIT_PATHS.recipeDetail(p.reportId, { versionId: p.versionId })} className="text-blue-700 hover:underline whitespace-nowrap">v{p.versionNo} 보기</Link>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
               <Card>

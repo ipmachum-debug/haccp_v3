@@ -37,6 +37,8 @@ export interface IncomingIngredient {
 
 export interface ExistingIngredient {
   id: number;
+  materialId?: number | null;
+  intermediateId?: number | null;
   processGroupId?: number | null;
   adjustedWeightKg?: string | number | null;
   correctedQuantity?: string | number | null;
@@ -58,6 +60,8 @@ export function mergeIngredientRows(incoming: IncomingIngredient[], existing: Ex
   return incoming.map((ing, index) => {
     const orig = ing.id != null ? byId.get(Number(ing.id)) : undefined;
     const processGroupId = keep(ing.processGroupId, orig?.processGroupId);
+    // 같은 줄이라도 원료가 바뀌면 들어가는 곳 확인을 이어받지 않는다 (#600 검토 A4 — 바뀐 근거는 다시 확인)
+    const sameMaterial = !!orig && (orig.materialId ?? null) === (ing.materialId || null) && (orig.intermediateId ?? null) === (ing.intermediateId || null);
     return {
       mfReportVersionId: versionId,
       lineNo: index + 1,
@@ -78,7 +82,7 @@ export function mergeIngredientRows(incoming: IncomingIngredient[], existing: Ex
       basisRawKg: str(keep(ing.basisRawKg, orig?.basisRawKg as any)),
       pretreatmentFactor: str(keep(ing.pretreatmentFactor, orig?.pretreatmentFactor as any)),
       // 들어가는 곳: 공정이 있으면(보냈거나 이어받은) 비움 (공정이 우선), 아니면 보낸 값 또는 원래 값 (배합 수정 화면이 몰라도 지워지지 않게)
-      entryStage: processGroupId != null ? null : str(keep(ing.entryStage as any, orig?.entryStage as any)),
+      entryStage: processGroupId != null ? null : str(keep(ing.entryStage as any, sameMaterial ? (orig?.entryStage as any) : null)),
     };
   });
 }

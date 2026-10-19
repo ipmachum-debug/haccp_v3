@@ -2833,4 +2833,96 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect((await q(`SELECT id FROM h_mf_ingredients WHERE mf_report_version_id = 8802`)).map((r: any) => Number(r.id))).toEqual([88021]);
     });
   });
+
+  describe("생산 설계 확인 완료 흐름 — 생산 버전·수정안·옛 초안 구분, 수동 연결 공정, 저장 뒤 서버 재판정 (2026-10-19, #600 검토 A)", () => {
+    let d: any;
+    beforeAll(async () => {
+      d = await import("./lib/production/designOverview");
+      await q(`CREATE TABLE IF NOT EXISTS ccp_process_groups (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, name varchar(100) NOT NULL, ccp_type varchar(20) NULL, status varchar(20) NOT NULL DEFAULT 'active', sort_order int NOT NULL DEFAULT 0)`);
+      await q(`CREATE TABLE IF NOT EXISTS equipments (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, name varchar(100) NOT NULL, status varchar(20) NOT NULL DEFAULT 'active', default_temperature decimal(6,2) NULL, default_time int NULL, batch_operation_time int NULL)`);
+      await q(`CREATE TABLE IF NOT EXISTS ccp_process_group_equipments (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, process_group_id int NOT NULL, equipment_id int NOT NULL, sort_order int NOT NULL DEFAULT 0)`);
+      await q(`CREATE TABLE IF NOT EXISTS ccp_process_group_products (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, product_id int NOT NULL, process_group_id int NOT NULL)`);
+    });
+    beforeEach(async () => {
+      await q(`DELETE FROM h_mf_ingredients WHERE mf_report_version_id IN (8901, 8902, 8903, 8904)`);
+      await q(`DELETE FROM h_mf_report_versions WHERE id IN (8901, 8902, 8903, 8904)`);
+      await q(`DELETE FROM h_mf_reports WHERE id IN (8901, 8902)`);
+      await q(`DELETE FROM item_master WHERE id IN (89101, 89102, 89111, 89112, 89113)`);
+      await q(`DELETE FROM h_products_v2 WHERE id IN (891, 892)`);
+      await q(`DELETE FROM ccp_process_groups WHERE id IN (8921, 8922, 8925)`);
+      await q(`DELETE FROM equipments WHERE id IN (8931)`);
+      await q(`DELETE FROM ccp_process_group_equipments WHERE process_group_id IN (8921, 8922)`);
+      await q(`DELETE FROM ccp_process_group_products WHERE product_id IN (891, 892)`);
+      await q(`INSERT INTO h_products_v2 (id, tenant_id, product_code, product_name) VALUES (891, ?, 'P891', '왕찹쌀떡'), (892, ?, 'P892', '카스테라앙금인절미')`, [T, T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES
+        (89101, ?, 'P891', '왕찹쌀떡', 'own_product', 891, 1), (89102, ?, 'P892', '카스테라앙금인절미', 'own_product', 892, 1),
+        (89111, ?, 'R1', '찹쌀', 'raw_material', NULL, 1), (89112, ?, 'R2', '통팥앙금', 'raw_material', NULL, 1), (89113, ?, 'R3', '옥수수전분', 'raw_material', NULL, 1)`, [T, T, T, T, T]);
+      await q(`INSERT INTO ccp_process_groups (id, tenant_id, name, ccp_type) VALUES (8921, ?, '교반-가열공정', 'CCP-1B'), (8922, ?, '증숙(설기류)공정', 'CCP-1B'), (8925, ?, '금속검출공정', 'CCP-4P')`, [T, T, T]);
+      await q(`INSERT INTO equipments (id, tenant_id, name, default_temperature, default_time, batch_operation_time) VALUES (8931, ?, '교반기1호기', 99, 10, 70)`, [T]);
+      await q(`INSERT INTO ccp_process_group_equipments (tenant_id, process_group_id, equipment_id) VALUES (?, 8921, 8931)`, [T]);
+      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status) VALUES (8901, ?, 89101, 'W', '2026-10-01', 'ACTIVE'), (8902, ?, 89102, 'C', '2026-10-01', 'ACTIVE')`, [T, T]);
+      // 왕찹쌀떡: v1 승인(생산) + v2 초안(수정안) / 카스테라: v1 초안(옛) + v2 승인(생산)
+      await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg) VALUES
+        (8901, ?, 8901, 1, '2026-10-01', 'APPROVED', 96), (8902, ?, 8901, 2, '2026-10-02', 'DRAFT', 96),
+        (8903, ?, 8902, 1, '2026-10-01', 'DRAFT', 50), (8904, ?, 8902, 2, '2026-10-02', 'APPROVED', 50)`, [T, T, T, T]);
+      await q(`INSERT INTO h_mf_ingredients (id, mf_report_version_id, line_no, material_id, quantity, unit, is_deductible, material_type, process_group_id) VALUES
+        (89011, 8901, 1, 89111, '62.6', '%', 1, 'RAW', 8921), (89012, 8901, 2, 89112, '30', '%', 1, 'RAW', NULL), (89013, 8901, 3, 89113, '7.4', '%', 1, 'RAW', NULL),
+        (89021, 8902, 1, 89111, '62.6', '%', 1, 'RAW', 8921), (89022, 8902, 2, 89112, '37.4', '%', 1, 'RAW', NULL),
+        (89031, 8903, 1, 89111, '100', '%', 1, 'RAW', 8921), (89041, 8904, 1, 89111, '100', '%', 1, 'RAW', 8921)`);
+    });
+    const conn = async () => { const { getRawConnection } = await import("./db/connection"); return getRawConnection(); };
+    const status = async (reportId: number) => (await d.loadRecipeStatuses(await conn(), T)).find((r: any) => r.reportId === reportId);
+
+    it("생산 버전 = 승인 우선, 수정안은 따로 표시 · 승인 대기는 '수정안' 과 '옛 초안' 을 구분 (자동 처리 없음)", async () => {
+      const w = await status(8901);
+      expect([w.versionId, w.versionRole, w.newerDraft]).toEqual([8901, "production", { versionId: 8902, versionNo: 2 }]);
+      const pending = await d.loadPendingVersions(await conn(), T);
+      const kinds = Object.fromEntries((pending as any[]).filter((p) => [8902, 8903].includes(p.versionId)).map((p) => [p.versionId, p.kind]));
+      expect(kinds).toEqual({ 8902: "draft", 8903: "superseded" });
+      expect(Number((await q(`SELECT approval_status = 'DRAFT' AS d FROM h_mf_report_versions WHERE id = 8903`))[0].d)).toBe(1); // 옛 초안 그대로
+    });
+
+    it("정확한 버전으로 열기 — 수정안·옛 초안은 그 버전 그대로, 다른 보고서의 버전 번호는 열리지 않음", async () => {
+      const draft = await d.loadRecipeDetail(await conn(), T, 8901, 8902);
+      expect([draft.versionId, draft.versionRole, draft.signal]).toEqual([8902, "draft", "yellow"]);
+      expect(draft.issues.map((i: any) => i.code)).toContain("draft-version");
+      expect((await d.loadRecipeDetail(await conn(), T, 8902, 8903)).versionRole).toBe("old");
+      expect(await d.loadRecipeDetail(await conn(), T, 8901, 8903)).toBeNull();
+      expect(await d.loadRecipeDetail(await conn(), T + 1, 8901)).toBeNull(); // 다른 회사
+    });
+
+    it("들어가는 곳을 일부만 정하면 남은 경고 유지, 모두 정하면 서버 재판정으로 초록 — 수정안 분류는 생산 신호등을 바꾸지 않음", async () => {
+      expect((await status(8901)).signal).toBe("yellow");
+      const c = await conn();
+      // 수정안(v2) 에만 정함 → 생산(v1) 은 그대로 노랑
+      await d.saveEntryStages(c, T, 8901, 8902, [{ ingredientId: 89022, stage: "direct" }]);
+      expect((await status(8901)).signal).toBe("yellow");
+      // 생산 버전에 하나만 → 남은 1개 경고
+      expect(await d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89012, stage: "direct" }])).toEqual([{ name: "통팥앙금", before: "아직 모름", after: "성형에 바로" }]);
+      expect((await status(8901)).issues.map((i: any) => i.text)).toEqual([expect.stringMatching(/정하지 않은 원료 1개 \(옥수수전분\)/)]);
+      await d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89013, stage: "direct" }]);
+      expect((await status(8901)).signal).toBe("green");
+      // 같은 저장 반복 → 바뀐 것 없음 (안전한 재시도)
+      expect(await d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89013, stage: "direct" }])).toEqual([]);
+      // 공정이 지정된 줄 · 다른 회사 · 다른 버전 줄은 바꾸지 않음
+      expect(await d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89011, stage: "late" }])).toEqual([]);
+      await expect(d.saveEntryStages(c, T + 1, 8901, 8901, [{ ingredientId: 89012, stage: null }])).rejects.toThrow(/이 회사/);
+      await expect(d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89022, stage: null }])).rejects.toThrow(/이 버전의 원료 줄이 아닌/);
+      expect((await q(`SELECT entry_stage FROM h_mf_ingredients WHERE id IN (89011, 89012) ORDER BY id`)).map((r: any) => r.entry_stage)).toEqual([null, "direct"]);
+    });
+
+    it("원료 지정 없이 제품에 직접 연결된 공정(수동) — 노랑, 설비 없으면 빨강 (잘못된 초록 방지). 금속검출 연결은 공통이라 제외", async () => {
+      const c = await conn();
+      await d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89012, stage: "direct" }, { ingredientId: 89013, stage: "late" }]);
+      expect((await status(8901)).signal).toBe("green");
+      await q(`INSERT INTO ccp_process_group_products (tenant_id, product_id, process_group_id) VALUES (?, 891, 8925), (?, 891, 8921)`, [T, T]);
+      expect((await status(8901)).signal).toBe("green"); // 금속검출·원료로 이미 쓰는 교반은 문제 아님
+      await q(`INSERT INTO ccp_process_group_products (tenant_id, product_id, process_group_id) VALUES (?, 891, 8922)`, [T]);
+      const s = await status(8901);
+      expect(s.signal).toBe("red"); // 증숙(설기류)에 설비 없음
+      expect(s.issues.map((i: any) => i.code)).toEqual(["manual-group-no-input", "group-no-equipment"]);
+      const det = await d.loadRecipeDetail(c, T, 8901);
+      expect(det.processes.map((p: any) => [p.name, p.source])).toEqual([["교반-가열공정", "bom"], ["증숙(설기류)공정", "manual"]]);
+    });
+  });
 });
