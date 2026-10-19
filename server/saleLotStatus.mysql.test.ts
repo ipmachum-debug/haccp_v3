@@ -2842,6 +2842,16 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`CREATE TABLE IF NOT EXISTS equipments (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, name varchar(100) NOT NULL, status varchar(20) NOT NULL DEFAULT 'active', default_temperature decimal(6,2) NULL, default_time int NULL, batch_operation_time int NULL)`);
       await q(`CREATE TABLE IF NOT EXISTS ccp_process_group_equipments (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, process_group_id int NOT NULL, equipment_id int NOT NULL, sort_order int NOT NULL DEFAULT 0)`);
       await q(`CREATE TABLE IF NOT EXISTS ccp_process_group_products (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, product_id int NOT NULL, process_group_id int NOT NULL)`);
+      await q(`CREATE TABLE IF NOT EXISTS ccp_time_profiles (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, ccp_process_group_id int NOT NULL, is_active tinyint NOT NULL DEFAULT 1, time_minutes int NULL)`);
+      // 계획 함수(getProcessGroupsForProduct · getEquipmentsForProcessGroup)가 읽는 칸 — 앞 블록이 만든 최소 표에 없으면 더한다
+      const addCols = async (table: string, cols: string[]) => {
+        for (const c of cols) {
+          try { await q(`ALTER TABLE ${table} ADD COLUMN ${c}`); } catch (e: any) { if (e?.code !== "ER_DUP_FIELDNAME") throw e; }
+        }
+      };
+      await addCols("ccp_process_groups", ["temperature_min decimal(6,2) NULL", "temperature_max decimal(6,2) NULL", "time_min int NULL", "time_max int NULL",
+        "pressure_min decimal(6,3) NULL", "pressure_max decimal(6,3) NULL", "equip_group_mode varchar(20) NULL DEFAULT 'sequential'", "equip_interval_min int NULL DEFAULT 10", "equip_batch_size int NULL DEFAULT 1"]);
+      await addCols("equipments", ["type varchar(50) NULL", "default_pressure decimal(6,3) NULL", "work_start_time varchar(8) NULL"]);
     });
     beforeEach(async () => {
       await q(`DELETE FROM h_mf_ingredients WHERE mf_report_version_id IN (8901, 8902, 8903, 8904)`);
@@ -2923,6 +2933,61 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(s.issues.map((i: any) => i.code)).toEqual(["manual-group-no-input", "group-no-equipment"]);
       const det = await d.loadRecipeDetail(c, T, 8901);
       expect(det.processes.map((p: any) => [p.name, p.source])).toEqual([["교반-가열공정", "bom"], ["증숙(설기류)공정", "manual"]]);
+    });
+    it("2b 시험 계산: 배치 생성과 같은 원료 양 · 오늘 생산과 같은 회차, 저장 없음 (배치·투입·CCP 그대로)", async () => {
+      const c = await conn();
+      const counts = async () => [
+        Number((await q(`SELECT COUNT(*) AS n FROM h_batches`))[0].n),
+        Number((await q(`SELECT COUNT(*) AS n FROM h_batch_inputs`))[0].n),
+        Number((await q(`SELECT COUNT(*) AS n FROM audit_logs`).catch(() => [{ n: 0 }]))[0].n),
+      ];
+      const before = await counts();
+      const t = await d.trialCalc(c, T, 8901, 192, "08:00");
+      expect(t.ok).toBe(true);
+      expect([t.versionId, t.roundsCount, t.subBatchKg, t.massBasis]).toEqual([8901, 2, 96, "legacy"]);
+      expect(t.ingredients.map((i: any) => [i.name, i.deductQty, i.entryLabel])).toEqual([
+        ["찹쌀", 120.192, "교반-가열공정"], ["통팥앙금", 57.6, "아직 모름"], ["옥수수전분", 14.208, "아직 모름"],
+      ]);
+      const mix = t.processes.find((p: any) => p.name === "교반-가열공정");
+      expect(mix.rounds.map((r: any) => [r.roundNo, r.equipmentName, r.plannedStart, r.inputKg])).toEqual([[1, "교반기1호기", "08:00", 60.1], [2, "교반기1호기", "09:10", 60.1]]); // CCP 기록 투입량은 계획 함수 정밀도(소수 2자리) 그대로
+      expect(t.common).toEqual(["금속검출공정"]);
+      expect(await counts()).toEqual(before); // 저장 없음
+
+      // 같은 제품·같은 양으로 실제 생성하면 투입 계획이 시험 계산과 같다
+      const { createBatch } = await import("./db/production/batchCRUD");
+      const bid = await createBatch({ siteId: 1, productId: 891, batchCode: "TRIAL-PARITY", plannedQuantity: "192", plannedDate: new Date("2026-10-20T00:00:00+09:00"), createdBy: 4, tenantId: T });
+      const real = (await q(`SELECT planned_quantity + 0 AS pq FROM h_batch_inputs WHERE batch_id = ? ORDER BY id`, [bid])).map((r: any) => Number(r.pq));
+      expect(real).toEqual(t.ingredients.map((i: any) => i.deductQty));
+      await q(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [bid]);
+      await q(`DELETE FROM h_batches WHERE id = ?`, [bid]);
+    });
+
+    it("2b 시험 계산: 원물·공정 환산 — 재고 차감 = 원물 kg(3.2), 공정 투입 = 전처리 후(4), 실제 생성 투입과 같음", async () => {
+      await q(`DELETE FROM tenant_feature_settings WHERE tenant_id = ? AND feature_code = 'PRODUCTION_MASS_BASIS'`, [T]);
+      await q(`INSERT INTO tenant_feature_settings (tenant_id, feature_code, enabled) VALUES (?, 'PRODUCTION_MASS_BASIS', 1)`, [T]);
+      await q(`UPDATE h_mf_report_versions SET batch_target_kg = 5, reference_finished_kg = 12.5, mass_basis_enabled = 1 WHERE id = 8904`);
+      await q(`UPDATE h_mf_ingredients SET basis_raw_kg = 8, pretreatment_factor = 1.25 WHERE id = 89041`);
+      try {
+        const t = await d.trialCalc(await conn(), T, 8902, 5, "08:00");
+        expect([t.ok, t.massBasis, t.versionId]).toEqual([true, "basis", 8904]);
+        expect(t.ingredients.map((i: any) => [i.deductQty, i.processKg])).toEqual([[3.2, 4]]);
+        expect(t.processes.find((p: any) => p.name === "교반-가열공정").rounds.map((r: any) => r.inputKg)).toEqual([4]);
+        const { createBatch } = await import("./db/production/batchCRUD");
+        const bid = await createBatch({ siteId: 1, productId: 892, batchCode: "TRIAL-MB", plannedQuantity: "5", plannedDate: new Date("2026-10-20T00:00:00+09:00"), createdBy: 4, tenantId: T });
+        expect((await q(`SELECT planned_quantity + 0 AS pq FROM h_batch_inputs WHERE batch_id = ?`, [bid])).map((r: any) => Number(r.pq))).toEqual([3.2]);
+        await q(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [bid]);
+        await q(`DELETE FROM h_batch_mass_basis WHERE batch_id = ?`, [bid]);
+        await q(`DELETE FROM h_batches WHERE id = ?`, [bid]);
+      } finally {
+        await q(`DELETE FROM tenant_feature_settings WHERE tenant_id = ? AND feature_code = 'PRODUCTION_MASS_BASIS'`, [T]);
+      }
+    });
+
+    it("2b 시험 계산: 생산 품목 연결이 없으면 계산하지 않고 이유를 알려 줌, 다른 회사 보고서는 없음", async () => {
+      const c = await conn();
+      await q(`UPDATE item_master SET legacy_product_id = NULL WHERE id = 89102`);
+      expect(await d.trialCalc(c, T, 8902, 50, null)).toMatchObject({ ok: false, reason: expect.stringMatching(/생산 품목과 연결/) });
+      expect(await d.trialCalc(c, T + 1, 8901, 50, null)).toBeNull();
     });
   });
 });

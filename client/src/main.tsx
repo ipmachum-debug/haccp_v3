@@ -8,6 +8,9 @@ import App from "./App";
 import { getLoginUrl } from "./const";
 import "./index.css";
 import { registerServiceWorker, setupInstallPrompt } from "./registerSW";
+import { installChunkReload } from "./lib/chunkReload";
+
+installChunkReload();
 
 const queryClient = new QueryClient();
 

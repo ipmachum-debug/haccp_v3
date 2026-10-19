@@ -179,3 +179,41 @@ describe("메뉴·화면 연결", () => {
     expect(e).toMatch(/changes: diff \?\? \{\}/);
   });
 });
+
+describe("2b 시험 계산 · 배포 전환 회복", () => {
+  it("원료 투입 계획 식 하나 — 배치 생성과 시험 계산이 같이 씀 (보정 배합비 우선, 차감 안 함·원료 없는 줄 제외)", async () => {
+    const { isPlannedInputRow, legacyInputQty } = await import("./lib/production/batchInputPlan");
+    expect(legacyInputQty({ materialId: 1, isDeductible: 1, quantity: "62.6" }, 192)).toBeCloseTo(120.192, 6);
+    expect(legacyInputQty({ materialId: 1, isDeductible: 1, quantity: "62.6", correctedQuantity: "60" }, 100)).toBe(60);
+    expect([isPlannedInputRow({ materialId: 1, isDeductible: 0, quantity: 1 }), isPlannedInputRow({ materialId: null, isDeductible: 1, quantity: 1 }), isPlannedInputRow({ materialId: 1, isDeductible: null, quantity: 1 })]).toEqual([false, false, true]);
+    const crud = readFileSync(join(__dirname, "db/production/batchCRUD.ts"), "utf-8");
+    expect(crud).toMatch(/ingredients\.filter\(\(ing: any\) => isPlannedInputRow\(ing\)\)/);
+    expect(crud).toMatch(/let plannedQ = legacyInputQty\(ing, plannedQty\)/);
+  });
+  it("시험 계산은 조회(저장 없음)·관리자, 빈 공장 기준으로 오늘 생산과 같은 계획 함수", () => {
+    const r = readFileSync(join(__dirname, "routers/production/productionDesign.router.ts"), "utf-8");
+    expect(r).toMatch(/trialCalc: adminProcedure[\s\S]*?\.query\(/);
+    expect(r.match(/\.mutation\(/g)?.length).toBe(1);
+    const d = readFileSync(join(__dirname, "lib/production/designOverview.ts"), "utf-8");
+    expect(d).toMatch(/await planCcpForDay\(\{ tenantId, workDate: todayKST\(\), rows: .*ignoreBusy: true \}\);/);
+    expect(d).not.toMatch(/INSERT INTO|UPDATE h_batch|createBatch\(/);
+  });
+  it("화면 조각 불러오기 실패만 골라 한 번만 다시 불러옴 (60초 안 두 번째는 안내 화면)", async () => {
+    const { isChunkLoadError, reloadOnceForNewVersion } = await import("../client/src/lib/chunkReload");
+    expect(isChunkLoadError(new TypeError("Failed to fetch dynamically imported module: https://x/assets/DesignRecipeDetail-CR3YclcP.js"))).toBe(true);
+    expect(isChunkLoadError(new Error("Importing a module script failed."))).toBe(true);
+    expect(isChunkLoadError(new Error("Cannot read properties of undefined"))).toBe(false);
+    const store = new Map<string, string>();
+    let reloads = 0;
+    (globalThis as any).sessionStorage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => store.set(k, v) };
+    (globalThis as any).window = { location: { reload: () => { reloads++; } } };
+    try {
+      expect(reloadOnceForNewVersion("a")).toBe(true);
+      expect(reloadOnceForNewVersion("b")).toBe(false);
+      expect(reloads).toBe(1);
+    } finally {
+      delete (globalThis as any).sessionStorage;
+      delete (globalThis as any).window;
+    }
+  });
+});

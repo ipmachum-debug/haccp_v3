@@ -6,6 +6,7 @@ import { eq, and, desc, sql, like, inArray } from "drizzle-orm";
 import { getDb, getRawConnection } from "../connection";
 import { resolveBomProductIds, selectBomVersion } from "../../lib/identity/itemIdentityService";
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
+import { isPlannedInputRow, legacyInputQty } from "../../lib/production/batchInputPlan";
 import { hBatches, hBatchInputs, hCcpInstances, hCcpRecords, hProductsV2, hMaterials, hInventory, hInventoryTransactions, hApprovalRequests } from "../../../drizzle/schema";
 
 
@@ -191,8 +192,7 @@ export async function createBatch(batch: {
         //    이로써 신규 배치는 lot/inventory 시스템과 ID 네임스페이스가 일치 → 자동출고 정상 작동.
         //    h_materials 에 매칭 없는 자재만 item_master.id 그대로 유지 (호환성 유지).
         if (ingredients.length > 0) {
-          const filteredIngredients = ingredients
-            .filter((ing: any) => ing.materialId !== null && ing.isDeductible !== 0);
+          const filteredIngredients = ingredients.filter((ing: any) => isPlannedInputRow(ing));
 
           const candidateRawIds = filteredIngredients
             .map((ing: any) => Number(ing.materialId))
@@ -291,12 +291,9 @@ export async function createBatch(batch: {
 
           const batchInputs = filteredIngredients
             .map((ing: any) => {
-              // 보정 배합비 사용 (없으면 법적 배합비 fallback)
-              const ratio = ing.correctedQuantity
-                ? parseFloat(ing.correctedQuantity)
-                : parseFloat(ing.quantity);
+              // 보정 배합비 사용 (없으면 법적 배합비 fallback) — 생산 설계 시험 계산과 같은 식 (batchInputPlan)
               // 기준 스냅샷이 있으면 그 행의 원물 kg (불리기 전, 재고 출고 기준) — 없으면 기존 배합비 × 생산량
-              let plannedQ = (ratio / 100) * plannedQty;
+              let plannedQ = legacyInputQty(ing, plannedQty);
               let unit = ing.materialUnit || "kg";                // 원재료 실제 단위 사용
               if (massBasisRawByIngredient) {
                 const conv = rawKgToMaterialUnit(massBasisRawByIngredient.get(Number(ing.id))!, ing.materialUnit);

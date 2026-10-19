@@ -457,3 +457,91 @@ export async function saveEntryStages(
   return changed;
 }
 const ENTRY_LABEL: Record<string, string> = { direct: "성형에 바로", late: "나중에 넣음" };
+
+/**
+ * 시험 계산 (생산 설계 2b) — 총 생산량을 넣으면 '오늘 생산' 과 같은 계산으로 회차·공정·설비 시각·원료 양을 보여 준다. 저장 없음.
+ *   계획: planCcpForDay (오늘 생산 미리보기·실제 생성과 같은 함수) — 그날 잡힌 다른 생산은 빼고 빈 공장으로 계산.
+ *         시작 시각을 안 주면 오늘 생산처럼 설비 작업 시작 시각, 주면 그 시각으로 (오늘 생산의 '시작 시각 바꾸기' 와 같음)
+ *   원료: 배치 생성과 같은 식 — 원물·공정 환산이면 prepareBatchMassBasis 스냅샷(원물 kg → 원료 단위), 아니면 legacyInputQty
+ *   막히는 이유: 미리보기와 같은 사전 검증 (CCP 연결 · 환산 계산 실패)
+ * 쓰는 버전 = 생산에 쓰는 버전 (selectBomVersion). 수정안은 승인돼야 계산 대상.
+ */
+export async function trialCalc(conn: any, tenantId: number, reportId: number, plannedKg: number, startOverride: string | null) {
+  const [r] = await loadRecipes(conn, tenantId, { reportId });
+  if (!r) return null;
+  const pid = await toProductionProductId(r.productItemId, tenantId, conn);
+  if (!pid) return { ok: false as const, reason: "이 제품은 생산 품목과 연결되어 있지 않아 계산할 수 없습니다 (품목 연결 확인)." };
+
+  const { planCcpForDay } = await import("../../services/ccp-batch");
+  const { todayKST } = await import("../../utils/timezone");
+  const day = await planCcpForDay({ tenantId, workDate: todayKST(), rows: [{ rowKey: "trial", productId: pid, plannedKg, startTime: startOverride ?? "09:00", startTimeOverride: startOverride }], ignoreBusy: true });
+  const plan = day.plans[0];
+  const meta = day.meta[0];
+
+  const blocking: string[] = [];
+  const { validateProductCcpMapping } = await import("../../services/validateProductCcpMapping");
+  const v = await validateProductCcpMapping({ productId: pid, productName: r.productName, tenantId });
+  if (!v.valid) blocking.push(v.message);
+  if (meta.bom.massBasis === "error") blocking.push(`원물·공정 환산 계산 불가 — ${meta.bom.error}`);
+
+  // 원료 — 배치 생성과 같은 줄·같은 식
+  const versionId = meta.bom.versionId;
+  const ingredients: Array<{ id: number; name: string; unit: string; deductQty: number | null; processKg: number | null; processName: string | null; entryLabel: string; deductible: boolean }> = [];
+  if (versionId) {
+    const [iRows]: any = await conn.execute(
+      `SELECT i.id, i.material_id, i.quantity, i.corrected_quantity, i.is_deductible, i.process_group_id, i.entry_stage, im.base_unit,
+              COALESCE(im.item_name, CONCAT('원료 #', COALESCE(i.material_id, i.intermediate_id))) AS name, g.name AS process_name
+         FROM h_mf_ingredients i
+         LEFT JOIN item_master im ON im.id = i.material_id
+         LEFT JOIN ccp_process_groups g ON g.id = i.process_group_id AND g.tenant_id = ?
+        WHERE i.mf_report_version_id = ? ORDER BY i.line_no, i.id`,
+      [tenantId, versionId],
+    );
+    let rawById: Map<number, number> | null = null;
+    let procById: Map<number, number> | null = null;
+    if (meta.bom.massBasis === "basis") {
+      const { prepareBatchMassBasis } = await import("../../db/production/batchMassBasis");
+      const mb = await prepareBatchMassBasis(tenantId, pid, plannedKg, conn);
+      if (mb.mode === "basis") {
+        const { recordedRawKgByIngredient } = await import("../../db/production/batchCRUD");
+        rawById = recordedRawKgByIngredient({ recorded: true, snapshot: mb.snapshot });
+        procById = new Map(mb.snapshot.rows.map((x) => [x.ingredientId, x.processKg]));
+      }
+    }
+    const { isPlannedInputRow, legacyInputQty } = await import("./batchInputPlan");
+    const { rawKgToMaterialUnit } = await import("../../db/production/batchMassBasis");
+    const r3 = (n: number) => Math.round(n * 1000) / 1000; // 배치 투입 계획 저장 정밀도 (toFixed(3)) 와 같게
+    for (const x of iRows as any[]) {
+      const row = { materialId: x.material_id != null ? Number(x.material_id) : null, isDeductible: x.is_deductible != null ? Number(x.is_deductible) : null, quantity: x.quantity, correctedQuantity: x.corrected_quantity };
+      let deductQty: number | null = null;
+      let unit = String(x.base_unit || "kg");
+      if (isPlannedInputRow(row)) {
+        if (rawById) {
+          const conv = rawById.has(Number(x.id)) ? rawKgToMaterialUnit(rawById.get(Number(x.id))!, x.base_unit) : null;
+          if (!conv) blocking.push(`원료 줄 ${x.name}: 원물·공정 환산 원물 kg 를 원료 단위(${x.base_unit ?? "-"})로 바꿀 수 없습니다`);
+          else { deductQty = r3(conv.qty); unit = conv.unit; }
+        } else deductQty = r3(legacyInputQty(row, plannedKg));
+      }
+      const pg = x.process_group_id != null ? Number(x.process_group_id) : null;
+      ingredients.push({
+        id: Number(x.id), name: String(x.name), unit, deductQty,
+        processKg: procById?.has(Number(x.id)) ? r3(procById.get(Number(x.id))!) : null,
+        processName: x.process_name ?? null,
+        entryLabel: pg != null ? (x.process_name ?? `공정 #${pg}`) : x.entry_stage === "direct" ? "성형에 바로" : x.entry_stage === "late" ? "나중에 넣음" : "아직 모름",
+        deductible: Number(x.is_deductible) !== 0,
+      });
+    }
+  }
+
+  return {
+    ok: true as const,
+    reportId: r.reportId, productName: r.productName,
+    versionId, versionNo: meta.bom.versionNo, approved: meta.bom.approved, massBasis: meta.bom.massBasis,
+    plannedKg, startOverride, subBatchKg: meta.bom.subBatchKg, roundsCount: plan.roundsCount,
+    processes: plan.processes,
+    common: meta.groups.filter((g: any) => g.ccp_type === "CCP-4P").map((g: any) => g.name),
+    warnings: plan.warnings, blocking, ingredients,
+    // 화면의 버전과 계획 버전이 다르면 알려 준다 (수정안을 보고 있을 때 등)
+    sameVersionAsScreen: versionId === r.versionId,
+  };
+}
