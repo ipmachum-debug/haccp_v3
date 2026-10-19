@@ -147,3 +147,24 @@ describe("단지 증숙 운영 확정 (2026-10-19 대표 확정) — 약식 1대
     expect(p.processes[0].rounds.map((r) => r.inputKg)).toEqual([5, 5, 5, 5, 5]);
   });
 });
+
+describe("설비마다 다른 작업 시작 시각 (Codex #605 재검토 7)", () => {
+  const two = (o: any = {}) => group({ workStartTime: null, equipments: [eq(1, { workStartTime: "05:00" }), eq(2, { workStartTime: "08:40" })], ...o });
+  const times = (p: any) => p.processes[0].rounds.map((r: any) => `${r.equipmentName}@${r.plannedStart}`);
+  it("1호기 05:00 · 2호기 08:40 — 2호기는 08:40 전에 배정하지 않는다", () => {
+    const [p] = planDay([item({ plannedKg: 10, subBatchKg: 10, groups: [two()] })]);
+    expect(times(p)[0]).toMatch(/@05:00$/);
+    const [q] = planDay([item({ plannedKg: 10, subBatchKg: 10, groups: [two()] })], { excludedEquipmentIds: [1] });
+    expect(times(q)).toEqual([expect.stringMatching(/@08:40$/)]); // 1호기를 빼면 2호기는 자기 시각
+  });
+  it("묶음 운전은 묶인 설비 중 늦은 시작에 맞춘다, 오늘만 시작 시각은 모든 설비보다 우선", () => {
+    const [p] = planDay([item({ plannedKg: 20, subBatchKg: 10, groups: [two({ mode: "grouped", batchSize: 2 })] })]);
+    expect(p.processes[0].rounds.map((r: any) => r.plannedStart)).toEqual(["08:40", "08:40"]);
+    const [q] = planDay([item({ plannedKg: 10, subBatchKg: 10, startTimeOverride: "07:00", groups: [two()] })], { excludedEquipmentIds: [1] });
+    expect(times(q)).toEqual([expect.stringMatching(/@07:00$/)]);
+  });
+  it("설비 시각이 없으면 이전처럼 공정 기본(첫 설비) 시각", () => {
+    const [p] = planDay([item({ plannedKg: 10, subBatchKg: 10, groups: [group({ workStartTime: "06:30" })] })]);
+    expect(p.processes[0].rounds[0].plannedStart).toBe("06:30");
+  });
+});

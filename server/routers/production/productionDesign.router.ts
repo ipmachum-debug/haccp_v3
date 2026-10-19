@@ -47,15 +47,17 @@ export const productionDesignRouter = router({
       equipmentIds: z.array(z.number().int().positive()).max(100).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { saveProcess } = await import("../../lib/production/designFactorySave");
-      let r: Awaited<ReturnType<typeof saveProcess>>;
-      try { r = await saveProcess(await conn(), ctx.tenantId, input); } catch (e: any) { throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "저장하지 못했습니다." }); }
-      const n = Object.keys(r.changes).length;
-      if (n) {
-        const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
-        await createAuditLog({ action: "ccp_process_group.update", entityType: "ccp_process_group", entityId: input.groupId, userId: ctx.user.id, userEmail: ctx.user.email, userRole: ctx.user.role, changes: r.changes, description: `${r.name} 공정 설정 — ${n}건` }, ctx.tenantId);
-      }
-      return { changed: n };
+      const { saveProcess, withTransaction, insertAuditWith } = await import("../../lib/production/designFactorySave");
+      // 가열시간·운전 방식·연결 설비·변경 이력을 한 트랜잭션으로 — 하나라도 실패하면 아무것도 바뀌지 않음
+      try {
+        const n = await withTransaction(await conn(), async (c) => {
+          const r = await saveProcess(c, ctx.tenantId, input);
+          const k = Object.keys(r.changes).length;
+          if (k) await insertAuditWith(c, { tenantId: ctx.tenantId, action: "ccp_process_group.update", entityType: "ccp_process_group", entityId: input.groupId, userId: ctx.user.id, userEmail: ctx.user.email, userRole: ctx.user.role, changes: r.changes, description: `${r.name} 공정 설정 — ${k}건` });
+          return k;
+        });
+        return { changed: n };
+      } catch (e: any) { throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "저장하지 못했습니다." }); }
     }),
 
   /** 설비 저장 — 한 번 도는 시간 · 평소 온도 · 작업 시작 시각 (바뀐 것만, 변경 이력) */
@@ -67,15 +69,16 @@ export const productionDesignRouter = router({
       workStartTime: z.string().regex(/^\d{2}:\d{2}$/).nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const { saveEquipment } = await import("../../lib/production/designFactorySave");
-      let r: Awaited<ReturnType<typeof saveEquipment>>;
-      try { r = await saveEquipment(await conn(), ctx.tenantId, input); } catch (e: any) { throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "저장하지 못했습니다." }); }
-      const n = Object.keys(r.changes).length;
-      if (n) {
-        const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
-        await createAuditLog({ action: "equipment.update", entityType: "equipment", entityId: input.equipmentId, userId: ctx.user.id, userEmail: ctx.user.email, userRole: ctx.user.role, changes: r.changes, description: `${r.name} 설비 설정 — ${n}건` }, ctx.tenantId);
-      }
-      return { changed: n };
+      const { saveEquipment, withTransaction, insertAuditWith } = await import("../../lib/production/designFactorySave");
+      try {
+        const n = await withTransaction(await conn(), async (c) => {
+          const r = await saveEquipment(c, ctx.tenantId, input);
+          const k = Object.keys(r.changes).length;
+          if (k) await insertAuditWith(c, { tenantId: ctx.tenantId, action: "equipment.update", entityType: "equipment", entityId: input.equipmentId, userId: ctx.user.id, userEmail: ctx.user.email, userRole: ctx.user.role, changes: r.changes, description: `${r.name} 설비 설정 — ${k}건` });
+          return k;
+        });
+        return { changed: n };
+      } catch (e: any) { throw new TRPCError({ code: "BAD_REQUEST", message: e?.message ?? "저장하지 못했습니다." }); }
     }),
 
   /** 제품 배합 — 사용 중 품목제조보고마다 생산에 쓰는 버전 · 신호등 · 공정별 1배치 투입량 */

@@ -496,6 +496,8 @@ export const productSkuRouter = router({
         skuName: productSkus.skuName,
         salesUnit: productSkus.salesUnit,
         isDefault: productSkus.isDefault,
+        // 오늘 생산 SKU 환산 (예상 개수 · kg 합산) — 이전 일괄 생성 화면에 있던 기능 복원 (2026-10-19, Codex #605 P2)
+        kgPerSalesUnit: productSkus.kgPerSalesUnit,
       })
         .from(productSkus)
         .innerJoin(itemMaster, and(eq(productSkus.itemId, itemMaster.id), eq(itemMaster.tenantId, productSkus.tenantId)))

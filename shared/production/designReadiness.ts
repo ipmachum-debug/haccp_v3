@@ -75,7 +75,11 @@ const r1 = (n: number) => Math.round(n * 10) / 10;
 /** 공정(그룹) 자체의 문제 — 제품과 상관없이 같은 문장 */
 export function groupIssues(g: DesignGroup): ReadinessIssue[] {
   const out: ReadinessIssue[] = [];
-  if (g.ccpType === "CCP-4P") return out; // 금속검출은 가열 계획 대상이 아님
+  if (g.ccpType === "CCP-4P") {
+    // 금속검출은 가열 계획 대상은 아니지만 검출기가 있어야 기록할 수 있다 (Codex #605 P2 — 새 회사 설정 누락을 초록으로 놓침)
+    if (!g.equipments.length) out.push({ level: "red", code: "metal-no-equipment", text: `${g.name}: 연결된 금속검출기가 없어 금속검출 기록을 남길 수 없습니다` });
+    return out;
+  }
   if (!g.equipments.length) {
     out.push({ level: "red", code: "group-no-equipment", text: `${g.name}: 연결된 설비가 없어 회차·시각을 계산할 수 없습니다` });
     return out;
@@ -128,9 +132,14 @@ export function checkRecipe(r: RecipeInput, groups: Map<number, DesignGroup>): {
     for (const gi of groupIssues(g)) if (gi.level === "red") issues.push(gi);
   }
 
+  // 금속검출은 모든 제품 공통 — 검출기가 연결되지 않은 금속검출 공정이 있으면 이 제품도 기록을 못 남긴다
+  for (const g of Array.from(groups.values())) {
+    if (g.ccpType === "CCP-4P" && !g.equipments.length) issues.push({ level: "red", code: "metal-no-equipment", text: `${g.name}: 연결된 금속검출기가 없어 금속검출 기록을 남길 수 없습니다` });
+  }
+
   // 가열 공정이 없는 배합 — 생산 판정(validateProductCcpMapping)과 같은 기준
   if (!used.length && (r.versionRole ?? "production") === "production") {
-    const hasMetal = Array.from(groups.values()).some((g) => g.ccpType === "CCP-4P");
+    const hasMetal = Array.from(groups.values()).some((g) => g.ccpType === "CCP-4P" && g.equipments.length > 0); // 검출기 연결까지 (생산 판정과 같음)
     if (!hasMetal) issues.push({ level: "red", code: "no-ccp-at-all", text: "가열 공정도 사용 중인 금속검출 공정도 없어 CCP 기록이 생기지 않습니다 — 생산 건을 만들 수 없습니다" });
     else if (unassigned.length) issues.push({ level: "red", code: "no-heat-unclassified", text: "가열 공정이 없는데 들어가는 곳을 정하지 않은 원료가 있어 생산 건을 만들 수 없습니다 — 모두 성형에 바로라면 그렇게 정하세요 (금속검출만으로 생산)" });
   }

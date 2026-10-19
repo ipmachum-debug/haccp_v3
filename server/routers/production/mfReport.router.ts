@@ -36,7 +36,12 @@ export const mfReportRouter = router({
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {
         const { getMfReportDetail } = await import("../../db/production/mfReportAPI");
-        return await getMfReportDetail(input.id, ctx.tenantId);
+        const detail: any = await getMfReportDetail(input.id, ctx.tenantId);
+        // 편집 기준 표식 — 저장 때 비교해 동시 편집 충돌을 막는다 (Codex #605 재검토 2)
+        const { getRawConnection } = await import("../../db");
+        const { snapshotRecipe, recipeEditToken } = await import("../../lib/production/designChangeDiff");
+        const snap = detail ? await snapshotRecipe(await getRawConnection(), ctx.tenantId, input.id).catch(() => null) : null;
+        return detail ? { ...detail, editToken: snap ? recipeEditToken(snap) : null } : detail;
       }),
     
     // 품목제조보고 생성
@@ -132,6 +137,9 @@ export const mfReportRouter = router({
           referenceFinishedKg: z.number().positive().nullable().optional(),
           referenceRawTotalKg: z.number().positive().nullable().optional(),
           massBasisEnabled: z.boolean().optional(),
+          /** 편집기가 불러온 버전 · 배합 지문 — 다르면 저장 거부 (Codex #605 재검토 2·5) */
+          versionId: z.number().int().positive().optional(),
+          editToken: z.string().max(64).optional(),
           ingredients: z.array(
             z.object({
               /** ★ 2026-10-16: 원래 행 id — 보내지 않은 값(CCP 공정 지정 등)을 이 행에서 이어받는다 */
@@ -167,25 +175,13 @@ export const mfReportRouter = router({
           }
         }
         const { updateMfReport } = await import("../../db/production/mfReportAPI");
-        // 변경·적용 이력 (생산 설계, 2026-10-19): 저장 전·후를 읽어 바뀐 것만 감사 기록에 — 지금까지 BOM 수정은 기록이 없었다
-        const { getRawConnection: rawConn } = await import("../../db");
-        const { snapshotRecipe, diffRecipe } = await import("../../lib/production/designChangeDiff");
-        const auditConn: any = await rawConn();
-        const beforeSnap = await snapshotRecipe(auditConn, ctx.tenantId, input.mfReportId).catch(() => null);
-        const result = await updateMfReport(input, ctx.tenantId);
+        // 변경·적용 이력: 저장 전·후를 같은 트랜잭션에서 읽어 바뀐 것만 남긴다 (저장과 함께 성공·취소 — Codex #605 재검토 2)
+        let result: any;
         try {
-          const afterSnap = await snapshotRecipe(auditConn, ctx.tenantId, input.mfReportId);
-          const diff = beforeSnap && afterSnap ? diffRecipe(beforeSnap, afterSnap) : [];
-          if (diff.length) {
-            const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
-            await createAuditLog({
-              action: "mf_report.update", entityType: "mf_report", entityId: input.mfReportId,
-              userId: ctx.user.id, userEmail: ctx.user.email, userRole: ctx.user.role,
-              changes: { diff }, description: `${afterSnap?.productName ?? `보고서 #${input.mfReportId}`} 배합 수정 — ${diff.length}건`,
-            }, ctx.tenantId);
-          }
+          result = await updateMfReport({ ...input, audit: { userId: ctx.user.id, userEmail: ctx.user.email, userRole: ctx.user.role } }, ctx.tenantId);
         } catch (e: any) {
-          console.error("[mfReport.update] 변경 기록 실패 (저장은 완료):", e?.message ?? e);
+          if (e?.code === "MF_EDIT_CONFLICT") throw new TRPCError({ code: "CONFLICT", message: e.message });
+          throw e;
         }
 
         // ★ 2026-05-10 (PR #299): MIXED type 이면 sku_bundles 자동 재동기화

@@ -33,7 +33,7 @@ export default function DesignRecipeDetail() {
   const q = trpc.productionDesign.recipeDetail.useQuery({ reportId, versionId: versionParam }, { enabled: reportId > 0, retry: 1 });
   const d: any = q.data;
   // 설계 현황 경고에서 왔으면(focus=unknown) 바로 '배합 고치기' — 들어가는 곳은 공정 칸에서 고른다
-  const [tab, setTab] = useState(search.get("focus") === "unknown" ? "edit" : "table");
+  const [tab, setTab] = useState(search.get("focus") === "unknown" || search.get("tab") === "edit" ? "edit" : "table");
   const [focus, setFocus] = useState<string | null>(null);
 
   const rows: any[] = d?.ingredients ?? [];
@@ -116,9 +116,19 @@ export default function DesignRecipeDetail() {
               </TabsList>
 
               <TabsContent value="edit">
-                {/* 제조기준관리의 품목제조보고 편집기와 같은 것 — 저장하면 현황·배합표·흐름도가 서버 판정으로 새로 읽힌다 */}
-                <p className="mb-2 text-xs text-muted-foreground">원료마다 '공정' 칸에서 가열 공정 또는 성형에 바로·나중에 넣음을 고르고 저장하세요. 가장 최신 버전을 고칩니다.</p>
-                <MfReportEditor reportId={d.reportId} embedded onCancel={() => setTab("table")} />
+                {/* 제조기준관리의 품목제조보고 편집기와 같은 것 — 저장하면 현황·배합표·흐름도가 서버 판정으로 새로 읽힌다.
+                    편집기는 보고서의 가장 최신 버전을 고친다 → 다른 버전을 보고 있으면 편집기를 열지 않고 고칠 버전을 분명히 (Codex #605 P2) */}
+                {(d.versions as any[])[0]?.versionId === d.versionId ? (
+                  <>
+                    <p className="mb-2 text-xs text-muted-foreground" data-testid="editing-version">고치는 버전: v{d.versionNo} ({d.approved ? "승인" : "초안"}) — 원료마다 '공정' 칸에서 가열 공정 또는 성형에 바로·나중에 넣음을 고르고 저장하세요.</p>
+                    <MfReportEditor reportId={d.reportId} embedded onCancel={() => setTab("table")} />
+                  </>
+                ) : (
+                  <Card><CardContent className="py-4 text-sm space-y-2">
+                    <p>지금 보고 있는 v{d.versionNo} 은 최신 버전이 아닙니다. 배합 고치기는 최신 버전 v{(d.versions as any[])[0]?.versionNo} 을 고칩니다.</p>
+                    <Button className="h-11" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId, { versionId: (d.versions as any[])[0]?.versionId }) + "&tab=edit")}>v{(d.versions as any[])[0]?.versionNo} 열어서 고치기</Button>
+                  </CardContent></Card>
+                )}
               </TabsContent>
 
               <TabsContent value="table">

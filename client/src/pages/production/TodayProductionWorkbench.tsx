@@ -100,20 +100,46 @@ function ProductPicker({ products, value, onChange, used = [] }: { products: Arr
   );
 }
 
-/** SKU 예상수량 (이 생산 건 전체) — 제품 id 로 연결된 SKU (이름으로 맞추지 않는다) */
-function SkuInputs({ productId, value, onChange }: { productId: number; value: Record<number, string>; onChange: (v: Record<number, string>) => void }) {
+/**
+ * SKU 예상수량 (이 생산 건 전체) — 제품 id 로 연결된 SKU (이름으로 맞추지 않는다)
+ * 환산 (이전 일괄 생성 화면 기능 복원, Codex #605 P2): SKU 1단위 kg 으로 '예상 N개' (= 하루 총생산량 ÷ 단위 kg, 버림),
+ *   입력한 개수의 kg 합계와 하루 총생산량과의 차이. 계산·저장 방식(skuOutputs)은 그대로.
+ */
+function SkuInputs({ productId, plannedKg, value, onChange }: { productId: number; plannedKg: number; value: Record<number, string>; onChange: (v: Record<number, string>) => void }) {
   const { data: skus = [] } = trpc.productSku.listByProduct.useQuery({ productId });
   if (!(skus as any[]).length) return <p className="text-xs text-muted-foreground">이 제품에 연결된 SKU가 없습니다.</p>;
+  const calcs = (skus as any[]).map((s) => {
+    const kgPerUnit = Number(s.kgPerSalesUnit) || 0;
+    const qty = parseInt(value[s.id] ?? "") || 0;
+    return { ...s, kgPerUnit, qty, estimated: kgPerUnit > 0 && plannedKg > 0 ? Math.floor(plannedKg / kgPerUnit) : null, inputKg: qty * kgPerUnit };
+  });
+  const totalQty = calcs.reduce((t, c) => t + c.qty, 0);
+  const totalKg = calcs.reduce((t, c) => t + c.inputKg, 0);
+  const diff = totalKg - plannedKg;
+  // 표시 규칙은 이전 일괄 생성 화면 그대로 — 예상 개수 버림(floor), kg 소수 1자리, 차이는 0.01kg 이상일 때
   return (
-    <div className="flex flex-wrap gap-2">
-      {(skus as any[]).map((s) => (
-        <label key={s.id} className="flex items-center gap-1 text-xs border rounded px-2 py-1">
-          <span className="max-w-[140px] truncate" title={s.skuName}>{s.skuName}</span>
-          <Input type="number" inputMode="numeric" min={0} className="h-9 w-20" value={value[s.id] ?? ""}
-            onChange={(e) => onChange({ ...value, [s.id]: e.target.value })} />
-          <span className="text-muted-foreground">{s.salesUnit ?? ""}</span>
-        </label>
-      ))}
+    <div className="space-y-1" data-testid="sku-inputs">
+      <div className="flex flex-wrap gap-2">
+        {calcs.map((s) => (
+          <label key={s.id} className="flex items-center gap-1 text-xs border rounded px-2 py-1">
+            <span className="max-w-[140px] truncate" title={s.skuName}>{s.skuName}</span>
+            {s.kgPerUnit > 0 && <span className="text-muted-foreground">({s.kgPerUnit}kg/{s.salesUnit ?? "개"})</span>}
+            {s.estimated != null && s.estimated > 0 && <span className="text-blue-700">예상 {s.estimated}{s.salesUnit ?? ""}</span>}
+            <Input type="number" inputMode="numeric" min={0} className="h-9 w-20" value={value[s.id] ?? ""}
+              placeholder={s.estimated != null && s.estimated > 0 ? String(s.estimated) : "0"}
+              onChange={(e) => onChange({ ...value, [s.id]: e.target.value })} />
+            <span className="text-muted-foreground">{s.salesUnit ?? ""}</span>
+            {s.qty > 0 && s.kgPerUnit > 0 && <span className="text-emerald-700">= {s.inputKg.toFixed(1)}kg</span>}
+          </label>
+        ))}
+      </div>
+      {totalQty > 0 && (
+        <p className="text-xs" data-testid="sku-total">
+          SKU 합계 <b>{totalQty.toLocaleString()}</b>개 · <b className="text-emerald-700">{totalKg.toFixed(1)}kg</b>
+          {plannedKg > 0 && Math.abs(diff) >= 0.01 && <span className="ml-1 text-amber-700">(하루 총생산량 {plannedKg}kg 과 차이 {diff > 0 ? "+" : ""}{diff.toFixed(1)}kg)</span>}
+        </p>
+      )}
+      <p className="text-[11px] text-muted-foreground">예상 개수는 하루 총생산량을 각 규격으로 바꿨을 때의 참고값입니다 (규격마다 따로 — 합치는 값이 아님).</p>
     </div>
   );
 }
@@ -343,7 +369,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
                 {l.productId && (
                   <details>
                     <summary className="text-xs text-muted-foreground cursor-pointer select-none py-1">SKU 예상수량 (이 생산 건 전체)</summary>
-                    <div className="pt-2"><SkuInputs productId={l.productId} value={l.sku} onChange={(v) => update(l.id, { sku: v })} /></div>
+                    <div className="pt-2"><SkuInputs productId={l.productId} plannedKg={Number(l.totalKg) || 0} value={l.sku} onChange={(v) => update(l.id, { sku: v })} /></div>
                   </details>
                 )}
                 {failed.map((r, i) => <p key={i} className="text-xs text-red-700">실패: {r!.error}</p>)}
