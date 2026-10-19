@@ -355,6 +355,8 @@ export async function planCcpForDay(args: {
   rows: PlanRowInput[];
   excludedEquipmentIds?: number[];
   excludeBatchId?: number | null;
+  /** 생산 설계 시험 계산 — 그날 이미 잡힌 생산 없이 빈 공장으로 계산 (읽기만) */
+  ignoreBusy?: boolean;
 }): Promise<{ plans: PlannedItem[]; meta: PlanRowMeta[] }> {
   const conn = await getRawConnection();
   const items: PlannerItem[] = [];
@@ -373,7 +375,7 @@ export async function planCcpForDay(args: {
     });
     meta.push({ rowKey: row.rowKey, groups, bom });
   }
-  const busy = await loadDayBusy(conn, args.tenantId, args.workDate, args.excludeBatchId ?? null);
+  const busy = args.ignoreBusy ? [] : await loadDayBusy(conn, args.tenantId, args.workDate, args.excludeBatchId ?? null);
   return { plans: planDay(items, { busy, excludedEquipmentIds: args.excludedEquipmentIds }), meta };
 }
 

@@ -4,6 +4,7 @@
  * 배합표: 원료 · 배합비 · 1배치 kg · 들어가는 곳. 공정이 없는 원료는 여기서 '성형에 바로 · 나중에 넣음 · 아직 모름' 을 고른다.
  * 흐름도: 원료 → (공정·설비) → 성형·합류 → 완제품 → 공통 후속 공정. 지금 데이터로 그릴 수 있는 '분류도' 다 —
  *   공정끼리의 순서·합류 위치는 저장된 정보가 없어 나란히 그린다 (추측해서 선을 긋지 않는다).
+ * 시험 계산: 총 생산량으로 오늘 생산과 같은 계산 (저장 없음, 2b).
  * 공정 지정·배합비 같은 계산에 쓰이는 값은 '배합 고치기' (기존 품목제조보고 화면) 에서.
  */
 import { useEffect, useMemo, useState } from "react";
@@ -19,6 +20,7 @@ import { ROUTES } from "@/lib/routePaths";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { SignalBadge, EDIT_PATHS, fmtKg } from "@/components/design/DesignBits";
+import { TrialCalcPanel } from "@/components/design/TrialCalcPanel";
 import { ArrowDown, ArrowRight, Loader2, Pencil, Save } from "lucide-react";
 
 type Stage = "direct" | "late" | null;
@@ -141,7 +143,12 @@ export default function DesignRecipeDetail() {
               <TabsList className="h-auto">
                 <TabsTrigger value="table" className="min-h-11 px-5">배합표</TabsTrigger>
                 <TabsTrigger value="flow" className="min-h-11 px-5">공정 흐름도</TabsTrigger>
+                <TabsTrigger value="trial" className="min-h-11 px-5">시험 계산</TabsTrigger>
               </TabsList>
+
+              <TabsContent value="trial">
+                <TrialCalcPanel reportId={d.reportId} batchTargetKg={d.batchTargetKg} isProductionVersion={d.versionRole === "production"} />
+              </TabsContent>
 
               <TabsContent value="table">
                 <Card>

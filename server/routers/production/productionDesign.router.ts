@@ -84,6 +84,23 @@ export const productionDesignRouter = router({
       return { changed: changed.length };
     }),
 
+  /**
+   * 시험 계산 (생산 설계 2b) — 저장 없음. 오늘 생산과 같은 계획 함수·배치 생성과 같은 원료 식.
+   *   배치·CCP·LOT·재고 거래·분개·감사 기록 어느 것도 만들지 않는다.
+   */
+  trialCalc: adminProcedure
+    .input(z.object({
+      reportId: z.number().int().positive(),
+      plannedKg: z.number().positive().max(100000),
+      startTime: z.string().regex(/^\d{2}:\d{2}$/).optional(),
+    }))
+    .query(async ({ ctx, input }) => {
+      const { trialCalc } = await import("../../lib/production/designOverview");
+      const d = await trialCalc(await conn(), ctx.tenantId, input.reportId, input.plannedKg, input.startTime ?? null);
+      if (!d) throw new TRPCError({ code: "NOT_FOUND", message: "이 회사의 사용 중인 품목제조보고가 아닙니다." });
+      return d;
+    }),
+
   /** 변경·적용 이력 */
   history: adminProcedure
     .input(z.object({ limit: z.number().int().min(1).max(500).default(100) }).optional())
