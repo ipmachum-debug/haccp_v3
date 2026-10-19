@@ -692,6 +692,57 @@ async function ensureMassBasisSchema(conn: any) {
   await addCol("h_mf_ingredients", "entry_stage", "`entry_stage` varchar(20) NULL");
   // 현장 1 (2026-10-19): 미래 날짜로 만든 '예정' 생산 건 — 1 이면 아직 실행(진행 중·원료 출고·승인요청·기록지 제출) 전. 기존 행은 0
   await addCol("h_batches", "plan_only", "`plan_only` tinyint NOT NULL DEFAULT 0");
+  // 이력 보존형 복구 (2026-10-19, 같은 날 같은 제품 중복 생산 건): 지우지 않고 '무효' 표시 + 대체 생산 건 연결.
+  //   상태는 기존 'cancelled' 를 쓰고(집계 제외), 무효 여부·사유·대체 관계는 아래 칸으로 구분한다. 기존 행은 NULL.
+  await addCol("h_batches", "voided_at", "`voided_at` datetime NULL");
+  await addCol("h_batches", "voided_by", "`voided_by` int NULL");
+  await addCol("h_batches", "void_reason", "`void_reason` varchar(500) NULL");
+  await addCol("h_batches", "superseded_by_batch_id", "`superseded_by_batch_id` bigint NULL");
+  await addCol("h_ccp_form_records", "voided_at", "`voided_at` datetime NULL");
+  await addCol("h_ccp_form_records", "void_reason", "`void_reason` varchar(500) NULL");
+  await addCol("h_ccp_instances", "voided_at", "`voided_at` datetime NULL");
+  // 원료 투입 줄 보류 — 자동 출고하지 않는 '별도 확인' 줄 (복구 때 미출고 줄). 기존 행 0
+  await addCol("h_batch_inputs", "issue_hold", "`issue_hold` tinyint NOT NULL DEFAULT 0");
+  await addCol("h_batch_inputs", "issue_hold_reason", "`issue_hold_reason` varchar(500) NULL");
+  // 역거래 → 원 거래 연결. 원 거래당 역거래 하나 (UNIQUE — 재시도·동시 실행에도 두 번 되돌리지 않음)
+  await addCol("h_inventory_transactions", "reversal_of_id", "`reversal_of_id` bigint NULL");
+  try {
+    const [ix]: any = await conn.query(
+      `SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'h_inventory_transactions' AND INDEX_NAME = 'uq_invtx_tenant_reversal' LIMIT 1`,
+    );
+    if (!(ix as any[]).length) await conn.query(`CREATE UNIQUE INDEX uq_invtx_tenant_reversal ON h_inventory_transactions (tenant_id, reversal_of_id)`);
+  } catch (err: any) {
+    console.warn("[Migration] uq_invtx_tenant_reversal failed:", err.message);
+  }
+  try {
+    await conn.query(`CREATE TABLE IF NOT EXISTS h_batch_recoveries (
+      id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      tenant_id int NOT NULL,
+      recovery_key varchar(100) NOT NULL,
+      business_date varchar(10) NOT NULL,
+      reason varchar(500) NOT NULL,
+      plan_json json NOT NULL,
+      fingerprint varchar(64) NOT NULL,
+      summary_json json NULL,
+      executed_by int NOT NULL,
+      executed_at datetime NOT NULL,
+      UNIQUE KEY uq_br_tenant_key (tenant_id, recovery_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+    await conn.query(`CREATE TABLE IF NOT EXISTS h_recovery_archive (
+      id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY,
+      tenant_id int NOT NULL,
+      recovery_id bigint NOT NULL,
+      table_name varchar(64) NOT NULL,
+      row_id bigint NOT NULL,
+      action varchar(30) NOT NULL,
+      row_json json NOT NULL,
+      archived_at datetime NOT NULL,
+      KEY idx_ra_recovery (tenant_id, recovery_id),
+      KEY idx_ra_row (tenant_id, table_name, row_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  } catch (err: any) {
+    console.warn("[Migration] h_batch_recoveries / h_recovery_archive failed:", err.message);
+  }
   try {
     await conn.query(`CREATE TABLE IF NOT EXISTS h_batch_mass_basis (
       batch_id bigint NOT NULL PRIMARY KEY,
@@ -1014,6 +1065,14 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_mf_ingredients", column: "pretreatment_factor", why: "전처리 배율 (PR B)" },
   { table: "h_mf_ingredients", column: "entry_stage", why: "원료 들어가는 곳 (생산 설계 2a)" },
   { table: "h_batches", column: "plan_only", why: "미래 날짜 예정 생산 건 (현장 1)" },
+  { table: "h_batches", column: "voided_at", why: "이력 보존형 복구 — 무효 생산 건" },
+  { table: "h_batches", column: "superseded_by_batch_id", why: "이력 보존형 복구 — 대체 생산 건" },
+  { table: "h_ccp_form_records", column: "voided_at", why: "이력 보존형 복구 — 무효 기록지" },
+  { table: "h_ccp_instances", column: "voided_at", why: "이력 보존형 복구 — 무효 CCP" },
+  { table: "h_batch_inputs", column: "issue_hold", why: "자동 출고 보류 줄" },
+  { table: "h_inventory_transactions", column: "reversal_of_id", why: "역거래 → 원 거래" },
+  { table: "h_batch_recoveries", column: "recovery_key", why: "복구 실행 1회" },
+  { table: "h_recovery_archive", column: "row_json", why: "복구 원본 보관" },
   { table: "h_batch_mass_basis", column: "rows_json", why: "배치 기준 스냅샷 (PR B)" },
   { table: "h_batch_mass_basis", column: "sub_batch_kg", why: "CCP 행 기준량 고정 (PR C 후속)" },
   // 회사별 기능 선택 — 조회 실패를 '꺼짐' 으로 보지 않으므로(#547 검토 P1) 표가 반드시 있어야 한다
@@ -1084,6 +1143,8 @@ export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; colu
   { table: "accounting_purchases", index: "uq_ap_tenant_active_inbound_line", columns: ["tenant_id", "active_inbound_line_id"], why: "입고 줄당 살아 있는 전표 하나" },
   { table: "purchase_order_line_changes", index: "uq_polc_tenant_pending_line", columns: ["tenant_id", "pending_line_id"], why: "발주 줄당 대기 변경 요청 하나" },
   { table: "h_inbound_inspections", index: "uq_ibi_tenant_line_seq", columns: ["tenant_id", "inbound_line_id", "seq"], why: "검수 이력 순번 중복 방지" },
+  { table: "h_inventory_transactions", index: "uq_invtx_tenant_reversal", columns: ["tenant_id", "reversal_of_id"], why: "원 거래당 역거래 하나 (복구 재시도·동시 실행)" },
+  { table: "h_batch_recoveries", index: "uq_br_tenant_key", columns: ["tenant_id", "recovery_key"], why: "복구 키 한 번" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {

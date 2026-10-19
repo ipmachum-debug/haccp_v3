@@ -288,7 +288,7 @@ async function createMetalTestRows(instanceId: number, conn: any, tenantId: numb
  *  한계기준(CL)은 판정용 — 설정값 칸을 한계기준 하한으로 채우지 않는다 (이전: 설비 값이 없으면 CL 하한).
  *  계획 컬럼이 없는 DB 에서는 planned_* 없이 저장한다.
  */
-async function insertPlannedRows(instanceId: number, process: PlannedItem["processes"][number], conn: any, tenantId: number): Promise<void> {
+export async function insertPlannedRows(instanceId: number, process: PlannedItem["processes"][number], conn: any, tenantId: number): Promise<void> {
   for (const r of process.rounds) {
     const base = [instanceId, r.roundNo, r.equipmentId, r.equipmentName, r.seq, r.tempC, r.occupancyMin, r.heatingMin, r.cycleTotalMin, r.pressureBar];
     try {

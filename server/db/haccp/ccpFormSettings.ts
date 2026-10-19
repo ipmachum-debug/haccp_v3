@@ -167,8 +167,13 @@ export async function submitCcpFormRecord(params: {
 export async function syncCcpRowsToFormRows(params: {
   batchId: number;
   tenantId: number;
+  /** 호출자의 트랜잭션 연결 — 이력 보존형 복구처럼 다른 변경과 함께 성공·취소해야 할 때 (2026-10-19) */
+  conn?: any;
+  /** true 면 금속검출 일일 통합 기록지는 건드리지 않는다 (복구: 통과 행은 따로, 감도점검·사람 입력 보존) */
+  skip4P?: boolean;
 }) {
-  const rawConn = await getRawConnection();
+  // 트랜잭션 연결(PoolConnection)도 같은 execute/query 를 가진다 — 타입은 풀 기준으로 둔다
+  const rawConn: Awaited<ReturnType<typeof getRawConnection>> = params.conn ?? (await getRawConnection());
   const { batchId, tenantId } = params;
 
   // 1. 해당 배치의 모든 form records 조회 (batch_count 포함)
@@ -269,6 +274,7 @@ export async function syncCcpRowsToFormRows(params: {
   for (const fr of formRecords as any[]) {
     const formRecordId = fr.id;
     const ccpType = fr.ccp_type;
+    if (params.skip4P && ccpType === "CCP-4P") continue;
     const frProductName = fr.product_name || batchProductName;
     const processGroupId = fr.process_group_id ? Number(fr.process_group_id) : null;
 
@@ -382,7 +388,7 @@ export async function syncCcpRowsToFormRows(params: {
            FROM h_batches b
            LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
            LEFT JOIN h_ccp_form_records fr2 ON fr2.batch_id = b.id AND fr2.tenant_id = b.tenant_id AND fr2.ccp_type = 'CCP-4P'
-           WHERE b.tenant_id = ? AND b.planned_date = ?`,
+           WHERE b.tenant_id = ? AND b.planned_date = ? AND b.voided_at IS NULL`,
           [tenantId, fr.work_date],
         );
         for (const r of (expectedProdRows as any[])) {
@@ -430,7 +436,7 @@ export async function syncCcpRowsToFormRows(params: {
              LEFT JOIN h_ccp_form_records fr2 ON fr2.batch_id = b.id AND fr2.tenant_id = b.tenant_id AND fr2.ccp_type = 'CCP-4P'
              LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
              LEFT JOIN product_skus ps ON ps.id = pso.sku_id AND ps.tenant_id = b.tenant_id
-            WHERE b.tenant_id = ? AND b.planned_date = ?`,
+            WHERE b.tenant_id = ? AND b.planned_date = ? AND b.voided_at IS NULL`,
           [tenantId, fr.work_date],
         );
         const existing = (exRows as any[]).map((r) => ({ name: String(r.product_name ?? ""), qty: Number(r.pass_qty ?? 0), unit: r.pass_unit ?? null }));
@@ -836,7 +842,7 @@ export async function syncCcpRowsToFormRows(params: {
            FROM h_ccp_form_records fr2
            JOIN h_batches b2 ON b2.id = fr2.batch_id AND b2.tenant_id = fr2.tenant_id
            WHERE fr2.tenant_id = ? AND fr2.process_group_id = ? AND fr2.ccp_type = ?
-             AND b2.planned_date = ? AND b2.batch_order < ?
+             AND b2.planned_date = ? AND b2.batch_order < ? AND b2.voided_at IS NULL
            ORDER BY b2.batch_order`,
           [tenantId, processGroupId, ccpType, plannedDate, batchOrder]
         );
@@ -944,7 +950,7 @@ export async function syncCcpRowsToFormRows(params: {
            LEFT JOIN h_ccp_form_records fr2 ON fr2.batch_id = b.id AND fr2.tenant_id = b.tenant_id AND fr2.ccp_type = 'CCP-4P'
            LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
            LEFT JOIN product_skus ps ON ps.id = pso.sku_id AND ps.tenant_id = b.tenant_id
-           WHERE b.tenant_id = ? AND b.planned_date = ?
+           WHERE b.tenant_id = ? AND b.planned_date = ? AND b.voided_at IS NULL
            ORDER BY COALESCE(b.day_batch_group, CONCAT('_STANDALONE_', b.id)), b.batch_order, b.id, ps.sku_code`,
           [tenantId, batchWorkDate],
         );
@@ -1425,7 +1431,7 @@ export async function syncCcpRowsToFormRows(params: {
              FROM h_ccp_form_records fr2
              JOIN h_batches b2 ON b2.id = fr2.batch_id AND b2.tenant_id = fr2.tenant_id
              WHERE fr2.tenant_id = ? AND fr2.process_group_id = ? AND fr2.ccp_type = ?
-               AND b2.planned_date = ?
+               AND b2.planned_date = ? AND b2.voided_at IS NULL
                AND (
                  (? IS NOT NULL AND b2.day_batch_group = ?)
                  OR (? IS NULL AND b2.planned_date = ?)

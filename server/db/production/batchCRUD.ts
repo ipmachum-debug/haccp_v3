@@ -698,6 +698,11 @@ export async function updateBatchStatus(batchId: number, status: string, tenantI
  */
 export async function deleteBatch(batchId: number, tenantId?: number) {
   const pool = await getRawConnection();
+  // 이력 보존형 복구로 무효 처리된 생산 건은 원본 보존 — 지우면 역거래·대체 관계·보관 이력이 끊긴다 (2026-10-19)
+  if (tenantId) {
+    const { assertBatchNotVoided } = await import("../../lib/production/batchVoidGuard");
+    await assertBatchNotVoided(pool, batchId, tenantId);
+  }
   const conn = await pool.getConnection();
   const tf = tenantId ? " AND tenant_id = ?" : "";
   const bp = tenantId ? [batchId, tenantId] : [batchId];
@@ -817,6 +822,9 @@ export async function deleteBatchesByDate(plannedDate: string, tenantId: number)
   );
   const batchIds = (rows as any[]).map((r: any) => r.id);
   if (batchIds.length === 0) return { deletedCount: 0 };
+  // 무효 처리된(이력 보존형 복구) 생산 건이 있는 날은 일괄 삭제하지 않는다 — 하나도 지우기 전에 거부
+  const { assertBatchNotVoided } = await import("../../lib/production/batchVoidGuard");
+  for (const batchId of batchIds) await assertBatchNotVoided(pool, Number(batchId), tenantId);
 
   for (const batchId of batchIds) {
     await deleteBatch(batchId, tenantId);

@@ -178,6 +178,10 @@ export interface ApplyLotDeltaParams {
   transactionDate?: string | null;
   /** true 면 가용 부족이어도 throw 하지 않고 LOT 를 음수까지 차감(원장 양 = LOT 차감 양). 기본 false. */
   allowNegative?: boolean;
+  /** 역거래일 때 원 거래 id — 원장에 연결 (UNIQUE: 원 거래당 역거래 하나, 이력 보존형 복구 2026-10-19) */
+  reversalOfId?: number | null;
+  /** 원 거래 금액을 그대로 쓸 때 (수량 × 단가를 다시 계산하지 않음 — 원 거래 단가·금액 보존) */
+  amountOverride?: number | null;
 }
 
 /**
@@ -189,7 +193,7 @@ export interface ApplyLotDeltaParams {
 export async function applyLotDelta(
   conn: InvConn,
   p: ApplyLotDeltaParams,
-): Promise<{ lotId: number; remaining: number }> {
+): Promise<{ lotId: number; remaining: number; transactionId: number }> {
   const s = normalizeSubject(p.subject);
   const qty = Math.abs(p.quantity);
 
@@ -267,7 +271,7 @@ export async function applyLotDelta(
   // 예외 — 'adjustment' 는 기존 데이터·리포트(inventoryFunctions/productionAnalytics/inventoryChecks 의
   // SUM(quantity))가 부호로 증감을 읽으므로 감소분은 음수로 남긴다 (2026-10-12, 5단계 4차).
   const signedAdjustment = p.transactionType === "adjustment" && p.direction === "decrease";
-  await insertLedger(conn, {
+  const transactionId = await insertLedger(conn, {
     tenantId: p.tenantId,
     lotId: p.lotId,
     materialId: s.materialId,
@@ -280,13 +284,15 @@ export async function applyLotDelta(
     reference: p.reference,
     notes: p.notes ?? null,
     createdBy: p.createdBy,
+    reversalOfId: p.reversalOfId ?? null,
+    amountOverride: p.amountOverride ?? null,
   });
 
   // (4) 집계 재계산(자가 치유)
   await recomputeAggregateFromLots(conn, { tenantId: p.tenantId, subject: p.subject, unit: p.unit });
 
   const remaining = p.direction === "decrease" ? (p.allowNegative ? avail - qty : Math.max(0, avail - qty)) : avail + qty;
-  return { lotId: p.lotId, remaining };
+  return { lotId: p.lotId, remaining, transactionId };
 }
 
 export interface ReceiveNewLotParams {
@@ -429,17 +435,22 @@ async function insertLedger(
     createdBy: number;
     /** true 면 quantity 부호를 그대로 저장 ('adjustment' 감소분 음수 규약) */
     keepSign?: boolean;
+    reversalOfId?: number | null;
+    amountOverride?: number | null;
   },
 ): Promise<number> {
   const r = a.reference ?? {};
-  const amount = a.unitCost != null ? Math.round(Math.abs(a.quantity) * a.unitCost * 100) / 100 : null;
+  const amount = a.amountOverride != null ? a.amountOverride : a.unitCost != null ? Math.round(Math.abs(a.quantity) * a.unitCost * 100) / 100 : null;
+  // 역거래만 원 거래 연결 칸을 쓴다 (칸이 없는 예전 DB 의 일반 거래는 그대로)
+  const revCol = a.reversalOfId != null ? ", reversal_of_id" : "";
+  const revVal = a.reversalOfId != null ? ", ?" : "";
   const [res]: any = await conn.execute(
     `INSERT INTO h_inventory_transactions
        (tenant_id, lot_id, material_id, transaction_type, quantity, unit,
         unit_cost, amount, transaction_date,
         reference_type, reference_id, source_type, source_id, source_line_id,
-        action_type, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        action_type, notes, created_by${revCol})
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${revVal})`,
     [
       a.tenantId,
       a.lotId, // NULL 허용(sentinel 0 금지)
@@ -458,6 +469,7 @@ async function insertLedger(
       r.actionType ?? null,
       a.notes ?? null,
       a.createdBy,
+      ...(a.reversalOfId != null ? [a.reversalOfId] : []),
     ],
   );
   return Number((res as any).insertId);

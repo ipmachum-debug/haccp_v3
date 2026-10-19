@@ -661,6 +661,9 @@ async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean 
  */
 export async function ensureBatchActivated(batchId: number, tenantId: number, userId: number): Promise<{ activated: boolean }> {
   const conn = await getRawConnection();
+  // 무효 처리된 생산 건은 시작·확인하지 않는다 (이력 보존형 복구 — 원본 보존)
+  const { assertBatchNotVoided } = await import("../lib/production/batchVoidGuard");
+  await assertBatchNotVoided(conn, batchId, tenantId);
   let row: any;
   try {
     [[row]] = await conn.execute(
@@ -723,6 +726,9 @@ export async function ensureActivatedForFormRecord(formRecordId: number, tenantI
     [formRecordId, tenantId],
   );
   if (!fr) return 0;
+  const { assertFormNotVoided, assertBatchNotVoided } = await import("../lib/production/batchVoidGuard");
+  await assertFormNotVoided(conn, formRecordId, tenantId);
+  if (fr.batch_id && String(fr.ccp_type) !== "CCP-4P") await assertBatchNotVoided(conn, Number(fr.batch_id), tenantId);
   let ids: number[] = [];
   if (fr.batch_id) ids = [Number(fr.batch_id)];
   else if (String(fr.ccp_type) === "CCP-4P") {

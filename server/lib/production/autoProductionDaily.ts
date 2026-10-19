@@ -61,6 +61,7 @@ export async function autoRegenerateProductionDaily(
         GROUP BY fr2.batch_id
       ) ccp_time ON ccp_time.batch_id = b.id
       WHERE b.tenant_id = ${tenantId}
+        AND b.voided_at IS NULL -- 이력 보존형 복구로 무효 처리된 중복 생산 건은 생산일지·집계에서 뺀다 (원본은 보존)
         AND DATE(b.planned_date) = ${dateStr}
       ORDER BY b.created_at ASC
     `);
