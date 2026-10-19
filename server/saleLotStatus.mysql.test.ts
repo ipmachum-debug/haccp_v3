@@ -2921,18 +2921,56 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect((await q(`SELECT entry_stage FROM h_mf_ingredients WHERE id IN (89011, 89012) ORDER BY id`)).map((r: any) => r.entry_stage)).toEqual([null, "direct"]);
     });
 
-    it("원료 지정 없이 제품에 직접 연결된 공정(수동) — 노랑, 설비 없으면 빨강 (잘못된 초록 방지). 금속검출 연결은 공통이라 제외", async () => {
-      const c = await conn();
-      await d.saveEntryStages(c, T, 8901, 8901, [{ ingredientId: 89012, stage: "direct" }, { ingredientId: 89013, stage: "late" }]);
-      expect((await status(8901)).signal).toBe("green");
-      await q(`INSERT INTO ccp_process_group_products (tenant_id, product_id, process_group_id) VALUES (?, 891, 8925), (?, 891, 8921)`, [T, T]);
-      expect((await status(8901)).signal).toBe("green"); // 금속검출·원료로 이미 쓰는 교반은 문제 아님
-      await q(`INSERT INTO ccp_process_group_products (tenant_id, product_id, process_group_id) VALUES (?, 891, 8922)`, [T]);
-      const s = await status(8901);
-      expect(s.signal).toBe("red"); // 증숙(설기류)에 설비 없음
-      expect(s.issues.map((i: any) => i.code)).toEqual(["manual-group-no-input", "group-no-equipment"]);
-      const det = await d.loadRecipeDetail(c, T, 8901);
-      expect(det.processes.map((p: any) => [p.name, p.source])).toEqual([["교반-가열공정", "bom"], ["증숙(설기류)공정", "manual"]]);
+    it("BOM 이 정본 — 옛 직접 연결(증숙)은 BOM 이 있으면 계획·판정에 안 쓰임 (데이터는 그대로), 금속검출만 하는 제품도 생산 가능 판정 (송편·멥쌀가루)", async () => {
+      const { getProcessGroupsForProduct } = await import("./services/ccp-batch");
+      const { validateProductCcpMapping } = await import("./services/validateProductCcpMapping");
+      // 송편처럼: 배합에서 가열 공정을 뺀 제품 + 옛 증숙 직접 연결
+      await q(`UPDATE h_mf_ingredients SET process_group_id = NULL, entry_stage = 'direct' WHERE id = 89041`);
+      await q(`INSERT INTO ccp_process_group_products (tenant_id, product_id, process_group_id) VALUES (?, 892, 8922)`, [T]);
+      const groups = await getProcessGroupsForProduct({ productId: 892, tenantId: T });
+      expect(groups.map((g: any) => [g.name, g.mapping_source])).toEqual([["금속검출공정", "ALWAYS"]]); // 증숙 되살아나지 않음
+      expect(await validateProductCcpMapping({ productId: 892, productName: "송편", tenantId: T })).toMatchObject({ valid: true, bomMappingCount: 0 });
+      expect((await status(8902)).signal).toBe("green"); // 현황 판정과 같음
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM ccp_process_group_products WHERE product_id = 892`))[0].n)).toBe(1); // 옛 연결은 지우지 않음
+
+      // 가열 공정이 없는데 들어가는 곳을 안 정한 원료가 있으면(가열을 빠뜨렸을 수 있음, 예: 시루떡) 막고, 현황도 빨강 — 같은 판정
+      await q(`UPDATE h_mf_ingredients SET entry_stage = NULL WHERE id = 89041`);
+      expect(await validateProductCcpMapping({ productId: 892, productName: "시루떡", tenantId: T })).toMatchObject({ valid: false, message: expect.stringMatching(/들어가는 곳을 정하지 않은 원료가 1개/) });
+      expect((await status(8902)).issues.map((i: any) => i.code)).toContain("no-heat-unclassified");
+      await q(`UPDATE h_mf_ingredients SET entry_stage = 'direct' WHERE id = 89041`);
+
+      // 옛 승인 버전(v1 초안 아님 — 다른 버전)의 공정을 합치지 않는다: 생산 버전 v2 만
+      await q(`UPDATE h_mf_ingredients SET process_group_id = 8921 WHERE id = 89031`);
+      expect((await validateProductCcpMapping({ productId: 892, productName: "송편", tenantId: T })).bomMappingCount).toBe(0);
+
+      // 금속검출도 꺼져 있으면 CCP 기록이 하나도 안 생기므로 막는다
+      await q(`UPDATE ccp_process_groups SET status = 'inactive' WHERE id = 8925`);
+      try {
+        const v = await validateProductCcpMapping({ productId: 892, productName: "송편", tenantId: T });
+        expect([v.valid, v.message]).toEqual([false, expect.stringMatching(/CCP 기록이 하나도/)]);
+      } finally {
+        await q(`UPDATE ccp_process_groups SET status = 'active' WHERE id = 8925`);
+      }
+
+      // 원료에 가열 공정이 있으면 BOM 공정 + 금속검출
+      const wang = await getProcessGroupsForProduct({ productId: 891, tenantId: T });
+      expect(wang.map((g: any) => g.name)).toEqual(["교반-가열공정", "금속검출공정"]);
+    });
+
+    it("BOM 이 없는 제품은 이전처럼 직접 연결(가열 공정)로 계획·판정", async () => {
+      const { getProcessGroupsForProduct } = await import("./services/ccp-batch");
+      const { validateProductCcpMapping } = await import("./services/validateProductCcpMapping");
+      await q(`DELETE FROM h_products_v2 WHERE id = 893`);
+      await q(`INSERT INTO h_products_v2 (id, tenant_id, product_code, product_name) VALUES (893, ?, 'P893', 'BOM 없는 제품')`, [T]);
+      try {
+        expect((await validateProductCcpMapping({ productId: 893, productName: "BOM 없음", tenantId: T })).valid).toBe(false);
+        await q(`INSERT INTO ccp_process_group_products (tenant_id, product_id, process_group_id) VALUES (?, 893, 8921)`, [T]);
+        expect((await validateProductCcpMapping({ productId: 893, productName: "BOM 없음", tenantId: T })).valid).toBe(true);
+        expect((await getProcessGroupsForProduct({ productId: 893, tenantId: T })).map((g: any) => [g.name, g.mapping_source])).toEqual([["교반-가열공정", "MANUAL"], ["금속검출공정", "ALWAYS"]]);
+      } finally {
+        await q(`DELETE FROM ccp_process_group_products WHERE product_id = 893`);
+        await q(`DELETE FROM h_products_v2 WHERE id = 893`);
+      }
     });
     it("2b 시험 계산: 배치 생성과 같은 원료 양 · 오늘 생산과 같은 회차, 저장 없음 (배치·투입·CCP 그대로)", async () => {
       const c = await conn();

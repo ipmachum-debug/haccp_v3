@@ -93,15 +93,12 @@ describe("확인 완료 흐름 (#600 검토 A3·A4)", () => {
     expect(checkRecipe({ ...wangDone, versionRole: "old" }, groups).issues.map((i) => i.code)).toEqual(["old-version"]);
     expect(checkRecipe({ ...wangDone, approved: false }, groups).signal).toBe("red"); // 생산에 쓰는 버전이 초안 → 빨강 그대로
   });
-  it("원료 지정 없이 제품에 직접 연결된 공정(수동) — 계획이 CCP 기록을 만들므로 확인 필요, 설비 없으면 빨강. 금속검출·원료로 이미 쓰는 공정·없는 공정은 제외", () => {
-    const steam: DesignGroup = { ...mixing, id: 2, name: "증숙(설기류)공정" };
-    const g2 = new Map([[1, mixing], [2, steam], [5, metal]]);
-    const c = checkRecipe({ ...wangDone, manualGroupIds: [1, 2, 5, 9] }, g2);
-    expect(c.signal).toBe("yellow");
-    expect(c.issues.map((i) => i.code)).toEqual(["manual-group-no-input"]);
-    expect(c.manualGroupIds).toEqual([2]);
-    const empty = new Map([[1, mixing], [2, { ...steam, equipments: [] }]]);
-    expect(checkRecipe({ ...wangDone, manualGroupIds: [2] }, empty).signal).toBe("red");
+  it("금속검출만 하는 제품(가열 공정 없음)도 원료 분류가 끝나면 초록 — 생산 판정과 같은 기준", () => {
+    const songpyeon = { approved: true, batchTargetKg: 20, ingredients: [ing("멥쌀가루", 80, null, { entryStage: "direct" }), ing("소", 20, null, { entryStage: "direct" })] };
+    expect(checkRecipe(songpyeon, groups)).toMatchObject({ signal: "green", usedGroupIds: [] });
+    // 들어가는 곳을 안 정한 원료가 있으면 가열을 빠뜨렸을 수 있어 빨강 (생산 판정과 같음), 금속검출도 없으면 빨강
+    expect(checkRecipe({ ...songpyeon, ingredients: [ing("멥쌀", 100, null)] }, groups).issues.map((i) => i.code)).toEqual(["unassigned", "no-heat-unclassified"]);
+    expect(checkRecipe(songpyeon, new Map([[1, mixing]])).issues.map((i) => i.code)).toEqual(["no-ccp-at-all"]);
   });
 });
 

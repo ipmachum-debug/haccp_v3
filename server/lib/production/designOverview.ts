@@ -80,8 +80,6 @@ export interface RecipeRow {
   versionRole: "production" | "draft" | "old";
   /** 생산에 쓰는 버전보다 새 수정안(승인 전)이 있으면 그 버전 — 현재 신호등과 구분해 보여 준다 */
   newerDraft: { versionId: number; versionNo: number } | null;
-  /** 원료 지정과 별개로 제품에 직접 연결된 공정 (실제 계획이 쓰는 수동 연결) */
-  manualGroupIds: number[];
   ingredients: Array<RecipeIngredient & { id: number; deductible: boolean; rawKgPerBatch: number | null }>;
 }
 
@@ -167,16 +165,8 @@ export async function loadRecipes(conn: any, tenantId: number, only?: { reportId
       rowsByVersion.set(k, [...(rowsByVersion.get(k) ?? []), r]);
     }
   }
-  // 생산 품목 id (수동 연결 · 원물 환산이 쓰는 id) — 이름·번호 추측 없이 item_master.legacy_product_id 연결만
+  // 생산 품목 id (원물 환산이 쓰는 id) — 이름·번호 추측 없이 item_master.legacy_product_id 연결만
   const pidByItem = await toProductionProductIds(picked.map((r) => Number(r.product_id)), tenantId, conn);
-  const manualByPid = new Map<number, number[]>();
-  try {
-    const [mRows]: any = await conn.execute(`SELECT product_id, process_group_id FROM ccp_process_group_products WHERE tenant_id = ?`, [tenantId]);
-    for (const m of mRows as any[]) manualByPid.set(Number(m.product_id), [...(manualByPid.get(Number(m.product_id)) ?? []), Number(m.process_group_id)]);
-  } catch (e: any) {
-    if (e?.code !== "ER_NO_SUCH_TABLE") throw e;
-  }
-
   const out: RecipeRow[] = [];
   for (const r of picked) {
     const rows = rowsByVersion.get(Number(r.version_id)) ?? [];
@@ -191,7 +181,6 @@ export async function loadRecipes(conn: any, tenantId: number, only?: { reportId
       batchTargetKg: num(r.batch_target_kg), massBasis: false, calcError: null, calcNote: null,
       versionRole: roleOf(r),
       newerDraft: draft ? { versionId: Number(draft.version_id), versionNo: Number(draft.version_no) } : null,
-      manualGroupIds: pid ? manualByPid.get(pid) ?? [] : [],
       ingredients: rows.map((x) => ({
         id: Number(x.id), name: String(x.name), unit: String(x.unit ?? "%"), quantity: Number(x.quantity) || 0, processGroupId: num(x.process_group_id),
         isAdditional: Number(x.is_additional) === 1, deductible: Number(x.is_deductible) === 1, entryStage: x.entry_stage ?? null,
@@ -206,7 +195,7 @@ export async function loadRecipes(conn: any, tenantId: number, only?: { reportId
 
 const readinessInput = (r: RecipeRow) => ({
   approved: r.approved, batchTargetKg: r.batchTargetKg, ingredients: r.ingredients,
-  calcError: r.calcError, calcNote: r.calcNote, manualGroupIds: r.manualGroupIds, versionRole: r.versionRole,
+  calcError: r.calcError, calcNote: r.calcNote, versionRole: r.versionRole,
 });
 
 export interface RecipeStatus extends Omit<RecipeRow, "ingredients"> {
@@ -408,17 +397,13 @@ export async function loadRecipeDetail(conn: any, tenantId: number, reportId: nu
       WHERE v.mf_report_id = ? ORDER BY v.version_no DESC, v.id DESC`,
     [tenantId, reportId],
   );
-  const proc = (g: DesignGroup, source: "bom" | "manual") => ({ id: g.id, name: g.name, ccpType: g.ccpType, mode: g.mode, batchSize: g.batchSize, profileTimeMin: g.profileTimeMin, equipmentNames: g.equipments.map((e) => e.name), source });
+  const proc = (g: DesignGroup) => ({ id: g.id, name: g.name, ccpType: g.ccpType, mode: g.mode, batchSize: g.batchSize, profileTimeMin: g.profileTimeMin, equipmentNames: g.equipments.map((e) => e.name) });
   return {
     reportId: r.reportId, reportNo: r.reportNo, productName: r.productName, versionId: r.versionId, versionNo: r.versionNo,
     approved: r.approved, versionRole: r.versionRole, newerDraft: r.newerDraft,
     batchTargetKg: r.batchTargetKg, massBasis: r.massBasis, calcError: r.calcError,
     signal: c.signal, issues: c.issues, ingredients,
-    processes: [
-      ...groups.filter((g) => c.usedGroupIds.includes(g.id)).map((g) => proc(g, "bom")),
-      // 원료 지정 없이 제품에 직접 연결된 공정 — 실제 계획이 CCP 기록을 만든다 (투입량은 비어 기록)
-      ...groups.filter((g) => c.manualGroupIds.includes(g.id)).map((g) => proc(g, "manual")),
-    ],
+    processes: groups.filter((g) => c.usedGroupIds.includes(g.id)).map(proc),
     // 모든 제품이 거치는 공통 후속 공정 — 지금 코드(배치 생성)가 활성 CCP-4P 를 모든 제품에 넣는 것과 같은 범위
     common: groups.filter((g) => g.ccpType === "CCP-4P").map((g) => ({ id: g.id, name: g.name })),
     versions: (vRows as any[]).map((v) => ({ versionId: Number(v.id), versionNo: Number(v.version_no), status: String(v.approval_status) })),
