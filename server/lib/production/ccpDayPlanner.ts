@@ -29,6 +29,8 @@ export interface PlannerEquipment {
   cycleTotalMin: number | null;
   /** 설비 기본 가열시간 분 */
   defaultTimeMin: number | null;
+  /** 이 설비의 작업 시작 HH:MM — 없으면 공정 기본(첫 설비)·배치 시작 (2026-10-19, 설비마다 다른 시작 시각) */
+  workStartTime?: string | null;
 }
 
 export interface PlannerGroup {
@@ -191,6 +193,10 @@ export function planDay(items: PlannerItem[], context: PlannerContext = {}): Pla
       }
 
       const startBase = toMin(item.startTimeOverride || g.workStartTime || item.startTime);
+      // 설비마다 작업 시작 시각이 다를 수 있다 — 오늘만 시작 시각 > 그 설비 시작 > 공정 기본 > 배치 시작
+      //   (Codex #605 재검토 7: 첫 설비 시각만 써서 1호기 05:00 / 2호기 08:40 이면 2호기도 05:00 에 배정됐다)
+      const eqStart = (e: PlannerEquipment) => toMin(item.startTimeOverride || e.workStartTime || g.workStartTime || item.startTime);
+      const availAt = (e: PlannerEquipment) => Math.max(freeAt.get(e.id) ?? -Infinity, Number.isFinite(eqStart(e)) ? eqStart(e) : -Infinity);
       const heatingMin = g.profileTimeMin;
       if (heatingMin == null && eqs.some((e) => e.defaultTimeMin == null)) warnings.push("가열 운전시간(공정 시간 프로필·설비 기본 가열)이 없는 설비가 있습니다.");
 
@@ -200,14 +206,15 @@ export function planDay(items: PlannerItem[], context: PlannerContext = {}): Pla
         // 이번 회차(묶음)에 쓸 설비 — 가장 먼저 비는 설비부터 (같으면 설비 순서)
         const pick: PlannerEquipment[] = [];
         if (eqs.length) {
-          const ranked = [...eqs].sort((a, b) => (freeAt.get(a.id) ?? -Infinity) - (freeAt.get(b.id) ?? -Infinity) || a.sortOrder - b.sortOrder || a.id - b.id);
+          const ranked = [...eqs].sort((a, b) => availAt(a) - availAt(b) || a.sortOrder - b.sortOrder || a.id - b.id);
           for (let k = 0; k < membersOf(gi); k++) pick.push(ranked[k]); // 묶음 대수 ≤ 설비 수 — 한 묶음에 같은 설비 없음
         }
         // 시작 시각 — 공정 시작 · 설비가 비는 시각 · (순차/묶음) 앞 회차 + 간격
         let start: number | null = null;
-        if (pick.length && Number.isFinite(startBase)) {
-          start = startBase;
-          for (const e of pick) start = Math.max(start, freeAt.get(e.id) ?? -Infinity);
+        if (pick.length && (Number.isFinite(startBase) || pick.some((e) => Number.isFinite(eqStart(e))))) {
+          start = -Infinity;
+          for (const e of pick) start = Math.max(start, availAt(e));
+          if (!Number.isFinite(start)) start = startBase;
           const prev = lastStart.get(g.id);
           if (g.mode !== "concurrent" && prev != null && Number.isFinite(prev)) start = Math.max(start, prev + Math.max(0, g.intervalMin));
           lastStart.set(g.id, start);

@@ -12,7 +12,7 @@ import { ROUTES } from "../client/src/lib/routePaths";
 
 const eq = (id: number, o: Partial<DesignGroup["equipments"][number]> = {}) => ({ id, name: `교반기${id}호기`, tempC: 99, timeMin: 10, cycleMin: 70, ...o });
 const mixing: DesignGroup = { id: 1, name: "교반-가열공정", ccpType: "CCP-1B", mode: "sequential", batchSize: 1, profileCount: 1, profileTimeMin: 10, equipments: [eq(1), eq(2), eq(3)] };
-const metal: DesignGroup = { id: 5, name: "금속검출공정", ccpType: "CCP-4P", mode: "sequential", batchSize: 1, profileCount: 0, profileTimeMin: null, equipments: [] };
+const metal: DesignGroup = { id: 5, name: "금속검출공정", ccpType: "CCP-4P", mode: "sequential", batchSize: 1, profileCount: 0, profileTimeMin: null, equipments: [eq(9, { name: "금속검출기", tempC: null, timeMin: null, cycleMin: null })] };
 const groups = new Map([[1, mixing], [5, metal]]);
 const ing = (name: string, quantity: number, processGroupId: number | null, o: any = {}) => ({ name, unit: "%", quantity, processGroupId, isAdditional: false, ...o });
 
@@ -109,6 +109,9 @@ describe("공장 설정 오류·누락", () => {
     expect(groupIssues(steam).map((i) => i.code)).toEqual(["group-multi-profile", "equip-no-cycle", "group-bundle-gt-equip"]);
     expect(groupIssues({ ...mixing, profileCount: 0, profileTimeMin: null, equipments: [eq(1, { timeMin: null })] }).map((i) => i.code)).toEqual(["equip-no-heat"]);
     expect(groupIssues(metal)).toEqual([]);
+    // 금속검출기가 연결되지 않은 금속검출 공정 — 새 회사 설정 누락을 빨강으로 (Codex #605 P2), 모든 제품 판정에도
+    expect(groupIssues({ ...metal, equipments: [] }).map((i) => i.code)).toEqual(["metal-no-equipment"]);
+    expect(checkRecipe({ approved: true, batchTargetKg: 34, ingredients: [ing("찹쌀", 100, 1)] }, new Map([[1, mixing], [5, { ...metal, equipments: [] }]])).signal).toBe("red");
   });
 });
 
@@ -169,8 +172,10 @@ describe("메뉴·화면 연결", () => {
   });
   it("배합 저장은 전·후를 읽어 바뀐 것만 감사 기록에 (저장 실패와 무관)", () => {
     const m = readFileSync(join(__dirname, "routers/production/mfReport.router.ts"), "utf-8");
-    expect(m).toMatch(/snapshotRecipe\(auditConn, ctx\.tenantId, input\.mfReportId\)/);
-    expect(m).toMatch(/action: "mf_report\.update", entityType: "mf_report"/);
+    expect(m).toMatch(/audit: \{ userId: ctx\.user\.id/); // 이력은 저장과 같은 트랜잭션 (mfReportCalculation)
+    const calc = readFileSync(join(__dirname, "db/production/mfReportCalculation.ts"), "utf-8");
+    expect(calc).toMatch(/const beforeSnap = await snapshotRecipe\(raw, tenantId, mfReportId\);/);
+    expect(calc).toMatch(/VALUES \(\?, 'mf_report\.update', 'mf_report'/);
     const e = readFileSync(join(__dirname, "routers/checklist/equipment.router.ts"), "utf-8");
     expect(e).toMatch(/changes: diff \?\? \{\}/);
   });
@@ -222,5 +227,32 @@ describe("버그 — 공정 저장이 안 보낸 한계기준을 지우지 않�
   it("가열 설비 운영기준에도 작업 시작 시각 칸 — 계획이 쓰는 값", () => {
     const ui = readFileSync(join(__dirname, "..", "client/src/pages/haccp/CCPMonitoring.tsx"), "utf-8");
     expect(ui).toMatch(/\/\/ 가열 공정 필드\n\s+basePayload\.workStartTime = settings\.workStartTime/);
+  });
+});
+
+describe("#605 재검토 반영", () => {
+  it("배합 저장 뒤 생산 설계 조회도 새로 읽음 (두 편집 화면 모두)", () => {
+    for (const f of ["MfReportEdit.tsx", "MfReportModify.tsx"]) {
+      expect(readFileSync(join(__dirname, "..", "client/src/pages/production", f), "utf-8")).toMatch(/utils\.mfReport\.getVersions\.invalidate\(\{ mfReportId: reportId \}\);\s*\/\/[^\n]*\n\s*utils\.productionDesign\.invalidate\(\);/);
+    }
+  });
+  it("보는 버전과 고치는 버전이 같을 때만 편집기 — 다르면 최신 버전으로 열어 고치기", () => {
+    const d = readFileSync(join(__dirname, "..", "client/src/pages/design/DesignRecipeDetail.tsx"), "utf-8");
+    expect(d).toMatch(/\(d\.versions as any\[\]\)\[0\]\?\.versionId === d\.versionId \? \(/);
+    expect(d).toMatch(/data-testid="editing-version"/);
+  });
+  it("오늘 생산 SKU 환산 복원 — SKU 1단위 kg 로 예상 개수·입력 kg 합계·하루 총생산량과 차이", () => {
+    const w = readFileSync(join(__dirname, "..", "client/src/pages/production/TodayProductionWorkbench.tsx"), "utf-8");
+    expect(w).toMatch(/estimated: kgPerUnit > 0 && plannedKg > 0 \? Math\.floor\(plannedKg \/ kgPerUnit\) : null/);
+    expect(w).toMatch(/\{s\.inputKg\.toFixed\(1\)\}kg/); // 이전 화면과 같은 표시 규칙
+    expect(w).toMatch(/Math\.abs\(diff\) >= 0\.01/);
+    expect(w).toMatch(/<SkuInputs productId=\{l\.productId\} plannedKg=\{Number\(l\.totalKg\) \|\| 0\}/);
+    expect(readFileSync(join(__dirname, "routers/master/itemMaster.router.ts"), "utf-8")).toMatch(/kgPerSalesUnit: productSkus\.kgPerSalesUnit,\n\s*\}\)\n\s*\.from\(productSkus\)\n\s*\.innerJoin\(itemMaster, and\(eq\(productSkus\.itemId/);
+  });
+  it("공정·설비 저장은 트랜잭션 연결로 (withTransaction)", () => {
+    const r = readFileSync(join(__dirname, "routers/production/productionDesign.router.ts"), "utf-8");
+    expect(r).toMatch(/withTransaction\(await conn\(\), async \(c\) => \{\s*const r = await saveProcess\(c, ctx\.tenantId, input\);[\s\S]{0,200}insertAuditWith\(c, /);
+    expect(r).toMatch(/withTransaction\(await conn\(\), async \(c\) => \{\s*const r = await saveEquipment\(c, ctx\.tenantId, input\);[\s\S]{0,200}insertAuditWith\(c, /);
+    expect(r).not.toMatch(/createAuditLog/); // 이력도 같은 트랜잭션
   });
 });

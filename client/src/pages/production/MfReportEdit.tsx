@@ -266,8 +266,12 @@ export function MfReportEditor({ reportId, embedded = false, onCancel }: { repor
       toast.success("품목제조보고가 저장되었습니다");
       utils.mfReport.getById.invalidate({ id: reportId });
       utils.mfReport.getVersions.invalidate({ mfReportId: reportId });
+      // 생산 설계(현황·배합표·흐름도·확인 필요)도 서버 판정으로 새로 읽는다 (Codex #605 P2 — 저장했는데 예전 상태가 보이던 문제)
+      utils.productionDesign.invalidate();
     },
-    onError: (error: { message: string }) => {
+    onError: (error: { message: string; data?: any }) => {
+      // 다른 사람이 먼저 저장했거나 새 버전이 생김 — 최신으로 다시 불러온다 (입력하던 값은 저장하지 않음)
+      if (error?.data?.code === "CONFLICT") { utils.mfReport.getById.invalidate({ id: reportId }); utils.mfReport.getVersions.invalidate({ mfReportId: reportId }); }
       toast.error(`저장 실패: ${error.message}`);
     },
   });
@@ -429,6 +433,9 @@ export function MfReportEditor({ reportId, embedded = false, onCancel }: { repor
 
     updateMutation.mutate({
       mfReportId: reportId,
+      // 이 편집기가 불러온 버전·배합 지문 — 그 사이 바뀌었으면 서버가 거부 (다른 버전·남의 저장을 조용히 덮지 않음)
+      versionId: versionId || undefined,
+      editToken: (reportDetail as any)?.editToken ?? undefined,
       reportNo,
       reportDate,
       // ★ PR-E (2026-05-11): reportType 전달 — 화면에서 BASIC ↔ MIXED 전환 가능.

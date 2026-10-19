@@ -8,7 +8,26 @@
  *   - 설비 점유 = 설비 사이클 + (운영 가열 − 설비 기본 가열), 간격 — 기존 계획 계산 그대로 (occupancyFor).
  * 설비 하나: 한 번 도는 시간 · 평소 온도 · 작업 시작 시각.
  * 바뀐 칸만 저장하고 변경·적용 이력(audit_logs)에 전·후를 남긴다. 보내지 않은 칸은 그대로.
+ * 한 번 저장은 전부 되거나 전부 안 된다 — 호출부가 트랜잭션 연결(withTransaction)을 넘긴다 (Codex #605 P1: 가열시간만 바뀌거나 설비 연결이 사라지던 문제).
+ * 검사(회사 소유·설비 번호)는 쓰기 전에 모두 한다.
  */
+
+/** 한 연결에서 시작·커밋·되돌리기 — 실패하면 아무것도 바뀌지 않는다 */
+export async function withTransaction<T>(pool: any, fn: (c: any) => Promise<T>): Promise<T> {
+  const c = typeof pool.getConnection === "function" ? await pool.getConnection() : pool;
+  const own = c !== pool;
+  try {
+    await c.beginTransaction();
+    const r = await fn(c);
+    await c.commit();
+    return r;
+  } catch (e) {
+    try { await c.rollback(); } catch { /* 연결이 끊긴 경우 — 원래 오류를 알린다 */ }
+    throw e;
+  } finally {
+    if (own) c.release();
+  }
+}
 
 export interface SaveProcessInput {
   groupId: number;
@@ -28,6 +47,12 @@ export async function saveProcess(conn: any, tenantId: number, input: SaveProces
   );
   if (!g) throw new Error("이 회사의 공정이 아닙니다.");
   const changes: Record<string, { before: unknown; after: unknown }> = {};
+  // 검사 먼저 — 연결 설비는 이 회사 설비만 (쓰기 전에 거부)
+  const eqIds = input.equipmentIds !== undefined ? Array.from(new Set(input.equipmentIds.map(Number))) : undefined;
+  if (eqIds?.length) {
+    const [own]: any = await conn.query(`SELECT id FROM equipments WHERE tenant_id = ? AND id IN (?)`, [tenantId, eqIds]);
+    if ((own as any[]).length !== eqIds.length) throw new Error("이 회사의 설비가 아닌 번호가 있습니다.");
+  }
 
   // 1) 운영 가열시간 — 활성 시간 설정 1개로 맞춘다
   if (input.heatMin !== undefined) {
@@ -64,12 +89,8 @@ export async function saveProcess(conn: any, tenantId: number, input: SaveProces
   if (sets.length) await conn.execute(`UPDATE ccp_process_groups SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`, [...vals, input.groupId, tenantId]);
 
   // 3) 연결 설비 — 이 회사 설비만
-  if (input.equipmentIds !== undefined) {
-    const ids = Array.from(new Set(input.equipmentIds.map(Number)));
-    if (ids.length) {
-      const [own]: any = await conn.query(`SELECT id FROM equipments WHERE tenant_id = ? AND id IN (?)`, [tenantId, ids]);
-      if ((own as any[]).length !== ids.length) throw new Error("이 회사의 설비가 아닌 번호가 있습니다.");
-    }
+  if (eqIds !== undefined) {
+    const ids = eqIds;
     const [cur]: any = await conn.execute(`SELECT equipment_id FROM ccp_process_group_equipments WHERE tenant_id = ? AND process_group_id = ? ORDER BY sort_order, equipment_id`, [tenantId, input.groupId]);
     const before = (cur as any[]).map((r) => Number(r.equipment_id));
     if (before.join(",") !== ids.join(",")) {
@@ -117,4 +138,13 @@ export async function saveEquipment(conn: any, tenantId: number, input: SaveEqui
   }
   if (sets.length) await conn.execute(`UPDATE equipments SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`, [...vals, input.equipmentId, tenantId]);
   return { name: String(e.name), changes };
+}
+
+/** 변경 이력을 같은 트랜잭션 연결로 남긴다 — 설정 저장과 함께 성공하거나 함께 취소 (Codex #605 재검토 1) */
+export async function insertAuditWith(c: any, a: { tenantId: number; action: string; entityType: string; entityId: number; userId: number; userEmail?: string | null; userRole?: string | null; changes: unknown; description: string }) {
+  await c.execute(
+    `INSERT INTO audit_logs (tenant_id, action, entity_type, entity_id, user_id, user_email, user_role, changes, description, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+    [a.tenantId, a.action, a.entityType, a.entityId, a.userId, a.userEmail ?? null, a.userRole ?? null, JSON.stringify(a.changes ?? {}), a.description],
+  );
 }

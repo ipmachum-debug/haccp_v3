@@ -44,6 +44,8 @@ vi.mock("./lib/production/autoMaterialIssueDispatcher", () => ({
 }));
 vi.mock("./db/system/auditApprovalSupplier", () => ({ createAuditLog: vi.fn(async (i: any) => { state.audits.push(i); }) }));
 vi.mock("./lib/production/autoProductionDaily", () => ({ autoRegenerateProductionDaily: vi.fn(async () => undefined) }));
+// 예정 생산 건 실행(현장 1)은 별도 시험(planOnlyBatch·MySQL) — 여기서는 예정이 아닌 배치
+vi.mock("./services/batchOrchestrator", () => ({ ensureBatchActivated: vi.fn(async () => ({ activated: false })) }));
 
 import { todayProductionRouter, isTodayProductionWriteEnabled } from "./routers/production/todayProduction.router";
 import { computeShortages, shortageAckNote, isWaterMaterial, type StartLine } from "./lib/production/batchStartValidation";

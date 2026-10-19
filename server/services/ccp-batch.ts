@@ -326,6 +326,7 @@ export function toPlannerGroup(g: ProcessGroupInfo, equipments: EquipmentAssignm
       id: e.equipment_id, name: e.equipment_name, sortOrder: e.sort_order,
       defaultTemperature: e.default_temperature, defaultPressureMpa: e.default_pressure,
       cycleTotalMin: e.batch_operation_time, defaultTimeMin: e.default_time,
+      workStartTime: e.work_start_time ?? null,
     })),
     workStartTime: equipments[0]?.work_start_time ?? null,
   };

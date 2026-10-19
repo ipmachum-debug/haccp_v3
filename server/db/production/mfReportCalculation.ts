@@ -1009,6 +1009,12 @@ export async function updateMfReport(data: {
     pretreatmentFactor?: number | null;
     entryStage?: "direct" | "late" | null;
   }>;
+  /** 편집기가 불러온 버전 — 그 사이 다른 버전이 최신이 됐으면 저장하지 않는다 (Codex #605 재검토 5) */
+  versionId?: number;
+  /** 편집기를 연 순간의 배합 지문 (recipeEditToken) — 다르면 다른 사람이 먼저 저장한 것, 거부 (재검토 2) */
+  editToken?: string;
+  /** 변경 이력을 같은 트랜잭션에 남길 때 — 저장한 사람 */
+  audit?: { userId: number; userEmail?: string | null; userRole?: string | null };
 }, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
@@ -1020,51 +1026,81 @@ export async function updateMfReport(data: {
     .where(and(eq(hMfReports.id, mfReportId), eq(hMfReports.tenantId, tenantId))).limit(1);
   if (!owned.length) throw new Error("이 회사의 품목제조보고가 아닙니다 — 저장하지 않았습니다.");
 
-  // 1. 보고서 기본 정보 업데이트
-  const updateFields: any = {};
-  if (data.reportNo) updateFields.reportNo = data.reportNo;
-  if (data.reportDate) updateFields.reportDate = new Date(data.reportDate);
+  // 1~4 를 한 트랜잭션으로 (Codex #605 P1): 기준량·버전 칸을 먼저 저장한 뒤 원료 저장이 실패하면
+  //   원료는 그대로인데 기준량만 바뀌어 계산의 기초가 어긋났다. 이제 실패하면 아무것도 바뀌지 않는다.
+  let versionId = 0;
+  let changeCount = 0;
+  const { snapshotRecipe, diffRecipe, recipeEditToken } = await import("../../lib/production/designChangeDiff");
+  const { format } = await import("mysql2");
+  await db.transaction(async (tx: any) => {
+    // 같은 트랜잭션에서 raw SQL 을 쓰기 위한 연결 모양 (스냅샷·이력)
+    const raw = { execute: async (q: string, p: unknown[] = []) => tx.execute(sql.raw(format(q, p as any[]))) };
+    // 0. 이 보고서의 최신 버전을 잠그고(동시 저장 직렬화) 편집기가 본 것과 같은지 확인 — 다르면 아무것도 바꾸지 않는다
+    const [lockRows]: any = await raw.execute(`SELECT id, version_no FROM h_mf_report_versions WHERE mf_report_id = ? ORDER BY version_no DESC, id DESC LIMIT 1 FOR UPDATE`, [mfReportId]);
+    const locked = (lockRows as any[])[0];
+    if (data.versionId != null && locked && Number(locked.id) !== Number(data.versionId)) {
+      throw Object.assign(new Error(`편집하던 버전이 최신이 아닙니다 (지금 최신 v${locked.version_no}) — 화면을 새로 불러온 뒤 다시 고치세요. 저장하지 않았습니다.`), { code: "MF_EDIT_CONFLICT" });
+    }
+    const beforeSnap = await snapshotRecipe(raw, tenantId, mfReportId);
+    if (data.editToken && beforeSnap && recipeEditToken(beforeSnap) !== data.editToken) {
+      throw Object.assign(new Error("다른 사람이 먼저 이 배합을 저장했습니다 — 화면을 새로 불러온 뒤 다시 고치세요. 저장하지 않았습니다."), { code: "MF_EDIT_CONFLICT" });
+    }
 
-  if (Object.keys(updateFields).length > 0) {
-    await db.update(hMfReports).set(updateFields)
-      .where(and(eq(hMfReports.id, mfReportId), eq(hMfReports.tenantId, tenantId)));
-  }
+    // 1. 보고서 기본 정보 업데이트
+    const updateFields: any = {};
+    if (data.reportNo) updateFields.reportNo = data.reportNo;
+    if (data.reportDate) updateFields.reportDate = new Date(data.reportDate);
+    if (Object.keys(updateFields).length > 0) {
+      await tx.update(hMfReports).set(updateFields)
+        .where(and(eq(hMfReports.id, mfReportId), eq(hMfReports.tenantId, tenantId)));
+    }
 
-  // 2. 최신 버전 찾기
-  const latestVersion = await db
-    .select()
-    .from(hMfReportVersions)
-    .where(eq(hMfReportVersions.mfReportId, mfReportId))
-    .orderBy(desc(hMfReportVersions.versionNo))
-    .limit(1);
+    // 2. 최신 버전 찾기
+    const latestVersion = await tx
+      .select()
+      .from(hMfReportVersions)
+      .where(eq(hMfReportVersions.mfReportId, mfReportId))
+      .orderBy(desc(hMfReportVersions.versionNo))
+      .limit(1);
+    if (latestVersion.length === 0) {
+      throw new Error("버전 정보를 찾을 수 없습니다");
+    }
+    versionId = latestVersion[0].id;
 
-  if (latestVersion.length === 0) {
-    throw new Error("버전 정보를 찾을 수 없습니다");
-  }
+    // 3. 버전 정보 업데이트 (batchTargetKg, yieldBasis 등)
+    const versionUpdate: any = {};
+    if (data.yieldBasis) versionUpdate.yieldBasis = data.yieldBasis;
+    if (data.unitWeightG !== undefined) versionUpdate.unitWeightG = data.unitWeightG || null;
+    if (data.batchTargetKg !== undefined) versionUpdate.batchTargetKg = data.batchTargetKg || null;
+    if (data.referenceFinishedKg !== undefined) versionUpdate.referenceFinishedKg = data.referenceFinishedKg ?? null;
+    if (data.referenceRawTotalKg !== undefined) versionUpdate.referenceRawTotalKg = data.referenceRawTotalKg ?? null;
+    if (data.massBasisEnabled !== undefined) versionUpdate.massBasisEnabled = data.massBasisEnabled ? 1 : 0;
+    if (Object.keys(versionUpdate).length > 0) {
+      await tx.update(hMfReportVersions).set(versionUpdate)
+        .where(eq(hMfReportVersions.id, versionId));
+    }
 
-  const versionId = latestVersion[0].id;
+    // 4. 원료 행 저장 — 행 id 유지 UPDATE/INSERT/DELETE (mfIngredientStore, 같은 트랜잭션 안의 저장점)
+    //   ★ 2026-10-16: 화면이 보내지 않은 값(CCP 공정 지정·수율조정·보정배합·혼합 SKU 등)은 같은 id 의 원래 행에서 이어받고,
+    //   오래된 화면(현재 없는 id) 은 아무것도 바꾸지 않고 거부한다. 이전에는 전부 DELETE 후 보낸 값만 INSERT 해
+    //   보고서 422 버전2 의 CCP 공정 지정이 전부 사라졌다.
+    if (data.ingredients && data.ingredients.length > 0) {
+      await saveVersionIngredients(tx, versionId, data.ingredients as IncomingIngredient[]);
+    }
 
-  // 3. 버전 정보 업데이트 (batchTargetKg, yieldBasis 등)
-  const versionUpdate: any = {};
-  if (data.yieldBasis) versionUpdate.yieldBasis = data.yieldBasis;
-  if (data.unitWeightG !== undefined) versionUpdate.unitWeightG = data.unitWeightG || null;
-  if (data.batchTargetKg !== undefined) versionUpdate.batchTargetKg = data.batchTargetKg || null;
-  if (data.referenceFinishedKg !== undefined) versionUpdate.referenceFinishedKg = data.referenceFinishedKg ?? null;
-  if (data.referenceRawTotalKg !== undefined) versionUpdate.referenceRawTotalKg = data.referenceRawTotalKg ?? null;
-  if (data.massBasisEnabled !== undefined) versionUpdate.massBasisEnabled = data.massBasisEnabled ? 1 : 0;
+    // 5. 변경 이력 — 같은 트랜잭션 (저장과 함께 성공하거나 함께 취소, 재검토 2)
+    const afterSnap = await snapshotRecipe(raw, tenantId, mfReportId);
+    const diff = beforeSnap && afterSnap ? diffRecipe(beforeSnap, afterSnap) : [];
+    changeCount = diff.length;
+    if (diff.length && data.audit) {
+      await raw.execute(
+        `INSERT INTO audit_logs (tenant_id, action, entity_type, entity_id, user_id, user_email, user_role, changes, description, created_at)
+         VALUES (?, 'mf_report.update', 'mf_report', ?, ?, ?, ?, ?, ?, NOW())`,
+        [tenantId, mfReportId, data.audit.userId, data.audit.userEmail ?? null, data.audit.userRole ?? null,
+          JSON.stringify({ versionId, diff }), `${afterSnap?.productName ?? `보고서 #${mfReportId}`} 배합 수정 — ${diff.length}건`],
+      );
+    }
+  });
 
-  if (Object.keys(versionUpdate).length > 0) {
-    await db.update(hMfReportVersions).set(versionUpdate)
-      .where(eq(hMfReportVersions.id, versionId));
-  }
-
-  // 4. 원료 행 저장 — 행 id 유지 UPDATE/INSERT/DELETE (mfIngredientStore)
-  //   ★ 2026-10-16: 화면이 보내지 않은 값(CCP 공정 지정·수율조정·보정배합·혼합 SKU 등)은 같은 id 의 원래 행에서 이어받고,
-  //   오래된 화면(현재 없는 id) 은 아무것도 바꾸지 않고 거부한다. 이전에는 전부 DELETE 후 보낸 값만 INSERT 해
-  //   보고서 422 버전2 의 CCP 공정 지정이 전부 사라졌다.
-  if (data.ingredients && data.ingredients.length > 0) {
-    await saveVersionIngredients(db, versionId, data.ingredients as IncomingIngredient[]);
-  }
-
-  return { success: true, mfReportId, versionId };
+  return { success: true, mfReportId, versionId, changeCount };
 }

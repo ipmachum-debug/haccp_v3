@@ -16,6 +16,8 @@ export const hBatches = mysqlTable("h_batches", {
   batchOrder: int("batch_order"),
   productId: bigint("product_id", { mode: "number" }).notNull(),
   recipeId: bigint("recipe_id", { mode: "number" }),
+  // 현장 1 (2026-10-19): 1 = 미래 날짜 예정 생산 건 (실행 단계 전 — 그날 확인 때 ensureBatchActivated)
+  planOnly: tinyint("plan_only").notNull().default(0),
   plannedQuantity: decimal("planned_quantity", { precision: 10, scale: 2 }).notNull(),
   actualQuantity: decimal("actual_quantity", { precision: 10, scale: 2 }),
   actualYield: decimal("actual_yield", { precision: 10, scale: 2 }), // 실제 수율

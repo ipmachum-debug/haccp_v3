@@ -67,6 +67,8 @@ export default function MfReportModify() {
       toast.success("품목제조보고가 수정되었습니다");
       utils.mfReport.getById.invalidate({ id: reportId });
       utils.mfReport.getVersions.invalidate({ mfReportId: reportId });
+      // 생산 설계(현황·배합표·흐름도·확인 필요)도 서버 판정으로 새로 읽는다 (Codex #605 P2 — 저장했는데 예전 상태가 보이던 문제)
+      utils.productionDesign.invalidate();
     },
     onError: (error: { message: string }) => {
       toast.error(`수정 실패: ${error.message}`);
@@ -177,6 +179,7 @@ export default function MfReportModify() {
 
     updateMutation.mutate({
       mfReportId: reportId,
+      editToken: (reportDetail as any)?.editToken ?? undefined, // 배합 지문 — 그 사이 다른 저장이 있으면 거부
       reportNo,
       reportDate,
       yieldBasis,

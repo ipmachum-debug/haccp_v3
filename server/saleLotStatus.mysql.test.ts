@@ -2861,8 +2861,8 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`DELETE FROM item_master WHERE id IN (89101, 89102, 89111, 89112, 89113)`);
       await q(`DELETE FROM h_products_v2 WHERE id IN (891, 892)`);
       await q(`DELETE FROM ccp_process_groups WHERE id IN (8921, 8922, 8925)`);
-      await q(`DELETE FROM equipments WHERE id IN (8931)`);
-      await q(`DELETE FROM ccp_process_group_equipments WHERE process_group_id IN (8921, 8922)`);
+      await q(`DELETE FROM equipments WHERE id IN (8931, 8935)`);
+      await q(`DELETE FROM ccp_process_group_equipments WHERE process_group_id IN (8921, 8922, 8925)`);
       await q(`DELETE FROM ccp_process_group_products WHERE product_id IN (891, 892)`);
       await q(`DELETE FROM ccp_time_profiles WHERE ccp_process_group_id IN (8921, 8922)`);
       await q(`DELETE FROM equipments WHERE id IN (8932, 8939)`);
@@ -2871,8 +2871,8 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
         (89101, ?, 'P891', '왕찹쌀떡', 'own_product', 891, 1), (89102, ?, 'P892', '카스테라앙금인절미', 'own_product', 892, 1),
         (89111, ?, 'R1', '찹쌀', 'raw_material', NULL, 1), (89112, ?, 'R2', '통팥앙금', 'raw_material', NULL, 1), (89113, ?, 'R3', '옥수수전분', 'raw_material', NULL, 1)`, [T, T, T, T, T]);
       await q(`INSERT INTO ccp_process_groups (id, tenant_id, name, ccp_type) VALUES (8921, ?, '교반-가열공정', 'CCP-1B'), (8922, ?, '증숙(설기류)공정', 'CCP-1B'), (8925, ?, '금속검출공정', 'CCP-4P')`, [T, T, T]);
-      await q(`INSERT INTO equipments (id, tenant_id, name, default_temperature, default_time, batch_operation_time) VALUES (8931, ?, '교반기1호기', 99, 10, 70)`, [T]);
-      await q(`INSERT INTO ccp_process_group_equipments (tenant_id, process_group_id, equipment_id) VALUES (?, 8921, 8931)`, [T]);
+      await q(`INSERT INTO equipments (id, tenant_id, name, default_temperature, default_time, batch_operation_time) VALUES (8931, ?, '교반기1호기', 99, 10, 70), (8935, ?, '금속검출기', NULL, NULL, NULL)`, [T, T]);
+      await q(`INSERT INTO ccp_process_group_equipments (tenant_id, process_group_id, equipment_id) VALUES (?, 8921, 8931), (?, 8925, 8935)`, [T, T]);
       await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status) VALUES (8901, ?, 89101, 'W', '2026-10-01', 'ACTIVE'), (8902, ?, 89102, 'C', '2026-10-01', 'ACTIVE')`, [T, T]);
       // 왕찹쌀떡: v1 승인(생산) + v2 초안(수정안) / 카스테라: v1 초안(옛) + v2 승인(생산)
       await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg) VALUES
@@ -2940,6 +2940,15 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`UPDATE h_mf_ingredients SET process_group_id = 8921 WHERE id = 89031`);
       expect((await validateProductCcpMapping({ productId: 892, productName: "송편", tenantId: T })).bomMappingCount).toBe(0);
 
+      // 금속검출 공정은 있는데 검출기가 연결되지 않았으면 금속검출만 하는 제품도 막는다 (Codex #605 재검토 6), 현황도 빨강
+      await q(`DELETE FROM ccp_process_group_equipments WHERE process_group_id = 8925`);
+      try {
+        expect((await validateProductCcpMapping({ productId: 892, productName: "송편", tenantId: T })).valid).toBe(false);
+        expect((await status(8902)).issues.map((i: any) => i.code)).toContain("metal-no-equipment");
+      } finally {
+        await q(`INSERT INTO ccp_process_group_equipments (tenant_id, process_group_id, equipment_id) VALUES (?, 8925, 8935)`, [T]);
+      }
+
       // 금속검출도 꺼져 있으면 CCP 기록이 하나도 안 생기므로 막는다
       await q(`UPDATE ccp_process_groups SET status = 'inactive' WHERE id = 8925`);
       try {
@@ -2998,6 +3007,56 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect((await saveProcess(c, T, { groupId: 8921, equipmentIds: [8932, 8931] })).changes.equipment_ids).toEqual({ before: "교반기1호기", after: "교반기2호기, 교반기1호기" });
       expect((await q(`SELECT equipment_id FROM ccp_process_group_equipments WHERE process_group_id = 8921 ORDER BY sort_order`)).map((x: any) => Number(x.equipment_id))).toEqual([8932, 8931]);
       await expect(saveProcess(c, T + 1, { groupId: 8921, heatMin: 10 })).rejects.toThrow(/이 회사의 공정이 아닙니다/);
+    });
+
+    it("#605 P1: 공정 저장은 전부 되거나 전부 안 됨 — 잘못된 설비가 섞이면 가열시간도 그대로, 중간 실패는 되돌림", async () => {
+      const { saveProcess, withTransaction } = await import("./lib/production/designFactorySave");
+      const { getRawConnection } = await import("./db/connection");
+      const pool: any = await getRawConnection();
+      const heat = async () => (await q(`SELECT time_minutes FROM ccp_time_profiles WHERE ccp_process_group_id = 8921 AND is_active = 1`)).map((r: any) => Number(r.time_minutes));
+      await q(`DELETE FROM equipments WHERE id = 8939`);
+      await q(`INSERT INTO equipments (id, tenant_id, name) VALUES (8939, ?, '남의 설비')`, [T + 1]);
+      await expect(withTransaction(pool, (c) => saveProcess(c, T, { groupId: 8921, heatMin: 50, equipmentIds: [8931, 8939] }))).rejects.toThrow(/이 회사의 설비가 아닌/);
+      expect(await heat()).toEqual([]);
+      // 쓰기 뒤에 실패해도 되돌림
+      await expect(withTransaction(pool, async (c) => { await saveProcess(c, T, { groupId: 8921, heatMin: 50, mode: "grouped", batchSize: 2 }); throw new Error("중간 실패"); })).rejects.toThrow(/중간 실패/);
+      expect(await heat()).toEqual([]);
+      expect((await q(`SELECT equip_group_mode FROM ccp_process_groups WHERE id = 8921`))[0].equip_group_mode ?? "sequential").not.toBe("grouped");
+      expect((await q(`SELECT COUNT(*) AS n FROM ccp_process_group_equipments WHERE process_group_id = 8921`))[0].n).toBe(1);
+      await q(`DELETE FROM equipments WHERE id = 8939`);
+    });
+
+    it("#605 P1: 배합 저장은 한 트랜잭션 — 원료 저장이 실패하면 1배치 기준량도 그대로", async () => {
+      const api = await import("./db/production/mfReportAPI");
+      // 오래된 화면(없는 줄 id) → 원료 저장 거부 → 같이 보낸 1배치 기준량 변경도 되돌림
+      await expect(api.updateMfReport({ mfReportId: 8902, batchTargetKg: 77, ingredients: [{ id: 999999, materialId: 89111, quantity: 100, unit: "%", isDeductible: 1, materialType: "RAW" }] } as any, T)).rejects.toThrow();
+      expect(Number((await q(`SELECT batch_target_kg + 0 AS b FROM h_mf_report_versions WHERE id = 8904`))[0].b)).toBe(50);
+      // 정상 저장은 그대로 반영
+      await api.updateMfReport({ mfReportId: 8902, batchTargetKg: 60, ingredients: [{ id: 89041, materialId: 89111, quantity: 100, unit: "%", isDeductible: 1, materialType: "RAW" }] } as any, T);
+      expect(Number((await q(`SELECT batch_target_kg + 0 AS b FROM h_mf_report_versions WHERE id = 8904`))[0].b)).toBe(60);
+    });
+
+    it("#605 재검토 2·5: 배합 저장 충돌 — 편집기를 연 뒤 다른 저장이 있으면(지문 다름) 또는 다른 버전이 최신이면 거부, 아무것도 안 바뀜 · 이력은 같은 트랜잭션", async () => {
+      const api = await import("./db/production/mfReportAPI");
+      const { snapshotRecipe, recipeEditToken } = await import("./lib/production/designChangeDiff");
+      const c = await conn();
+      const tokenNow = async () => recipeEditToken((await snapshotRecipe(c, T, 8902))!);
+      await q(`CREATE TABLE IF NOT EXISTS audit_logs (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NULL, action varchar(100) NULL, entity_type varchar(50) NULL, entity_id bigint NULL, user_id int NULL, user_email varchar(255) NULL, user_role varchar(50) NULL, changes json NULL, description text NULL, ip_address varchar(64) NULL, user_agent text NULL, created_at timestamp NULL)`);
+      const audits = async () => Number((await q(`SELECT COUNT(*) AS n FROM audit_logs WHERE entity_type = 'mf_report' AND entity_id = 8902`))[0].n);
+      const a0 = await audits();
+      const row = { id: 89041, materialId: 89111, quantity: 100, unit: "%", isDeductible: 1, materialType: "RAW" };
+      const t0 = await tokenNow();
+      // 앞 사람이 저장 (지문 일치) → 반영 + 이력 1
+      await api.updateMfReport({ mfReportId: 8902, versionId: 8904, editToken: t0, batchTargetKg: 55, ingredients: [row], audit: { userId: 4 } } as any, T);
+      expect(Number((await q(`SELECT batch_target_kg + 0 AS b FROM h_mf_report_versions WHERE id = 8904`))[0].b)).toBe(55);
+      expect(await audits()).toBe(a0 + 1);
+      // 뒤 사람이 예전 지문으로 저장 → 거부, 앞 사람 값 보존, 이력 그대로
+      await expect(api.updateMfReport({ mfReportId: 8902, versionId: 8904, editToken: t0, batchTargetKg: 99, ingredients: [row], audit: { userId: 5 } } as any, T)).rejects.toMatchObject({ code: "MF_EDIT_CONFLICT" });
+      expect(Number((await q(`SELECT batch_target_kg + 0 AS b FROM h_mf_report_versions WHERE id = 8904`))[0].b)).toBe(55);
+      expect(await audits()).toBe(a0 + 1);
+      // 편집기가 본 버전이 최신이 아니면 거부 (다른 버전을 조용히 고치지 않음)
+      await expect(api.updateMfReport({ mfReportId: 8902, versionId: 8903, batchTargetKg: 66 } as any, T)).rejects.toThrow(/최신이 아닙니다/);
+      expect(Number((await q(`SELECT batch_target_kg + 0 AS b FROM h_mf_report_versions WHERE id = 8904`))[0].b)).toBe(55);
     });
 
     it("우리 공장 설비 저장: 한 번 도는 시간·온도·작업 시작 시각 — 바뀐 것만, 다른 회사 거부", async () => {
@@ -3065,6 +3124,68 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`UPDATE item_master SET legacy_product_id = NULL WHERE id = 89102`);
       expect(await d.trialCalc(c, T, 8902, 50, null)).toMatchObject({ ok: false, reason: expect.stringMatching(/생산 품목과 연결/) });
       expect(await d.trialCalc(c, T + 1, 8901, 50, null)).toBeNull();
+    });
+  });
+
+  describe("현장 1 — 미래 날짜 생산 건은 '예정' 으로만, 그날 첫 확인에서 실행 단계 한 번 (2026-10-19, CEO 정책)", () => {
+    const today = () => new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+    const tomorrow = () => new Date(Date.now() + 9 * 3600_000 + 86400_000).toISOString().slice(0, 10);
+    beforeAll(async () => {
+      await q(`CREATE TABLE IF NOT EXISTS h_ccp_instances (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, batch_id bigint NULL, process_group_id int NULL, ccp_type varchar(20) NULL)`);
+    });
+    beforeEach(async () => {
+      await q(`DELETE FROM h_batches WHERE id IN (9301, 9302)`);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, mode, plan_only, created_by) VALUES
+        (9301, ?, 1, 'PLAN-1', 891, 96, ?, 'planned', 'manual', 1, 4), (9302, ?, 1, 'PLAN-2', 891, 96, ?, 'planned', 'auto', 1, 4)`, [T, tomorrow(), T, tomorrow()]);
+    });
+    afterAll(async () => { await q(`DELETE FROM h_batches WHERE id IN (9301, 9302)`); });
+    const row = async (id: number) => (await q(`SELECT plan_only, status FROM h_batches WHERE id = ?`, [id]))[0];
+
+    it("예정일 전에는 실행하지 않고 막는다 — 상태·예정 표시 그대로", async () => {
+      const { ensureBatchActivated } = await import("./services/batchOrchestrator");
+      await expect(ensureBatchActivated(9301, T, 4)).rejects.toThrow(/예정 생산 건입니다 — .* 에 확인하면/);
+      expect(await row(9301)).toMatchObject({ plan_only: 1, status: "planned" });
+      await expect(ensureBatchActivated(9301, T + 1, 4)).resolves.toEqual({ activated: false }); // 다른 회사는 대상 아님
+    });
+
+    it("그날이 되면 첫 확인에서 한 번만 실행 — 동시에 여러 번 눌러도 한 번, 이미 실행된 건은 그대로", async () => {
+      const { ensureBatchActivated } = await import("./services/batchOrchestrator");
+      await q(`UPDATE h_batches SET planned_date = ? WHERE id = 9301`, [today()]);
+      const rs = await Promise.all([ensureBatchActivated(9301, T, 4), ensureBatchActivated(9301, T, 4), ensureBatchActivated(9301, T, 4)]);
+      expect(rs.filter((r) => r.activated).length).toBe(1);
+      expect(Number((await row(9301)).plan_only)).toBe(0);
+      expect(await ensureBatchActivated(9301, T, 4)).toEqual({ activated: false });
+    });
+
+    it("자동 모드: 그날 첫 확인에서 원료 출고 한 번 (만들 때는 출고 없음), 다시 눌러도 다시 차감하지 않음", async () => {
+      const { ensureBatchActivated } = await import("./services/batchOrchestrator");
+      await q(`DELETE FROM h_ccp_instances WHERE batch_id = 9302`);
+      await q(`INSERT INTO h_ccp_instances (tenant_id, batch_id, process_group_id, ccp_type) VALUES (?, 9302, 8921, 'CCP-1B')`, [T]);
+      await q(`DELETE FROM h_batch_inputs WHERE batch_id = 9302`);
+      await q(`INSERT INTO h_batch_inputs (batch_id, tenant_id, material_id, planned_quantity, unit) VALUES (9302, ?, 999999, 5, 'kg')`, [T]);
+      const usage = async () => Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE source_id = 9302 AND transaction_type = 'usage'`))[0].n);
+      try {
+        await expect(ensureBatchActivated(9302, T, 4)).rejects.toThrow(/예정 생산 건/); // 예정일 전
+        expect(await usage()).toBe(0);
+        await q(`UPDATE h_batches SET planned_date = ? WHERE id = 9302`, [today()]);
+        expect(await ensureBatchActivated(9302, T, 4)).toEqual({ activated: true });
+        expect(await usage()).toBe(1);
+        expect(await row(9302)).toMatchObject({ plan_only: 0, status: "in_progress" });
+        expect(await ensureBatchActivated(9302, T, 4)).toEqual({ activated: false });
+        expect(await usage()).toBe(1);
+      } finally {
+        await q(`DELETE FROM h_inventory_transactions WHERE source_id = 9302 AND transaction_type = 'usage'`);
+        await q(`DELETE FROM h_batch_inputs WHERE batch_id = 9302`);
+        await q(`DELETE FROM h_ccp_instances WHERE batch_id = 9302`);
+      }
+    });
+
+    it("자동 모드: 출고할 줄이 없으면(또는 다 출고되면) 실행", async () => {
+      const { ensureBatchActivated } = await import("./services/batchOrchestrator");
+      await q(`UPDATE h_batches SET planned_date = ? WHERE id = 9302`, [today()]);
+      await q(`DELETE FROM h_ccp_instances WHERE batch_id = 9302`).catch(() => undefined);
+      expect(await ensureBatchActivated(9302, T, 4)).toEqual({ activated: true });
+      expect(Number((await row(9302)).plan_only)).toBe(0);
     });
   });
 });

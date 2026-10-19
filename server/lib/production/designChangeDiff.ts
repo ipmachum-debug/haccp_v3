@@ -25,6 +25,16 @@ const ENTRY_STAGE_TEXT: Record<string, string> = { direct: "성형에 바로", l
 const norm = (v: unknown) => (v == null || v === "" ? null : Number.isFinite(Number(v)) && typeof v !== "boolean" ? Number(v) : String(v));
 const same = (a: unknown, b: unknown) => norm(a) === norm(b);
 
+/**
+ * 편집 기준 표식 — 편집기를 연 순간의 배합(버전 칸 + 원료 줄) 지문. 저장할 때 지금 배합과 다르면
+ * 그 사이 다른 사람이 저장한 것이므로 뒤의 저장을 거부한다 (Codex #605 재검토 2 — 동시 편집 충돌).
+ */
+export function recipeEditToken(s: RecipeSnapshot): string {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { createHash } = require("node:crypto") as typeof import("node:crypto");
+  return createHash("sha1").update(JSON.stringify({ v: s.version, i: s.ingredients })).digest("hex").slice(0, 16);
+}
+
 /** 품목제조보고 — 버전 칸 + 원료 줄(같은 원료끼리) 비교. [{ field, before, after }] */
 export function diffRecipe(before: RecipeSnapshot, after: RecipeSnapshot): Array<{ field: string; before: unknown; after: unknown }> {
   const out: Array<{ field: string; before: unknown; after: unknown }> = [];

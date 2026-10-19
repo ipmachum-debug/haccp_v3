@@ -111,6 +111,9 @@ export const todayProductionRouter = router({
     }))
     .mutation(async ({ input, ctx }) => {
       assertWriteEnabled(ctx.tenantId);
+      // 예정 생산 건이면 먼저 실행 단계 한 번 (예정일 전이면 거부) — 현장 1
+      const { ensureBatchActivated } = await import("../../services/batchOrchestrator");
+      try { await ensureBatchActivated(input.batchId, ctx.tenantId, ctx.user.id); } catch (e: any) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message ?? "예정 생산 건을 시작하지 못했습니다." }); }
       const { getBatchById } = await import("../../db");
       const batch: any = await getBatchById(input.batchId, ctx.tenantId);
       if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });

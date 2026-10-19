@@ -102,11 +102,15 @@ export async function validateProductCcpMapping(args: {
   );
   const manualMappingCount = Number((manualRows as any[])[0]?.cnt ?? 0);
 
-  // 3. CCP-4P (금속검출) 활성 그룹 존재
+  // 3. CCP-4P (금속검출) — 활성 공정에 실제로 쓸 수 있는(활성) 검출기가 연결돼 있어야 한다
+  //   (Codex #605 재검토 6: 공정만 있고 검출기가 없는데 금속검출만 하는 제품이 통과 — 설계 현황과 같은 기준)
   const [metalRows] = await conn.execute<any[]>(
     `SELECT COUNT(*) AS cnt
-     FROM ccp_process_groups
-     WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND status = 'active'`,
+     FROM ccp_process_groups g
+     WHERE g.tenant_id = ? AND g.ccp_type = 'CCP-4P' AND g.status = 'active'
+       AND EXISTS (SELECT 1 FROM ccp_process_group_equipments ge
+                     JOIN equipments e ON e.id = ge.equipment_id AND e.tenant_id = ge.tenant_id AND e.status = 'active'
+                    WHERE ge.tenant_id = g.tenant_id AND ge.process_group_id = g.id)`,
     [tenantId],
   );
   const hasMetalDetection = Number((metalRows as any[])[0]?.cnt ?? 0) > 0;
@@ -122,8 +126,8 @@ export async function validateProductCcpMapping(args: {
     message = `'${productName}' 제품의 품목제조보고(배합)가 없습니다. 생산 건을 만들 수 없습니다.`;
     guidance.push("품목제조보고(배합)를 등록하고, 원료마다 들어가는 공정을 정해 주세요.");
   } else if (!hasMetalDetection) {
-    message = `'${productName}' 제품은 가열 공정도, 사용 중인 금속검출 공정도 없어 CCP 기록이 하나도 생기지 않습니다.`;
-    guidance.push("배합에서 원료가 들어가는 가열 공정을 정하거나, 금속검출 공정을 사용으로 바꿔 주세요.");
+    message = `'${productName}' 제품은 가열 공정도, 검출기가 연결된 금속검출 공정도 없어 CCP 기록이 하나도 생기지 않습니다.`;
+    guidance.push("배합에서 원료가 들어가는 가열 공정을 정하거나, 생산 설계 > 우리 공장에서 금속검출 공정에 검출기를 연결해 주세요.");
   } else {
     message = `'${productName}' 제품의 배합에 가열 공정이 없고, 들어가는 곳을 정하지 않은 원료가 ${unclassified}개 있습니다. 가열하는 제품이면 공정을 빠뜨린 것일 수 있어 생산 건을 만들지 않았습니다.`;
     guidance.push("배합에서 원료마다 들어가는 곳(가열 공정 또는 성형에 바로)을 정해 주세요. 모두 성형에 바로라면 금속검출만으로 생산됩니다.");

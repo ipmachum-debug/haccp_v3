@@ -17,6 +17,7 @@
  */
 
 import { getRawConnection } from "../db";
+import { todayKST } from "../utils/timezone";
 
 export interface SingleBatchInput {
   tenantId: number;
@@ -304,11 +305,74 @@ export async function createSingleBatch(
     console.error("[batchOrchestrator] 스케줄 생성 실패:", error);
   }
 
+  // === 5.5 ~ 7.5 실행 단계 (생산 시작·원료 출고·기록지 제출·승인요청·일지) ===
+  // ★ 2026-10-19 (현장 1): 미래 날짜 생산 건은 '예정' 으로만 만든다 — 원료 차감·진행 중·기록지 자동 제출·승인요청·일지를
+  //   미리 만들지 않는다 (CEO: 미래 계획의 원료는 그날 확인 버튼을 누를 때). 그날 확인 때 activatePlannedBatch 가 같은 단계를 한 번 실행.
+  const planOnly = input.workDate > todayKST();
+  let approvalRequestId: number | null = null;
+  let dailyReportCreated = false;
+  let periodicLogsResult: any = null;
+  if (planOnly) {
+    await (await getRawConnection()).execute(`UPDATE h_batches SET plan_only = 1 WHERE id = ? AND tenant_id = ?`, [batchId, input.tenantId]);
+  } else {
+    ({ approvalRequestId, dailyReportCreated, periodicLogsResult } = await runExecutionSteps({
+      input, batchId, batchCodeFinal, productName, ccpCreated, ccpCount, ccpGroups,
+    }));
+  }
+
+  // === 8. 감사로그 ===
+  try {
+    await createAuditLog({
+      action: "batch.create",
+      entityType: "batch",
+      entityId: batchId,
+      userId: input.userId,
+      userEmail: input.userEmail || "",
+      userRole: input.userRole || "",
+      description: `배치 생성: ${batchCodeFinal} (${productName}) ${ccpCreated ? `CCP ${ccpCount}건` : ""}`,
+      changes: { mode: input.mode, workDate: input.workDate },
+    });
+  } catch {
+    // audit log 실패는 무시
+  }
+
+  return {
+    batchId,
+    batchCode: batchCodeFinal,
+    productId: input.productId,
+    productName,
+    ccpCreated,
+    ccpCount,
+    ccpGroups,
+    approvalRequestId,
+    scheduleCreated,
+    dailyReportCreated,
+    periodicLogsResult,
+  };
+}
+
+interface ExecutionCtx {
+  input: Pick<SingleBatchInput, "tenantId" | "userId" | "siteId" | "workDate" | "mode" | "endTime" | "plannedQuantityKg" | "skipGroupActions">;
+  batchId: number;
+  batchCodeFinal: string;
+  productName: string;
+  ccpCreated: boolean;
+  ccpCount: number;
+  ccpGroups: Array<{ id: number; name: string; ccp_type: string }>;
+}
+
+/**
+ * 생산 건 실행 단계 — 생산 시작(진행 중)·원료 자동 출고(auto)·승인요청·기록지 제출·일지.
+ * 오늘(또는 지난) 날짜 생산 건은 만들 때 바로, 미래 날짜 예정 생산 건은 그날 확인할 때(activatePlannedBatch) 한 번.
+ */
+async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean } = {}): Promise<{ approvalRequestId: number | null; dailyReportCreated: boolean; periodicLogsResult: any }> {
+  const { input, batchId, batchCodeFinal, productName, ccpCreated, ccpCount, ccpGroups } = ctx;
+  void ccpCount;
   // === 5.5. 배치 상태 → in_progress 전환 + 원료 자동 출고 (auto 모드) ===
   // ★ auto 모드이거나 endTime 이 지정되어 있으면 즉시 시작 상태로 전환하고
   //    h_batch_inputs 기준 원료 차감 + material_ledger_daily 반영
   //    (기존에는 updateStatus 뮤테이션으로만 트리거되어 auto 모드 배치는 수불 반영 누락)
-  if (ccpCreated && (input.mode === "auto" || input.endTime)) {
+  if (!opts.startDone && ccpCreated && (input.mode === "auto" || input.endTime)) {
     try {
       const { updateBatchStatus } = await import("../db/production/batchCRUD");
       // 자동 시작 — 계획 시작시각(업무일 + 시작시각) 유지, 입력 시각으로 덮어쓰지 않음 (F-PROD-02)
@@ -587,35 +651,91 @@ export async function createSingleBatch(
     }
   }
 
-  // === 8. 감사로그 ===
-  try {
-    await createAuditLog({
-      action: "batch.create",
-      entityType: "batch",
-      entityId: batchId,
-      userId: input.userId,
-      userEmail: input.userEmail || "",
-      userRole: input.userRole || "",
-      description: `배치 생성: ${batchCodeFinal} (${productName}) ${ccpCreated ? `CCP ${ccpCount}건` : ""}`,
-      changes: { mode: input.mode, workDate: input.workDate },
-    });
-  } catch {
-    // audit log 실패는 무시
-  }
+  return { approvalRequestId, dailyReportCreated, periodicLogsResult };
+}
 
-  return {
-    batchId,
-    batchCode: batchCodeFinal,
-    productId: input.productId,
-    productName,
-    ccpCreated,
-    ccpCount,
-    ccpGroups,
-    approvalRequestId,
-    scheduleCreated,
-    dailyReportCreated,
-    periodicLogsResult,
-  };
+/**
+ * 예정 생산 건 실행 (현장 1, 2026-10-19) — 미래 날짜로 만든 생산 건을 그날 처음 확인할 때.
+ *   만들 때 건너뛴 실행 단계(runExecutionSteps)를 같은 코드로 한 번만 실행한다 (plan_only 1 → 0 을 먼저 잡아 동시 확인에도 한 번).
+ *   예정일 전이면 막는다. 이미 실행된(또는 예정이 아닌) 생산 건이면 아무것도 하지 않는다.
+ */
+export async function ensureBatchActivated(batchId: number, tenantId: number, userId: number): Promise<{ activated: boolean }> {
+  const conn = await getRawConnection();
+  let row: any;
+  try {
+    [[row]] = await conn.execute(
+      `SELECT b.id, b.plan_only, b.site_id, b.mode, b.planned_quantity, b.batch_code, DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS work_date,
+              COALESCE(p.product_name, '') AS product_name
+         FROM h_batches b LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
+        WHERE b.id = ? AND b.tenant_id = ?`,
+      [batchId, tenantId],
+    ) as any;
+  } catch (e: any) {
+    if (e?.code === "ER_BAD_FIELD_ERROR") return { activated: false }; // 컬럼 생성 전 DB — 예정 생산 건 없음
+    throw e;
+  }
+  if (!row || Number(row.plan_only) !== 1) return { activated: false };
+  if (String(row.work_date) > todayKST()) {
+    throw new Error(`예정 생산 건입니다 — ${row.work_date} 에 확인하면 시작되고 원료가 출고됩니다.`);
+  }
+  const [claim]: any = await conn.execute(`UPDATE h_batches SET plan_only = 0 WHERE id = ? AND tenant_id = ? AND plan_only = 1`, [batchId, tenantId]);
+  if (Number(claim?.affectedRows ?? 0) !== 1) return { activated: false }; // 다른 요청이 먼저 실행
+  const [gRows]: any = await conn.execute(
+    `SELECT DISTINCT g.id, g.name, i.ccp_type FROM h_ccp_instances i LEFT JOIN ccp_process_groups g ON g.id = i.process_group_id AND g.tenant_id = i.tenant_id
+      WHERE i.batch_id = ? AND i.tenant_id = ?`,
+    [batchId, tenantId],
+  );
+  const ccpGroups = (gRows as any[]).map((g) => ({ id: Number(g.id), name: String(g.name ?? ""), ccp_type: String(g.ccp_type) }));
+  // 원료 출고를 먼저 — 다 출고되지 않으면 확인을 완료로 만들지 않고 예정으로 되돌린다 (CEO 정책: 확인·차감·기록은 함께 성공).
+  //   출고는 줄 단위라 성공한 줄은 남고, 다시 확인하면 남은 줄만 출고된다 (중복 차감 없음).
+  const isAuto = row.mode !== "manual";
+  if (isAuto && ccpGroups.length > 0) {
+    const { updateBatchStatus } = await import("../db/production/batchCRUD");
+    await updateBatchStatus(batchId, "in_progress", tenantId, { keepPlannedStart: true });
+    const { autoIssueMaterialsDispatch } = await import("../lib/production/autoMaterialIssueDispatcher");
+    const { countUnissuedBatchLines } = await import("../lib/production/issuedBatchLines");
+    const issue = await autoIssueMaterialsDispatch(batchId, userId, tenantId);
+    const left = await countUnissuedBatchLines(batchId, tenantId);
+    if (left > 0) {
+      await conn.execute(`UPDATE h_batches SET plan_only = 1, status = 'planned' WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
+      const why = [...(issue?.errors ?? []), ...(issue?.warnings ?? [])].slice(0, 3).join(" / ");
+      throw new Error(`원료 출고가 끝나지 않아 확인하지 않았습니다 (남은 원료 ${left}줄${why ? ` — ${why}` : ""}). 재고를 확인한 뒤 다시 확인하세요.`);
+    }
+  }
+  await runExecutionSteps({
+    input: { tenantId, userId, siteId: Number(row.site_id), workDate: String(row.work_date), mode: row.mode === "manual" ? "manual" : "auto", endTime: undefined, plannedQuantityKg: Number(row.planned_quantity), skipGroupActions: false },
+    batchId, batchCodeFinal: String(row.batch_code), productName: String(row.product_name), ccpCreated: ccpGroups.length > 0, ccpCount: ccpGroups.length, ccpGroups,
+  }, { startDone: true });
+  try {
+    const { createAuditLog } = await import("../db");
+    await createAuditLog({ action: "batch.plan_activate", entityType: "batch", entityId: batchId, userId, userEmail: "", userRole: "", description: `예정 생산 건 실행 (${row.batch_code}) — 그날 첫 확인`, changes: { workDate: row.work_date } } as any, tenantId);
+  } catch { /* 감사 기록 실패는 기존 방식대로 무시 */ }
+  return { activated: true };
+}
+
+/**
+ * 기록지 확인(제출)으로 예정 생산 건 실행 — 생산 건 기록지면 그 생산 건, 금속검출(날짜별 하나)이면 그날의 예정 생산 건 전부.
+ */
+export async function ensureActivatedForFormRecord(formRecordId: number, tenantId: number, userId: number): Promise<number> {
+  const conn = await getRawConnection();
+  const [[fr]]: any = await conn.execute(
+    `SELECT batch_id, ccp_type, DATE_FORMAT(work_date, '%Y-%m-%d') AS wd FROM h_ccp_form_records WHERE id = ? AND tenant_id = ?`,
+    [formRecordId, tenantId],
+  );
+  if (!fr) return 0;
+  let ids: number[] = [];
+  if (fr.batch_id) ids = [Number(fr.batch_id)];
+  else if (String(fr.ccp_type) === "CCP-4P") {
+    try {
+      const [rows]: any = await conn.execute(`SELECT id FROM h_batches WHERE tenant_id = ? AND planned_date = ? AND plan_only = 1 AND status <> 'cancelled' ORDER BY id`, [tenantId, fr.wd]);
+      ids = (rows as any[]).map((r) => Number(r.id));
+    } catch (e: any) {
+      if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+    }
+  }
+  let n = 0;
+  for (const id of ids) if ((await ensureBatchActivated(id, tenantId, userId)).activated) n++;
+  return n;
 }
 
 /**
