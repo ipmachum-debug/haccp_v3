@@ -108,17 +108,21 @@ export async function getBatchApprovalOverview(batchId: number, tenantId: number
             (SELECT COUNT(*) FROM h_ccp_form_rows r WHERE r.form_record_id = f.id AND r.tenant_id = f.tenant_id) AS rowCount,
             (SELECT COUNT(*) FROM h_ccp_form_rows r WHERE r.form_record_id = f.id AND r.tenant_id = f.tenant_id AND r.is_deviation = 1) AS deviationCount,
             ar.status AS approvalStatus,
-            f.rows_version AS rowsVersion, f.confirmed_at AS confirmedAt, f.confirmed_rows_version AS confirmedRowsVersion
+            f.rows_version AS rowsVersion, f.confirmed_at AS confirmedAt, f.confirmed_rows_version AS confirmedRowsVersion,
+            (SELECT COUNT(*) FROM h_ccp_form_rows r WHERE r.form_record_id = f.id AND r.tenant_id = f.tenant_id AND r.batch_id = ? AND r.equipment_type = 'passage') AS minePassage
      FROM h_ccp_form_records f
      LEFT JOIN h_approval_requests ar ON ar.id = f.approval_request_id AND ar.tenant_id = f.tenant_id
      WHERE f.tenant_id = ?
        AND (f.batch_id = ? OR (f.ccp_type = 'CCP-4P' AND ? IS NOT NULL AND f.work_date = ?))
      ORDER BY f.ccp_type, f.id`,
-    [tenantId, batchId, plannedDate, plannedDate],
+    [batchId, tenantId, batchId, plannedDate, plannedDate],
   );
+  // 금속검출: 그날 기록지가 여럿일 수 있다 (승인 뒤 추가 기록지, dayMetalForm) — 이 생산 건의 통과 행이 있는 기록지만.
+  //   통과 행으로 못 가르는 옛 기록지는 이전 규칙 (이 생산 건에 연결된 기록지, 없으면 그날 기록지)
+  const mine4p = (formRows as any[]).some((r) => r.ccpType === "CCP-4P" && Number(r.minePassage) > 0);
   const direct4p = (formRows as any[]).some((r) => r.ccpType === "CCP-4P" && Number(r.batchId) === batchId);
   const forms: CcpFormView[] = (formRows as any[])
-    .filter((r) => !(r.ccpType === "CCP-4P" && Number(r.batchId) !== batchId && direct4p))
+    .filter((r) => r.ccpType !== "CCP-4P" || (mine4p ? Number(r.minePassage) > 0 : !(Number(r.batchId) !== batchId && direct4p)))
     .map((r) => ({
       id: Number(r.id),
       ccpType: String(r.ccpType),

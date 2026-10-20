@@ -417,7 +417,8 @@ export async function listFieldWork(tenantId: number, workDate: string, equipmen
     }
   }
   heat.sort((a, b) => String(a.plannedTime ?? "99").localeCompare(String(b.plannedTime ?? "99")) || a.rowId - b.rowId);
-  const mf = formList.find((x) => x.ccp_type === "CCP-4P");
+  // 현장 금속검출 = 그날 열린(승인 아닌) 기록지 — 승인 뒤 추가 생산은 추가 기록지에 (dayMetalForm). 다 승인됐으면 첫 기록지 (보기만)
+  const mf = formList.find((x) => x.ccp_type === "CCP-4P" && String(x.status) !== "approved") ?? formList.find((x) => x.ccp_type === "CCP-4P");
   const metal = mf && (!equipmentIds || !equipmentIds.length || equipmentIds.includes(Number(mf.detector_equipment_id)))
     ? { formRecordId: Number(mf.id), detectorEquipmentId: mf.detector_equipment_id != null ? Number(mf.detector_equipment_id) : null,
         rows: rows.filter((x) => Number(x.form_record_id) === Number(mf.id)).map((r) => view(mf, r)) }

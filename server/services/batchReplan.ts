@@ -146,10 +146,10 @@ export async function replanBatch(input: {
   // 원래 날짜의 금속검출 하루 기록지 — 이 생산 건 몫만 정리 (손 안 댄 행만, 다른 생산 건·사람 기록 보존)
   if (changed.workDate) {
     try {
-      const [[fr]]: any = await pool.execute(
-        `SELECT id, field_mode, detector_equipment_id FROM h_ccp_form_records WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ? ORDER BY id LIMIT 1`,
-        [input.tenantId, String(before.wd)],
-      );
+      // 그날 열린 금속검출 기록지만 (승인본은 그대로, dayMetalForm)
+      const { openDayMetalForm } = await import("../lib/haccp/dayMetalForm");
+      const open = await openDayMetalForm(pool as any, input.tenantId, String(before.wd));
+      const fr = open ? { id: open.id, field_mode: open.fieldMode ? 1 : 0, detector_equipment_id: open.detectorEquipmentId } : null;
       if (fr && Number(fr.field_mode ?? 0) === 1) {
         const { syncFieldMetalRows } = await import("../lib/haccp/fieldMetalRows");
         await syncFieldMetalRows(pool, { formRecordId: Number(fr.id), tenantId: input.tenantId, workDate: String(before.wd), detectorId: fr.detector_equipment_id ?? null });
