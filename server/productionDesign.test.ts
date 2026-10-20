@@ -183,13 +183,18 @@ describe("메뉴·화면 연결", () => {
 
 describe("2b 시험 계산 · 배포 전환 회복", () => {
   it("원료 투입 계획 식 하나 — 배치 생성과 시험 계산이 같이 씀 (보정 배합비 우선, 차감 안 함·원료 없는 줄 제외)", async () => {
-    const { isPlannedInputRow, legacyInputQty } = await import("./lib/production/batchInputPlan");
-    expect(legacyInputQty({ materialId: 1, isDeductible: 1, quantity: "62.6" }, 192)).toBeCloseTo(120.192, 6);
-    expect(legacyInputQty({ materialId: 1, isDeductible: 1, quantity: "62.6", correctedQuantity: "60" }, 100)).toBe(60);
+    const { isPlannedInputRow, plannedRowKg } = await import("./lib/production/batchInputPlan");
+    expect(plannedRowKg({ materialId: 1, isDeductible: 1, quantity: "62.6", unit: "%" }, 192, 100)).toBeCloseTo(120.192, 6);
+    expect(plannedRowKg({ materialId: 1, isDeductible: 1, quantity: "62.6", correctedQuantity: "60", unit: "%" }, 100, null)).toBe(60);
     expect([isPlannedInputRow({ materialId: 1, isDeductible: 0, quantity: 1 }), isPlannedInputRow({ materialId: null, isDeductible: 1, quantity: 1 }), isPlannedInputRow({ materialId: 1, isDeductible: null, quantity: 1 })]).toEqual([false, false, true]);
     const crud = readFileSync(join(__dirname, "db/production/batchCRUD.ts"), "utf-8");
     expect(crud).toMatch(/ingredients\.filter\(\(ing: any\) => isPlannedInputRow\(ing\)\)/);
-    expect(crud).toMatch(/let plannedQ = legacyInputQty\(ing, plannedQty\)/);
+    expect(crud).toMatch(/\(\{ qty: plannedQ, unit \} = plannedInputQty\(ing, plannedQty, batchTargetKg, ing\.materialUnit\)\);/);
+  });
+  it("서버는 ESM 묶음 — require 를 쓰지 않는다 (품목제조보고 편집 조회가 'require is not defined' 로 실패, 2026-10-20)", () => {
+    for (const f of ["lib/production/designChangeDiff.ts", "lib/scanStorage.ts"]) {
+      expect(readFileSync(join(__dirname, f), "utf-8")).not.toMatch(/[^.\w]require\(/);
+    }
   });
   it("시험 계산 함수(검증용)는 저장 없이 오늘 생산과 같은 계획 함수 — 화면 탭은 없앰", () => {
     const d = readFileSync(join(__dirname, "lib/production/designOverview.ts"), "utf-8");

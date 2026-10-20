@@ -15,6 +15,7 @@ import { getRawConnection } from "../connection";
 import { selectBomVersion } from "../../lib/identity/itemIdentityService";
 import { buildMassBasisSnapshot, type MassBasisSnapshot } from "../../../shared/production/massBasisPlan";
 import { isTenantFeatureEnabled, MASS_BASIS_FEATURE } from "../../lib/production/massBasisPolicy";
+import { kgToMaterialUnit } from "../../lib/production/batchInputPlan";
 
 export type MassBasisPlan =
   | { mode: "legacy"; reason: string }
@@ -68,10 +69,7 @@ export async function prepareBatchMassBasis(
  * 그 밖의 단위(EA·L 등)는 kg 에서 바꿀 근거가 없으므로 null — 호출부는 배치를 만들지 않는다.
  */
 export function rawKgToMaterialUnit(rawKg: number, materialUnit: string | null | undefined): { qty: number; unit: string } | null {
-  const u = String(materialUnit ?? "").trim().toLowerCase();
-  if (u === "" || u === "kg") return { qty: rawKg, unit: "kg" };
-  if (u === "g") return { qty: rawKg * 1000, unit: "g" };
-  return null;
+  return kgToMaterialUnit(rawKg, materialUnit); // 원료 계획 계약과 같은 환산 (batchInputPlan)
 }
 
 /** 저장된 스냅샷 (없으면 null) */

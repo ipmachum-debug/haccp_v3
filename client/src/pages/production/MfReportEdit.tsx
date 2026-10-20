@@ -405,7 +405,8 @@ export function MfReportEditor({ reportId, embedded = false, onCancel }: { repor
         materialId: ing.materialId,
         intermediateId: ing.intermediateId,
         quantity: ing.quantity,
-        unit: ing.unit,
+        // 주원료는 '비율(%)' 칸 — 화면에 보이는 그대로 % 로 저장 (예전에 kg 로 저장된 줄도 저장하면 % 로 기록, 2026-10-20 BOM 줄 계약)
+        unit: "%",
         isDeductible: ing.isDeductible,
         materialType: ing.materialType,
         flavorName: ing.flavorName,
@@ -592,6 +593,11 @@ export function MfReportEditor({ reportId, embedded = false, onCancel }: { repor
                   </Badge>
                   {batchProdKg > 0 && (
                     <span className="text-xs text-muted-foreground">| 배치 {batchProdKg}kg 기준</span>
+                  )}
+                  {ingredients.some((i) => i.unit && i.unit !== "%") && (
+                    <span className="text-xs text-amber-700" data-testid="mf-unit-legacy">
+                      | {ingredients.filter((i) => i.unit && i.unit !== "%").length}개 줄이 {Array.from(new Set(ingredients.filter((i) => i.unit && i.unit !== "%").map((i) => i.unit))).join("·")} 로 저장돼 있어 생산 계산을 막고 있습니다 — 비율이 맞으면 저장하세요 (% 로 기록)
+                    </span>
                   )}
                 </div>
               </div>

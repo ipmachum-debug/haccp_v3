@@ -16,6 +16,7 @@
 // ═══════════════════════════════════════════════════════════════
 import { selectBomVersion } from "../../lib/identity/itemIdentityService";
 import { ccpInputKgByGroup, CCP_BOM_ROWS_SQL, ccpInputKgFromSnapshot } from "../../lib/production/ccpBomInput";
+import { heatingFor } from "../../lib/production/ccpDayPlanner";
 import { WRITE_METAL_PLAN_TABLES } from "../../lib/haccp/metalRecordSource";
 import { getDb, getRawConnection } from "../connection";
 import { loadBatchMassBasis } from "../production/batchMassBasis";
@@ -588,10 +589,10 @@ export async function syncCcpRowsToFormRows(params: {
             [processGroupId, tenantId],
           );
           if ((equipRows as any[]).length > 0) {
-            // 가열 운전시간 = 공정 시간 프로필(1개일 때) → 설비 기본 → 비움, 점유 = 사이클 + (가열 − 설비 기본) — ccp-batch 와 같은 규칙
+            // 가열 운전시간 = heatingFor (프로필 1개 → 그 값, 0개 → 설비 기본, 여러 개 → 비움), 점유 = 사이클 + (가열 − 설비 기본) — 계획과 같은 규칙
             ccpRows = (equipRows as any[]).map((eq: any, idx: number) => {
               const n = (v: any) => (v == null ? null : Number(v));
-              const heat = (Number(eq.profile_count) === 1 ? n(eq.profile_time_min) : null) ?? n(eq.eq_heat_min);
+              const heat = heatingFor(Number(eq.profile_count ?? 0), n(eq.profile_time_min), n(eq.eq_heat_min));
               const cycle = n(eq.cycle_min), eqHeat = n(eq.eq_heat_min);
               const duration = cycle != null && heat != null && eqHeat != null ? cycle + (heat - eqHeat) : (cycle ?? heat);
               return {

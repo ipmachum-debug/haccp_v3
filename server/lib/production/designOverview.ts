@@ -10,7 +10,8 @@
 import { checkRecipe, groupIssues, processLoads, type DesignGroup, type RecipeIngredient, type ReadinessIssue, type Signal } from "../../../shared/production/designReadiness";
 import { toProductionProductId, toProductionProductIds } from "../identity/itemIdentityService";
 import { rowKg } from "./ccpBomInput";
-import { occupancyFor, type PlannerEquipment } from "./ccpDayPlanner";
+import { BomQtyError } from "./batchInputPlan";
+import { heatingFor, occupancyFor, type PlannerEquipment } from "./ccpDayPlanner";
 
 const num = (v: unknown) => (v == null ? null : Number(v));
 
@@ -57,7 +58,7 @@ export async function loadDesignGroups(conn: any, tenantId: number): Promise<Des
       profileCount, profileTimeMin,
       // 설비 기본값(마스터)과 이 공정에 적용되는 값(계획과 같은 occupancyFor)을 나눠 보여 준다
       equipments: (byGroup.get(Number(r.id)) ?? []).map((e) => {
-        const heat = profileTimeMin ?? e.timeMin;
+        const heat = heatingFor(profileCount, profileTimeMin, e.timeMin);
         return { ...e, appliedHeatMin: heat, occupancyMin: occupancyFor({ cycleTotalMin: e.cycleMin, defaultTimeMin: e.timeMin } as PlannerEquipment, heat) };
       }),
     };
@@ -91,7 +92,7 @@ const kg2 = (n: number) => Math.round(n * 1000) / 1000;
 
 /**
  * 1배치 원료 kg — 실제 계획(loadPlanBom · 배치 생성)과 같은 규칙 (#600 F600-01: 따로 % × 총량을 계산해 원물·공정 환산 제품이 어긋났다)
- *   기존 계산: rowKg (조정량 > 보정 수량 > 수량, % 는 버전의 1배치 총 생산량 기준, g → kg)
+ *   기존 계산: rowKg (조정량 > BOM 줄 계약 — 주원료 % 는 버전의 1배치 총 생산량 기준, 추가 원재료 kg·g 는 절대량)
  *   원물·공정 환산 버전: prepareBatchMassBasis 스냅샷 (1배치 총 생산량을 계획량으로) — 공정 kg = 전처리 후 kg, 원물 kg 따로
  *   원료 품목이 없는 줄(중간재)은 두 계산 모두 공정 투입에 넣지 않으므로 kgPerBatch = null (배합량은 rawKgPerBatch 로 표시)
  */
@@ -99,7 +100,12 @@ async function applyBatchKg(conn: any, tenantId: number, r: RecipeRow, rows: any
   const target = r.batchTargetKg;
   const legacy = () => {
     r.ingredients = rows.map((x, k) => {
-      const kg = kg2(rowKg({ ...x, version_id: r.versionId, version_no: r.versionNo, batch_target_kg: target }));
+      let kg: number | null = null;
+      try {
+        kg = kg2(rowKg({ ...x, version_id: r.versionId, version_no: r.versionNo, batch_target_kg: target }));
+      } catch (e) {
+        if (!(e instanceof BomQtyError)) throw e; // 계약으로 정할 수 없는 줄 — kg 를 비우고 준비 상태(unit-kg)가 알린다
+      }
       return { ...r.ingredients[k], kgPerBatch: x.material_id == null ? null : kg, rawKgPerBatch: kg };
     });
   };
@@ -421,7 +427,7 @@ export async function loadRecipeDetail(conn: any, tenantId: number, reportId: nu
  * 시험 계산 (생산 설계 2b) — 총 생산량을 넣으면 '오늘 생산' 과 같은 계산으로 회차·공정·설비 시각·원료 양을 보여 준다. 저장 없음.
  *   계획: planCcpForDay (오늘 생산 미리보기·실제 생성과 같은 함수) — 그날 잡힌 다른 생산은 빼고 빈 공장으로 계산.
  *         시작 시각을 안 주면 오늘 생산처럼 설비 작업 시작 시각, 주면 그 시각으로 (오늘 생산의 '시작 시각 바꾸기' 와 같음)
- *   원료: 배치 생성과 같은 식 — 원물·공정 환산이면 prepareBatchMassBasis 스냅샷(원물 kg → 원료 단위), 아니면 legacyInputQty
+ *   원료: 배치 생성과 같은 식 — 원물·공정 환산이면 prepareBatchMassBasis 스냅샷(원물 kg → 원료 단위), 아니면 BOM 줄 계약(plannedInputQty)
  *   막히는 이유: 미리보기와 같은 사전 검증 (CCP 연결 · 환산 계산 실패)
  * 쓰는 버전 = 생산에 쓰는 버전 (selectBomVersion). 수정안은 승인돼야 계산 대상.
  */
@@ -442,13 +448,15 @@ export async function trialCalc(conn: any, tenantId: number, reportId: number, p
   const v = await validateProductCcpMapping({ productId: pid, productName: r.productName, tenantId });
   if (!v.valid) blocking.push(v.message);
   if (meta.bom.massBasis === "error") blocking.push(`원물·공정 환산 계산 불가 — ${meta.bom.error}`);
+  if (meta.bom.qtyError) blocking.push(`원료 양 계산 불가 — ${meta.bom.qtyError}`);
+  blocking.push(...(plan?.blocking ?? []));
 
   // 원료 — 배치 생성과 같은 줄·같은 식
   const versionId = meta.bom.versionId;
   const ingredients: Array<{ id: number; name: string; unit: string; deductQty: number | null; processKg: number | null; processName: string | null; entryLabel: string; deductible: boolean }> = [];
   if (versionId) {
     const [iRows]: any = await conn.execute(
-      `SELECT i.id, i.material_id, i.quantity, i.corrected_quantity, i.is_deductible, i.process_group_id, i.entry_stage, im.base_unit,
+      `SELECT i.id, i.material_id, i.quantity, i.corrected_quantity, i.unit, i.is_additional, i.is_deductible, i.process_group_id, i.entry_stage, im.base_unit,
               COALESCE(im.item_name, CONCAT('원료 #', COALESCE(i.material_id, i.intermediate_id))) AS name, g.name AS process_name
          FROM h_mf_ingredients i
          LEFT JOIN item_master im ON im.id = i.material_id
@@ -467,11 +475,14 @@ export async function trialCalc(conn: any, tenantId: number, reportId: number, p
         procById = new Map(mb.snapshot.rows.map((x) => [x.ingredientId, x.processKg]));
       }
     }
-    const { isPlannedInputRow, legacyInputQty } = await import("./batchInputPlan");
+    const { isPlannedInputRow, plannedInputQty } = await import("./batchInputPlan");
     const { rawKgToMaterialUnit } = await import("../../db/production/batchMassBasis");
     const r3 = (n: number) => Math.round(n * 1000) / 1000; // 배치 투입 계획 저장 정밀도 (toFixed(3)) 와 같게
     for (const x of iRows as any[]) {
-      const row = { materialId: x.material_id != null ? Number(x.material_id) : null, isDeductible: x.is_deductible != null ? Number(x.is_deductible) : null, quantity: x.quantity, correctedQuantity: x.corrected_quantity };
+      const row = {
+        materialId: x.material_id != null ? Number(x.material_id) : null, isDeductible: x.is_deductible != null ? Number(x.is_deductible) : null,
+        quantity: x.quantity, correctedQuantity: x.corrected_quantity, unit: x.unit, isAdditional: x.is_additional != null ? Number(x.is_additional) : null,
+      };
       let deductQty: number | null = null;
       let unit = String(x.base_unit || "kg");
       if (isPlannedInputRow(row)) {
@@ -479,7 +490,15 @@ export async function trialCalc(conn: any, tenantId: number, reportId: number, p
           const conv = rawById.has(Number(x.id)) ? rawKgToMaterialUnit(rawById.get(Number(x.id))!, x.base_unit) : null;
           if (!conv) blocking.push(`원료 줄 ${x.name}: 원물·공정 환산 원물 kg 를 원료 단위(${x.base_unit ?? "-"})로 바꿀 수 없습니다`);
           else { deductQty = r3(conv.qty); unit = conv.unit; }
-        } else deductQty = r3(legacyInputQty(row, plannedKg));
+        } else {
+          // 배치 생성과 같은 BOM 줄 계약 — 계산할 수 없는 줄은 위 qtyError 로 이미 막힘, 여기서는 칸만 비움
+          try {
+            const q = plannedInputQty(row, plannedKg, meta.bom.subBatchKg, x.base_unit);
+            deductQty = r3(q.qty); unit = q.unit;
+          } catch (e) {
+            if (!(e instanceof BomQtyError)) throw e;
+          }
+        }
       }
       const pg = x.process_group_id != null ? Number(x.process_group_id) : null;
       ingredients.push({

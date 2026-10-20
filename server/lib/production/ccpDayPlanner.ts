@@ -5,13 +5,16 @@
  * 입력은 server/lib/production/ccpPlanInputs.ts 가 읽어 온다.
  *
  * 시간 개념 (CEO 설계 2026-10-18 — "가열시간, 투입 간격, 설비 한 사이클은 서로 다른 시간"):
- *   - 가열 운전시간 heatingMin : 공정 시간 프로필(1개일 때) → 설비 기본 가열시간 → 비움
+ *   - 가열 운전시간 heatingMin : heatingFor — 활성 시간 프로필 1개면 그 값, 0개면 설비 기본 가열시간, 여러 개면 정하지 않음(비움)
  *   - 설비 점유 occupancyMin   : 설비 사이클 + (가열 − 설비 기본 가열). 같은 설비를 다시 쓸 수 있는 시각을 정한다
  *   - 투입 시작 간격 intervalMin: 같은 공정에서 다음 회차를 시작할 수 있는 최소 간격 (순차·묶음 방식)
  *   - 동시 운전 방식 mode       : sequential(한 대씩 간격 두고) · concurrent(동시) · grouped(묶음 크기만큼 동시, 묶음끼리 간격)
  *   한계기준(CL)은 판정용이다 — 시간·온도·압력 계획값으로 쓰지 않는다.
  *
  * 예정시각은 계산한 그대로다. 무작위로 흩뜨리지 않는다 (CEO 결정 2026-10-18). 실제 시각은 작업자가 확인·수정한다.
+ * 자정 (2026-10-20 BOM·설비 시간·인쇄 기준 검토 5): 하루 계획은 작업일 안(00:00~24:00)만 다룬다. 시작이나 설비 점유 끝이 24:00 을 넘는
+ *   회차가 있으면 blocking 으로 알리고 생산 건을 만들지 않는다 — HH:mm 으로 감싸 다음 날 00시대로 저장하면 다시 읽을 때
+ *   작업일의 이른 시각으로 해석돼 같은 설비를 두 번 배정할 수 있다 (야간 작업은 지원 범위 밖, 다음 날 생산으로 나눠 입력).
  * CCP-4P(금속검출)는 하루 통과 배분이 따로 있어 여기서 다루지 않는다.
  */
 
@@ -43,6 +46,8 @@ export interface PlannerGroup {
   batchSize: number;
   /** 공정 가열 운전시간 (시간 프로필, 활성 1개일 때) */
   profileTimeMin: number | null;
+  /** 활성 시간 프로필 수 — 여러 개면 가열시간을 정하지 않는다 (없으면 profileTimeMin 유무로 0/1) */
+  profileCount?: number;
   equipments: PlannerEquipment[];
   /** 공정 첫 설비의 작업 시작시각 HH:MM (없으면 null) */
   workStartTime: string | null;
@@ -100,6 +105,8 @@ export interface PlannedProcess {
   mappingSource: string;
   rounds: PlannedRound[];
   warnings: string[];
+  /** 생산 건을 만들 수 없는 이유 (자정을 넘는 회차) */
+  blocking: string[];
 }
 
 export interface PlannedItem {
@@ -109,7 +116,12 @@ export interface PlannedItem {
   roundsCount: number;
   processes: PlannedProcess[];
   warnings: string[];
+  /** 공정별 blocking 을 모은 것 — 있으면 미리보기 막힘·생성 거부 */
+  blocking: string[];
 }
+
+/** 하루의 끝 (분) — 계획은 작업일 안에서만 */
+export const DAY_END_MIN = 1440;
 
 export const toMin = (hhmm: string): number => {
   const m = /^(\d{1,2}):(\d{2})/.exec(String(hhmm ?? ""));
@@ -137,6 +149,17 @@ export function splitInput(totalKg: number | null, perRoundKg: number | null, ro
     if (needed === n) return r2(seq < n ? perRoundKg : totalKg - perRoundKg * (n - 1));
   }
   return r2(totalKg / n);
+}
+
+/**
+ * 가열 운전시간 — 계획·기록지 기본값·설계 화면이 같은 규칙 (2026-10-20 BOM·설비 시간·인쇄 기준 검토 2)
+ *   활성 시간 프로필 1개 → 그 값 / 0개 → 설비 기본 가열시간 / 여러 개 → 어느 것인지 정할 수 없어 null.
+ *   여러 개일 때 설비 기본값이나 최댓값으로 내려가지 않는다 — 빈 칸으로 두고 현장에서 실제 값을 입력한다.
+ */
+export function heatingFor(profileCount: number, profileTimeMin: number | null, equipmentDefaultMin: number | null): number | null {
+  if (profileCount > 1) return null;
+  if (profileCount === 1 && profileTimeMin != null) return profileTimeMin;
+  return equipmentDefaultMin;
 }
 
 /** 설비 점유 = 사이클 + (가열 − 설비 기본 가열). 값이 모자라면 사이클 → 가열 → null */
@@ -197,10 +220,13 @@ export function planDay(items: PlannerItem[], context: PlannerContext = {}): Pla
       //   (Codex #605 재검토 7: 첫 설비 시각만 써서 1호기 05:00 / 2호기 08:40 이면 2호기도 05:00 에 배정됐다)
       const eqStart = (e: PlannerEquipment) => toMin(item.startTimeOverride || e.workStartTime || g.workStartTime || item.startTime);
       const availAt = (e: PlannerEquipment) => Math.max(freeAt.get(e.id) ?? -Infinity, Number.isFinite(eqStart(e)) ? eqStart(e) : -Infinity);
-      const heatingMin = g.profileTimeMin;
-      if (heatingMin == null && eqs.some((e) => e.defaultTimeMin == null)) warnings.push("가열 운전시간(공정 시간 프로필·설비 기본 가열)이 없는 설비가 있습니다.");
+      const profileCount = g.profileCount ?? (g.profileTimeMin != null ? 1 : 0);
+      const heatOf = (e: PlannerEquipment | null) => heatingFor(profileCount, g.profileTimeMin, e?.defaultTimeMin ?? null);
+      if (profileCount > 1) warnings.push(`가열 시간 설정(프로필)이 ${profileCount}개라 가열 운전시간을 정하지 않았습니다 — 기록지 가열시간은 비워 두고 현장에서 입력합니다 (설비 사이클로 시각만 계산). 우리 공장 설정에서 가열시간을 저장하면 하나로 정리됩니다.`);
+      else if (eqs.some((e) => heatOf(e) == null)) warnings.push("가열 운전시간(공정 시간 프로필·설비 기본 가열)이 없는 설비가 있습니다.");
 
       const out: PlannedRound[] = [];
+      const blocking: string[] = [];
       let seq = 0;
       for (let gi = 0; gi < groupsCount; gi++) {
         // 이번 회차(묶음)에 쓸 설비 — 가장 먼저 비는 설비부터 (같으면 설비 순서)
@@ -222,9 +248,13 @@ export function planDay(items: PlannerItem[], context: PlannerContext = {}): Pla
         for (let k = 0; k < membersOf(gi); k++) {
           seq++;
           const e = pick[k] ?? null;
-          const heat = e ? (heatingMin ?? e.defaultTimeMin) : heatingMin;
+          const heat = heatOf(e);
           const occ = e ? occupancyFor(e, heat) : null;
           if (e && start != null) freeAt.set(e.id, start + (occ ?? 0));
+          if (start != null && (start >= DAY_END_MIN || start + (occ ?? 0) > DAY_END_MIN) && !blocking.length) {
+            const endTxt = `${Math.floor((start + (occ ?? 0)) / 60)}:${String(Math.round(start + (occ ?? 0)) % 60).padStart(2, "0")}`;
+            blocking.push(`${g.name} ${gi + 1}회차${e ? `(${e.name})` : ""}가 자정을 넘깁니다 (끝 ${endTxt}) — 하루 계획은 24:00 안에서만 만듭니다. 계획량을 나눠 다음 날로 입력하거나 시작 시각·설비를 바꾸세요.`);
+          }
           out.push({
             seq,
             roundNo: gi + 1,
@@ -241,10 +271,10 @@ export function planDay(items: PlannerItem[], context: PlannerContext = {}): Pla
           });
         }
       }
-      if (eqs.some((e) => occupancyFor(e, heatingMin ?? e.defaultTimeMin) == null)) warnings.push("설비 사이클 시간이 없어 같은 설비를 다시 쓸 시각을 계산하지 못한 설비가 있습니다.");
-      return { processGroupId: g.id, name: g.name, ccpType: g.ccpType, mappingSource: g.mappingSource, rounds: out, warnings };
+      if (eqs.some((e) => occupancyFor(e, heatOf(e)) == null)) warnings.push("설비 사이클 시간이 없어 같은 설비를 다시 쓸 시각을 계산하지 못한 설비가 있습니다.");
+      return { processGroupId: g.id, name: g.name, ccpType: g.ccpType, mappingSource: g.mappingSource, rounds: out, warnings, blocking };
     });
 
-    return { rowKey: item.rowKey, productId: item.productId, plannedKg: item.plannedKg, roundsCount: rounds, processes, warnings: itemWarnings };
+    return { rowKey: item.rowKey, productId: item.productId, plannedKg: item.plannedKg, roundsCount: rounds, processes, warnings: itemWarnings, blocking: processes.flatMap((p) => p.blocking) };
   });
 }

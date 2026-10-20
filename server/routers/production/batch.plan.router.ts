@@ -73,6 +73,8 @@ export const batchPlanRouter = router({
         }
         if (qty[i].error) blocking.push(qty[i].error!);
         if (meta.bom.massBasis === "error") blocking.push(`원물·공정 기준 계산 불가 — ${meta.bom.error}`);
+        if (meta.bom.qtyError) blocking.push(`원료 양 계산 불가 — ${meta.bom.qtyError}`);
+        blocking.push(...(plan?.blocking ?? []));
         if (dupLines.has(i)) blocking.push(dupLines.get(i)!);
         const already = sameDay.get(it.productId);
         if (already && !it.separateRun) blocking.push(guard.existingRunProblem(productName ?? `제품 #${it.productId}`, already));

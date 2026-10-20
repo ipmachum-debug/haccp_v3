@@ -9,6 +9,7 @@
  */
 import { selectBomVersion } from "../identity/itemIdentityService";
 import { CCP_BOM_ROWS_SQL, ccpInputKgByGroup, ccpInputKgFromSnapshot } from "./ccpBomInput";
+import { BomQtyError, isPlannedInputRow, plannedInputQty } from "./batchInputPlan";
 import { toMin, type BusySlot } from "./ccpDayPlanner";
 
 export interface PlanBom {
@@ -22,6 +23,8 @@ export interface PlanBom {
   massBasis: "legacy" | "basis" | "error";
   /** massBasis = error 이면 배치 생성이 실패하는 이유 */
   error?: string;
+  /** BOM 줄 양을 계약대로 계산할 수 없는 이유 (단위 근거 없음 등) — 있으면 배치 생성이 막힌다 (2026-10-20 검토 1) */
+  qtyError?: string;
 }
 
 /** 배치가 쓰는 BOM 버전 하나 기준의 회차 기준량·공정 투입량 (원물·공정 기준 회사면 그 스냅샷 계산) */
@@ -47,8 +50,41 @@ export async function loadPlanBom(conn: any, tenantId: number, productId: number
 
   const [rows]: any = await conn.execute(CCP_BOM_ROWS_SQL, [pick.versionId]);
   const inputByGroup: Record<number, number> = {};
-  for (const [pg, x] of ccpInputKgByGroup(rows as any[], pick.versionId)) inputByGroup[pg] = x.kg;
-  return { ...base, inputByGroup };
+  try {
+    for (const [pg, x] of ccpInputKgByGroup(rows as any[], pick.versionId)) inputByGroup[pg] = x.kg;
+  } catch (e) {
+    if (e instanceof BomQtyError) return { ...base, qtyError: `CCP 공정 투입량 — ${e.message}` };
+    throw e;
+  }
+  const problem = await plannedInputProblem(conn, tenantId, pick.versionId, plannedKg, versionKg);
+  return problem ? { ...base, inputByGroup, qtyError: problem } : { ...base, inputByGroup };
+}
+
+/**
+ * 원료 투입 계획(재고 출고) 줄이 BOM 줄 계약대로 계산되는가 — 배치 생성(insertPlannedBatchInputs)이 같은 함수로 막는 줄을
+ * 미리보기·시험 계산에서 먼저 보여 준다. 읽기만 한다.
+ */
+export async function plannedInputProblem(conn: any, tenantId: number, versionId: number, plannedKg: number, batchTargetKg: number | null): Promise<string | null> {
+  const [rows]: any = await conn.execute(
+    `SELECT i.material_id, i.is_deductible, i.quantity, i.corrected_quantity, i.unit, i.is_additional, im.base_unit, im.item_name
+       FROM h_mf_ingredients i LEFT JOIN item_master im ON im.id = i.material_id AND im.tenant_id = ?
+      WHERE i.mf_report_version_id = ? ORDER BY i.line_no, i.id`,
+    [tenantId, versionId],
+  );
+  for (const r of rows as any[]) {
+    const row = {
+      materialId: r.material_id != null ? Number(r.material_id) : null, isDeductible: r.is_deductible != null ? Number(r.is_deductible) : null,
+      quantity: r.quantity, correctedQuantity: r.corrected_quantity, unit: r.unit, isAdditional: r.is_additional != null ? Number(r.is_additional) : null,
+    };
+    if (!isPlannedInputRow(row)) continue;
+    try {
+      plannedInputQty(row, plannedKg, batchTargetKg, r.base_unit);
+    } catch (e) {
+      if (e instanceof BomQtyError) return `원료 투입 계획 — ${r.item_name ?? `원료 #${row.materialId}`}: ${e.message}`;
+      throw e;
+    }
+  }
+  return null;
 }
 
 /**

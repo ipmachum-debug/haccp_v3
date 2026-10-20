@@ -84,7 +84,7 @@ export function groupIssues(g: DesignGroup): ReadinessIssue[] {
     out.push({ level: "red", code: "group-no-equipment", text: `${g.name}: 연결된 설비가 없어 회차·시각을 계산할 수 없습니다` });
     return out;
   }
-  if (g.profileCount > 1) out.push({ level: "yellow", code: "group-multi-profile", text: `${g.name}: 가열 시간 설정(프로필)이 ${g.profileCount}개라 계획에서 쓰지 않고 설비 기본 가열시간을 씁니다` });
+  if (g.profileCount > 1) out.push({ level: "yellow", code: "group-multi-profile", text: `${g.name}: 가열 시간 설정(프로필)이 ${g.profileCount}개라 어느 것인지 정할 수 없어 기록지 가열시간을 비워 둡니다 (설비 기본값으로 대신하지 않음) — 가열시간을 저장하면 하나로 정리됩니다` });
   if (g.profileTimeMin == null && g.profileCount <= 1) {
     const noHeat = g.equipments.filter((e) => e.timeMin == null);
     if (noHeat.length) out.push({ level: "yellow", code: "equip-no-heat", text: `${g.name}: 가열시간이 없는 설비 ${noHeat.length}대 (${noHeat.slice(0, 3).map((e) => e.name).join(", ")})` });
@@ -114,9 +114,9 @@ export function checkRecipe(r: RecipeInput, groups: Map<number, DesignGroup>): {
     if (Math.abs(sum - 100) > 0.05) issues.push({ level: "red", code: "pct-sum", text: `배합비 합계가 ${r1(sum)}% 입니다 (100% 이어야 함)` });
   }
   if (kg.length && pct.length) {
-    issues.push({ level: "red", code: "unit-mixed", text: `kg 로 적힌 원료 ${kg.length}개 (${kg.slice(0, 3).map((i) => i.name).join(", ")}) — 지금 계산은 % 로 처리합니다` });
+    issues.push({ level: "red", code: "unit-mixed", text: `kg 로 적힌 원료 ${kg.length}개 (${kg.slice(0, 3).map((i) => i.name).join(", ")}) — 비율인지 kg 인지 정할 수 없어 이 버전으로는 생산 건을 만들지 않습니다. 배합 편집에서 비율을 확인하고 저장하세요 (저장하면 % 로 기록)` });
   } else if (kg.length && !pct.length) {
-    issues.push({ level: "red", code: "unit-kg", text: `원료가 모두 kg 로 적혀 있습니다 — 지금 계산은 % 로 처리합니다` });
+    issues.push({ level: "red", code: "unit-kg", text: `원료가 모두 kg 로 적혀 있습니다 — 비율인지 kg 인지 정할 수 없어 이 버전으로는 생산 건을 만들지 않습니다. 배합 편집에서 비율을 확인하고 저장하세요 (저장하면 % 로 기록)` });
   }
 
   // 공정도 없고 들어가는 곳(성형에 바로·나중에 넣음)도 정하지 않은 원료만 — 분류된 원료는 정상 (2a)

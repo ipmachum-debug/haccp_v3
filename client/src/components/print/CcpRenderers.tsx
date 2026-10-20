@@ -72,13 +72,15 @@ export function renderCcpFormRecord(fr: any, doc: any) {
   const clHeatTimeHi = fr.clHeatTimeMinHi ?? fr.cl_heat_time_min_hi;
   const clHeatTempLo = fr.clHeatTempLo ?? fr.cl_heat_temp_lo;
   const clPressureMpaLo = fr.clPressureMpaLo ?? fr.cl_pressure_mpa_lo;
+  // 상한 (2026-10-20 검토 4) — 비어 있으면 '이상' 만 (단방향 기준 그대로)
+  const clHeatTempHi = fr.clHeatTempHi ?? fr.cl_heat_temp_hi;
+  const clPressureMpaHi = fr.clPressureMpaHi ?? fr.cl_pressure_mpa_hi;
   const clMetalFe = fr.clFeMm ?? fr.cl_fe_mm;
   const clMetalSus = fr.clSusMm ?? fr.cl_sus_mm;
   const clMetalSensitivity = fr.clMetalSensitivity ?? fr.cl_metal_sensitivity;
   // 기준이 없으면 '-' — 특정 회사 값을 폴백으로 쓰지 않는다 (2026-10-18)
   const fmtRange = (lo: any, hi: any, unit: string) =>
     lo != null && hi != null ? `${lo}${unit}이상~${hi}${unit}이하` : lo != null ? `${lo}${unit}이상` : hi != null ? `${hi}${unit}이하` : "-";
-  const fmtMin = (lo: any, unit: string) => (lo != null ? `${lo}${unit}이상` : "-");
   const EMPTY_TEXT = (label: string) => (
     <p className="text-gray-400">({label} 문구가 비어 있습니다 — CCP 관리 → 공정그룹에서 입력하세요)</p>
   );
@@ -135,15 +137,15 @@ export function renderCcpFormRecord(fr: any, doc: any) {
     );
     // 정규 양식: 회사의 이 CCP 공정 전부를 나열 (예: 교반-가열 / 증숙(설기류) / 증숙(약식류)). 표가 없으면 이 기록지의 기준 한 줄.
     const clRows = clTable.length > 0
-      ? clTable.map((g: any) => ({ name: s(g.name), time: fmtRange(g.timeMin, g.timeMax, "분"), pressure: fmtMin(g.pressureMin, "Mpa"), temp: fmtMin(g.temperatureMin, "℃") }))
+      ? clTable.map((g: any) => ({ name: s(g.name), time: fmtRange(g.timeMin, g.timeMax, "분"), pressure: fmtRange(g.pressureMin, g.pressureMax, "Mpa"), temp: fmtRange(g.temperatureMin, g.temperatureMax, "℃") }))
       : uniqueEquipNames.length > 0
       ? uniqueEquipNames.map((name) => ({
           name: productName ? `${productName}(${name})` : name,
           time: fmtRange(clHeatTimeLo, clHeatTimeHi, "분"),
-          pressure: fmtMin(clPressureMpaLo, "Mpa"),
-          temp: fmtMin(clHeatTempLo, "℃"),
+          pressure: fmtRange(clPressureMpaLo, clPressureMpaHi, "Mpa"),
+          temp: fmtRange(clHeatTempLo, clHeatTempHi, "℃"),
         }))
-      : [{ name: productName || processGroupName || "-", time: fmtRange(clHeatTimeLo, clHeatTimeHi, "분"), pressure: fmtMin(clPressureMpaLo, "Mpa"), temp: fmtMin(clHeatTempLo, "℃") }];
+      : [{ name: productName || processGroupName || "-", time: fmtRange(clHeatTimeLo, clHeatTimeHi, "분"), pressure: fmtRange(clPressureMpaLo, clPressureMpaHi, "Mpa"), temp: fmtRange(clHeatTempLo, clHeatTempHi, "℃") }];
 
     // 8개 빈 행 (기록란)
     const displayRows = hasFormRows
@@ -344,8 +346,8 @@ export function renderCcpFormRecord(fr: any, doc: any) {
           </thead>
           <tbody>
             {(clTable.length > 0
-              ? clTable.map((g: any) => ({ name: s(g.name), time: fmtRange(g.timeMin, g.timeMax, "분"), temp: fmtMin(g.temperatureMin, "℃") }))
-              : [{ name: processGroupName || productName || "-", time: fmtRange(clHeatTimeLo, clHeatTimeHi, "분"), temp: fmtMin(clHeatTempLo, "℃") }]
+              ? clTable.map((g: any) => ({ name: s(g.name), time: fmtRange(g.timeMin, g.timeMax, "분"), temp: fmtRange(g.temperatureMin, g.temperatureMax, "℃") }))
+              : [{ name: processGroupName || productName || "-", time: fmtRange(clHeatTimeLo, clHeatTimeHi, "분"), temp: fmtRange(clHeatTempLo, clHeatTempHi, "℃") }]
             ).map((row, i, arr) => (
               <tr key={i}>
                 {i === 0 && <td className={`${tdCls} bg-gray-50`} rowSpan={arr.length}></td>}

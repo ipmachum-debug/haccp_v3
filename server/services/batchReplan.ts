@@ -7,6 +7,9 @@
  *   + 원료 투입 계획을 같은 함수(insertPlannedBatchInputs)로 다시 + 준비 미완(setup_pending=1).
  * 커밋 뒤: 생성과 같은 필수 준비(completeBatchSetup) → 확인(verifyBatchSetup) → 준비 완료. 빠진 것이 있으면 준비 미완으로 남아
  *   현장 확인·승인이 막고, 같은 재계획을 다시 보내면 이어서 준비한다.
+ *   ★ 2026-10-20 (#613 배포 검증 6): '바뀐 것 없음' 과 '준비 완료' 를 구분한다. 같은 값을 다시 저장했을 때 준비 미완(setup_pending=1)이면
+ *     파생 계획을 다시 지우거나 원료 계획을 다시 만들지 않고 준비·확인만 이어간다. 준비 함수가 실패하면 그 이유를 빠진 것으로 돌려주고
+ *     준비 미완을 그대로 둔다 (이전: 같은 값 재저장은 바로 '정상 저장' 으로 끝나 준비 미완이 계속 실행·승인을 막았다).
  * 날짜를 옮기면 원래 날짜의 금속검출 하루 기록지에서 이 생산 건 몫만 정리한다 (다른 생산 건 행·사람이 손댄 행·기록지는 그대로).
  * SKU 구성(production_sku_output)은 사람이 정한 계획이라 그대로 둔다.
  */
@@ -20,20 +23,21 @@ export class ReplanRejectedError extends Error {
 export async function replanBatch(input: {
   tenantId: number; userId: number; batchId: number;
   plannedQuantityKg?: number | null; workDate?: string | null; startTime?: string | null;
-}): Promise<{ batchId: number; setupMissing: string[]; changed: Record<string, [unknown, unknown]> }> {
+}): Promise<{ batchId: number; setupMissing: string[]; changed: Record<string, [unknown, unknown]>; resumed?: boolean }> {
   const pool: any = await getRawConnection();
   const { batchHistoryReasons } = await import("../lib/production/batchTouchGuard");
   const c = await pool.getConnection();
   let before: any;
   let after: { qty: number; date: string; time: string };
   const changed: Record<string, [unknown, unknown]> = {};
+  let resumeOnly = false;
   try {
     await c.query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
     await c.beginTransaction();
     try {
       const [[b]]: any = await c.execute(
         `SELECT id, product_id, site_id, mode, batch_code, planned_quantity, DATE_FORMAT(planned_date, '%Y-%m-%d') AS wd,
-                DATE_FORMAT(start_time, '%H:%i') AS st, plan_only, status
+                DATE_FORMAT(start_time, '%H:%i') AS st, plan_only, status, setup_pending
            FROM h_batches WHERE id = ? AND tenant_id = ? FOR UPDATE`,
         [input.batchId, input.tenantId],
       );
@@ -60,42 +64,56 @@ export async function replanBatch(input: {
       if (after.qty !== Number(b.planned_quantity)) changed.plannedQuantityKg = [Number(b.planned_quantity), after.qty];
       if (after.date !== String(b.wd)) changed.workDate = [String(b.wd), after.date];
       if (after.time !== String(b.st ?? "")) changed.startTime = [b.st ?? null, after.time];
-      if (!Object.keys(changed).length) { await c.rollback(); return { batchId: input.batchId, setupMissing: [], changed }; }
-      if (changed.workDate) {
+      if (!Object.keys(changed).length) {
+        await c.rollback();
+        // 바뀐 것 없음 — 준비가 끝났으면 할 일 없음, 준비 미완이면 아래에서 준비·확인만 이어간다 (파생 계획은 이미 커밋돼 있음)
+        if (Number(b.setup_pending ?? 0) !== 1) return { batchId: input.batchId, setupMissing: [], changed };
+        resumeOnly = true;
+      }
+      // 바뀐 계획이 미리보기에서 막힐 계획이면(원료 양 계산 불가·자정을 넘는 회차) 바꾸지 않는다 (2026-10-20 검토 1·5)
+      if (!resumeOnly) {
+        const { planProblems } = await import("./batchOrchestrator");
+        const problems = await planProblems({ tenantId: input.tenantId, workDate: after.date, productId: Number(b.product_id), plannedKg: after.qty,
+          startTime: after.time, excludeBatchId: input.batchId });
+        if (problems.length) throw new ReplanRejectedError(problems.join(" / "));
+      }
+      if (!resumeOnly && changed.workDate) {
         const guard = await import("../lib/production/dayProductionGuard");
         const dup = await guard.existingSameDayRuns(c, input.tenantId, after.date, [Number(b.product_id)], [input.batchId]);
         if (dup.size) throw new ReplanRejectedError(guard.existingRunProblem("같은 제품", dup.get(Number(b.product_id)) ?? []));
       }
 
-      // 이 생산 건의 미확인 파생 계획 정리 (위에서 손 안 댄 것을 확인)
-      await c.execute(`DELETE r FROM h_ccp_rows r JOIN h_ccp_instances i ON i.id = r.instance_id AND i.tenant_id = r.tenant_id WHERE i.batch_id = ? AND i.tenant_id = ?`, [input.batchId, input.tenantId]);
-      await c.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ? AND tenant_id = ?`, [input.batchId, input.tenantId]);
-      await c.execute(`DELETE r FROM h_ccp_form_rows r JOIN h_ccp_form_records f ON f.id = r.form_record_id AND f.tenant_id = r.tenant_id WHERE f.batch_id = ? AND f.tenant_id = ? AND f.ccp_type <> 'CCP-4P'`, [input.batchId, input.tenantId]);
-      await c.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ? AND tenant_id = ? AND ccp_type <> 'CCP-4P'`, [input.batchId, input.tenantId]);
-      await c.execute(`DELETE FROM h_ccp_form_rows WHERE tenant_id = ? AND batch_id = ? AND equipment_type = 'passage'`, [input.tenantId, input.batchId]);
-      await c.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`, [input.batchId, input.tenantId]);
-      await c.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ? AND tenant_id = ?`, [input.batchId, input.tenantId]);
-      try { await c.execute(`DELETE FROM h_batch_mass_basis WHERE batch_id = ? AND tenant_id = ?`, [input.batchId, input.tenantId]); }
-      catch (e: any) { if (e?.code !== "ER_NO_SUCH_TABLE") throw e; }
-      // 금속검출 하루 기록지가 이 생산 건을 기준(batch_id)으로 잡고 있으면 그날의 다른 생산 건으로 옮긴다 (기록지는 그날 공용)
-      if (changed.workDate) {
-        const [[other]]: any = await c.execute(
-          `SELECT id FROM h_batches WHERE tenant_id = ? AND planned_date = ? AND id <> ? AND status <> 'cancelled' AND voided_at IS NULL ORDER BY id LIMIT 1`,
-          [input.tenantId, String(b.wd), input.batchId],
-        );
-        if (other) await c.execute(`UPDATE h_ccp_form_records SET batch_id = ? WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND batch_id = ?`, [other.id, input.tenantId, input.batchId]);
-        else {
-          const { dropEmptyDailyMetal } = await import("../lib/production/batchTouchGuard");
-          await dropEmptyDailyMetal(c, input.tenantId, input.batchId);
+      if (!resumeOnly) {
+        // 이 생산 건의 미확인 파생 계획 정리 (위에서 손 안 댄 것을 확인)
+        await c.execute(`DELETE r FROM h_ccp_rows r JOIN h_ccp_instances i ON i.id = r.instance_id AND i.tenant_id = r.tenant_id WHERE i.batch_id = ? AND i.tenant_id = ?`, [input.batchId, input.tenantId]);
+        await c.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ? AND tenant_id = ?`, [input.batchId, input.tenantId]);
+        await c.execute(`DELETE r FROM h_ccp_form_rows r JOIN h_ccp_form_records f ON f.id = r.form_record_id AND f.tenant_id = r.tenant_id WHERE f.batch_id = ? AND f.tenant_id = ? AND f.ccp_type <> 'CCP-4P'`, [input.batchId, input.tenantId]);
+        await c.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ? AND tenant_id = ? AND ccp_type <> 'CCP-4P'`, [input.batchId, input.tenantId]);
+        await c.execute(`DELETE FROM h_ccp_form_rows WHERE tenant_id = ? AND batch_id = ? AND equipment_type = 'passage'`, [input.tenantId, input.batchId]);
+        await c.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`, [input.batchId, input.tenantId]);
+        await c.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ? AND tenant_id = ?`, [input.batchId, input.tenantId]);
+        try { await c.execute(`DELETE FROM h_batch_mass_basis WHERE batch_id = ? AND tenant_id = ?`, [input.batchId, input.tenantId]); }
+        catch (e: any) { if (e?.code !== "ER_NO_SUCH_TABLE") throw e; }
+        // 금속검출 하루 기록지가 이 생산 건을 기준(batch_id)으로 잡고 있으면 그날의 다른 생산 건으로 옮긴다 (기록지는 그날 공용)
+        if (changed.workDate) {
+          const [[other]]: any = await c.execute(
+            `SELECT id FROM h_batches WHERE tenant_id = ? AND planned_date = ? AND id <> ? AND status <> 'cancelled' AND voided_at IS NULL ORDER BY id LIMIT 1`,
+            [input.tenantId, String(b.wd), input.batchId],
+          );
+          if (other) await c.execute(`UPDATE h_ccp_form_records SET batch_id = ? WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND batch_id = ?`, [other.id, input.tenantId, input.batchId]);
+          else {
+            const { dropEmptyDailyMetal } = await import("../lib/production/batchTouchGuard");
+            await dropEmptyDailyMetal(c, input.tenantId, input.batchId);
+          }
         }
+        await c.execute(
+          `UPDATE h_batches SET planned_quantity = ?, planned_date = ?, start_time = ?, setup_pending = 1, plan_only = 1, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+          [after.qty, after.date, `${after.date} ${after.time}:00`, input.batchId, input.tenantId],
+        );
+        const { insertPlannedBatchInputs } = await import("../db/production/batchCRUD");
+        await insertPlannedBatchInputs(c, { batchId: input.batchId, tenantId: input.tenantId, productId: Number(b.product_id), plannedQty: after.qty });
+        await c.commit();
       }
-      await c.execute(
-        `UPDATE h_batches SET planned_quantity = ?, planned_date = ?, start_time = ?, setup_pending = 1, plan_only = 1, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
-        [after.qty, after.date, `${after.date} ${after.time}:00`, input.batchId, input.tenantId],
-      );
-      const { insertPlannedBatchInputs } = await import("../db/production/batchCRUD");
-      await insertPlannedBatchInputs(c, { batchId: input.batchId, tenantId: input.tenantId, productId: Number(b.product_id), plannedQty: after.qty });
-      await c.commit();
     } catch (e) {
       try { await c.rollback(); } catch { /* 원래 오류 */ }
       throw e;
@@ -109,13 +127,21 @@ export async function replanBatch(input: {
   const { getProductById } = await import("../db");
   const product = await getProductById(Number(before.product_id), input.tenantId);
   const [skuRows]: any = await pool.execute(`SELECT sku_id FROM production_sku_output WHERE batch_id = ? AND tenant_id = ?`, [input.batchId, input.tenantId]);
-  await completeBatchSetup({
-    tenantId: input.tenantId, siteId: Number(before.site_id), workDate: after.date, startTime: after.time, productId: Number(before.product_id),
-    plannedQuantityKg: after.qty, mode: before.mode === "manual" ? "manual" : "auto", userId: input.userId, batchId: input.batchId,
-    productName: (product as any)?.productName ?? "",
-  });
-  const setupMissing = await verifyBatchSetup(input.batchId, input.tenantId, { skuIds: (skuRows as any[]).map((r) => Number(r.sku_id)) });
-  if (!setupMissing.length) await pool.execute(`UPDATE h_batches SET setup_pending = 0 WHERE id = ? AND tenant_id = ?`, [input.batchId, input.tenantId]);
+  let setupError: string | null = null;
+  try {
+    await completeBatchSetup({
+      tenantId: input.tenantId, siteId: Number(before.site_id), workDate: after.date, startTime: after.time, productId: Number(before.product_id),
+      plannedQuantityKg: after.qty, mode: before.mode === "manual" ? "manual" : "auto", userId: input.userId, batchId: input.batchId,
+      productName: (product as any)?.productName ?? "",
+    });
+  } catch (e: any) {
+    // 준비 실패 — 준비 미완(setup_pending=1)을 그대로 두고 이유를 돌려준다. 같은 값을 다시 저장하면 여기부터 이어간다.
+    setupError = `준비 실패: ${e?.message ?? e}`;
+    console.error(`[replanBatch] 준비 실패 batch=${input.batchId}:`, e);
+  }
+  const verified = await verifyBatchSetup(input.batchId, input.tenantId, { skuIds: (skuRows as any[]).map((r) => Number(r.sku_id)) });
+  const setupMissing = setupError ? [setupError, ...verified] : verified;
+  if (!setupMissing.length) await pool.execute(`UPDATE h_batches SET setup_pending = 0 WHERE id = ? AND tenant_id = ? AND setup_pending = 1`, [input.batchId, input.tenantId]);
 
   // 원래 날짜의 금속검출 하루 기록지 — 이 생산 건 몫만 정리 (손 안 댄 행만, 다른 생산 건·사람 기록 보존)
   if (changed.workDate) {
@@ -142,7 +168,8 @@ export async function replanBatch(input: {
   try {
     const { createAuditLog } = await import("../db");
     await createAuditLog({ action: "batch.replan", entityType: "batch", entityId: input.batchId, userId: input.userId, userEmail: "", userRole: "",
-      description: `예정 생산 건 재계획 (${before.batch_code})`, changes: { changed, setupMissing } } as any, input.tenantId);
+      description: resumeOnly ? `예정 생산 건 준비 이어가기 (${before.batch_code})` : `예정 생산 건 재계획 (${before.batch_code})`,
+      changes: { changed, setupMissing, resumed: resumeOnly } } as any, input.tenantId);
   } catch { /* 감사 기록 실패는 기존 방식대로 무시 */ }
-  return { batchId: input.batchId, setupMissing, changed };
+  return { batchId: input.batchId, setupMissing, changed, resumed: resumeOnly };
 }

@@ -1,5 +1,6 @@
 /**
  * CCP 가열 운전시간 규칙 (2026-10-18) — 공정 시간 프로필 → 설비 기본 → 비움, 한계 하한(time_min) 은 쓰지 않음
+ *   2026-10-20: 프로필이 여러 개면 설비 기본으로 내려가지 않고 비움 (heatingFor)
  *   #586 에서 설비 기본(10분)만 쓰도록 바꿔 약식(프로필 35분)이 10분으로 찍힐 뻔했다 — 회귀 방지.
  */
 import { describe, it, expect } from "vitest";
@@ -14,7 +15,10 @@ describe("가열 운전시간 출처", () => {
     expect(src).toMatch(/profileTimeMin: g\.profile_time_min \?\? null/);
     expect(src).toMatch(/insertPlannedRows\(instanceId, proc, conn, tenantId\)/);
     const planner = read("server/lib/production/ccpDayPlanner.ts");
-    expect(planner).toMatch(/const heat = e \? \(heatingMin \?\? e\.defaultTimeMin\) : heatingMin;/);
+    // 프로필 1개 → 그 값, 0개 → 설비 기본, 여러 개 → 비움 (heatingFor 하나, 2026-10-20 검토 2)
+    expect(planner).toMatch(/const heat = heatOf\(e\);/);
+    expect(planner).toMatch(/heatingFor\(profileCount, g\.profileTimeMin, e\?\.defaultTimeMin \?\? null\)/);
+    expect(src).toMatch(/profileCount: g\.profile_count \?\? \(g\.profile_time_min != null \? 1 : 0\)/);
     expect(planner).toMatch(/eq\.cycleTotalMin \+ \(heatingMin - eq\.defaultTimeMin\)/);
     expect(src).not.toMatch(/group\.time_min\s*\?\?/); // 한계 하한을 운전시간으로 쓰지 않음
     expect(src).not.toMatch(/group\.temperature_min\.toString\(\)|group\.pressure_min \* 10/); // 설정값 칸을 한계 하한으로 채우지 않음
@@ -23,7 +27,7 @@ describe("가열 운전시간 출처", () => {
   });
   it("행 동기화 폴백(ccpFormSettings)도 같은 규칙", () => {
     const src = read("server/db/haccp/ccpFormSettings.ts");
-    expect(src).toMatch(/Number\(eq\.profile_count\) === 1 \? n\(eq\.profile_time_min\) : null\) \?\? n\(eq\.eq_heat_min\)/);
+    expect(src).toMatch(/const heat = heatingFor\(Number\(eq\.profile_count \?\? 0\), n\(eq\.profile_time_min\), n\(eq\.eq_heat_min\)\);/);
     expect(src).toMatch(/cycle \+ \(heat - eqHeat\)/);
   });
 });

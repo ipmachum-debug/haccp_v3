@@ -4,6 +4,7 @@
  * 품목제조보고 저장은 지금까지 감사 기록이 없었다 (승인·반려만 따로). 저장 전·후를 읽어 바뀐 것만 남긴다.
  * 설비 수정 기록은 받은 값 전체만 남겨 전후를 알 수 없었다 → 바뀐 칸만 { before, after }.
  */
+import { createHash } from "node:crypto";
 
 export interface RecipeSnapshot {
   /** 기록 제목용 제품 이름 (비교하지 않음) */
@@ -30,8 +31,7 @@ const same = (a: unknown, b: unknown) => norm(a) === norm(b);
  * 그 사이 다른 사람이 저장한 것이므로 뒤의 저장을 거부한다 (Codex #605 재검토 2 — 동시 편집 충돌).
  */
 export function recipeEditToken(s: RecipeSnapshot): string {
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  const { createHash } = require("node:crypto") as typeof import("node:crypto");
+  // 정적 import (2026-10-20) — 서버는 ESM 이라 require 가 없어 품목제조보고 편집 조회가 'require is not defined' 로 실패했다
   return createHash("sha1").update(JSON.stringify({ v: s.version, i: s.ingredients })).digest("hex").slice(0, 16);
 }
 

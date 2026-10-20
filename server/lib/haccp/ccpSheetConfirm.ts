@@ -23,6 +23,9 @@ export interface SheetRecord {
   clHeatTempLo: number | null;
   clPressureMpaLo: number | null;
   clProductTempLo: number | null;
+  /** 상한 (2026-10-20 검토 4) — 온도 상한은 2B 가열온도·1B 품온에. 없으면(undefined/null) 상한 없음 */
+  clHeatTempHi?: number | null;
+  clPressureMpaHi?: number | null;
   /** 현장 확인 기록지 — 행마다 사람이 확인해야 제출 (2026-10-19) */
   fieldMode?: boolean;
 }
@@ -83,21 +86,27 @@ export function validateSheetForConfirm(rec: SheetRecord, rows: SheetRow[], now:
       if (!has(r.measurementTime)) problems.push(`${label(r)}: 측정시각이 없습니다.`);
       if (r.heatTimeMin == null) problems.push(`${label(r)}: 가열시간이 없습니다.`);
       const prodLo = rec.ccpType === "CCP-1B" ? (rec.clProductTempLo ?? rec.clHeatTempLo) : null;
-      if (prodLo != null) {
+      const tempHi = rec.clHeatTempHi ?? null;
+      const pressHi = rec.clPressureMpaHi ?? null;
+      const prodHi = rec.ccpType === "CCP-1B" ? tempHi : null;
+      if (prodLo != null || prodHi != null) {
         if (r.tempCenterC == null) problems.push(`${label(r)}: 중심 품온이 없습니다.`);
         if (r.tempEdgeC == null) problems.push(`${label(r)}: 모서리 품온이 없습니다.`);
       }
-      if (rec.ccpType === "CCP-1B" && rec.clPressureMpaLo != null && r.pressureMpa == null) problems.push(`${label(r)}: 압력이 없습니다.`);
-      if (rec.ccpType === "CCP-2B" && rec.clHeatTempLo != null && r.heatTempC == null) problems.push(`${label(r)}: 가열온도가 없습니다.`);
-      // 한계기준 이탈 판정 — 정한 기준만 본다
+      if (rec.ccpType === "CCP-1B" && (rec.clPressureMpaLo != null || pressHi != null) && r.pressureMpa == null) problems.push(`${label(r)}: 압력이 없습니다.`);
+      if (rec.ccpType === "CCP-2B" && (rec.clHeatTempLo != null || tempHi != null) && r.heatTempC == null) problems.push(`${label(r)}: 가열온도가 없습니다.`);
+      // 한계기준 이탈 판정 — 정한 기준만 본다 (하한·상한 각각, 정확히 경계는 적합)
       const out: string[] = [];
       if (r.heatTimeMin != null && rec.clHeatTimeMinLo != null && r.heatTimeMin < rec.clHeatTimeMinLo) out.push(`가열시간 ${r.heatTimeMin} < ${rec.clHeatTimeMinLo}분`);
       if (r.heatTimeMin != null && rec.clHeatTimeMinHi != null && r.heatTimeMin > rec.clHeatTimeMinHi) out.push(`가열시간 ${r.heatTimeMin} > ${rec.clHeatTimeMinHi}분`);
       if (r.pressureMpa != null && rec.clPressureMpaLo != null && r.pressureMpa < rec.clPressureMpaLo) out.push(`압력 ${r.pressureMpa} < ${rec.clPressureMpaLo}MPa`);
-      if (prodLo != null) {
-        for (const [nm, v] of [["중심 품온", r.tempCenterC], ["모서리 품온", r.tempEdgeC]] as const) if (v != null && v < prodLo) out.push(`${nm} ${v} < ${prodLo}℃`);
+      if (r.pressureMpa != null && pressHi != null && r.pressureMpa > pressHi) out.push(`압력 ${r.pressureMpa} > ${pressHi}MPa`);
+      for (const [nm, v] of [["중심 품온", r.tempCenterC], ["모서리 품온", r.tempEdgeC]] as const) {
+        if (v != null && prodLo != null && v < prodLo) out.push(`${nm} ${v} < ${prodLo}℃`);
+        if (v != null && prodHi != null && v > prodHi) out.push(`${nm} ${v} > ${prodHi}℃`);
       }
       if (rec.ccpType === "CCP-2B" && r.heatTempC != null && rec.clHeatTempLo != null && r.heatTempC < rec.clHeatTempLo) out.push(`가열온도 ${r.heatTempC} < ${rec.clHeatTempLo}℃`);
+      if (rec.ccpType === "CCP-2B" && r.heatTempC != null && tempHi != null && r.heatTempC > tempHi) out.push(`가열온도 ${r.heatTempC} > ${tempHi}℃`);
       if (out.length && r.result === "적합") problems.push(`${label(r)}: 한계기준 이탈(${out.join(", ")})인데 '적합' 입니다.`);
     }
     if (kind === "sensitivity") {
@@ -176,7 +185,7 @@ export async function checkSheet(formRecordId: number, tenantId: number, opts: {
   const conn = opts.conn ?? (await getRawConnection());
   const [rs]: any = await conn.execute(
     `SELECT id, ccp_type, DATE_FORMAT(work_date, '%Y-%m-%d') AS wd, status, rows_version, field_mode,
-            cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo, cl_pressure_mpa_lo, cl_product_temp_lo
+            cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo, cl_pressure_mpa_lo, cl_product_temp_lo, cl_heat_temp_hi, cl_pressure_mpa_hi
        FROM h_ccp_form_records WHERE id = ? AND tenant_id = ? LIMIT 1${opts.lock ? " FOR UPDATE" : ""}`,
     [formRecordId, tenantId],
   );
@@ -186,6 +195,7 @@ export async function checkSheet(formRecordId: number, tenantId: number, opts: {
     id: Number(r.id), ccpType: String(r.ccp_type), workDate: String(r.wd), status: String(r.status), rowsVersion: Number(r.rows_version ?? 0),
     clHeatTimeMinLo: num(r.cl_heat_time_min_lo), clHeatTimeMinHi: num(r.cl_heat_time_min_hi), clHeatTempLo: num(r.cl_heat_temp_lo),
     clPressureMpaLo: num(r.cl_pressure_mpa_lo), clProductTempLo: num(r.cl_product_temp_lo), fieldMode: Number(r.field_mode ?? 0) === 1,
+    clHeatTempHi: num(r.cl_heat_temp_hi), clPressureMpaHi: num(r.cl_pressure_mpa_hi),
   };
   const [rws]: any = await conn.execute(
     `SELECT batch_seq, equipment_type, measurement_time, heat_time_min, heat_temp_c, pressure_mpa, temp_edge_c, temp_center_c,

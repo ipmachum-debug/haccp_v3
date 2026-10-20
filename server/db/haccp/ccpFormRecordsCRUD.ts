@@ -24,7 +24,7 @@ import {
   type InsertCcpFormRow,
 } from "../../../drizzle/schema/schema_main";
 import { eq, and, desc } from "drizzle-orm";
-import { loadLivePrintText, loadFrozenPrintText } from "./ccpPrintText";
+import { loadLivePrintText, loadFrozenPrintText, recordCriteriaOf } from "./ccpPrintText";
 import {
   timeToMin as metalTimeToMin,
   minToTime as metalMinToTime,
@@ -64,6 +64,8 @@ export async function getOrCreateCcpFormRecord(params: {
   clHeatTempLo?: number;
   clPressureMpaLo?: number;
   clProductTempLo?: number;
+  clHeatTempHi?: number;
+  clPressureMpaHi?: number;
   clMetalSensitivity?: number;
   clFeMm?: number;
   clSusMm?: number;
@@ -187,17 +189,18 @@ export async function getOrCreateCcpFormRecord(params: {
 
   // CL 은 공정그룹 설정을 스냅샷으로 (배치 생성 경로와 같은 근거 — 지티 QA F12, 2026-10-18).
   //   화면이 기준서 기본값(10~15분·0.12MPa·90℃)을 보내도 그룹이 있으면 그룹 값을 쓴다 — 판정과 표시가 같은 기준.
-  let groupCl: { timeLo: number | null; timeHi: number | null; tempLo: number | null; pressureLo: number | null } | null = null;
+  //   ★ 2026-10-20 (검토 4): 온도·압력 상한도 스냅샷 — 설정 → 기록지 → 현장 확인 → 제출 판정 → 인쇄가 같은 값. 비어 있으면 상한 없음.
+  let groupCl: { timeLo: number | null; timeHi: number | null; tempLo: number | null; tempHi: number | null; pressureLo: number | null; pressureHi: number | null } | null = null;
   if (params.processGroupId && params.ccpType !== "CCP-4P") {
     const conn = await getRawConnection();
     const [g]: any = await conn.execute(
-      `SELECT time_min, time_max, temperature_min, pressure_min FROM ccp_process_groups WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      `SELECT time_min, time_max, temperature_min, temperature_max, pressure_min, pressure_max FROM ccp_process_groups WHERE id = ? AND tenant_id = ? LIMIT 1`,
       [params.processGroupId, params.tenantId],
     );
     const r = (g as any[])[0];
     if (r) {
       const n = (v: unknown) => (v == null ? null : Number(v));
-      groupCl = { timeLo: n(r.time_min), timeHi: n(r.time_max), tempLo: n(r.temperature_min), pressureLo: n(r.pressure_min) };
+      groupCl = { timeLo: n(r.time_min), timeHi: n(r.time_max), tempLo: n(r.temperature_min), tempHi: n(r.temperature_max), pressureLo: n(r.pressure_min), pressureHi: n(r.pressure_max) };
     }
   }
 
@@ -256,6 +259,8 @@ export async function getOrCreateCcpFormRecord(params: {
     clPressureMpaLo: (groupCl ? groupCl.pressureLo : params.clPressureMpaLo)?.toString(),
     // 증숙(CCP-1B) 품온 기준은 그룹 온도 하한 — 그룹이 있으면 기준서 기본 90℃ 를 쓰지 않는다
     clProductTempLo: (groupCl ? (params.ccpType === "CCP-1B" ? groupCl.tempLo : null) : params.clProductTempLo)?.toString(),
+    clHeatTempHi: (groupCl ? groupCl.tempHi : params.clHeatTempHi)?.toString(),
+    clPressureMpaHi: (groupCl ? groupCl.pressureHi : params.clPressureMpaHi)?.toString(),
     clMetalSensitivity: params.clMetalSensitivity ?? null,
     clFeMm: params.clFeMm?.toString() ?? metalCl.fe,
     clSusMm: params.clSusMm?.toString() ?? metalCl.sus,
@@ -395,6 +400,8 @@ async function loadCcpFormRecordsByBatch(batchId: number, tenantId?: number) {
               clHeatTempLo: raw.cl_heat_temp_lo,
               clPressureMpaLo: raw.cl_pressure_mpa_lo,
               clProductTempLo: raw.cl_product_temp_lo,
+              clHeatTempHi: raw.cl_heat_temp_hi ?? null,
+              clPressureMpaHi: raw.cl_pressure_mpa_hi ?? null,
               clMetalSensitivity: raw.cl_metal_sensitivity,
               clFeMm: raw.cl_fe_mm,
               clSusMm: raw.cl_sus_mm,
@@ -443,7 +450,8 @@ async function enrichWithGroupText<T extends { id?: number; processGroupId?: num
       if (frozen) return { ...rec, ...frozen };
     }
     if (!rec.processGroupId) return rec as any;
-    const live = await loadLivePrintText(conn, tenantId, rec.processGroupId, (rec as any).ccpType ?? null);
+    // 작성 중 기록지도 이 공정 줄은 기록지 판정 기준 — 인쇄가 판정과 다른 숫자를 보이지 않게 (2026-10-20 검토 3)
+    const live = await loadLivePrintText(conn, tenantId, rec.processGroupId, (rec as any).ccpType ?? null, recordCriteriaOf(rec));
     if (live) return { ...rec, ...live };
   } catch { /* 문구 조회 실패 — 인쇄는 빈 칸 안내 */ }
   return rec as any;

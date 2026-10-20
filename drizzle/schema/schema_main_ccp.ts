@@ -161,6 +161,9 @@ export const hCcpFormRecords = mysqlTable("h_ccp_form_records", {
   // CL 한계기준 - CCP-1B (증숙)
   clPressureMpaLo: decimal("cl_pressure_mpa_lo", { precision: 5, scale: 3 }),
   clProductTempLo: decimal("cl_product_temp_lo", { precision: 5, scale: 1 }),
+  // 상한 (2026-10-20) — 공정 설정 temperature_max·pressure_max 스냅샷. 온도 상한은 2B 가열온도·1B 품온에, 비우면 상한 없음
+  clHeatTempHi: decimal("cl_heat_temp_hi", { precision: 5, scale: 1 }),
+  clPressureMpaHi: decimal("cl_pressure_mpa_hi", { precision: 5, scale: 3 }),
   // CL 한계기준 - CCP-4P (금속검출)
   clMetalSensitivity: int("cl_metal_sensitivity").default(130),
   clFeMm: decimal("cl_fe_mm", { precision: 4, scale: 1 }).default("2.0"),

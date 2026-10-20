@@ -62,6 +62,7 @@ function toSheet(form: any, row: any): { rec: SheetRecord; r: SheetRow } {
       id: Number(form.id), ccpType: String(form.ccp_type), workDate: String(form.wd), status: String(form.status),
       clHeatTimeMinLo: n(form.cl_heat_time_min_lo), clHeatTimeMinHi: n(form.cl_heat_time_min_hi), clHeatTempLo: n(form.cl_heat_temp_lo),
       clPressureMpaLo: n(form.cl_pressure_mpa_lo), clProductTempLo: n(form.cl_product_temp_lo),
+      clHeatTempHi: n(form.cl_heat_temp_hi), clPressureMpaHi: n(form.cl_pressure_mpa_hi),
     },
     r: {
       batchSeq: Number(row.batch_seq), equipmentType: row.equipment_type ?? null, measurementTime: row.measurement_time ?? null,
@@ -80,7 +81,7 @@ async function loadRow(c: any, rowId: number, tenantId: number, lock: boolean) {
   if (!row) throw new FieldRejectedError(["이 회사의 기록 행이 아닙니다."]);
   const [[form]]: any = await c.execute(
     `SELECT id, batch_id, ccp_type, status, field_mode, voided_at, DATE_FORMAT(work_date, '%Y-%m-%d') AS wd,
-            cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo, cl_pressure_mpa_lo, cl_product_temp_lo, detector_equipment_id
+            cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo, cl_pressure_mpa_lo, cl_product_temp_lo, cl_heat_temp_hi, cl_pressure_mpa_hi, detector_equipment_id
        FROM h_ccp_form_records WHERE id = ? AND tenant_id = ?`,
     [row.form_record_id, tenantId],
   );
@@ -348,6 +349,7 @@ export async function listFieldWork(tenantId: number, workDate: string, equipmen
   const [forms]: any = await c.execute(
     `SELECT f.id, f.batch_id, f.ccp_type, f.status, f.process_group_name, f.product_name, f.rows_version, f.confirmed_at, f.confirmed_rows_version, f.detector_equipment_id,
             DATE_FORMAT(f.work_date, '%Y-%m-%d') AS wd, f.cl_heat_time_min_lo, f.cl_heat_time_min_hi, f.cl_heat_temp_lo, f.cl_pressure_mpa_lo, f.cl_product_temp_lo,
+            f.cl_heat_temp_hi, f.cl_pressure_mpa_hi,
             b.batch_code, b.plan_only, b.status AS batch_status, COALESCE(p.product_name, f.product_name) AS batch_product
        FROM h_ccp_form_records f
        LEFT JOIN h_batches b ON b.id = f.batch_id AND b.tenant_id = f.tenant_id
@@ -377,7 +379,8 @@ export async function listFieldWork(tenantId: number, workDate: string, equipmen
   for (const f of formList.filter((x) => x.ccp_type !== "CCP-4P")) {
     for (const r of rows.filter((x) => Number(x.form_record_id) === Number(f.id) && mine(x))) {
       heat.push({ ...view(f, r), process: f.process_group_name ?? f.ccp_type, ccpType: f.ccp_type, batchCode: f.batch_code ?? null, planOnly: Number(f.plan_only ?? 0) === 1,
-        cl: { heatTimeMinLo: n(f.cl_heat_time_min_lo), heatTempLo: n(f.cl_heat_temp_lo), pressureMpaLo: n(f.cl_pressure_mpa_lo), productTempLo: n(f.cl_product_temp_lo) } });
+        cl: { heatTimeMinLo: n(f.cl_heat_time_min_lo), heatTimeMinHi: n(f.cl_heat_time_min_hi), heatTempLo: n(f.cl_heat_temp_lo), heatTempHi: n(f.cl_heat_temp_hi),
+              pressureMpaLo: n(f.cl_pressure_mpa_lo), pressureMpaHi: n(f.cl_pressure_mpa_hi), productTempLo: n(f.cl_product_temp_lo) } });
     }
   }
   heat.sort((a, b) => String(a.plannedTime ?? "99").localeCompare(String(b.plannedTime ?? "99")) || a.rowId - b.rowId);

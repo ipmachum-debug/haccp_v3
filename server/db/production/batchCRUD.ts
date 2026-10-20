@@ -6,7 +6,7 @@ import { eq, and, desc, sql, like, inArray } from "drizzle-orm";
 import { getDb, getRawConnection } from "../connection";
 import { resolveBomProductIds, selectBomVersion } from "../../lib/identity/itemIdentityService";
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
-import { isPlannedInputRow, legacyInputQty } from "../../lib/production/batchInputPlan";
+import { BomQtyError, isPlannedInputRow, plannedInputQty } from "../../lib/production/batchInputPlan";
 import { hBatches, hBatchInputs, hCcpInstances, hCcpRecords, hProductsV2, hMaterials, hInventory, hInventoryTransactions, hApprovalRequests } from "../../../drizzle/schema";
 
 
@@ -169,16 +169,21 @@ export async function insertPlannedBatchInputs(conn: any, a: { batchId: number; 
   if (!picked) return 0;
   if (!picked.approved) console.log("[createBatch] APPROVED 버전 없음, 최신 버전 fallback 사용");
   const versionId = picked.versionId;
+  const [[ver]]: any = await conn.execute(`SELECT batch_target_kg FROM h_mf_report_versions WHERE id = ?`, [versionId]);
+  const batchTargetKg = ver?.batch_target_kg != null && Number(ver.batch_target_kg) > 0 ? Number(ver.batch_target_kg) : null;
 
   // 3. 배합비 — h_mf_ingredients.material_id = item_master.id, 단위는 item_master.base_unit
   const [ingRows]: any = await conn.execute(
     `SELECT i.id, i.material_id AS materialId, i.quantity, i.corrected_quantity AS correctedQuantity, i.is_deductible AS isDeductible,
-            i.unit, i.process_group_id AS processGroupId, im.base_unit AS materialUnit
+            i.unit, i.is_additional AS isAdditional, i.process_group_id AS processGroupId, im.base_unit AS materialUnit
        FROM h_mf_ingredients i LEFT JOIN item_master im ON im.id = i.material_id AND im.tenant_id = ?
       WHERE i.mf_report_version_id = ? ORDER BY i.line_no, i.id`,
     [tenantId, versionId],
   );
-  const ingredients = (ingRows as any[]).map((r) => ({ ...r, materialId: r.materialId != null ? Number(r.materialId) : null, isDeductible: r.isDeductible != null ? Number(r.isDeductible) : null }));
+  const ingredients = (ingRows as any[]).map((r) => ({
+    ...r, materialId: r.materialId != null ? Number(r.materialId) : null, isDeductible: r.isDeductible != null ? Number(r.isDeductible) : null,
+    isAdditional: r.isAdditional != null ? Number(r.isAdditional) : null,
+  }));
 
   // ★ 2026-10-16 (수율 기준 PR C): 기준 계산이면 스냅샷을 고정하고 원료 투입 계획(=자동 출고량)을 스냅샷의 행별 원물 kg 로.
   let massBasisRawByIngredient: Map<number, number> | null = null;
@@ -247,15 +252,23 @@ export async function insertPlannedBatchInputs(conn: any, a: { batchId: number; 
   const { rawKgToMaterialUnit } = await import("./batchMassBasis");
   let n = 0;
   for (const ing of filtered as any[]) {
-    // 보정 배합비 사용 (없으면 법적 배합비) — 생산 설계 시험 계산과 같은 식 (batchInputPlan)
+    // BOM 줄 계약 (batchInputPlan — 생산 설계 시험 계산·CCP 투입량과 같은 해석): 주원료 % × 계획량, 추가 원재료 kg·g 는
+    // 1배치 기준량 대비 비례, 원료 재고 단위(kg·g)로 환산. 정할 수 없는 줄은 생산 건을 만들지 않는다 (2026-10-20 검토 1).
     // 기준 스냅샷이 있으면 그 행의 원물 kg (불리기 전, 재고 출고 기준)
-    let plannedQ = legacyInputQty(ing, plannedQty);
-    let unit = ing.materialUnit || "kg";
+    let plannedQ: number;
+    let unit: string;
     if (massBasisRawByIngredient) {
       const conv = rawKgToMaterialUnit(massBasisRawByIngredient.get(Number(ing.id))!, ing.materialUnit);
       if (!conv) throw new Error(`[수율 환산] 원료 행 ${ing.id} 의 단위(${ing.materialUnit}) 는 kg 기준으로 바꿀 수 없습니다`);
       plannedQ = conv.qty;
       unit = conv.unit;
+    } else {
+      try {
+        ({ qty: plannedQ, unit } = plannedInputQty(ing, plannedQty, batchTargetKg, ing.materialUnit));
+      } catch (e) {
+        if (e instanceof BomQtyError) throw new Error(`[원료 양] ${nameOf.get(Number(ing.materialId)) || `원료 #${ing.materialId}`}: ${e.message} — 생산 건을 만들지 않았습니다`);
+        throw e;
+      }
     }
     const rawId = Number(ing.materialId);
     const canonicalId = idMap.get(rawId)!;

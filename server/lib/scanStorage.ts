@@ -7,6 +7,7 @@
 import fs from "fs";
 import path from "path";
 import crypto from "crypto";
+import { todayKST } from "../utils/timezone";
 
 const SCAN_DIR = process.env.SCAN_DIR || "/home/root/haccp_v3/uploads/scans";
 const RETENTION_DAYS = 7;
@@ -29,7 +30,6 @@ export function saveScanFile(
 ): { filePath: string; fileName: string; key: string } {
   ensureScanDir();
 
-  const { todayKST } = require("../utils/timezone");
   const date = todayKST().replace(/-/g, "");
   const tenantDir = path.join(SCAN_DIR, String(tenantId), date);
   if (!fs.existsSync(tenantDir)) {
