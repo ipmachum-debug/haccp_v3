@@ -13,7 +13,8 @@ const read = (p: string) => readFileSync(join(__dirname, p), "utf-8");
 describe("미래 날짜 = 예정", () => {
   it("생산 건 만들기: 오늘 KST 보다 뒤 날짜면 실행 단계를 건너뛰고 plan_only = 1", () => {
     const o = read("services/batchOrchestrator.ts");
-    expect(o).toMatch(/const planOnly = input\.workDate >= todayKST\(\);/); // 오늘도 예정 (하루 생산 흐름)
+    expect(o).toMatch(/let planOnly = input\.workDate >= todayKST\(\);/); // 새로 만들 때: 오늘도 예정 (하루 생산 흐름)
+    expect(o).toMatch(/planOnly = Number\(b\.plan_only \?\? 0\) === 1/); // 이어서 준비: 저장된 생애주기 (2026-10-21)
     // 예정 표시는 생산 건을 만드는 같은 INSERT 에 (따로 UPDATE 하다 멈추면 예정 아닌 계획이 남았다 — 생산계획 생애주기 검토 4)
     expect(o).toMatch(/planOnly,\s*activationPending: !planOnly,/);
     expect(read("db/production/batchCRUD.ts")).toMatch(/create_request_id, plan_only, activation_pending, setup_pending\)/);
@@ -26,8 +27,9 @@ describe("미래 날짜 = 예정", () => {
   });
   it("여러 건 한꺼번에(하루 단위): 미래 날짜면 일지·금속검출 승인요청·생산일지를 미리 만들지 않음", () => {
     const r = read("routers/production/batch.crud.router.ts");
-    expect(r).toMatch(/const planOnlyDay = input\.workDate >= _today\(\);/);
-    expect(r.match(/if \(!planOnlyDay && successResults\.length > 0\)/g)?.length).toBe(2);
+    // 날짜가 아니라 이번에 실제로 실행한 생산 건 기준 (2026-10-21 — 예정 건 다음 날 재시도가 제출·결재를 만들던 문제)
+    expect(r).toMatch(/const planOnlyDay = executedResults\.length === 0;/);
+    expect(r.match(/if \(executedResults\.length > 0\)/g)?.length).toBe(2);
     expect(r).toMatch(/if \(!planOnlyDay\) try \{\s*const \{ autoRegenerateProductionDaily \}/);
   });
 });

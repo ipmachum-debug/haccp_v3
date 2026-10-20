@@ -70,6 +70,8 @@ export interface SingleBatchResult {
   setupMissing: string[];
   /** 이미 있던 생산 건을 이어서 완성했는가 */
   resumed: boolean;
+  /** 이번 호출에서 실행 단계(시작·출고·기록지 제출 전환)를 실제로 돌렸는가 — 그룹 후속 처리(일지·금속검출 결재)는 이것만 기준 */
+  executedNow: boolean;
 }
 
 /**
@@ -121,15 +123,19 @@ export async function createSingleBatch(
 ): Promise<SingleBatchResult> {
   const { createBatch, getProductById, createAuditLog } = await import("../db");
   const conn = await getRawConnection();
-  const planOnly = input.workDate >= todayKST();
+  // 새로 만들 때: 오늘·미래 = 예정, 지난 날짜(뒤늦은 입력) = 바로 실행. 이어서 준비(재시도)는 아래에서 저장된 생애주기로 다시 정한다.
+  let planOnly = input.workDate >= todayKST();
 
   let batchId: number;
   let batchCodeFinal: string;
   const resumed = !!input.resumeBatchId;
   if (input.resumeBatchId) {
-    const [[b]]: any = await conn.execute(`SELECT id, batch_code, voided_at FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.resumeBatchId, input.tenantId]);
+    const [[b]]: any = await conn.execute(`SELECT id, batch_code, voided_at, plan_only, activation_pending FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.resumeBatchId, input.tenantId]);
     if (!b) throw new Error(`이어서 준비할 생산 건 #${input.resumeBatchId} 을 찾을 수 없습니다.`);
     if (b.voided_at) throw new Error(`생산 건 #${input.resumeBatchId} 은 무효 처리되어 이어서 준비하지 않습니다.`);
+    // 저장된 생애주기 기준 (2026-10-21, #627 운영 시험): '예정'으로 만든 생산 건은 날짜가 지나 재시도해도 예정 —
+    //   실행은 그날 현장 첫 확인(ensureBatchActivated)에서만. 실행이 남은(activation_pending) 지난 생산 건만 이어서 실행.
+    planOnly = Number(b.plan_only ?? 0) === 1 || Number(b.activation_pending ?? 0) !== 1;
     batchId = Number(b.id);
     batchCodeFinal = String(b.batch_code);
   } else {
@@ -204,6 +210,7 @@ export async function createSingleBatch(
   let approvalRequestId: number | null = null;
   let dailyReportCreated = false;
   let periodicLogsResult: any = null;
+  let executedNow = false;
   if (!setupMissing.length) {
     await conn.execute(`UPDATE h_batches SET setup_pending = 0 WHERE id = ? AND tenant_id = ?`, [batchId, input.tenantId]);
     // === 4. 지난 날짜(뒤늦은 입력 — 이미 한 생산)만 실행 단계 — 한 번 (activation_pending 1→0 을 먼저 잡음) ===
@@ -214,6 +221,7 @@ export async function createSingleBatch(
           `UPDATE h_batches SET activation_claimed_at = NOW() WHERE id = ? AND tenant_id = ? AND activation_pending = 1 AND (activation_claimed_at IS NULL OR activation_claimed_at < NOW() - INTERVAL 5 MINUTE)`,
           [batchId, input.tenantId]);
         if (Number(claim?.affectedRows ?? 0) === 1) {
+          executedNow = true;
           const r = await runExecutionSteps({ input, batchId, batchCodeFinal, productName, ccpCreated, ccpCount, ccpGroups });
           ({ approvalRequestId, dailyReportCreated, periodicLogsResult } = r);
           await conn.execute(r.failures.length ? `UPDATE h_batches SET activation_claimed_at = NULL WHERE id = ? AND tenant_id = ?`
@@ -225,6 +233,7 @@ export async function createSingleBatch(
           batchId, tenantId: input.tenantId, userId: input.userId, siteId: Number(b?.site_id ?? input.siteId), workDate: input.workDate, mode: input.mode,
           plannedQuantityKg: input.plannedQuantityKg, batchCode: batchCodeFinal, productName, ccpGroups,
         }, { startDone: false });
+        executedNow = r.ran;
         ({ approvalRequestId, dailyReportCreated, periodicLogsResult } = r);
       }
     }
@@ -262,6 +271,7 @@ export async function createSingleBatch(
     periodicLogsResult,
     setupMissing,
     resumed,
+    executedNow,
   };
 }
 

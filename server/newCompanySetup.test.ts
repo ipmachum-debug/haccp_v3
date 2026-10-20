@@ -286,3 +286,15 @@ describe("번호 체계 2d — 남은 화면이 품목 번호를 밝혀 보낸�
     expect(pp).toMatch(/inventoryMaterialIdOfStoredMixed/);
   });
 });
+
+describe("예정 생산 건 준비 재시도 — 날짜가 지나도 예정 (2026-10-21 #627 운영 시험)", () => {
+  it("이어서 준비는 저장된 생애주기(plan_only·activation_pending)로, 그룹 후속 처리는 이번에 실제 실행한 생산 건만", () => {
+    const o = read("server/services/batchOrchestrator.ts");
+    expect(o).toMatch(/planOnly = Number\(b\.plan_only \?\? 0\) === 1 \|\| Number\(b\.activation_pending \?\? 0\) !== 1;/);
+    expect(o).toMatch(/executedNow = r\.ran;/);
+    const r = read("server/routers/production/batch.crud.router.ts");
+    expect(r).toMatch(/const executedResults = successResults\.filter\(\(r: any\) => r\.executedNow\);/);
+    expect(r).not.toMatch(/const planOnlyDay = input\.workDate >= _today\(\);/);
+    expect(r).not.toMatch(/const planOnly = workDate >= todayKST\(\);/);
+  });
+});
