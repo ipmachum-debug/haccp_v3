@@ -3867,10 +3867,18 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
           (88903, ?, 1, 'QA-RPT-2', ?, 20, '2026-10-20', 'completed', 4, 'https://cdn.example.test/tenant-9/reports/x.pdf')`, [T, PV2, T, PV2]);
         const { batchCrudRouter } = await import("./routers/production/batch.crud.router");
         const b = (batchCrudRouter as any).createCaller({ user: { id: 4, role: "admin", tenantId: T, email: "t@t" }, tenantId: T } as any);
+        // 실제로 읽히는지 1바이트 확인 — 네트워크 없이 응답만 흉내 (읽힘 206 / 거부 403)
+        const fetchSpy = vi.spyOn(globalThis, "fetch" as any).mockResolvedValue(new Response("x", { status: 206 }) as any);
         const r = await b.completionReportLink({ batchId: 88902 });
         expect(r.url).toContain("tenant-2/reports/batch-completion-report-QA-RPT-1-1.pdf");
         expect(r.url).toMatch(/X-Amz-Signature=/);
         expect(r.url).toMatch(/X-Amz-Expires=3600/);
+        expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(r.url);
+        expect((fetchSpy.mock.calls[0]?.[1] as any)?.headers?.Range).toBe("bytes=0-0");
+        // 파일이 없거나 읽기 거부(403) → 'Access Denied' 페이지를 열지 않고 [다시 만들기] 안내
+        fetchSpy.mockResolvedValue(new Response("<Error><Code>AccessDenied</Code></Error>", { status: 403 }) as any);
+        await expect(b.completionReportLink({ batchId: 88902 })).rejects.toThrow(/다시 만들기/);
+        fetchSpy.mockRestore();
         // 저장된 주소가 다른 회사 경로면 발급하지 않음
         await expect(b.completionReportLink({ batchId: 88903 })).rejects.toThrow(/완료 보고서 파일을 찾을 수 없습니다/);
         // 다른 회사 caller 는 생산 건 자체를 못 봄

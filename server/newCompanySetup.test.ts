@@ -150,7 +150,7 @@ describe("신규 회사 시험 4차 — 완료 보고서 열기 · BOM 기준량
     expect(reportKeyFromUrl(null, 15)).toBeNull();
     const d = read("client/src/pages/production/BatchDetail.tsx");
     expect(d).not.toMatch(/window\.open\(batch\.completionReportUrl/);
-    expect(d).toMatch(/reportLink\.mutate\(\{ batchId \}/);
+    expect(d).toMatch(/const m = fresh \? reportRegen : reportLink;/);
   });
   it("BOM 기준량: 생산 건 기록지 저장값 먼저, 없으면 생산이 쓰는 버전 선택 함수 — 생산 제품 번호와 BOM 번호를 직접 비교하지 않음", () => {
     const s = read("server/routers/haccp/ccpForm.router.ts");
@@ -173,5 +173,24 @@ describe("신규 회사 시험 4차 — 완료 보고서 열기 · BOM 기준량
     expect(f).toMatch(/input\.monitoringMethod = texts\.method/);
     expect(f).toMatch(/monitoringMethod: texts\.method\.trim\(\) \|\| undefined/);
     expect(read("server/lib/production/designFactorySave.ts")).toMatch(/col\("monitoring_method", txt\(input\.monitoringMethod\)/);
+  });
+});
+
+
+describe("신규 회사 시험 5차 — 완료 보고서 실제 읽힘 확인·다시 만들기 · 회사 폴더 · 도장 줄바꿈", () => {
+  it("완료 처리 때 보고서를 회사 폴더에 저장, 열기 전 1바이트 확인, 못 읽으면 그 자리에서 다시 만들기(관리자)", () => {
+    expect(read("server/db/production/batchLifecycle.ts")).toMatch(/generateBatchCompletionReport\(batchId, tenantId\)/);
+    const r = read("server/routers/production/batch.crud.router.ts");
+    expect(r).toMatch(/const probe = await probeStorageUrl\(url\)/);
+    expect(r).toMatch(/regenerateCompletionReport: tenantRequiredProcedure/);
+    expect(r).toMatch(/UPDATE h_batches SET completion_report_url = \? WHERE id = \? AND tenant_id = \?/);
+    const d = read("client/src/pages/production/BatchDetail.tsx");
+    expect(d).toMatch(/report-regenerate/);
+    expect(d).toMatch(/report-make/);
+    expect(d).not.toMatch(/보고서 생성 중\.\.\.\s*<\/div>/);
+  });
+  it("도장 아래 이름은 칸 폭 안에서 줄바꿈 (표 칸 전체 nowrap 을 풀어 옆 칸으로 넘치지 않게)", () => {
+    const s = read("client/src/components/checklist/ApprovalStampBox.tsx");
+    expect(s).toMatch(/max-w-\[44px\] whitespace-normal break-all/);
   });
 });
