@@ -53,6 +53,7 @@ describe("연결 방식", () => {
 
 describe("3-c 탭 URL 유지", () => {
   it("CCP 모니터링 탭", () => {
-    expect(read("client/src/pages/haccp/CCPMonitoring.tsx")).toContain('useTabWithUrl("tab", "records")');
+    // 2026-10-21: 허용 탭 목록 추가 (잘못된 탭 값은 기본으로)
+    expect(read("client/src/pages/haccp/CCPMonitoring.tsx")).toContain('useTabWithUrl("tab", "records", [');
   });
 });

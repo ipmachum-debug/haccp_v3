@@ -41,6 +41,19 @@ export function pickPage(raw: string | null | undefined): number {
   return Number.isInteger(n) && n >= 1 && n <= 100000 ? n : 1;
 }
 
+/** 날짜(YYYY-MM-DD)·월(YYYY-MM) 쿼리 — 모양과 실제 날짜가 맞을 때만, 아니면 기본값 */
+export function pickDate(raw: string | null | undefined, fallback: string): string {
+  if (!raw || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return fallback;
+  const [y, m, d] = raw.split("-").map(Number);
+  const t = new Date(y, m - 1, d);
+  return t.getFullYear() === y && t.getMonth() === m - 1 && t.getDate() === d ? raw : fallback;
+}
+export function pickMonth(raw: string | null | undefined, fallback: string): string {
+  if (!raw || !/^\d{4}-\d{2}$/.test(raw)) return fallback;
+  const m = Number(raw.slice(5));
+  return m >= 1 && m <= 12 ? raw : fallback;
+}
+
 /**
  * 돌아갈 주소 검사 — 같은 사이트의 상대 경로('/…')만. 아니면 fallback.
  *   거절: 'https://…', '//host/…', '/\\host', 'javascript:…', 제어 문자·공백 시작, 너무 긴 값

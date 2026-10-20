@@ -13,7 +13,8 @@ import { CcpInspectionCard } from "@/components/ccp/CcpInspectionCard";
 import { CcpMonitoringForms } from "@/components/ccp/CcpMonitoringForms";
 import { trpc } from "@/lib/trpc";
 import { ArrowLeft, Boxes, Loader2 } from "lucide-react";
-import { Link, useLocation, useParams } from "wouter";
+import { Link, useLocation, useParams, useSearch } from "wouter";
+import { returnToFromSearch } from "@/lib/urlState";
 
 const CCP_LIST_PATH = "/quality/ccp-monitoring";
 
@@ -58,6 +59,8 @@ function fmtDate(v: Date | string | null | undefined): string {
 export default function CcpInspection() {
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
+  // 돌아갈 곳 (2026-10-21 작업 위치 보존) — 들어온 CCP 기록 목록(탭·조건 그대로). 직접 링크면 CCP 관리
+  const backTo = returnToFromSearch(useSearch(), CCP_LIST_PATH);
   const instanceId = params.id ? parseInt(params.id, 10) : 0;
 
   const { data: detail, isLoading, refetch } = trpc.ccp.getInstanceDetail.useQuery(
@@ -73,7 +76,7 @@ export default function CcpInspection() {
       <div className="flex flex-col gap-4 md:gap-6">
         {/* 헤더 */}
         <div className="flex items-start gap-4">
-          <Button variant="outline" size="icon" onClick={() => setLocation(CCP_LIST_PATH)} title="CCP 기록 목록">
+          <Button variant="outline" size="icon" onClick={() => setLocation(backTo)} title="CCP 기록 목록">
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
@@ -119,7 +122,7 @@ export default function CcpInspection() {
             <CardContent className="py-12 text-center text-muted-foreground">
               <p>CCP 기록 #{instanceId} 을(를) 찾을 수 없습니다.</p>
               <p className="text-xs mt-1">삭제되었거나 다른 사업장의 기록일 수 있습니다.</p>
-              <Button variant="outline" className="mt-4" onClick={() => setLocation(CCP_LIST_PATH)}>
+              <Button variant="outline" className="mt-4" onClick={() => setLocation(backTo)}>
                 목록으로
               </Button>
             </CardContent>

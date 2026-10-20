@@ -15,6 +15,16 @@ import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+// 실제 운영 화면 (2026-10-21 작업 위치 보존 2차) — 서버 연결만 대역, 화면 코드는 그대로
+import ApprovalManagement from "@/pages/system/ApprovalManagement";
+import MaterialLedger from "@/pages/accounting/MaterialLedger";
+import ItemMasterManagement from "@/pages/master/ItemMasterManagement";
+import PurchaseOrderCreate from "@/pages/accounting/PurchaseOrderCreate";
+import PurchasesList from "@/pages/accounting/PurchasesList";
+import PurchaseDetail from "@/pages/accounting/PurchaseDetail";
+import TodayProduction from "@/pages/production/TodayProduction";
+import CCPMonitoring from "@/pages/haccp/CCPMonitoring";
+import CcpInspection from "@/pages/haccp/CcpInspection";
 
 function List() {
   const [tab, setTab] = useTabWithUrl("tab", "a", ["a", "b", "c"]);
@@ -70,6 +80,15 @@ function App() {
       <Route path="/list" component={List} />
       <Route path="/edit/:id" component={Edit} />
       <Route path="/app/edit/:id" component={LayoutEdit} />
+      <Route path="/dashboard/approval" component={ApprovalManagement} />
+      <Route path="/dashboard/accounting/material-ledger" component={MaterialLedger} />
+      <Route path="/dashboard/item-master" component={ItemMasterManagement} />
+      <Route path="/dashboard/accounting/purchase-orders/create" component={PurchaseOrderCreate} />
+      <Route path="/dashboard/accounting/purchases/list" component={PurchasesList} />
+      <Route path="/dashboard/accounting/purchases/:id" component={PurchaseDetail} />
+      <Route path="/dashboard/production/today" component={TodayProduction} />
+      <Route path="/quality/ccp-monitoring" component={CCPMonitoring} />
+      <Route path="/dashboard/ccp/:id" component={CcpInspection} />
       <Route><div data-testid="page">other</div></Route>
     </Switch>
   );

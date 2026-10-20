@@ -61,6 +61,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import * as XLSX from "xlsx";
 import { EditSaleDialog } from "@/components/accounting/EditSaleDialog";
 import { useLocation } from "wouter";
+import { pickPage } from "@/lib/urlState";
 import ExcelBulkUploadModal from "@/components/ExcelBulkUploadModal";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
@@ -122,7 +123,7 @@ export default function SalesList() {
 function SalesListContent() {
   const [, navigate] = useLocation();
   // 3-c 2차: 조회 조건은 URL 쿼리에 유지 — 기존 이름은 그대로 두고 URL 로 연결
-  const [urlFilters, setUrlFilters, resetUrlFilters] = useUrlFilters({ from: "", to: "", partner: "all", item: "", status: "all" });
+  const [urlFilters, setUrlFilters, resetUrlFilters] = useUrlFilters({ from: "", to: "", partner: "all", item: "", status: "all", page: "1" });
   const startDate = urlFilters.from, endDate = urlFilters.to, selectedPartnerId = urlFilters.partner, itemNameSearch = urlFilters.item, selectedStatus = urlFilters.status;
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [editingSale, setEditingSale] = useState<any>(null);
@@ -633,13 +634,15 @@ function SalesListContent() {
   const groupedSales = useMemo(() => groupTransactions(sales as SaleRow[]), [sales]);
 
   // 그룹 단위 페이지네이션
-  const [groupPage, setGroupPage] = useState(1);
+  // 페이지도 URL (2026-10-21 작업 위치 보존) — 수정·상세 뒤 돌아오거나 새로고침해도 같은 페이지
+  const groupPage = pickPage(urlFilters.page);
+  const setGroupPage = (p: number) => setUrlFilters({ page: String(p) });
   // 필터를 바꾸면 1페이지로
-  const setStartDate = (v: string) => { setUrlFilters({ from: v }); setGroupPage(1); };
-  const setEndDate = (v: string) => { setUrlFilters({ to: v }); setGroupPage(1); };
-  const setSelectedPartnerId = (v: string) => { setUrlFilters({ partner: v }); setGroupPage(1); };
-  const setItemNameSearch = (v: string) => { setUrlFilters({ item: v }); setGroupPage(1); };
-  const setSelectedStatus = (v: string) => { setUrlFilters({ status: v }); setGroupPage(1); };
+  const setStartDate = (v: string) => { setUrlFilters({ from: v, page: "1" }); };
+  const setEndDate = (v: string) => { setUrlFilters({ to: v, page: "1" }); };
+  const setSelectedPartnerId = (v: string) => { setUrlFilters({ partner: v, page: "1" }); };
+  const setItemNameSearch = (v: string) => { setUrlFilters({ item: v, page: "1" }); };
+  const setSelectedStatus = (v: string) => { setUrlFilters({ status: v, page: "1" }); };
   const GROUP_PAGE_SIZE = 25;
   const totalGroupPages = Math.max(1, Math.ceil(groupedSales.length / GROUP_PAGE_SIZE));
   const safeGroupPage = Math.min(groupPage, totalGroupPages);

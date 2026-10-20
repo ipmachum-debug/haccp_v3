@@ -1,4 +1,6 @@
 import { useState, useMemo } from "react";
+import { useSearch } from "wouter";
+import { pickAllowed, pickDate, pickMonth, replaceQuery } from "@/lib/urlState";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -61,10 +63,19 @@ function getDaysInMonth(ym: string) {
 
 export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const L = useIndustryLabel();
-  const [activeTab, setActiveTab] = useState("daily");
-  const [selectedDate, setSelectedDate] = useState(formatDate(new Date()));
-  const [selectedMonth, setSelectedMonth] = useState(getYearMonth(new Date()));
-  const [searchTerm, setSearchTerm] = useState("");
+  // 보기·날짜·월·검색·보고서 기간은 URL 이 기준 (2026-10-21 작업 위치 보존) — 새로고침·뒤로가기·제조기준관리 안에서도 같은 화면.
+  //   제조기준관리의 바깥 탭(tab)과 겹치지 않게 ledger… / r… 키를 쓴다. 기본값이면 쿼리에서 뺀다
+  const sp = new URLSearchParams(useSearch());
+  const today = formatDate(new Date());
+  const thisMonth = getYearMonth(new Date());
+  const activeTab = pickAllowed(sp.get("ledgerTab"), "daily", ["daily", "edit", "report"]);
+  const selectedDate = pickDate(sp.get("ledgerDate"), today);
+  const selectedMonth = pickMonth(sp.get("ledgerMonth"), thisMonth);
+  const searchTerm = sp.get("ledgerQ") ?? "";
+  const setActiveTab = (v: string) => replaceQuery({ ledgerTab: v === "daily" ? null : v });
+  const setSelectedDate = (v: string) => replaceQuery({ ledgerDate: v === today ? null : v });
+  const setSelectedMonth = (v: string) => replaceQuery({ ledgerMonth: v === thisMonth ? null : v });
+  const setSearchTerm = (v: string) => replaceQuery({ ledgerQ: v });
   const [editDialog, setEditDialog] = useState<{
     open: boolean;
     materialId: number;
@@ -98,9 +109,12 @@ export default function MaterialLedger({ embedded, ..._ }: { embedded?: boolean;
   };
 
   const initWeek = getThisWeekRange();
-  const [reportType, setReportType] = useState<"week" | "month" | "custom">("week");
-  const [reportStart, setReportStart] = useState(initWeek.start);
-  const [reportEnd, setReportEnd] = useState(initWeek.end);
+  const reportType = pickAllowed(sp.get("rType"), "week", ["week", "month", "custom"]) as "week" | "month" | "custom";
+  const reportStart = pickDate(sp.get("rFrom"), initWeek.start);
+  const reportEnd = pickDate(sp.get("rTo"), initWeek.end);
+  const setReportType = (v: "week" | "month" | "custom") => replaceQuery({ rType: v === "week" ? null : v });
+  const setReportStart = (v: string) => replaceQuery({ rFrom: v === initWeek.start ? null : v });
+  const setReportEnd = (v: string) => replaceQuery({ rTo: v === initWeek.end ? null : v });
 
   // 보고서 데이터
   const { data: reportData, refetch: refetchReport, isFetching: reportLoading } =

@@ -1,16 +1,18 @@
-import { useParams } from "wouter";
+import { useLocation, useParams, useSearch } from "wouter";
+import { returnToFromSearch } from "@/lib/urlState";
 import { trpc } from "@/lib/trpc";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Download, ArrowLeft, Package } from "lucide-react";
-import { useLocation } from "wouter";
 import { toast } from "sonner";
 
 export default function SaleDetail() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
+  // 돌아갈 곳 (2026-10-21 작업 위치 보존) — 들어온 목록(조건·페이지 그대로). 직접 링크면 기본 목록
+  const backTo = returnToFromSearch(useSearch(), "/dashboard/accounting/sales/list");
   const saleIdNum = id ? parseInt(id) : NaN;
 
   const { data: _saleRaw, isLoading } = trpc.haccpIntegration.getSaleById.useQuery(
@@ -78,7 +80,7 @@ export default function SaleDetail() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setLocation("/dashboard/accounting/sales/list")}
+              onClick={() => setLocation(backTo)}
             >
               <ArrowLeft className="h-5 w-5" />
             </Button>

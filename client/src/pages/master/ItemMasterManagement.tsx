@@ -1,4 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
+import { useUrlFilters } from "@/components/common/FilterBar";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -124,10 +126,14 @@ function ItemMasterContent() {
     }
   };
 
-  const [activeTab, setActiveTab] = useState<string>("own_product");
-  const [search, setSearch] = useState("");
+  // 구분 탭·검색·상태는 URL 이 기준 (2026-10-21 작업 위치 보존) — 새로고침·뒤로가기 뒤에도 같은 목록
+  const [activeTab, setActiveTab] = useTabWithUrl("tab", "own_product", ["own_product", "raw_material", "subsidiary", "external_product"]);
   // ★ 2026-05-08 (PR #271): 활성 기본 — 비활성/전체 옵션 유지
-  const [statusFilter, setStatusFilter] = useState<"ACTIVE" | "INACTIVE" | "ALL">("ACTIVE");
+  const [itemFilters, setItemFilters] = useUrlFilters({ q: "", status: "ACTIVE" });
+  const search = itemFilters.q;
+  const setSearch = (v: string) => setItemFilters({ q: v });
+  const statusFilter = (["ACTIVE", "INACTIVE", "ALL"].includes(itemFilters.status) ? itemFilters.status : "ACTIVE") as "ACTIVE" | "INACTIVE" | "ALL";
+  const setStatusFilter = (v: "ACTIVE" | "INACTIVE" | "ALL") => setItemFilters({ status: v });
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isSkuOpen, setIsSkuOpen] = useState(false);

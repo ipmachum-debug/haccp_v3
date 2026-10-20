@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { useState, useMemo, useEffect } from "react";
 import { useLocation } from "wouter";
+import { withReturnTo } from "@/lib/urlState";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -570,7 +571,7 @@ function PurchaseOrderListContent() {
       <PageHeader
         title="발주서"
         description="공급업체 발주 → 승인 → 입고 처리 → 매입전표 자동 생성"
-        primary={{ label: "발주서 등록", icon: Plus, onClick: () => navigate("/dashboard/accounting/purchase-orders/create") }}
+        primary={{ label: "발주서 등록", icon: Plus, onClick: () => navigate(withReturnTo("/dashboard/accounting/purchase-orders/create")) }}
         secondary={{ label: "검수 불합격 격리", icon: XCircle, onClick: () => setQuarantineOpen(true) }}
       />
 
