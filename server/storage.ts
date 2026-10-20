@@ -383,3 +383,23 @@ export function getStorageBackendInfo(): {
   }
   return { backend };
 }
+
+
+/**
+ * 저장된 보고서 주소에서 파일 위치(key)만 꺼낸다 (2026-10-20) — 영구 주소·만료된 서명 주소 모두.
+ *   서명 쿼리는 버리고, 경로에서 'tenant-N/reports/…' (또는 회사 없는 'reports/…') 부분만 쓴다 (경로형 버킷 이름 앞부분 무시).
+ *   회사 경로가 다른 회사면 null — 남의 파일 주소를 발급하지 않는다.
+ */
+export function reportKeyFromUrl(stored: string | null, tenantId: number): string | null {
+  if (!stored) return null;
+  let path = "";
+  try {
+    path = decodeURIComponent(new URL(stored.split("?")[0]).pathname);
+  } catch {
+    path = stored.split("?")[0];
+  }
+  const m = path.match(/(?:^|\/)((?:tenant-(\d+)\/)?reports\/[^/]+\.pdf)$/);
+  if (!m) return null;
+  if (m[2] != null && Number(m[2]) !== Number(tenantId)) return null;
+  return m[1];
+}

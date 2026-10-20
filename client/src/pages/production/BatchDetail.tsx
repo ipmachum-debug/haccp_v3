@@ -41,24 +41,25 @@ import { todayLocal } from "../../lib/dateUtils";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
 /** 배치 기본정보 요약 (BOM 배치량 + 배치수 + 처리모드 + 생성일) */
-function BatchInfoSummary({ productId, plannedQuantity, mode, createdAt }: {
-  productId?: number; plannedQuantity?: number; mode?: string | null; createdAt: string | Date;
+function BatchInfoSummary({ productId, batchId, plannedQuantity, mode, createdAt }: {
+  productId?: number; batchId?: number; plannedQuantity?: number; mode?: string | null; createdAt: string | Date;
 }) {
   const L = useIndustryLabel();
+  // 이 생산 건 기록지에 저장된 기준을 먼저, 없으면 생산이 쓰는 배합 버전 (생산 제품 번호 → 품목 정체성 연결로, 2026-10-20)
   const { data: bomData } = trpc.ccpForm.getBomBatchKg.useQuery(
-    { productId: productId! },
+    { productId: productId!, batchId },
     { enabled: !!productId }
   );
   const bomBatchKg = bomData?.bomBatchKg;
-  const batchCount = bomBatchKg && plannedQuantity && bomBatchKg > 0
-    ? Math.ceil(plannedQuantity / bomBatchKg) : null;
+  const batchCount = bomData?.batchCount ?? (bomBatchKg && plannedQuantity && bomBatchKg > 0
+    ? Math.ceil(plannedQuantity / bomBatchKg) : null);
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4 pt-4 border-t">
       <div>
         <div className="text-sm font-medium text-muted-foreground">BOM 1{L("batch")} 기준량</div>
         <div className="text-lg font-semibold mt-1">
-          {bomBatchKg ? `${bomBatchKg.toLocaleString("ko-KR")} kg` : <span className="text-muted-foreground">-</span>}
+          {bomBatchKg ? `${bomBatchKg.toLocaleString("ko-KR")} kg` : <span className="text-muted-foreground text-sm">{bomData?.source === "none" ? "배합 기준량 없음" : "-"}</span>}
         </div>
       </div>
       <div>
@@ -91,6 +92,7 @@ export default function BatchDetail() {
 
   const { user: currentUser } = useAuth();
   const { data: batch, isLoading } = trpc.batch.getById.useQuery({ id: batchId });
+  const reportLink = trpc.batch.completionReportLink.useMutation();
   /** 무효(중복 정리)·취소 생산 건 — 이력으로만, 확인·마감·승인 동작 없음 */
   const voided = !!(batch as any)?.voidedAt;
   const { data: ccpList, refetch: refetchCcps, isLoading: ccpLoading } = trpc.ccp.getByBatchId.useQuery(
@@ -488,6 +490,7 @@ export default function BatchDetail() {
             </div>
             <BatchInfoSummary
               productId={(batch as any).productId ? Number((batch as any).productId) : undefined}
+              batchId={batchId}
               plannedQuantity={batch.plannedQuantity ? parseFloat(batch.plannedQuantity) : undefined}
               mode={batch.mode}
               createdAt={batch.createdAt}
@@ -921,7 +924,15 @@ export default function BatchDetail() {
                 {/* HACCP 보고서 / 배치 완료 보고서 */}
                 {batch.status === "completed" && batch.completionReportUrl ? (
                   <Button
-                    onClick={() => window.open(batch.completionReportUrl!, "_blank")}
+                    onClick={() => {
+                      // 저장된 주소를 그대로 열지 않는다 — 누를 때마다 서버가 새 서명 주소를 발급 (비공개 저장소 그대로, 2026-10-20)
+                      const w = window.open("", "_blank"); // 팝업 차단 피하려고 클릭 순간에 창을 먼저 연다
+                      reportLink.mutate({ batchId }, {
+                        onSuccess: (r: { url: string }) => { if (w) w.location.href = r.url; else window.location.href = r.url; },
+                        onError: (e: { message: string }) => { w?.close(); toast.error(`보고서를 열지 못했습니다: ${e.message}`); },
+                      });
+                    }}
+                    disabled={reportLink.isPending}
                     size="sm"
                     variant="default"
                   >

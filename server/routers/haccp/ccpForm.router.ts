@@ -461,31 +461,37 @@ export const ccpFormRouter = router({
         return getCcpEquipBatchSettings(ctx.tenantId, input.processGroupId);
       }),
     /** BOM 배치 목표량 조회 (배치수 자동계산용) */
+    /**
+     * 1배치 기준량 (2026-10-20, 신규 회사 시험 P2: 생산 상세가 '-' 로 남음).
+     *   productId = 생산 제품 번호(h_products_v2). BOM 은 품목 정체성 번호(item_master)라 숫자가 다른 것이 정상 —
+     *   이전엔 h_mf_reports.product_id 와 직접 비교해 새 회사에서는 늘 비었다.
+     *   1) batchId 가 있으면 그 생산 건 기록지에 저장된 기준(bom_batch_kg·batch_count)을 먼저 (저장한 기준 우선, 다시 계산하지 않음)
+     *   2) 없으면 생산이 쓰는 버전 선택 함수(selectBomVersion — 생산 건 만들 때와 같은 버전)로
+     *   읽기만 한다. 없으면 source:'none' (화면이 '조회 중' 으로 남지 않게).
+     */
     getBomBatchKg: tenantRequiredProcedure
-      .input(z.object({ productId: z.number() }))
+      .input(z.object({ productId: z.number(), batchId: z.number().optional() }))
       .query(async ({ input, ctx }) => {
         const { getRawConnection } = await import("../../db");
-        let conn: any = null;
-        try {
-          conn = await getRawConnection();
-          // h_mf_report_versions -> h_mf_reports -> product_id 조인 (v2 단일 소스)
-          // v1 h_recipe_headers 폴백은 제거 — 같은 product_id 가 v1/v2 에서 다른 제품을 가리켜
-          // 엉뚱한 배치 목표량이 나올 수 있었음.
-          const [rows] = await conn.execute(
-            `SELECT rv.batch_target_kg
-             FROM h_mf_report_versions rv
-             JOIN h_mf_reports mr ON rv.mf_report_id = mr.id
-             WHERE mr.product_id = ? AND mr.tenant_id = ?
-             ORDER BY rv.id DESC LIMIT 1`,
-            [input.productId, ctx.tenantId]
+        const conn: any = await getRawConnection();
+        if (input.batchId) {
+          const [[own]]: any = await conn.execute(`SELECT id FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.batchId, ctx.tenantId]);
+          if (!own) throw new TRPCError({ code: "NOT_FOUND", message: "생산 건을 찾을 수 없습니다." });
+          const [recs]: any = await conn.execute(
+            `SELECT bom_batch_kg, batch_count FROM h_ccp_form_records
+              WHERE tenant_id = ? AND batch_id = ? AND ccp_type <> 'CCP-4P' AND voided_at IS NULL AND bom_batch_kg > 0
+              ORDER BY id LIMIT 1`,
+            [ctx.tenantId, input.batchId],
           );
-          const bomBatchKg = (rows as any[])[0]?.batch_target_kg;
-          return { bomBatchKg: bomBatchKg ? parseFloat(bomBatchKg) : null };
-        } catch (e: any) {
-          console.error("[getBomBatchKg] error:", e.message);
-          return { bomBatchKg: null };
+          const r = (recs as any[])[0];
+          if (r) return { bomBatchKg: Number(r.bom_batch_kg), batchCount: r.batch_count != null ? Number(r.batch_count) : null, source: "record" as const };
         }
-        // ※ getRawConnection()은 Pool 싱글턴 - end() 호출 금지
+        const { selectBomVersion } = await import("../../lib/identity/itemIdentityService");
+        const sel = await selectBomVersion(input.productId, ctx.tenantId, conn);
+        if (!sel) return { bomBatchKg: null, batchCount: null, source: "none" as const };
+        const [vr]: any = await conn.execute(`SELECT batch_target_kg FROM h_mf_report_versions WHERE id = ?`, [sel.versionId]);
+        const kg = Number((vr as any[])[0]?.batch_target_kg ?? 0);
+        return { bomBatchKg: kg > 0 ? kg : null, batchCount: null, source: kg > 0 ? ("bom" as const) : ("none" as const), approved: sel.approved };
       }),
     /** 배치에 연결된 설비 목록 조회 (CCP 기록지 설비 자동할당용) */
     getEquipmentForBatch: tenantRequiredProcedure

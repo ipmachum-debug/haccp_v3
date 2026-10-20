@@ -39,6 +39,8 @@ function ProcessEditor({ g, allEquipments, onDone }: { g: any; allEquipments: an
   const [together, setTogether] = useState(String(g.mode === "grouped" ? g.batchSize : g.mode === "concurrent" ? 0 : 1));
   const [interval, setIntervalMin] = useState(String(g.intervalMin ?? 10));
   const [eqIds, setEqIds] = useState<number[]>((g.equipments as any[]).map((e) => e.id));
+  // 기록지·인쇄 문구 — 여기서 한 번 넣으면 기록지·인쇄가 같은 값을 쓴다 (비우면 인쇄에 '문구가 비어 있습니다' 안내)
+  const [texts, setTexts] = useState({ cycle: g.monitoringCycle ?? "", method: g.monitoringMethod ?? "", action: g.correctiveAction ?? "" });
   const save = trpc.productionDesign.saveProcess.useMutation({
     onSuccess: (r: any) => { toast.success(r.changed ? `${g.name} 저장 — ${r.changed}건 바뀜` : "바뀐 것이 없습니다."); utils.productionDesign.invalidate(); onDone(); },
     onError: (e: { message: string }) => toast.error(e.message),
@@ -54,6 +56,9 @@ function ProcessEditor({ g, allEquipments, onDone }: { g: any; allEquipments: an
     else { input.mode = "grouped"; input.batchSize = n; }
     if (n !== 0) input.intervalMin = Math.max(0, Number(interval) || 0);
     if (eqIds.join(",") !== (g.equipments as any[]).map((e) => e.id).join(",")) input.equipmentIds = eqIds;
+    if (texts.cycle !== (g.monitoringCycle ?? "")) input.monitoringCycle = texts.cycle;
+    if (texts.method !== (g.monitoringMethod ?? "")) input.monitoringMethod = texts.method;
+    if (texts.action !== (g.correctiveAction ?? "")) input.correctiveAction = texts.action;
     save.mutate(input);
   };
   return (
@@ -87,10 +92,30 @@ function ProcessEditor({ g, allEquipments, onDone }: { g: any; allEquipments: an
           ))}
         </div>
       </div>
+      <PrintTexts value={texts} onChange={setTexts} />
       <div className="flex gap-2">
         <Button className="h-11" disabled={save.isPending} onClick={submit}>{save.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}저장</Button>
         <Button className="h-11" variant="outline" onClick={onDone}>취소</Button>
       </div>
+    </div>
+  );
+}
+
+/** 기록지·인쇄 문구 세 칸 — 우리 공장 공정 추가·고치기에서 같이 쓴다 */
+function PrintTexts({ value, onChange }: { value: { cycle: string; method: string; action: string }; onChange: (v: { cycle: string; method: string; action: string }) => void }) {
+  return (
+    <div className="space-y-2" data-testid="print-texts">
+      <div className="font-medium">기록지·인쇄 문구</div>
+      <label className="block">모니터링 주기
+        <Input className="h-11" value={value.cycle} onChange={(e) => onChange({ ...value, cycle: e.target.value })} placeholder="예: 배치마다" />
+      </label>
+      <label className="block">모니터링 방법
+        <Input className="h-11" value={value.method} onChange={(e) => onChange({ ...value, method: e.target.value })} placeholder="예: 가열 온도·시간을 확인하고 기록" />
+      </label>
+      <label className="block">한계기준 이탈 시 개선조치
+        <Input className="h-11" value={value.action} onChange={(e) => onChange({ ...value, action: e.target.value })} placeholder="예: 재가열 후 다시 확인, 보류·폐기 판단" />
+      </label>
+      <p className="text-xs text-muted-foreground">여기 적은 문구가 CCP 기록지와 인쇄에 그대로 나갑니다. 비워 두면 인쇄에 '문구가 비어 있습니다' 안내가 찍힙니다.</p>
     </div>
   );
 }
@@ -153,6 +178,7 @@ function NewProcess({ allEquipments, onDone, first }: { allEquipments: any[]; on
   // 새 설비 — 이름·종류 + (가열 공정이면) 가열 분·한 번 도는 시간·평소 온도. 비우면 나중에 설비 이름을 눌러 고친다
   const [newEq, setNewEq] = useState({ name: "", type: "", heat: "", cycle: "", temp: "" });
   const [err, setErr] = useState<string | null>(null);
+  const [texts, setTexts] = useState({ cycle: "", method: "", action: "" });
   const candidates = allEquipments.filter((e) => !e.ccpType || e.ccpType === kind || eqIds.includes(e.id));
   const addEq = trpc.equipment.create.useMutation({
     onSuccess: (r: any) => {
@@ -184,6 +210,7 @@ function NewProcess({ allEquipments, onDone, first }: { allEquipments: any[]; on
     if (bad) return setErr("기준 칸에는 숫자만 넣으세요.");
     create.mutate({
       name: name.trim(), ccpType: kind, equipmentIds: eqIds,
+      monitoringCycle: texts.cycle.trim() || undefined, monitoringMethod: texts.method.trim() || undefined, correctiveAction: texts.action.trim() || undefined,
       ...(kind === "CCP-4P" ? {} : {
         temperatureMin: n(lim.tLo), temperatureMax: n(lim.tHi), timeMin: n(lim.hLo), timeMax: n(lim.hHi),
         ...(kind === "CCP-1B" ? { pressureMin: n(lim.pLo), pressureMax: n(lim.pHi) } : {}),
@@ -261,6 +288,7 @@ function NewProcess({ allEquipments, onDone, first }: { allEquipments: any[]; on
             </Button>
           </div>
         </div>
+        <PrintTexts value={texts} onChange={setTexts} />
         {err && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300" role="alert" data-testid="np-error">저장하지 못했습니다 — {err} (넣은 값은 그대로 있습니다)</p>}
         <div className="flex gap-2">
           <Button className="h-11" disabled={create.isPending} onClick={submit} data-testid="np-save">{create.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}공정 저장</Button>

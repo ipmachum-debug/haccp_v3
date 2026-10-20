@@ -45,6 +45,10 @@ export const productionDesignRouter = router({
       batchSize: z.number().int().min(1).max(50).optional(),
       intervalMin: z.number().int().min(0).max(600).optional(),
       equipmentIds: z.array(z.number().int().positive()).max(100).optional(),
+      // 기록지·인쇄 문구 — 비우면 인쇄에 '문구가 비어 있습니다' 안내가 남는다
+      monitoringCycle: z.string().max(500).nullable().optional(),
+      monitoringMethod: z.string().max(2000).nullable().optional(),
+      correctiveAction: z.string().max(2000).nullable().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       const { saveProcess, withTransaction, insertAuditWith } = await import("../../lib/production/designFactorySave");

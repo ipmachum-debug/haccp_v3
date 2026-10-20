@@ -27,17 +27,32 @@ export function shortStampDate(d: string | null | undefined): string {
 }
 
 /** 직인 칸 내용 — 화면 결재란·인쇄 결재란 공통 (결재 완료: 원 안 이름 + 짧은 날짜 / 결재 전: 예정자 회색) */
+/**
+ * 도장 안 글자 — 이름이 잘려 누가 결재했는지 모르게 되지 않도록 (2026-10-20 신규 회사 시험: '생산…' 으로 잘림).
+ *   3자 이하 = 한 줄, 4~6자 = 두 줄로 나눠 도장 안에, 7자 이상 = 도장에는 '인' · 이름 전체는 도장 아래에 줄바꿈해 적는다.
+ */
+export function stampLines(name?: string | null): { inStamp: string[]; below: string | null } {
+  const n = String(name ?? "").trim();
+  if (!n) return { inStamp: ["인"], below: null };
+  const chars = Array.from(n);
+  if (chars.length <= 3) return { inStamp: [n], below: null };
+  if (chars.length <= 6) { const h = Math.ceil(chars.length / 2); return { inStamp: [chars.slice(0, h).join(""), chars.slice(h).join("")], below: null }; }
+  return { inStamp: ["인"], below: n };
+}
+
 export function StampCellContent({ name, done, date }: { name?: string | null; done: boolean; date?: string | null }) {
   const d = shortStampDate(date);
+  const lines = stampLines(name);
   return done ? (
-    <div className="flex flex-col items-center gap-0.5">
-      <span className="flex h-9 w-9 items-center justify-center rounded-full border-[1.5px] border-red-500 text-[10px] font-bold leading-none text-red-600 print:border-red-600">
-        <span className="max-w-[30px] truncate">{name || "인"}</span>
+    <div className="flex flex-col items-center gap-0.5" title={name ?? undefined}>
+      <span className="flex h-9 w-9 flex-col items-center justify-center rounded-full border-[1.5px] border-red-500 font-bold leading-[1.05] text-red-600 print:border-red-600" data-testid="stamp-circle">
+        {lines.inStamp.map((l, i) => <span key={i} className={lines.inStamp.length > 1 ? "text-[8px]" : "text-[10px]"}>{l}</span>)}
       </span>
+      {lines.below && <span className="max-w-[52px] break-all text-center text-[8px] leading-tight text-red-700" data-testid="stamp-fullname">{lines.below}</span>}
       {d && <span className="text-[9px] tabular-nums text-gray-500">{d}</span>}
     </div>
   ) : (
-    <span className="text-[10px] text-gray-400">{name || "—"}</span>
+    <span className="text-[10px] text-gray-400 break-all">{name || "—"}</span>
   );
 }
 

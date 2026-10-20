@@ -3806,6 +3806,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`CREATE TABLE IF NOT EXISTS h_mf_report_approvals (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, mf_report_version_id bigint NOT NULL, action varchar(20) NOT NULL, action_by bigint NOT NULL, action_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, comment text NULL, created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
       const r = await mf.create(base());
       const vid = Number((await q(`SELECT id FROM h_mf_report_versions WHERE mf_report_id = ?`, [r.mfReportId]))[0].id);
+      await q(`DELETE FROM h_mf_report_approvals WHERE mf_report_version_id = ?`, [vid]); // 이전 실행이 남긴 같은 번호 이력
       const st = async () => String((await q(`SELECT approval_status AS s FROM h_mf_report_versions WHERE id = ?`, [vid]))[0].s);
       const hist = async () => (await q(`SELECT action FROM h_mf_report_approvals WHERE mf_report_version_id = ? ORDER BY id`, [vid])).map((x: any) => x.action);
       expect(await st()).toBe("DRAFT");
@@ -3824,6 +3825,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       // 반려 → 다시 요청 가능
       const r2 = await mf.create(base());
       const v2 = Number((await q(`SELECT id FROM h_mf_report_versions WHERE mf_report_id = ?`, [r2.mfReportId]))[0].id);
+      await q(`DELETE FROM h_mf_report_approvals WHERE mf_report_version_id = ?`, [v2]);
       await mf.reject({ versionId: v2, reason: "배합비 확인 필요" });
       expect(String((await q(`SELECT approval_status AS s, rejection_reason AS r FROM h_mf_report_versions WHERE id = ?`, [v2]))[0].r)).toBe("배합비 확인 필요");
       await expect(mf.approveVersion({ versionId: v2 })).rejects.toThrow(/지금 상태\(반려\)/);
@@ -3833,6 +3835,51 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       const other = mfReportRouter.createCaller({ user: { id: 9, role: "admin", tenantId: 99, email: "o@o" }, tenantId: 99 } as any);
       await expect(other.approveVersion({ versionId: v2 })).rejects.toThrow(/이 회사의/);
       expect(String((await q(`SELECT approval_status AS s FROM h_mf_report_versions WHERE id = ?`, [v2]))[0].s)).toBe("PENDING");
+    });
+
+    it("1배치 기준량 — 생산 제품 번호 → 품목 정체성 연결로 생산 버전, 생산 건 기록지 저장값이 있으면 그것 먼저, 없으면 '없음'", async () => {
+      await mf.create(base({ batchTargetKg: 10 }));
+      const { ccpFormRouter } = await import("./routers/haccp/ccpForm.router");
+      const cf = ccpFormRouter.createCaller({ user: { id: 4, role: "admin", tenantId: T, email: "t@t" }, tenantId: T } as any);
+      // 생산 제품 8350 (BOM 은 정체성 8352 로 저장) — 숫자가 달라도 연결로 찾는다
+      expect(await cf.getBomBatchKg({ productId: PV2 })).toMatchObject({ bomBatchKg: 10, source: "bom" });
+      // 연결 없는 번호 → 없음 (조회 중으로 남지 않게)
+      expect(await cf.getBomBatchKg({ productId: 8999 })).toMatchObject({ bomBatchKg: null, source: "none" });
+      // 생산 건 기록지에 저장된 기준이 있으면 그것 (다시 계산하지 않음)
+      await q(`DELETE FROM h_ccp_form_records WHERE batch_id = 88901`);
+      await q(`DELETE FROM h_batches WHERE id = 88901`);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, created_by) VALUES (88901, ?, 1, 'QA-BOMKG-1', ?, 20, '2026-10-20', 'planned', 4)`, [T, PV2]);
+      await q(`INSERT INTO h_ccp_form_records (tenant_id, batch_id, ccp_type, work_date, bom_batch_kg, batch_count) VALUES (?, 88901, 'CCP-1B', '2026-10-20', 12, 2)`, [T]);
+      expect(await cf.getBomBatchKg({ productId: PV2, batchId: 88901 })).toMatchObject({ bomBatchKg: 12, batchCount: 2, source: "record" });
+      // 다른 회사 생산 건 번호 → 거부
+      const other = ccpFormRouter.createCaller({ user: { id: 9, role: "admin", tenantId: 99, email: "o@o" }, tenantId: 99 } as any);
+      await expect(other.getBomBatchKg({ productId: PV2, batchId: 88901 })).rejects.toThrow(/생산 건을 찾을 수 없습니다/);
+    });
+
+    it("완료 보고서 열기 — 저장 주소(영구·만료 서명)에서 파일 위치만 꺼내 새 서명 주소, 이 회사 생산 건·경로만", async () => {
+      // 서명은 로컬 계산 (네트워크·실제 자격 없음) — 시험용 버킷 이름·가짜 키
+      const keep = { b: process.env.AWS_S3_BUCKET, a: process.env.AWS_ACCESS_KEY_ID, s: process.env.AWS_SECRET_ACCESS_KEY };
+      process.env.AWS_S3_BUCKET = "qa-test-bucket"; process.env.AWS_ACCESS_KEY_ID = "AKIAQATESTONLY"; process.env.AWS_SECRET_ACCESS_KEY = "qa-test-secret";
+      try {
+        await q(`DELETE FROM h_batches WHERE id IN (88902, 88903)`);
+        await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, created_by, completion_report_url) VALUES
+          (88902, ?, 1, 'QA-RPT-1', ?, 20, '2026-10-20', 'completed', 4, 'https://cdn.example.test/tenant-2/reports/batch-completion-report-QA-RPT-1-1.pdf'),
+          (88903, ?, 1, 'QA-RPT-2', ?, 20, '2026-10-20', 'completed', 4, 'https://cdn.example.test/tenant-9/reports/x.pdf')`, [T, PV2, T, PV2]);
+        const { batchCrudRouter } = await import("./routers/production/batch.crud.router");
+        const b = (batchCrudRouter as any).createCaller({ user: { id: 4, role: "admin", tenantId: T, email: "t@t" }, tenantId: T } as any);
+        const r = await b.completionReportLink({ batchId: 88902 });
+        expect(r.url).toContain("tenant-2/reports/batch-completion-report-QA-RPT-1-1.pdf");
+        expect(r.url).toMatch(/X-Amz-Signature=/);
+        expect(r.url).toMatch(/X-Amz-Expires=3600/);
+        // 저장된 주소가 다른 회사 경로면 발급하지 않음
+        await expect(b.completionReportLink({ batchId: 88903 })).rejects.toThrow(/완료 보고서 파일을 찾을 수 없습니다/);
+        // 다른 회사 caller 는 생산 건 자체를 못 봄
+        const other = (batchCrudRouter as any).createCaller({ user: { id: 9, role: "admin", tenantId: 99, email: "o@o" }, tenantId: 99 } as any);
+        await expect(other.completionReportLink({ batchId: 88902 })).rejects.toThrow(/생산 건을 찾을 수 없습니다/);
+      } finally {
+        process.env.AWS_S3_BUCKET = keep.b ?? ""; process.env.AWS_ACCESS_KEY_ID = keep.a ?? ""; process.env.AWS_SECRET_ACCESS_KEY = keep.s ?? "";
+        if (!keep.b) delete process.env.AWS_S3_BUCKET;
+      }
     });
   });
 });
