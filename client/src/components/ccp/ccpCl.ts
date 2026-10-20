@@ -58,6 +58,10 @@ export const clOk = (v: number, lo?: number, hi?: number) =>
 export function clSummary(ccpType: string, cl: ClValues): string {
   if (ccpType === "CCP-2B") return `가열시간 ${clRange(cl.heatTimeMinLo, cl.heatTimeMinHi, "분")} · 온도 ${clRange(cl.heatTempLo, cl.heatTempHi, "°C")}`;
   if (ccpType === "CCP-1B") return [`가열시간 ${clRange(cl.heatTimeMinLo, cl.heatTimeMinHi, "분")}`, cl.pressureMpaLo != null || cl.pressureMpaHi != null ? `압력 ${clRange(cl.pressureMpaLo, cl.pressureMpaHi, "MPa")}` : null, `품온 ${clRange(cl.productTempLo, cl.productTempHi, "°C")}`].filter(Boolean).join(" · ");
-  if (ccpType === "CCP-4P") return `감도 ${cl.metalSensitivity} · Fe ${cl.feMm}mmΦ 불검출 · SUS ${cl.susMm}mmΦ 불검출`;
+  // 정하지 않은 기준은 빼고 보인다 ('감도 undefined' 금지, 2026-10-20 Codex 검토)
+  if (ccpType === "CCP-4P") {
+    const parts = [cl.metalSensitivity != null ? `감도 ${cl.metalSensitivity}` : null, cl.feMm != null ? `Fe ${cl.feMm}mmΦ 불검출` : null, cl.susMm != null ? `SUS ${cl.susMm}mmΦ 불검출` : null].filter(Boolean);
+    return parts.length ? parts.join(" · ") : "-";
+  }
   return "-";
 }

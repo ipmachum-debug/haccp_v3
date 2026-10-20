@@ -33,6 +33,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
+import { AlertTriangle } from "lucide-react";
+import { PROD_STATE_UI, batchState, batchStatusLabel, groupByProduct, isVoided, productState, sumKg, type ProdState } from "@/lib/productionState";
 
 type ViewMode = "table" | "calendar";
 
@@ -76,20 +78,19 @@ function getMonthDays(year: number, month: number): Date[] {
   return days;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  completed: "bg-green-500",
-  in_progress: "bg-blue-500",
-  shipped: "bg-purple-500",
-  approved: "bg-emerald-600",
-  planned: "bg-orange-400",
-};
-const STATUS_LABELS: Record<string, string> = {
-  completed: "완료",
-  in_progress: "진행중",
-  shipped: "출하",
-  approved: "승인",
-  planned: "계획",
-};
+/** 달력 범례 — 3가지 상태 (2026-10-20 대표 기준). 경고·결재 대기는 색이 아니라 표시 */
+const LEGEND: ProdState[] = ["plan", "work", "done"];
+
+/** 생산 건 경고 (색이 아니라 표시) — 확인 남음 · 출고 보류 · 지난 날짜 마감 안 됨 */
+function warningsOf(b: any, ds: string, todayStr: string): string[] {
+  const st = batchState(b);
+  const m = b.marks as { rowsLeft: number; heldLines: number; approvalPending: boolean } | null | undefined;
+  const out: string[] = [];
+  if (m?.heldLines) out.push(`출고 보류 ${m.heldLines}줄`);
+  if (m?.rowsLeft && (st === "work" || ds < todayStr)) out.push(`확인 ${m.rowsLeft}건 남음`);
+  if (ds < todayStr && st !== "done") out.push("마감 안 됨");
+  return out;
+}
 
 export default function BatchList() {
   const L = useIndustryLabel();
@@ -121,7 +122,7 @@ export default function BatchList() {
 
   const queryInput =
     viewMode === "calendar"
-      ? { page: 1, limit: 2000, fromDate: calendarRange.fromDate, toDate: calendarRange.toDate }
+      ? { page: 1, limit: 2000, fromDate: calendarRange.fromDate, toDate: calendarRange.toDate, withMarks: true }
       : { page, limit };
   const { data: batchData, isLoading, isError, error, refetch } = trpc.batch.list.useQuery(queryInput);
   const batches = batchData?.items || [];
@@ -192,39 +193,26 @@ export default function BatchList() {
     }
   }, [showCost, batches, batchCosts]);
 
-  // 상태 배지 스타일
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      completed: "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300",
-      in_progress: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
-      shipped: "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300",
-      approved: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300",
-      planned: "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300",
-    };
-    const labels = {
-      completed: "완료",
-      in_progress: "진행 중",
-      shipped: "출하됨",
-      approved: "승인",
-      planned: "계획",
-    };
-    return (
-      <span className={`px-3 py-1 rounded-full text-xs font-medium ${styles[status as keyof typeof styles] || styles.planned}`}>
-        {labels[status as keyof typeof labels] || "계획"}
-      </span>
-    );
-  };
+  // 상태 배지 — 3가지 상태 색 + DB 상태 글자 그대로 (모르는 상태를 '계획' 으로 바꾸지 않음)
+  const getStatusBadge = (batch: any) => (
+    <span className={`px-3 py-1 rounded-full text-xs font-medium border ${PROD_STATE_UI[batchState(batch)].soft}`} data-testid="batch-status">
+      {batchStatusLabel(batch)}
+    </span>
+  );
 
-  // 캘린더용: 날짜별 배치 그룹핑
-  const batchesByDate = useMemo(() => {
-    const map: Record<string, any[]> = {};
+  // 캘린더용: 날짜별 — 정상 생산 건과 무효·취소(이력)를 나눈다 (무효는 정상 달력·합계에서 뺌)
+  const { batchesByDate, voidByDate } = useMemo(() => {
+    const live: Record<string, any[]> = {};
+    const voided: Record<string, any[]> = {};
     (batches || []).forEach((b: any) => {
-      const dateKey = toDateStr(b.plannedDate || b.createdAt);
-      if (!map[dateKey]) map[dateKey] = [];
-      map[dateKey].push(b);
+      const dateKey = b.plannedDateYmd || toDateStr(b.plannedDate || b.createdAt);
+      const map = isVoided(b) ? voided : live;
+      (map[dateKey] ??= []).push(b);
     });
-    return map;
+    return { batchesByDate: live, voidByDate: voided };
   }, [batches]);
+  const codeOf = useMemo(() => new Map<number, string>((batches || []).map((b: any) => [Number(b.id), String(b.batchCode)])), [batches]);
+  const [openProduct, setOpenProduct] = useState<Record<string, boolean>>({});
 
   const calDays = useMemo(() => getMonthDays(calMonth.year, calMonth.month), [calMonth]);
   const todayStr = toLocalDateStr(new Date());
@@ -335,6 +323,8 @@ export default function BatchList() {
                       const isCurrentMonth = day.getMonth() === calMonth.month;
                       const isToday = ds === todayStr;
                       const dayBatches = batchesByDate[ds] || [];
+                      const dayGroups = groupByProduct(dayBatches);
+                      const dayCount = dayBatches.length + (voidByDate[ds]?.length ?? 0);
 
                       return (
                         <div
@@ -343,25 +333,33 @@ export default function BatchList() {
                             !isCurrentMonth ? "bg-gray-50 text-gray-300" : ""
                           } ${isToday ? "bg-blue-50" : ""}`}
                         >
-                          <div className={`text-right mb-0.5 ${isToday ? "font-bold text-blue-600" : ""} ${
+                          <button type="button" disabled={dayCount === 0} onClick={() => setDayDetailDate(ds)}
+                            className={`block w-full text-right mb-0.5 ${dayCount ? "cursor-pointer hover:underline" : "cursor-default"} ${isToday ? "font-bold text-blue-600" : ""} ${
                             day.getDay() === 0 ? "text-red-400" : day.getDay() === 6 ? "text-blue-400" : ""
                           }`}>
                             {day.getDate()}
-                          </div>
+                          </button>
+                          {/* 날짜 → 품목 (품목 색: 모두 완료 녹색 · 하나라도 시작 파랑 · 모두 시작 전 주황). 경고·결재 대기는 표시만 */}
                           <div className="space-y-0.5">
-                            {dayBatches.slice(0, 3).map((b: any) => (
-                              <Link key={b.id} href={`/dashboard/batch/${b.id}`}>
-                                <div className={`px-1 py-0.5 rounded text-[10px] truncate cursor-pointer hover:opacity-80 text-white ${STATUS_COLORS[b.status] || "bg-gray-400"}`}>
-                                  {b.productName || b.batchCode}
-                                </div>
-                              </Link>
-                            ))}
-                            {dayBatches.length > 3 && (
+                            {dayGroups.slice(0, 3).map((g) => {
+                              const st = productState(g.items.map((b: any) => batchState(b)));
+                              const warn = g.items.some((b: any) => warningsOf(b, ds, todayStr).length > 0);
+                              const appr = g.items.some((b: any) => b.marks?.approvalPending);
+                              return (
+                                <button key={g.key} type="button" onClick={() => { setDayDetailDate(ds); setOpenProduct({ [g.key]: true }); }} data-testid="cal-product"
+                                  className={`w-full flex items-center gap-0.5 px-1 py-0.5 rounded text-[10px] text-left cursor-pointer hover:opacity-80 ${PROD_STATE_UI[st].chip}`}>
+                                  <span className="truncate flex-1">{g.name}{g.items.length > 1 ? ` ×${g.items.length}` : ""}</span>
+                                  {warn && <span className="shrink-0 font-bold" title="확인 필요" data-testid="cal-warn">!</span>}
+                                  {appr && <span className="shrink-0 rounded bg-white/90 text-gray-800 px-0.5" title="결재 대기" data-testid="cal-approval">결</span>}
+                                </button>
+                              );
+                            })}
+                            {dayGroups.length > 3 && (
                               <button
                                 onClick={() => setDayDetailDate(ds)}
                                 className="text-[10px] text-blue-500 hover:text-blue-700 font-medium text-center w-full cursor-pointer hover:underline"
                               >
-                                +{dayBatches.length - 3}건
+                                +{dayGroups.length - 3}품목
                               </button>
                             )}
                           </div>
@@ -371,13 +369,16 @@ export default function BatchList() {
                   </div>
 
                   {/* 범례 */}
-                  <div className="flex items-center gap-3 mt-2 text-[10px] text-muted-foreground">
-                    {Object.entries(STATUS_LABELS).map(([key, label]) => (
-                      <div key={key} className="flex items-center gap-1">
-                        <div className={`w-2 h-2 rounded-full ${STATUS_COLORS[key]}`} />
-                        {label}
+                  <div className="flex flex-wrap items-center gap-3 mt-2 text-[10px] text-muted-foreground" data-testid="cal-legend">
+                    {LEGEND.map((k) => (
+                      <div key={k} className="flex items-center gap-1">
+                        <div className={`w-2 h-2 rounded-full ${PROD_STATE_UI[k].dot}`} />
+                        {PROD_STATE_UI[k].label}
                       </div>
                     ))}
+                    <span><b>!</b> 확인 필요</span>
+                    <span><span className="rounded border px-0.5">결</span> 결재 대기</span>
+                    <span>무효·취소는 날짜를 누르면 이력으로</span>
                   </div>
                 </CardContent>
               </Card>
@@ -401,7 +402,7 @@ export default function BatchList() {
                     </TableHeader>
                     <TableBody>
                       {batches.map((batch: any) => (
-                        <TableRow key={batch.id}>
+                        <TableRow key={batch.id} className={isVoided(batch) ? "opacity-60" : undefined}>
                           <TableCell className="font-medium">
                             <div className="flex items-center gap-2">
                               <Package className="h-4 w-4 text-muted-foreground" />
@@ -416,7 +417,14 @@ export default function BatchList() {
                               </div>
                             </div>
                           </TableCell>
-                          <TableCell>{getStatusBadge(batch.status)}</TableCell>
+                          <TableCell>
+                            {getStatusBadge(batch)}
+                            {batch.voidedAt && batch.supersededByBatchId && (
+                              <Link href={`/dashboard/batch/${batch.supersededByBatchId}`} className="block text-[10px] text-muted-foreground hover:underline mt-0.5">
+                                → 대체 {codeOf.get(batch.supersededByBatchId) ?? `#${batch.supersededByBatchId}`}
+                              </Link>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right text-sm font-medium">
                             {batch.plannedQuantity ? `${parseFloat(batch.plannedQuantity).toLocaleString("ko-KR")} kg` : "-"}
                           </TableCell>
@@ -498,7 +506,7 @@ export default function BatchList() {
                                 </div>
                               </div>
                               <div className="flex items-center gap-2">
-                                {getStatusBadge(batch.status)}
+                                {getStatusBadge(batch)}
                                 {batch.plannedQuantity && (
                                   <span className="text-xs text-muted-foreground font-medium">{parseFloat(batch.plannedQuantity).toLocaleString("ko-KR")} kg</span>
                                 )}
@@ -559,33 +567,82 @@ export default function BatchList() {
 
       {/* 날짜 상세 다이얼로그 */}
       <Dialog open={!!dayDetailDate} onOpenChange={(open) => { if (!open) setDayDetailDate(null); }}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>
               {dayDetailDate ? new Date(dayDetailDate + "T00:00:00").toLocaleDateString("ko-KR", { year: "numeric", month: "long", day: "numeric" }) : ""} {L("batch")} 목록
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-2 max-h-[400px] overflow-y-auto">
-            {dayDetailDate && (batchesByDate[dayDetailDate] || []).map((b: any) => (
-              <Link key={b.id} href={`/dashboard/batch/${b.id}`}>
-                <div className="flex items-center gap-3 p-3 rounded-lg border hover:bg-accent/50 cursor-pointer transition-colors">
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${STATUS_COLORS[b.status] || "bg-gray-400"}`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{b.productName || b.batchCode}</div>
-                    <div className="text-xs text-muted-foreground">{b.batchCode}</div>
-                  </div>
-                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium ${
-                    b.status === "completed" ? "bg-green-100 text-green-700" :
-                    b.status === "in_progress" ? "bg-blue-100 text-blue-700" :
-                    b.status === "shipped" ? "bg-purple-100 text-purple-700" :
-                    "bg-orange-100 text-orange-700"
-                  }`}>
-                    {STATUS_LABELS[b.status] || "계획"}
-                  </span>
-                  <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
-                </div>
+          {/* 날짜 → 품목(하루 합계) → 생산 건. 무효·취소는 맨 아래 접힌 이력 */}
+          <div className="space-y-2 max-h-[60vh] overflow-y-auto" data-testid="day-detail">
+            {dayDetailDate && (
+              <Link href={`/dashboard/production/today?date=${dayDetailDate}&view=all`} className="inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                이 날 생산 화면 열기 (공정 회차·현장 확인·마감) <ChevronRight className="h-3 w-3" />
               </Link>
-            ))}
+            )}
+            {dayDetailDate && groupByProduct(batchesByDate[dayDetailDate] || []).map((g) => {
+              const st = productState(g.items.map((b: any) => batchState(b)));
+              const total = sumKg(g.items.map((b: any) => b.plannedQuantity));
+              const isOpen = !!openProduct[g.key];
+              const warn = g.items.flatMap((b: any) => warningsOf(b, dayDetailDate, todayStr));
+              const appr = g.items.some((b: any) => b.marks?.approvalPending);
+              return (
+                <div key={g.key} className="rounded-lg border" data-testid="day-product">
+                  <button type="button" className="w-full flex items-center gap-2 p-3 text-left hover:bg-accent/50" onClick={() => setOpenProduct((o) => ({ ...o, [g.key]: !o[g.key] }))}>
+                    <div className={`w-2.5 h-2.5 rounded-full shrink-0 ${PROD_STATE_UI[st].dot}`} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium truncate">{g.name}</div>
+                      <div className="text-xs text-muted-foreground">{g.items.length}건{total != null ? ` · 합계 ${total.toLocaleString("ko-KR")} kg` : ""}</div>
+                    </div>
+                    {warn.length > 0 && <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0" aria-label="확인 필요" />}
+                    {appr && <span className="text-[10px] rounded border px-1 shrink-0">결재 대기</span>}
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${PROD_STATE_UI[st].soft}`}>{PROD_STATE_UI[st].label}</span>
+                    <ChevronRight className={`h-4 w-4 text-muted-foreground shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
+                  </button>
+                  {isOpen && (
+                    <div className="border-t divide-y">
+                      {g.items.map((b: any) => {
+                        const w = warningsOf(b, dayDetailDate, todayStr);
+                        return (
+                          <Link key={b.id} href={`/dashboard/batch/${b.id}`}>
+                            <div className="flex items-center gap-2 px-3 py-2 hover:bg-accent/50 cursor-pointer" data-testid="day-batch">
+                              <div className="flex-1 min-w-0">
+                                <div className="text-xs font-medium">{b.batchCode}{b.dayBatchGroup ? <span className="text-muted-foreground font-normal"> · {b.dayBatchGroup} #{b.batchOrder ?? ""}</span> : null}</div>
+                                <div className="text-[11px] text-muted-foreground">
+                                  {b.plannedQuantity ? `${parseFloat(b.plannedQuantity).toLocaleString("ko-KR")} kg` : "-"}
+                                  {w.length > 0 && <span className="text-amber-700 dark:text-amber-300"> · {w.join(" · ")}</span>}
+                                  {b.marks?.approvalPending && <span> · 결재 대기</span>}
+                                </div>
+                              </div>
+                              {getStatusBadge(b)}
+                              <ChevronRight className="h-4 w-4 text-muted-foreground shrink-0" />
+                            </div>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {dayDetailDate && (voidByDate[dayDetailDate]?.length ?? 0) > 0 && (
+              <details className="text-xs text-muted-foreground" data-testid="day-void-history">
+                <summary className="cursor-pointer select-none">무효·취소 이력 {voidByDate[dayDetailDate].length}건 (정상 건수·합계에서 제외, 원본 보존)</summary>
+                <div className="mt-1 space-y-1">
+                  {voidByDate[dayDetailDate].map((b: any) => (
+                    <div key={b.id} className="flex flex-wrap items-center gap-1">
+                      <Link href={`/dashboard/batch/${b.id}`} className="hover:underline">{b.productName || "-"} · {b.batchCode}</Link>
+                      <span>— {batchStatusLabel(b)}</span>
+                      {b.supersededByBatchId && (
+                        <Link href={`/dashboard/batch/${b.supersededByBatchId}`} className="text-blue-600 hover:underline">
+                          → 대체 {codeOf.get(b.supersededByBatchId) ?? `#${b.supersededByBatchId}`}
+                        </Link>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
           </div>
         </DialogContent>
       </Dialog>

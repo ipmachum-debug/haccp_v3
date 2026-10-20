@@ -298,7 +298,8 @@ export async function getBatchById(batchId: number, tenantId?: number) {
   const [rows] = await conn.execute<any[]>(
     `SELECT b.*,
             p.product_name,
-            p.product_code
+            p.product_code,
+            (SELECT s.batch_code FROM h_batches s WHERE s.id = b.superseded_by_batch_id AND s.tenant_id = b.tenant_id) AS superseded_by_code
      FROM h_batches b
      LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
      WHERE b.id = ?${tenantId ? " AND b.tenant_id = ?" : ""}
@@ -341,6 +342,12 @@ export async function getBatchById(batchId: number, tenantId?: number) {
     updatedAt: row.updated_at || null,
     productName: row.product_name || null,
     productCode: row.product_code || null,
+    planOnly: Number(row.plan_only ?? 0) === 1,
+    /** 무효(중복 정리) — 상세 화면 맨 위 안내 + 확인·마감·승인 동작 숨김 (2026-10-20) */
+    voidedAt: row.voided_at ?? null,
+    voidReason: row.void_reason ?? null,
+    supersededByBatchId: row.superseded_by_batch_id != null ? Number(row.superseded_by_batch_id) : null,
+    supersededByCode: row.superseded_by_code ?? null,
   };
 }
 
@@ -357,6 +364,8 @@ export async function getAllBatches(filters?: {
   toDate?: string;
   /** 'created'(기본, 입력일 최신순) | 'planned'(생산일 최신순 — 대시보드 최근 생산 배치) */
   sort?: "created" | "planned";
+  /** 달력 표시 (확인 남음·출고 보류·결재 대기) 함께 (2026-10-20) */
+  withMarks?: boolean;
 }) {
   const db = await getDb();
   if (!db) return { items: [], total: 0, page: 1, limit: 50 };
@@ -421,6 +430,13 @@ export async function getAllBatches(filters?: {
     [...params, String(limit), String(offset)]
   );
 
+  // 달력 표시 — 무효·취소 아닌 생산 건만 (읽기만)
+  const { loadBatchMarks } = await import("../../lib/production/dayChecks");
+  const markIds = filters?.withMarks && filters?.tenantId
+    ? (dataRows as any[]).filter((r) => !r.voided_at && r.status !== "cancelled").map((r) => Number(r.id))
+    : [];
+  const marks = markIds.length ? await loadBatchMarks(conn, filters!.tenantId, markIds) : null;
+
   return {
     items: (dataRows as any[]).map((row: any) => ({
       id: row.id,
@@ -448,6 +464,12 @@ export async function getAllBatches(filters?: {
       updatedAt: row.updated_at || null,
       productName: row.product_name || null,
       productCode: row.product_code || null,
+      /** 예정만 (첫 현장 확인 전) */
+      planOnly: Number(row.plan_only ?? 0) === 1,
+      /** 무효(중복 정리) — 정상 달력·합계에서 빼고 이력으로만 (2026-10-20) */
+      voidedAt: row.voided_at ?? null,
+      supersededByBatchId: row.superseded_by_batch_id != null ? Number(row.superseded_by_batch_id) : null,
+      marks: marks?.get(Number(row.id)) ?? null,
     })),
     total,
     page,

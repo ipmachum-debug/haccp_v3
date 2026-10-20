@@ -10,7 +10,7 @@
  *   5. 실패는 그 자리에서 이어서 — 막힌 이유를 그 줄에 두고, 같은 값을 다시 넣지 않고 [다시]·[고치기] 로 잇는다.
  * 쓰기는 모두 기존 서버 경로 — 새 쓰기 없음. '생산 시작' 버튼 없음 (첫 현장 확인에서 시작·원료 출고).
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
@@ -23,10 +23,11 @@ import { todayLocal } from "@/lib/dateUtils";
 import FieldRowsPanel, { FieldWriteProvider, useFieldWriteState } from "@/components/production/FieldRowsPanel";
 import LineIssueExceptions from "@/components/production/LineIssueExceptions";
 import TodayProductionWorkbench from "./TodayProductionWorkbench";
+import { PROD_STATE_UI, batchState, groupByProduct, productState, sumKg } from "@/lib/productionState";
 import { AlertTriangle, CheckCircle2, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, Loader2, Plus, RefreshCw } from "lucide-react";
 
 type Board = {
-  id: number; batchCode: string; productName: string | null; status: string; mode: string | null;
+  id: number; batchCode: string; productId: number | null; productName: string | null; status: string; mode: string | null;
   plannedKg: number | null; actualKg: number | null; approvalStatus: string | null; planOnly: boolean;
   ccpForms: { total: number; unconfirmed: number; approved: number };
   voidedSupersededBy: number | null;
@@ -40,6 +41,22 @@ const TONE: Record<Board["next"]["tone"], string> = {
   done: "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30",
   stop: "bg-red-50 text-red-800 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30",
 };
+
+/** 공정 회차 요약 — 저장된 현장 확인 행(교반·증숙·오븐 …)의 공정별 회차 수와 저장된 예정 시각 범위 */
+function roundsOf(rows: any[]): string {
+  const m = new Map<string, string[]>();
+  for (const r of rows) {
+    const k = String(r.process ?? "공정");
+    const t = m.get(k) ?? [];
+    if (r.plannedTime) t.push(String(r.plannedTime).slice(0, 5)); else t.push("");
+    m.set(k, t);
+  }
+  return Array.from(m.entries()).map(([p, ts]) => {
+    const times = ts.filter(Boolean).sort();
+    return `${p} ${ts.length}회${times.length ? ` ${times[0]}${times.length > 1 ? `~${times[times.length - 1]}` : ""}` : ""}`;
+  }).join(" · ");
+}
+const pendingApproval = (s: string | null) => !!s && s.startsWith("pending");
 
 const addDays = (d: string, n: number) => { const t = new Date(`${d}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
 const DONE = ["completed", "shipped", "archived"];
@@ -109,7 +126,16 @@ export default function TodayProduction() {
   const sheets = ((work.data as any)?.sheets ?? []) as any[];
   const showAdd = PLANNER.includes(role) && (adding || (!board.isLoading && live.length === 0));
   const listRef = useRef<HTMLDivElement>(null);
-  const openLine = (id: number) => { setFilter("all"); setOpen((o) => ({ ...o, [id]: true })); setTimeout(() => document.getElementById(`line-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); };
+  // 날짜 → 품목 → 생산 건 (생산 건·행·LOT 은 그대로, 묶어 보이기만). 무효·취소는 품목 합계에서 뺀다
+  const groups = useMemo(() => groupByProduct(live), [live]);
+  const [gOpen, setGOpen] = useState<Record<string, boolean>>({});
+  const openLine = (id: number) => {
+    setFilter("all");
+    setOpen((o) => ({ ...o, [id]: true }));
+    const g = groups.find((x) => x.items.some((b) => b.id === id));
+    if (g) setGOpen((o) => ({ ...o, [g.key]: true }));
+    setTimeout(() => document.getElementById(`line-${id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), 50);
+  };
 
   const FILTERS: Array<{ k: Filter; label: string; n: number; cls?: string }> = [
     { k: "all", label: "전체", n: live.length },
@@ -172,10 +198,30 @@ export default function TodayProduction() {
 
           {board.isLoading && <p className="text-sm text-muted-foreground">불러오는 중…</p>}
           <div className="space-y-2" data-testid="work-list" ref={listRef}>
-            {shown.map((b) => (
-              <BatchLine key={b.id} b={b} open={!!open[b.id]} onToggle={() => setOpen((o) => ({ ...o, [b.id]: !o[b.id] }))} isAdmin={isAdmin} past={date < todayLocal()}
-                heat={heat.filter((r) => r.batchId === b.id)} onChanged={refresh} />
-            ))}
+            {groups.map((g) => {
+              const vis = g.items.filter((b) => shown.includes(b));
+              if (!vis.length) return null;
+              // 생산 건이 하나뿐인 품목은 줄 하나 (품목 줄 = 생산 건 줄) — 같은 내용을 두 줄로 보이지 않게
+              if (g.items.length === 1) {
+                const b = g.items[0];
+                return (
+                  <BatchLine key={g.key} solo b={b} open={!!open[b.id]} onToggle={() => setOpen((o) => ({ ...o, [b.id]: !o[b.id] }))} isAdmin={isAdmin} past={date < todayLocal()}
+                    heat={heat.filter((r) => r.batchId === b.id)} onChanged={refresh} />
+                );
+              }
+              const st = productState(g.items.map((b) => batchState(b)));
+              // 기본: 다 끝난 품목만 접는다 (할 일이 있는 품목은 펼친 채)
+              const isOpen = gOpen[g.key] ?? (st !== "done" || vis.some((b) => open[b.id] || b.next.tone === "stop"));
+              return (
+                <ProductLine key={g.key} name={g.name} items={g.items} open={isOpen} onToggle={() => setGOpen((o) => ({ ...o, [g.key]: !isOpen }))}
+                  heat={heat.filter((r) => g.items.some((b) => b.id === r.batchId))}>
+                  {vis.map((b) => (
+                    <BatchLine key={b.id} b={b} open={!!open[b.id]} onToggle={() => setOpen((o) => ({ ...o, [b.id]: !o[b.id] }))} isAdmin={isAdmin} past={date < todayLocal()}
+                      heat={heat.filter((r) => r.batchId === b.id)} onChanged={refresh} />
+                  ))}
+                </ProductLine>
+              );
+            })}
           </div>
 
           {live.length > 0 && (
@@ -185,7 +231,18 @@ export default function TodayProduction() {
           {voided.length > 0 && (
             <details className="text-sm text-muted-foreground">
               <summary className="cursor-pointer select-none">무효·취소 {voided.length}건 (원본 보존)</summary>
-              <div className="mt-1 space-y-1">{voided.map((b) => <p key={b.id}>{b.productName} · {b.batchCode} — {b.next.label}</p>)}</div>
+              <div className="mt-1 space-y-1" data-testid="void-history">
+                {voided.map((b) => (
+                  <p key={b.id}>
+                    <Link href={`/dashboard/batch/${b.id}`} className="hover:underline">{b.productName} · {b.batchCode}</Link> — {b.next.label}
+                    {!!b.voidedSupersededBy && (
+                      <Link href={`/dashboard/batch/${b.voidedSupersededBy}`} className="ml-1 text-blue-600 hover:underline">
+                        → 대체 {rows.find((x) => x.id === b.voidedSupersededBy)?.batchCode ?? `#${b.voidedSupersededBy}`}
+                      </Link>
+                    )}
+                  </p>
+                ))}
+              </div>
             </details>
           )}
         </>
@@ -253,8 +310,47 @@ function FieldTodo({ heat, metal, error, past, onChanged }: { heat: any[]; metal
   );
 }
 
-function BatchLine({ b, open, onToggle, isAdmin, past, heat, onChanged }: {
+/**
+ * 품목 한 줄 — 그날 그 품목의 생산 건 수 · 계획 합계(실제 합계) · 공정 회차 · 상태 색 (2026-10-20 대표 달력 기준과 같은 원칙).
+ *   색: 모두 완료 = 녹색, 하나라도 시작 = 파랑, 모두 시작 전 = 주황. 확인 남음·막힘·원료 부족·결재 대기는 표시만.
+ *   펼치면 생산 건 줄 — 생산 건을 펼치면 그 회차(현장 확인 행).
+ */
+function ProductLine({ name, items, open, onToggle, heat, children }: {
+  name: string; items: Board[]; open: boolean; onToggle: () => void; heat: any[]; children: ReactNode;
+}) {
+  const st = productState(items.map((b) => batchState(b)));
+  const planned = sumKg(items.map((b) => b.plannedKg));
+  const actual = items.every((b) => b.actualKg != null) ? sumKg(items.map((b) => b.actualKg)) : null;
+  const rowsLeft = items.filter((b) => !DONE.includes(b.status)).reduce((a, b) => a + Math.max(0, b.check.rows.total - b.check.rows.confirmed), 0);
+  const stops = items.filter((b) => b.next.tone === "stop").length;
+  const short = items.some((b) => b.check.shortLines > 0);
+  const appr = items.some((b) => pendingApproval(b.approvalStatus));
+  const rounds = roundsOf(heat);
+  return (
+    <div className="rounded-lg border bg-card" data-testid="product-line">
+      <button type="button" onClick={onToggle} className="w-full text-left px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={cn("w-2.5 h-2.5 rounded-full shrink-0", PROD_STATE_UI[st].dot)} />
+          <span className="font-semibold">{name}</span>
+          <span className="text-sm">{items.length}건 · {planned ?? "-"} kg{actual != null ? ` → ${actual} kg` : ""}</span>
+          {rowsLeft > 0 && <span className="text-xs text-muted-foreground">확인 {rowsLeft}건 남음</span>}
+          {stops > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300">막힘 {stops}</span>}
+          {short && <AlertTriangle className="h-3.5 w-3.5 text-amber-600" aria-label="원료 부족" />}
+          {appr && <span className="text-[11px] px-1.5 py-0.5 rounded border" data-testid="approval-mark">결재 대기</span>}
+          <span className={cn("ml-auto text-xs border rounded px-2 py-1", PROD_STATE_UI[st].soft)} data-testid="product-state">{PROD_STATE_UI[st].label}</span>
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </div>
+        {rounds && <p className="text-xs text-muted-foreground mt-1" data-testid="product-rounds">{rounds}</p>}
+      </button>
+      {open && <div className="border-t p-2 space-y-2">{children}</div>}
+    </div>
+  );
+}
+
+function BatchLine({ b, open, onToggle, isAdmin, past, heat, onChanged, solo }: {
   b: Board; open: boolean; onToggle: () => void; isAdmin: boolean; past: boolean; heat: any[]; onChanged: () => void;
+  /** 품목에 생산 건이 하나뿐 — 품목 이름을 크게, 생산 건 번호는 작게, 결재 대기 표시도 이 줄에 */
+  solo?: boolean;
 }) {
   const ws = useFieldWriteState();
   const unsaved = heat.filter((r) => ["failed", "rejected"].includes(ws?.pending[r.rowId]?.state ?? "")).length;
@@ -263,7 +359,8 @@ function BatchLine({ b, open, onToggle, isAdmin, past, heat, onChanged }: {
     <div id={`line-${b.id}`} className={cn("rounded-lg border bg-card", b.next.tone === "stop" && "border-red-300 dark:border-red-500/40")} data-testid="batch-line">
       <button type="button" onClick={onToggle} className="w-full text-left px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold">{b.productName ?? "-"}</span>
+          <span className={cn("rounded-full shrink-0", solo ? "w-2.5 h-2.5" : "w-2 h-2", PROD_STATE_UI[batchState(b)].dot)} />
+          {solo ? <><span className="font-semibold">{b.productName ?? "-"}</span><span className="text-xs text-muted-foreground">{b.batchCode}</span></> : <span className="font-medium">{b.batchCode}</span>}
           <span className="text-sm">{b.plannedKg ?? "-"} kg{b.actualKg != null ? ` → ${b.actualKg} kg` : ""}</span>
           {b.check.rows.total > 0 && !DONE.includes(b.status) && <span className="text-xs text-muted-foreground">확인 {b.check.rows.confirmed}/{b.check.rows.total}</span>}
           {b.check.shortLines > 0 && (
@@ -271,6 +368,7 @@ function BatchLine({ b, open, onToggle, isAdmin, past, heat, onChanged }: {
               <AlertTriangle className="h-3 w-3" />원료 부족 {b.check.shortMaterials.slice(0, 2).join(", ")}{b.check.shortMaterials.length > 2 ? ` 외 ${b.check.shortMaterials.length - 2}` : ""}
             </span>
           )}
+          {solo && pendingApproval(b.approvalStatus) && <span className="text-[11px] px-1.5 py-0.5 rounded border" data-testid="approval-mark">결재 대기</span>}
           {unsaved > 0 && (
             <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300 flex items-center gap-1" data-testid="unsaved">
               <AlertTriangle className="h-3 w-3" />저장 안 됨 {unsaved}
@@ -279,6 +377,7 @@ function BatchLine({ b, open, onToggle, isAdmin, past, heat, onChanged }: {
           <span className={cn("ml-auto text-xs border rounded px-2 py-1", TONE[b.next.tone])} data-testid="next">{b.next.label}</span>
           {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
         </div>
+        {heat.length > 0 && <p className="text-xs text-muted-foreground mt-1" data-testid="batch-rounds">{roundsOf(heat)}</p>}
       </button>
       {open && (
         <div className="border-t px-3 py-3 space-y-3" data-testid="batch-open">
