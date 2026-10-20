@@ -219,6 +219,34 @@ export const batchPlanRouter = router({
       }
     }),
 
+  /**
+   * 그날 마감에 남은 결재 — 생산 건(batch) · 그날 CCP 기록지(ccp_form_record, 금속검출 하루 기록지 포함) 의 대기 요청 (2026-10-20 마감 한 자리).
+   *   단계는 기존 그대로: pending_writer(작성자 제출) → pending_review·pending_approval·pending(승인). 읽기만 한다.
+   *   실제 처리는 기존 approval.submitByWriter / approval.approve (작성자·승인 권한·CCP·일지 관문 그대로).
+   */
+  dayApprovals: tenantRequiredProcedure
+    .input(z.object({ workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))
+    .query(async ({ input, ctx }) => {
+      const conn = await getRawConnection();
+      const [rows]: any = await conn.execute(
+        `SELECT ar.id, ar.title, ar.status, ar.reference_type, ar.reference_id, ar.request_type, ar.requested_by,
+                CASE WHEN ar.reference_type = 'batch' THEN ar.reference_id ELSE f.batch_id END AS batch_id, f.ccp_type
+           FROM h_approval_requests ar
+           LEFT JOIN h_ccp_form_records f ON ar.reference_type = 'ccp_form_record' AND f.id = ar.reference_id AND f.tenant_id = ar.tenant_id
+           LEFT JOIN h_batches b ON ar.reference_type = 'batch' AND b.id = ar.reference_id AND b.tenant_id = ar.tenant_id
+          WHERE ar.tenant_id = ? AND ar.status IN ('pending_writer', 'pending_review', 'pending_approval', 'pending')
+            AND ((ar.reference_type = 'batch' AND b.planned_date = ? AND b.voided_at IS NULL)
+              OR (ar.reference_type = 'ccp_form_record' AND f.work_date = ? AND f.voided_at IS NULL))
+          ORDER BY ar.id`,
+        [ctx.tenantId, input.workDate, input.workDate],
+      );
+      return (rows as any[]).map((r) => ({
+        id: Number(r.id), title: String(r.title ?? ""), status: String(r.status), referenceType: String(r.reference_type), requestType: r.request_type ?? null,
+        batchId: r.batch_id != null && r.ccp_type !== "CCP-4P" ? Number(r.batch_id) : null, ccpType: r.ccp_type ?? null,
+        step: r.status === "pending_writer" ? ("writer" as const) : ("approve" as const), mine: Number(r.requested_by) === Number(ctx.user.id),
+      }));
+    }),
+
   /** 오늘 배치 목록 — 서버에 저장된 실제 배치만, 지금 할 일 한 가지 */
   todayBoard: tenantRequiredProcedure
     .input(z.object({ workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) }))

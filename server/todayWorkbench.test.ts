@@ -71,17 +71,40 @@ describe("생산 화면 하나 — 입력·클릭·이동이 줄었는가 (2026-
     expect([issueStarted({ plan_only: 1, status: "planned" }), issueStarted({ plan_only: 0, status: "in_progress", mode: "manual" }), issueStarted({ plan_only: 0, status: "in_progress", mode: "auto" })]).toEqual([false, false, true]);
     expect(read("server/routers/production/batch.plan.router.ts")).toMatch(/const kindOf = \(i: any\) => lineExceptionKind\(i, started\);/);
   });
-  it("한 화면: 하루 현황(파이프라인 대신)·생산 추가(같은 날짜)·줄 펼침(현장 확인·출고 결정·제출·완료)·내 설비 보기, '생산 시작' 버튼 없음", () => {
+  it("한 화면: 하루 현황(파이프라인 대신)·계획(같은 날짜)·줄 펼침(현장 확인·출고 결정)·마감 한 자리·현장 보기, '생산 시작' 버튼 없음", () => {
     const ui = read("client/src/pages/production/TodayProduction.tsx");
     expect(ui).toMatch(/data-testid="day-status"/);
     expect(ui).toMatch(/<TodayProductionWorkbench embedded workDate=\{date\} hideBoard onCreated=/);
-    expect(ui).toMatch(/<FieldRowsPanel heat=\{heat\} sheets=\{sheets\} bare onChanged=\{onChanged\} \/>/);
+    expect(ui).toMatch(/<FieldRowsPanel heat=\{heat\} bare onChanged=\{onChanged\} \/>/);
     expect(ui).toMatch(/<LineIssueExceptions batchId=\{b\.id\} canResolve=\{isAdmin\} \/>/);
-    expect(ui).toMatch(/<BatchCompletionDialog batchId=\{b\.id\}/); // 완료는 기존 완료 창 (준비 점검·미출고 경고 그대로)
     expect(ui).toMatch(/scope: view === "all" \? "all" : "mine"/);
     expect(ui).not.toMatch(/todayProduction\.start|생산 시작<\/Button>/);
     // 생산 추가는 입력이 바뀌면 자동 미리보기 — [미리보기] 를 따로 누르지 않는다
     expect(read("client/src/pages/production/TodayProductionWorkbench.tsx")).toMatch(/const t = setTimeout\(\(\) => \{ if \(!previewMut\.isPending\) runPreview\(\); \}, 700\);/);
+  });
+  it("대표 기준 1~5 (2026-10-20): 계획 = 제품·수량만, 완료 = 계획값 기본, 현장 = 할 일만, 마감 한 자리(서버 검증·권한 그대로), 실패는 그 자리", () => {
+    const ui = read("client/src/pages/production/TodayProduction.tsx");
+    const wb = read("client/src/pages/production/TodayProductionWorkbench.tsx");
+    // 1 — 줄에는 제품·수량·단위·삭제만, 나머지는 '예외·자세히' 안
+    expect(wb).toMatch(/data-testid="plan-exceptions"/);
+    expect(wb).toMatch(/data-testid="plan-summary"/);
+    // 2 — 실제 생산량 기본값 = 계획값, 다를 때만 고침
+    expect(ui).toMatch(/value=\{qty\[it\.b\.id\] \?\? String\(it\.b\.plannedKg \?\? ""\)\}/);
+    expect(ui).toMatch(/: Number\(it\.b\.plannedKg \?\? 0\);/);
+    // 3 — 작업자는 현장(지금 할 일)만, 끝난 행은 접음
+    expect(ui).toMatch(/const view: "all" \| "mine" = isManager \? viewPref : "mine";/);
+    expect(ui).toMatch(/const keep = \(r: any\) => !r\.confirmed \|\| !!ws\?\.pending\[r\.rowId\] \|\| !!ws\?\.editing\[r\.rowId\];/);
+    // 4 — 마감: 기존 서버 경로 그대로 (제출·완료 전 점검·완료·작성자 제출·승인)
+    for (const k of ["trpc.ccpForm.submit.useMutation", "utils.client.batch.checkCompletionReadiness.query", "trpc.batch.complete.useMutation", "trpc.approval.submitByWriter.useMutation", "trpc.approval.approve.useMutation"]) expect(ui).toContain(k);
+    // 5 — 완료 처리 키는 성공할 때까지 같은 키, 막힌 줄에는 이유 + [고치기]
+    expect(ui).toMatch(/keys\.current\[it\.b\.id\] \?\?= /);
+    expect(ui).toMatch(/onClick=\{\(\) => onFix\(it\.b\.id\)\}>고치기</);
+    // 기록지 확인 제출 = 작성자 단계 — 같은 확인을 결재에서 또 하지 않음 (관문 통과·pending_writer 일 때만 조건부로 넘김)
+    const sub = read("server/routers/haccp/ccpForm.router.ts");
+    expect(sub).toMatch(/await confirmSheet\(input\.formRecordId[\s\S]{0,900}advanceWriterStepOnSheetConfirm\(ctx\.tenantId, input\.formRecordId, ctx\.user\.id\)/);
+    const gate = read("server/lib/haccp/ccpRequestGate.ts");
+    expect(gate).toMatch(/const g = await checkCcpRequestGate\(tenantId, Number\(r\.id\)\);\s*if \(!g\.ok\) continue;/);
+    expect(gate).toMatch(/WHERE id = \? AND tenant_id = \? AND status = 'pending_writer'/);
   });
   it("옛 화면은 같은 화면으로 — 현장 확인=내 설비, 배치 생성=생산 추가, 파이프라인=하루 현황, 파이프라인 탭 없음", () => {
     const app = read("client/src/App.tsx");
