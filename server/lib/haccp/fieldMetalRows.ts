@@ -16,6 +16,8 @@
  *   - 예전에 이름으로 만든 행(sku_id 없음)을 사람이 이미 손댔으면 그 생산 건의 통과 행은 그대로 둔다 (중복 행을 만들지 않음, 다시 쓰지 않음).
  */
 
+import { NOT_IN_OTHER_METAL_FORM } from "./dayMetalForm";
+
 const SENS_NORMAL = { metal_fe_mid: "O", metal_sus_mid: "O", metal_product_only: "X", metal_fe_product: "O", metal_sus_product: "O" };
 
 /**
@@ -62,7 +64,7 @@ async function syncFieldMetalRowsLocked(conn: any, p: { formRecordId: number; te
     detectorName = (eq as any[])[0]?.name ?? null;
   }
 
-  // 그날 생산 건(무효·취소 제외) + SKU 실적
+  // 그날 생산 건(무효·취소 제외) + SKU 실적 — 그날 다른 금속검출 기록지(승인본 등)에 이미 있는 생산 건은 빼고 (dayMetalForm)
   const [src]: any = await conn.execute(
     `SELECT b.id AS batch_id, b.planned_quantity, COALESCE(p.product_name, '') AS product_name,
             pso.sku_id, ps.sku_name, ps.sales_unit, COALESCE(pso.quantity, 0) AS sku_quantity
@@ -71,8 +73,9 @@ async function syncFieldMetalRowsLocked(conn: any, p: { formRecordId: number; te
        LEFT JOIN production_sku_output pso ON pso.batch_id = b.id AND pso.tenant_id = b.tenant_id
        LEFT JOIN product_skus ps ON ps.id = pso.sku_id AND ps.tenant_id = b.tenant_id
       WHERE b.tenant_id = ? AND b.planned_date = ? AND b.voided_at IS NULL AND b.status <> 'cancelled'
+        AND ${NOT_IN_OTHER_METAL_FORM}
       ORDER BY COALESCE(b.day_batch_group, CONCAT('_', b.id)), b.batch_order, b.id, ps.sku_code`,
-    [tenantId, workDate],
+    [tenantId, workDate, formRecordId],
   );
   const wants = passageWants(src as any[]);
 

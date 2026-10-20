@@ -205,7 +205,7 @@ export async function syncCcpRowsToFormRows(params: {
   // CCP-4P 일일 통합: batchId로 연결된 기록 + 같은 workDate의 CCP-4P 일일 기록 모두 포함
   const [formRecords] = await rawConn.execute<any[]>(
     `SELECT fr.id, fr.batch_id as fr_batch_id, fr.ccp_type, fr.process_group_id, fr.product_name, fr.planned_qty_kg, fr.bom_batch_kg, fr.batch_count,
-            DATE_FORMAT(fr.work_date, '%Y-%m-%d') as work_date, fr.field_mode, fr.detector_equipment_id
+            DATE_FORMAT(fr.work_date, '%Y-%m-%d') as work_date, fr.field_mode, fr.detector_equipment_id, fr.status, fr.voided_at
      FROM h_ccp_form_records fr
      WHERE fr.tenant_id = ?
        AND (
@@ -213,7 +213,8 @@ export async function syncCcpRowsToFormRows(params: {
          OR (fr.ccp_type = 'CCP-4P' AND fr.work_date = (
            SELECT b2.planned_date FROM h_batches b2 WHERE b2.id = ? AND b2.tenant_id = ? LIMIT 1
          ))
-       )`,
+       )
+     ORDER BY fr.id`,
     [tenantId, batchId, batchId, tenantId],
   );
 
@@ -303,6 +304,9 @@ export async function syncCcpRowsToFormRows(params: {
     const frProductName = fr.product_name || batchProductName;
     const processGroupId = fr.process_group_id ? Number(fr.process_group_id) : null;
 
+    // CCP-4P: 승인·무효 기록지는 맞추지 않는다 — 그날 열린 기록지(승인 뒤 추가 기록지 포함)만 (dayMetalForm, 2026-10-20)
+    //   이전: 날짜마다 처음 만난 기록지만 처리해, 승인본을 먼저 만나면 열린 기록지를 건너뛰었다
+    if (ccpType === "CCP-4P" && (String(fr.status) === "approved" || fr.voided_at != null)) continue;
     // CCP-4P 일일 통합: 같은 날짜의 기록이 이미 처리되었으면 건너뜀
     if (ccpType === "CCP-4P" && fr.work_date) {
       const dateKey = String(fr.work_date).slice(0, 10);

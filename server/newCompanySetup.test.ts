@@ -250,3 +250,17 @@ describe("번호 체계 2b — 화면이 번호 종류를 밝혀 보낸다 (2026
     }
   });
 });
+
+describe("금속검출 하루 기록지 — 승인 뒤 추가 생산 (2026-10-20 #626 운영 시험)", () => {
+  it("준비 검사·현장 화면·동기화·결재·생성이 같은 기록지 고르기(dayMetalForm)를 쓴다 — '그날 첫 기록지' 직접 조회 없음", () => {
+    for (const f of ["server/services/batchOrchestrator.ts", "server/services/batchReplan.ts", "server/db/production/batchCRUD.ts", "server/routers/production/batch.crud.router.ts", "server/db/haccp/ccpFormRecordsCRUD.ts"]) {
+      expect(read(f)).not.toMatch(/ccp_type = 'CCP-4P' AND work_date = \?[^`]*ORDER BY id( ASC)? LIMIT 1/);
+    }
+    expect(read("server/lib/haccp/fieldMetalRows.ts")).toMatch(/NOT_IN_OTHER_METAL_FORM/);
+    expect(read("server/services/fieldWork.ts")).toMatch(/String\(x\.status\) !== "approved"/);
+    // 승인본 머리글 보호
+    const c = read("server/db/haccp/ccpFormRecordsCRUD.ts");
+    expect(c).toMatch(/SET planned_qty_kg = \?, batch_count = \? WHERE id = \? AND tenant_id = \? AND status <> 'approved'/);
+    expect(c).toMatch(/SET \$\{updateFields\.join\(', '\)\} WHERE id = \? AND tenant_id = \? AND status <> 'approved'/);
+  });
+});

@@ -717,8 +717,10 @@ export async function deleteBatch(batchId: number, tenantId?: number) {
   // 커밋 뒤: 그날 금속검출 하루 기록지 — 남은 생산 건 기준으로 손 안 댄 행만 맞추고, 비고 손 안 댄 기록지는 정리
   if (workDate) {
     try {
-      const [[fr]]: any = await (pool as any).execute(
-        `SELECT id, field_mode, detector_equipment_id FROM h_ccp_form_records WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ? ORDER BY id LIMIT 1`, [tenantId, workDate]);
+      // 그날 열린 금속검출 기록지만 (승인본은 그대로, dayMetalForm)
+      const { openDayMetalForm } = await import("../../lib/haccp/dayMetalForm");
+      const open = await openDayMetalForm(pool as any, tenantId, workDate);
+      const fr = open ? { id: open.id, field_mode: open.fieldMode ? 1 : 0, detector_equipment_id: open.detectorEquipmentId } : null;
       if (fr && Number(fr.field_mode ?? 0) === 1) {
         const { syncFieldMetalRows } = await import("../../lib/haccp/fieldMetalRows");
         await syncFieldMetalRows(pool, { formRecordId: Number(fr.id), tenantId, workDate, detectorId: fr.detector_equipment_id ?? null });
@@ -774,11 +776,12 @@ export async function deleteBatchesByDate(plannedDate: string, tenantId: number)
     await pool.execute(
       `DELETE rows FROM h_ccp_form_rows rows
        JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id
-       WHERE rec.ccp_type = 'CCP-4P' AND rec.work_date = ? AND rec.tenant_id = ?`,
+       WHERE rec.ccp_type = 'CCP-4P' AND rec.work_date = ? AND rec.tenant_id = ? AND rec.status <> 'approved'`,
       [plannedDate, tenantId]
     );
+    // 승인된 금속검출 기록지는 지우지 않는다 (행도 함께 보존)
     await pool.execute(
-      `DELETE FROM h_ccp_form_records WHERE ccp_type = 'CCP-4P' AND work_date = ? AND tenant_id = ?`,
+      `DELETE FROM h_ccp_form_records WHERE ccp_type = 'CCP-4P' AND work_date = ? AND tenant_id = ? AND status <> 'approved'`,
       [plannedDate, tenantId]
     );
   } catch { /* ignore */ }

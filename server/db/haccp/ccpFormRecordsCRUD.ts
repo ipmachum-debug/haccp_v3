@@ -78,30 +78,36 @@ export async function getOrCreateCcpFormRecord(params: {
   // batchId는 당일 첫 배치의 ID를 anchor로 사용
   if (params.ccpType === "CCP-4P" && params.workDate) {
     const conn = await getRawConnection();
-    // 당일 CCP-4P 기록이 이미 존재하는지 확인 (배치 무관)
-    // FOR UPDATE: 동시 배치 생성 시 레이스컨디션 방지
+    // 당일 '열린' CCP-4P 기록지 (승인·무효 아님, dayMetalForm) — 승인된 기록지는 머리글·행 모두 바꾸지 않는다 (2026-10-20 #626 운영 시험)
+    //   열린 기록지가 없고 승인본만 있으면: 이 생산 건이 이미 승인본에 있으면 그 기록지, 아니면 아래에서 그날 추가 기록지를 새로 연다.
+    const { openDayMetalForm, metalFormForBatch, NOT_IN_OTHER_METAL_FORM } = await import("../../lib/haccp/dayMetalForm");
+    const open = await openDayMetalForm(conn as any, params.tenantId, params.workDate, true);
+    const mine = open ? null : params.batchId ? await metalFormForBatch(conn as any, params.tenantId, params.batchId, params.workDate) : null;
     const [dailyExisting] = await conn.execute<any[]>(
-      `SELECT * FROM h_ccp_form_records
-       WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
-       ORDER BY id ASC LIMIT 1
-       FOR UPDATE`,
-      [params.tenantId, params.workDate],
+      `SELECT * FROM h_ccp_form_records WHERE id = ? AND tenant_id = ? LIMIT 1`,
+      [open?.id ?? mine?.id ?? 0, params.tenantId],
     );
+    if ((dailyExisting as any[]).length > 0 && String((dailyExisting as any[])[0].status) === "approved") {
+      const rec = (dailyExisting as any[])[0];
+      const rows = await getCcpFormRows(rec.id, params.tenantId);
+      return { record: rec, rows };
+    }
     if ((dailyExisting as any[]).length > 0) {
       const rec = (dailyExisting as any[])[0];
-      // 당일 총 생산량 업데이트 (누적)
+      // 당일 총 생산량 업데이트 (누적) — 이 기록지에 들어갈 생산 건만 (다른 금속검출 기록지에 있는 생산 건 제외)
       const [totalRow] = await conn.execute<any[]>(
         `SELECT SUM(b.planned_quantity) as total_qty, COUNT(*) as batch_count
          FROM h_batches b
          WHERE b.tenant_id = ? AND b.planned_date = ?
-           AND b.status IN ('pending','in_progress','completed','approved','shipped','archived')`,
-        [params.tenantId, params.workDate],
+           AND b.status IN ('pending','in_progress','completed','approved','shipped','archived')
+           AND ${NOT_IN_OTHER_METAL_FORM}`,
+        [params.tenantId, params.workDate, rec.id],
       );
       const totalQty = parseFloat((totalRow as any[])[0]?.total_qty) || 0;
       const batchCount = parseInt((totalRow as any[])[0]?.batch_count) || 1;
       if (totalQty > 0) {
         await conn.execute(
-          `UPDATE h_ccp_form_records SET planned_qty_kg = ?, batch_count = ? WHERE id = ? AND tenant_id = ?`,
+          `UPDATE h_ccp_form_records SET planned_qty_kg = ?, batch_count = ? WHERE id = ? AND tenant_id = ? AND status <> 'approved'`,
           [totalQty, batchCount, rec.id, params.tenantId],
         );
       }
@@ -154,8 +160,9 @@ export async function getOrCreateCcpFormRecord(params: {
       }
       if (updateFields.length > 0) {
         updateVals.push(rec.id, params.tenantId);
+        // 승인된 기록지 머리글은 바꾸지 않는다 (2026-10-20, 승인본 보호 — 머리글까지)
         await conn.execute(
-          `UPDATE h_ccp_form_records SET ${updateFields.join(', ')} WHERE id = ? AND tenant_id = ?`,
+          `UPDATE h_ccp_form_records SET ${updateFields.join(', ')} WHERE id = ? AND tenant_id = ? AND status <> 'approved'`,
           updateVals
         );
       }
@@ -228,8 +235,9 @@ export async function getOrCreateCcpFormRecord(params: {
         `SELECT SUM(b.planned_quantity) as total_qty, COUNT(*) as batch_count
          FROM h_batches b
          WHERE b.tenant_id = ? AND b.planned_date = ?
-           AND b.status IN ('pending','in_progress','completed','approved','shipped','archived')`,
-        [params.tenantId, params.workDate],
+           AND b.status IN ('pending','in_progress','completed','approved','shipped','archived')
+           AND ${(await import("../../lib/haccp/dayMetalForm")).NOT_IN_OTHER_METAL_FORM}`,
+        [params.tenantId, params.workDate, 0], // 새 기록지 — 그날 다른 금속검출 기록지에 있는 생산 건 제외 (승인 뒤 추가 기록지)
       );
       if ((totalRow2 as any[])[0]?.total_qty) {
         finalPlannedQtyKg = parseFloat((totalRow2 as any[])[0].total_qty);
@@ -364,17 +372,19 @@ async function loadCcpFormRecordsByBatch(batchId: number, tenantId?: number) {
     try {
       const conn = await getRawConnection();
       const [batchRows] = await conn.execute<any[]>(
-        `SELECT planned_date FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`,
+        `SELECT DATE_FORMAT(planned_date, '%Y-%m-%d') AS planned_date FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1`,
         [batchId, tenantId],
       );
       if ((batchRows as any[]).length > 0) {
         const plannedDate = (batchRows as any[])[0].planned_date;
         if (plannedDate) {
+          // 이 생산 건의 금속검출 기록지 — 통과 행이 있는 기록지, 없으면 그날 열린 기록지 (승인 뒤 추가 기록지 포함, dayMetalForm)
+          const { metalFormForBatch } = await import("../../lib/haccp/dayMetalForm");
+          const wd = String(plannedDate).slice(0, 10);
+          const mf = await metalFormForBatch(conn as any, tenantId, batchId, wd);
           const [ccp4pRows] = await conn.execute<any[]>(
-            `SELECT * FROM h_ccp_form_records 
-             WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
-             ORDER BY id ASC LIMIT 1`,
-            [tenantId, plannedDate],
+            `SELECT * FROM h_ccp_form_records WHERE id = ? AND tenant_id = ? LIMIT 1`,
+            [mf?.id ?? 0, tenantId],
           );
           if ((ccp4pRows as any[]).length > 0) {
             // ORM 형식과 일치하도록 snake_case → camelCase 변환

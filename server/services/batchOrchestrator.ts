@@ -387,8 +387,10 @@ export async function verifyBatchSetup(batchId: number, tenantId: number, opts: 
   if (!(inst as any[]).length) missing.push("CCP 공정이 없습니다");
   for (const i of inst as any[]) {
     if (String(i.ccp_type) === "CCP-4P") {
-      const [[fr]]: any = await conn.execute(
-        `SELECT id, field_mode FROM h_ccp_form_records WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ? ORDER BY id LIMIT 1`, [tenantId, b.wd]);
+      // 이 생산 건의 금속검출 기록지 (통과 행이 있는 기록지, 없으면 그날 열린 기록지) — 승인본을 골라 '행 없음' 으로 멈추지 않게 (dayMetalForm)
+      const { metalFormForBatch } = await import("../lib/haccp/dayMetalForm");
+      const mf = await metalFormForBatch(conn, tenantId, batchId, String(b.wd));
+      const fr = mf ? { id: mf.id, field_mode: mf.fieldMode ? 1 : 0 } : null;
       if (!fr) { missing.push("금속검출 하루 기록지가 없습니다"); continue; }
       if (Number(fr.field_mode ?? 0) === 1) {
         const [[pr]]: any = await conn.execute(
@@ -485,12 +487,12 @@ async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean 
     if (ccpGroups.some(g => g.ccp_type === "CCP-4P")) {
       try {
         const conn4p = await getRawConnection();
+        // 그날 열린 금속검출 기록지 (승인 뒤 추가 기록지 포함) — 승인된 기록지의 상태는 바꾸지 않는다 (dayMetalForm)
+        const { openDayMetalForm } = await import("../lib/haccp/dayMetalForm");
+        const open4p = await openDayMetalForm(conn4p as any, input.tenantId, input.workDate);
         const [ccp4pRecs] = await conn4p.execute<any[]>(
-          `SELECT id, batch_id, status, approval_request_id
-           FROM h_ccp_form_records
-           WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
-           ORDER BY id ASC LIMIT 1`,
-          [input.tenantId, input.workDate],
+          `SELECT id, batch_id, status, approval_request_id FROM h_ccp_form_records WHERE id = ? AND tenant_id = ? LIMIT 1`,
+          [open4p?.id ?? 0, input.tenantId],
         );
         if ((ccp4pRecs as any[]).length > 0) {
           const ccp4pRec = (ccp4pRecs as any[])[0];

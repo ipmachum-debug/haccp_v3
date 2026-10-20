@@ -379,16 +379,21 @@ export const batchCrudRouter = router({
         if (!planOnlyDay && successResults.length > 0) {
           try {
             const conn4p = await getRawConnection();
-            // 당일 CCP-4P form record 조회
+            // 당일 열린 CCP-4P 기록지 (승인 뒤 추가 기록지 포함, dayMetalForm) — 승인된 기록지는 상태를 바꾸지 않는다
+            const { openDayMetalForm } = await import("../../lib/haccp/dayMetalForm");
+            const open4p = await openDayMetalForm(conn4p as any, ctx.tenantId, input.workDate);
             const [ccp4pRecs] = await conn4p.execute<any[]>(
-              `SELECT id, batch_id, status, approval_request_id
-               FROM h_ccp_form_records
-               WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
-               ORDER BY id ASC LIMIT 1`,
+              `SELECT id, batch_id, status, approval_request_id FROM h_ccp_form_records WHERE id = ? AND tenant_id = ? LIMIT 1`,
+              [open4p?.id ?? 0, ctx.tenantId],
+            );
+            const [[anyApproved]]: any = await conn4p.execute(
+              `SELECT COUNT(*) AS n FROM h_ccp_form_records WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ? AND voided_at IS NULL AND status = 'approved'`,
               [ctx.tenantId, input.workDate],
             );
 
-            if ((ccp4pRecs as any[]).length === 0) {
+            if ((ccp4pRecs as any[]).length === 0 && Number(anyApproved?.n ?? 0) > 0) {
+              // 그날 기록지가 모두 승인됨 — 새로 올릴 승인 요청 없음
+            } else if ((ccp4pRecs as any[]).length === 0) {
               // form_record 가 없음 → batchOrchestrator 에서 생성 실패한 것
               // 여기서 경고만 남기고 다음 기회로 넘김
               console.warn(`[bulkCreateForDay] CCP-4P form_record 없음 (date=${input.workDate}) — BOM 에 CCP-4P 공정그룹이 없거나 orchestrator 에서 실패`);
