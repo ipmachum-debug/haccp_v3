@@ -101,6 +101,19 @@ h_products_v2 (제품 상세)        h_materials (원재료 상세)   ← 배치
 
 각 단계 통과 조건 (고정): 테넌트 미혼합 · LOT/생산 이력 유지 · 입출고 수량 일치 · 회계 분개 무차이 · HACCP 기록/승인 이력 보존.
 
+## 3-1. 번호 종류를 코드에서 구분 (2026-10-20, 번호 체계 2단계 — 적용됨)
+
+- 이름표 타입 `shared/identity/itemIds.ts`: `ItemMasterId` · `ProductionProductId` · `InventoryMaterialId`.
+  실행 때는 그냥 숫자, 컴파일 때 종류가 다르면 막힌다. `as…()` 는 "이 숫자를 그 표에서 읽었다" 가 분명한 경계에서만 붙인다.
+- `ItemIdentityService` 의 변환 함수는 이 타입을 받는다 (`selectBomVersion(ProductionProductId)`, `toProductionProductId(ItemMasterId)`,
+  `inventoryMaterialIdOfItem(ItemMasterId)` 등). 잘못 넘기면 빌드 실패 — `server/lib/identity/itemIdKinds.typecheck.ts` 가 지킨다.
+- **숫자 우연 일치·이름 매칭 경로 제거**: 생산 제품 → BOM 은 `legacy_product_id` FK 만(직접 일치·역방향 흡수 없음),
+  보고서 → 생산 제품 SQL(`bomProductV2IdExpr`)도 FK 만, 원료 정체성 ↔ 재고는 `legacy_material_id` FK 만(이름 매칭 없음),
+  BOM → 투입 재생성(`batchHydrator`)도 FK 만(연결 없으면 멈춤). 운영 사본 점검: 이 경로로만 이어지던 것은 연결 빠진 시험 품목뿐.
+- 아직 남은 것 (2b): 재고 원료 칸에 두 종류 번호가 섞여 들어오는 옛 화면(입고 면제·포장 단위·실사/조정·발주 반복 품목 등).
+  `toInventoryMaterialId(any…)` 는 그 칸용으로 남기되, 같은 숫자가 다른 원료의 정체성 번호이면 `trusted=false (hm_direct_ambiguous)` 로 표시한다.
+  화면마다 번호 종류를 정해 이 함수를 없애는 것이 2b. 3단계(새 정체성 번호 범위 분리)·4단계(DB 제약)는 운영 DB 변경 — 승인 후.
+
 ## 4. 1단계 분류 기준 — 왜 "전면 재계산" 이 안 되는가
 
 실측 40건 중:

@@ -1,6 +1,7 @@
 import { eq, and, desc, sql, count, inArray } from "drizzle-orm";
 import { getDb, getRawConnection } from "../connection";
 import { resolveBomProductIds } from "../../lib/identity/itemIdentityService";
+import { asProductionProductId } from "../../../shared/identity/itemIds";
 
 // ============================================================================
 // Equipment Profile Management (설비 프로필 관리)
@@ -301,7 +302,7 @@ export async function calculateMaterialRequirements(batchId: number, tenantId?: 
   if (!batch) throw new Error("배치를 찾을 수 없습니다");
 
   // 2. 제품의 BOM(품목제조보고) 조회 — product_id 는 v2 id 또는 item_master id (bomProductResolver)
-  const bomProductIds = await resolveBomProductIds(batch.productId, tenantId ?? batch.tenantId);
+  const bomProductIds = await resolveBomProductIds(asProductionProductId(batch.productId), tenantId ?? batch.tenantId);
   const bomConditions: any[] = [
     inArray(hMfReports.productId, bomProductIds),
     eq(hMfReports.status, "ACTIVE"),

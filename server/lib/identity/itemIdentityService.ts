@@ -23,7 +23,10 @@
 import type { Pool, PoolConnection, Connection } from "mysql2/promise";
 import { getRawConnection } from "../../db/connection";
 import { resolveMaterialIds, resolvePriceFallback, clearMaterialIdResolverCache } from "../production/materialIdResolver";
-import { resolveBomProductIds, bomProductV2IdExpr, inPlaceholders, selectBomVersion } from "../production/bomProductResolver";
+import { resolveBomProductIds, bomItemIdsOfProduct, bomProductV2IdExpr, inPlaceholders, selectBomVersion } from "../production/bomProductResolver";
+import type { ItemMasterId, ProductionProductId, InventoryMaterialId } from "../../../shared/identity/itemIds";
+export type { ItemMasterId, ProductionProductId, InventoryMaterialId } from "../../../shared/identity/itemIds";
+export { asItemMasterId, asProductionProductId, asInventoryMaterialId } from "../../../shared/identity/itemIds";
 
 export type IdentityConn = Pick<Pool | PoolConnection | Connection, "execute">;
 
@@ -90,7 +93,7 @@ export async function getItem(itemMasterId: number, tenantId: number, c?: Identi
 // ────────────────────────────────────────────────────────────────────────────
 
 /** item_master.id → h_products_v2.id (배치·CCP 가 쓰는 id). 연결 없으면 null. */
-export async function toProductionProductId(itemMasterId: number, tenantId: number, c?: IdentityConn): Promise<number | null> {
+export async function toProductionProductId(itemMasterId: ItemMasterId, tenantId: number, c?: IdentityConn): Promise<ProductionProductId | null> {
   const [rows] = await (await conn(c)).execute<any[]>(
     `SELECT im.legacy_product_id
        FROM item_master im
@@ -98,18 +101,18 @@ export async function toProductionProductId(itemMasterId: number, tenantId: numb
       WHERE im.id = ? AND im.tenant_id = ? AND im.item_type IN ${PRODUCT_TYPES} LIMIT 1`,
     [itemMasterId, tenantId],
   );
-  return num((rows as any[])[0]?.legacy_product_id);
+  return num((rows as any[])[0]?.legacy_product_id) as ProductionProductId | null;
 }
 
 /** h_products_v2.id → item_master.id (BOM·SKU 가 쓰는 id). 연결 없으면 null. */
-export async function toItemMasterIdFromProduct(productionProductId: number, tenantId: number, c?: IdentityConn): Promise<number | null> {
+export async function toItemMasterIdFromProduct(productionProductId: ProductionProductId, tenantId: number, c?: IdentityConn): Promise<ItemMasterId | null> {
   const [rows] = await (await conn(c)).execute<any[]>(
     `SELECT id FROM item_master
       WHERE tenant_id = ? AND legacy_product_id = ? AND item_type IN ${PRODUCT_TYPES}
       ORDER BY is_active DESC, id ASC LIMIT 1`,
     [tenantId, productionProductId],
   );
-  return num((rows as any[])[0]?.id);
+  return num((rows as any[])[0]?.id) as ItemMasterId | null;
 }
 
 /**
@@ -134,8 +137,8 @@ export async function toProductionProductIds(itemMasterIds: number[], tenantId: 
   return out;
 }
 
-/** BOM(h_mf_reports) 을 찾을 때 쓸 product_id 후보 — [v2 id, item_master id ...] (bomProductResolver 위임) */
-export { resolveBomProductIds, bomProductV2IdExpr, inPlaceholders, selectBomVersion };
+/** BOM(h_mf_reports) 을 찾을 때 — 생산 제품 번호 → 그 제품의 정체성 번호들 (FK 만, bomProductResolver 위임) */
+export { resolveBomProductIds, bomItemIdsOfProduct, bomProductV2IdExpr, inPlaceholders, selectBomVersion };
 /** 단가 4단 폴백 (마지막 입고가 → h_materials → item_master). 자재 id 변환과 같이 쓰여 여기서 함께 노출 */
 export { resolvePriceFallback, clearMaterialIdResolverCache };
 
@@ -145,14 +148,15 @@ export { resolvePriceFallback, clearMaterialIdResolverCache };
 
 /**
  * 어느 네임스페이스인지 모르는 material_id → h_materials.id (LOT·재고·원장이 쓰는 id).
- * materialIdResolver 위임: h_materials 직접 일치 → legacy_material_id FK → (폴백) 이름 매칭.
- * 신뢰 경로(FK)가 아니면 `trusted=false` 로 알려 준다.
+ * materialIdResolver 위임: h_materials 직접 일치 → legacy_material_id FK. 이름 매칭은 하지 않는다 (2026-10-20).
+ * 신뢰 경로가 아니면(같은 숫자가 다른 원료의 정체성 번호이기도 한 경우 포함) `trusted=false` 로 알려 준다.
  */
 export async function toInventoryMaterialId(
   anyMaterialId: number,
   tenantId: number,
   c?: IdentityConn,
 ): Promise<{ id: number; trusted: boolean; source: string; itemMasterId: number | null }> {
+  // 번호 종류가 분명한 곳은 inventoryMaterialIdOfItem(정체성) 을 쓰거나 재고 번호를 그대로 쓴다 — 이 함수는 종류가 섞인 옛 칸용 (2026-10-20)
   const r = await resolveMaterialIds(anyMaterialId, tenantId, await conn(c));
   return {
     id: r.canonicalId,
@@ -162,15 +166,29 @@ export async function toInventoryMaterialId(
   };
 }
 
+/**
+ * 정체성 원료 번호 → 재고 원료 번호 — FK(legacy_material_id) 만 (2026-10-20, 번호 체계 2단계).
+ * 화면이 품목 목록(material.list = item_master)에서 고른 원료처럼 '정체성 번호가 분명한' 곳에서 쓴다. 연결 없으면 null (추측 안 함).
+ */
+export async function inventoryMaterialIdOfItem(itemMasterId: ItemMasterId, tenantId: number, c?: IdentityConn): Promise<InventoryMaterialId | null> {
+  const [rows] = await (await conn(c)).execute<any[]>(
+    `SELECT im.legacy_material_id FROM item_master im
+       JOIN h_materials hm ON hm.id = im.legacy_material_id AND hm.tenant_id = im.tenant_id
+      WHERE im.id = ? AND im.tenant_id = ? AND im.item_type IN ${MATERIAL_TYPES} LIMIT 1`,
+    [itemMasterId, tenantId],
+  );
+  return num((rows as any[])[0]?.legacy_material_id) as InventoryMaterialId | null;
+}
+
 /** h_materials.id → item_master.id. 연결 없으면 null. */
-export async function toItemMasterIdFromMaterial(inventoryMaterialId: number, tenantId: number, c?: IdentityConn): Promise<number | null> {
+export async function toItemMasterIdFromMaterial(inventoryMaterialId: InventoryMaterialId, tenantId: number, c?: IdentityConn): Promise<ItemMasterId | null> {
   const [rows] = await (await conn(c)).execute<any[]>(
     `SELECT id FROM item_master
       WHERE tenant_id = ? AND legacy_material_id = ? AND item_type IN ${MATERIAL_TYPES}
       ORDER BY is_active DESC, id ASC LIMIT 1`,
     [tenantId, inventoryMaterialId],
   );
-  return num((rows as any[])[0]?.id);
+  return num((rows as any[])[0]?.id) as ItemMasterId | null;
 }
 
 // ────────────────────────────────────────────────────────────────────────────

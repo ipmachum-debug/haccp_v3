@@ -157,7 +157,7 @@ describe("신규 회사 시험 4차 — 완료 보고서 열기 · BOM 기준량
     const f = s.slice(s.indexOf("getBomBatchKg:"), s.indexOf("getEquipmentForBatch:"));
     expect(f).not.toMatch(/WHERE mr\.product_id = \?/);
     expect(f).toMatch(/bom_batch_kg > 0/);
-    expect(f).toMatch(/selectBomVersion\(input\.productId/);
+    expect(f).toMatch(/selectBomVersion\(asProductionProductId\(input\.productId\)/);
     expect(read("client/src/components/ccp/CcpMonitoringForms.tsx")).toMatch(/bomLoading \? "BOM 배치량 조회 중\.\.\. " : "배합\(BOM\) 1배치 기준량이 없습니다/);
   });
   it("도장: 긴 이름도 누가 했는지 보이게 (3자 한 줄 · 4~6자 두 줄 · 7자 이상 도장 아래 전체)", async () => {

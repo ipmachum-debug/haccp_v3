@@ -4,7 +4,7 @@
 // 재고 부족 예측, 발주 제안, 대시보드 통합 데이터
 // ═══════════════════════════════════════════════════════════════
 import { getDb, getRawConnection } from "../connection";
-import { resolveBomProductIds, toItemMasterIdFromMaterial } from "../../lib/identity/itemIdentityService";
+import { resolveBomProductIds, toItemMasterIdFromMaterial, asInventoryMaterialId } from "../../lib/identity/itemIdentityService";
 import { eq, and, or, lte, gte, gt, desc, asc, sql, lt, inArray, count, isNotNull, sum } from "drizzle-orm";
 import {
   hBatches,
@@ -24,6 +24,7 @@ import {
 import { getExpiringMaterials } from "../system/dashboardStats";
 
 import { toKSTDate, todayKST, formatLocalDate } from "../../utils/timezone";
+import { asProductionProductId } from "../../../shared/identity/itemIds";
 
 // ═══════════════════════════════════════════════════════════════
 // 원재료 소요량 계산 (내부 헬퍼)
@@ -48,7 +49,7 @@ async function calculateMaterialRequirements(batchId: number, tenantId?: number)
   if (!batch) throw new Error("배치를 찾을 수 없습니다");
 
   // 2. 제품의 BOM(품목제조보고) 조회 — product_id 는 v2 id 또는 item_master id (bomProductResolver)
-  const bomProductIds = await resolveBomProductIds(batch.productId, tenantId ?? batch.tenantId);
+  const bomProductIds = await resolveBomProductIds(asProductionProductId(batch.productId), tenantId ?? batch.tenantId);
   const bomConditions: any[] = [
     inArray(hMfReports.productId, bomProductIds),
     eq(hMfReports.status, "ACTIVE"),
@@ -649,7 +650,7 @@ export async function approvePurchaseOrderSuggestion(params: {
   );
   const material = (rows as any[])[0];
   if (!material) throw new Error("원재료를 찾을 수 없습니다");
-  const itemMasterId = await toItemMasterIdFromMaterial(Number(material.id), tenantId, conn);
+  const itemMasterId = await toItemMasterIdFromMaterial(asInventoryMaterialId(material.id), tenantId, conn); // h_materials 에서 읽은 번호
 
   return {
     success: true,

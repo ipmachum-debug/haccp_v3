@@ -153,8 +153,8 @@ async function createMaterialPurchaseViaInbound(params: {
   unit?: string; packagingUnit?: string; createdBy: number; idempotencyKey?: string | null; savePackUnit?: boolean; inspectionResult?: "pass" | "fail" | null;
 }, tenantId: number) {
   const raw = await getRawConnection();
-  const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
-  const materialId = (await toInventoryMaterialId(params.materialId, tenantId, raw)).id;
+  // params.materialId 는 위에서 정체성 품목의 FK(legacy_material_id)로 이미 바꾼 재고 원료 번호 — 다시 추측 변환하지 않는다 (번호 체계 2단계)
+  const materialId = Number(params.materialId);
   const [mr]: any = await raw.execute(`SELECT id, unit, material_name FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [materialId, tenantId]);
   const mat = (mr as any[])[0];
   if (!mat) throw new Error("원재료를 찾을 수 없습니다.");

@@ -39,6 +39,7 @@ import {
   computeSeed as metalComputeSeed,
   computeRandomOffset as metalComputeRandomOffset,
 } from "../../services/metalPassAllocator";
+import { asProductionProductId } from "../../../shared/identity/itemIds";
 
 // ═══════════════════════════════════════════════════════════════
 // 기록지 헤더 CRUD (h_ccp_form_records)
@@ -1626,7 +1627,7 @@ async function loadCcpBomInput(
   productId: number,
   tenantId: number,
 ): Promise<{ batchKg: number | null; inputByGroup: Record<number, number> } | null> {
-  const pick = await selectBomVersion(productId, tenantId, rawConn);
+  const pick = await selectBomVersion(asProductionProductId(productId), tenantId, rawConn);
   if (!pick) return null;
   const [rows] = await rawConn.execute(CCP_BOM_ROWS_SQL, [pick.versionId]);
   if ((rows as any[]).length === 0) return null;

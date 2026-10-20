@@ -6,7 +6,7 @@ vi.mock("./lib/identity/itemIdentityService", () => ({
 }));
 
 /** stockAdjustment + applyLotDelta 내부 SQL 을 모두 받아주는 mock conn */
-function makeConn(lots: any[], inv = { id: 7, reserved_quantity: "0", unit: "kg" }) {
+function makeConn(lots: any[], inv = { id: 7, reserved_quantity: "0", unit: "kg" }, otherHm: number[] = []) {
   const calls: Array<{ sql: string; params: any[] }> = [];
   const state = new Map(lots.map((l) => [l.id, { ...l }]));
   const conn = {
@@ -32,6 +32,8 @@ function makeConn(lots: any[], inv = { id: 7, reserved_quantity: "0", unit: "kg"
         return [{ affectedRows: 1 }, []];
       }
       if (/^SELECT id, reserved_quantity, unit FROM h_inventory/.test(s)) return [[inv], []];
+      // 원본 번호가 이 회사의 다른 재고 원료 번호인지 (번호 체계 2단계) — otherHm 에 있으면 그 원료
+      if (/^SELECT id FROM h_materials WHERE id = \? AND tenant_id = \?/.test(s)) return [otherHm.includes(Number(params[0])) ? [{ id: params[0] }] : [], []];
       if (/COALESCE\(SUM\(available_quantity\), 0\) AS avail/.test(s)) {
         const col = /product_id = \?/.test(s) ? "product_id" : "material_id";
         const sum = [...state.values()].filter((l) => Number(l[col]) === Number(params[1]) && l.status === "available").reduce((a, l) => a + parseFloat(l.available_quantity), 0);
@@ -115,6 +117,13 @@ describe("adjustBySubject", () => {
     expect(r.affected[0].changeQty).toBe(-5);
     const agg = calls.find((c) => /COALESCE\(SUM\(available_quantity\)/.test(c.sql))!;
     expect(agg.params[1]).toBe(615); // 집계 재계산은 canonical 로
+  });
+
+  it("원본 번호가 이 회사의 다른 재고 원료 번호면 함께 조회하지 않는다 — 다른 원료 LOT 을 조정하지 않음 (번호 체계 2단계)", async () => {
+    const { conn, calls } = makeConn([L(1, "20.000", { product_id: null, material_id: 615 }), L(2, "9.000", { product_id: null, material_id: 168 })], undefined, [168]);
+    await adjustBySubject(conn, { tenantId: 2, subject: { materialId: 168 }, delta: -5, reason: "실사", userId: 9 });
+    const sel = calls.find((c) => /material_id IN/.test(c.sql))!;
+    expect(sel.params).toEqual([2, 615]);
   });
 
   it("subject 둘 다 / 둘 다 없음 → throw", async () => {

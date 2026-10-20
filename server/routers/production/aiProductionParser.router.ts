@@ -12,7 +12,7 @@ import { tenantRequiredProcedure, router } from "../../_core/trpc";
 import { invokeLLM } from "../../_core/llm";
 import { ENV } from "../../_core/env";
 import { getDb, getRawConnection } from "../../db";
-import { toProductionProductIds, toItemMasterIdFromProduct } from "../../lib/identity/itemIdentityService";
+import { toProductionProductIds, toItemMasterIdFromProduct, asProductionProductId } from "../../lib/identity/itemIdentityService";
 import { itemMaster, productSkus } from "../../../drizzle/schema";
 import { eq, and, like, or, sql } from "drizzle-orm";
 
@@ -421,11 +421,15 @@ export const aiProductionParserRouter = router({
         let savedCount = 0;
         for (const correction of input.corrections) {
           // 학습 사전(ai_parse_corrections.product_id) 은 item_master 네임스페이스로 통일한다.
-          // 클라이언트가 itemMasterId 를 안 보내면 v2 id 를 역변환 (연결 없으면 그대로).
+          // 클라이언트가 itemMasterId 를 안 보내면 v2 id 를 FK 로 역변환. 연결이 없으면 배우지 않는다 —
+          //   이전엔 생산 제품 번호(v2)를 그대로 정체성 칸에 넣어, 같은 숫자의 다른 품목으로 학습될 수 있었다 (번호 체계 2단계).
           const learnItemId =
             correction.itemMasterId ??
-            (await toItemMasterIdFromProduct(correction.productId, tenantId, pool)) ??
-            correction.productId;
+            (await toItemMasterIdFromProduct(asProductionProductId(correction.productId), tenantId, pool));
+          if (learnItemId == null) {
+            console.warn(`[aiParser] 제품 ${correction.productId} 이(가) 품목 정체성과 연결돼 있지 않아 이 교정은 학습하지 않습니다.`);
+            continue;
+          }
           const aliases = new Set<string>();
           // rawName과 parsedName 모두 학습
           aliases.add(normalizeAlias(correction.rawName));

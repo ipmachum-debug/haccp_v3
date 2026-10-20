@@ -120,7 +120,14 @@ async function loadActiveLots(
     const raw = Number(p.subject.materialId);
     const resolved = await toInventoryMaterialId(raw, p.tenantId, conn);
     canonicalId = resolved.id;
-    ids = Array.from(new Set([resolved.id, raw]));
+    ids = [resolved.id];
+    // 원본 번호(옛 LOT 이 정체성 번호로 남은 경우)도 함께 보되, 그 숫자가 이 회사의 '다른 재고 원료' 번호이면 넣지 않는다 —
+    //   이전엔 [변환 번호, 원본 번호] 를 모두 매칭해, 정체성 번호가 다른 원료의 재고 번호와 같으면 그 원료 LOT 까지 조정했다 (번호 체계 2단계)
+    if (raw !== resolved.id) {
+      const [hmRows]: any = await conn.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [raw, p.tenantId]);
+      const other = Array.isArray(hmRows) ? hmRows[0] : null;
+      if (!other) ids.push(raw);
+    }
     subjectForDelta = { materialId: resolved.id };
   }
 

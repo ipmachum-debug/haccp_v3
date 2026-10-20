@@ -188,9 +188,13 @@ async function canonicalMaterialInTenant(
   tenantId: number,
   toInventoryMaterialId: (id: number, t: number, c?: any) => Promise<{ id: number }>,
 ): Promise<number> {
-  const { id } = await toInventoryMaterialId(anyMaterialId, tenantId, conn);
+  // 이 경로의 화면(생산 건 상세 원료 추가)은 품목 목록(material.list = 정체성 번호)에서 고른다 — FK 로만 변환 (2026-10-20 번호 체계 2단계).
+  //   예전 호출(재고 번호)도 받도록: 정체성 연결이 없을 때만 재고 번호로 확인한다 (같은 숫자 다른 원료로 새지 않게 정체성 우선).
+  const { inventoryMaterialIdOfItem, asItemMasterId } = await import("../../lib/identity/itemIdentityService");
+  const viaFk = await inventoryMaterialIdOfItem(asItemMasterId(anyMaterialId), tenantId, conn);
+  const id = viaFk ?? (await toInventoryMaterialId(anyMaterialId, tenantId, conn)).id;
   const [rows]: any = await conn.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [id, tenantId]);
-  if (!(rows as any[])[0]) throw new Error(`원재료를 찾을 수 없습니다 (id=${anyMaterialId})`);
+  if (!(rows as any[])[0]) throw new Error(`원재료를 찾을 수 없습니다 (id=${anyMaterialId}) — 품목이 재고 원료와 연결돼 있는지 확인하세요`);
   return id;
 }
 /**

@@ -13,6 +13,7 @@ import {
   itemMaster,
 } from "../../../drizzle/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
+import { asProductionProductId } from "../../../shared/identity/itemIds";
 
 /** 정제수(purified water) 여부 판별 - 가격 계산에서 제외 대상 */
 function isWaterMaterial(materialName: string | null | undefined): boolean {
@@ -116,7 +117,7 @@ export async function calculateProductCostStats(productId?: number, tenantId?: n
     conditions.push(eq(hMfReports.tenantId, tenantId));
   }
   if (productId) {
-    conditions.push(inArray(hMfReports.productId, await resolveBomProductIds(productId, tenantId ?? 0)));
+    conditions.push(inArray(hMfReports.productId, await resolveBomProductIds(asProductionProductId(productId), tenantId ?? 0)));
   }
 
   const reportList = await db
