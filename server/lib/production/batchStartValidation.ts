@@ -5,7 +5,8 @@
  * 시작 버튼을 누른 그 순간에 서버가 자동출고와 **같은 기준**으로 다시 센다.
  *   - 투입 계획: h_batch_inputs (자동출고 v1 과 같은 SELECT)
  *   - 이미 출고된 투입 제외: inventory_deducted=1 또는 출고 기록 있음 (#483 getIssuedBatchLineIds)
- *   - 자재 ID: 투입의 material_id 를 toInventoryMaterialId 로 재고 자재(h_materials.id)로 변환 (자동출고와 동일)
+ *   - 자재 ID: 투입의 material_id = 재고 원료 번호 칸 — inventoryMaterialIdOfStockLine (옛 줄 품목 번호는 FK 로만, 자동출고와 동일).
+ *     연결 없는 줄은 '연결 없음' 으로 따로 알린다 (원래 숫자로 재고를 보지 않음, 번호 체계 2c)
  *   - 가용량: 그 자재의 가용 LOT available_quantity 합
  *   - 같은 자재가 여러 줄이면 필요량을 합쳐서 비교
  *   - 정제수는 재고 관리 대상이 아니므로 부족 판정에서 뺀다 (자동출고의 isWaterMaterial 과 같은 기준)
@@ -14,7 +15,7 @@
  * 대신 시작 API 가 부족 목록을 돌려주고, 사용자가 확인해야 시작되며 그 확인을 배치 메모에 남긴다.
  */
 import { getRawConnection } from "../../db/connection";
-import { toInventoryMaterialId } from "../identity/itemIdentityService";
+import { inventoryMaterialIdOfStockLine } from "../identity/itemIdentityService";
 import { getIssuedBatchLineIds } from "./issuedBatchLines";
 import { isNegativeStockAllowed } from "../inventory/negativeStockPolicy";
 
@@ -83,11 +84,17 @@ export async function validateBatchStart(batchId: number, tenantId: number) {
   const issued = await getIssuedBatchLineIds(batchId, tenantId);
 
   const lines: StartLine[] = [];
+  const unlinked: Array<{ inputId: number; materialName: string; message: string }> = [];
   for (const r of rows as any[]) {
     const raw = Number(r.material_id);
-    let canonical = raw;
-    try { canonical = (await toInventoryMaterialId(raw, tenantId, conn)).id; } catch { /* 변환 실패 — 원래 ID 로 (자동출고와 같은 폴백) */ }
     const name = r.material_name || `원재료 #${raw}`;
+    const res = await inventoryMaterialIdOfStockLine(raw, tenantId, conn);
+    if (!res.ok) {
+      // 출고할 수 없는 줄 — 부족 판정에 넣지 않고 따로 (이전: 원래 숫자로 재고를 보고 '부족' 으로 섞였다)
+      if (!(Number(r.inventory_deducted) === 1 || issued.has(Number(r.id)))) unlinked.push({ inputId: Number(r.id), materialName: name, message: res.message });
+      continue;
+    }
+    const canonical = Number(res.inventoryMaterialId);
     lines.push({
       inputId: Number(r.id),
       canonicalMaterialId: canonical,
@@ -122,9 +129,11 @@ export async function validateBatchStart(batchId: number, tenantId: number) {
     totalLines: lines.length,
     pendingLines,
     issuedLines,
-    /** 출고 대상인데 아직 출고 기록이 없는 줄 — 진행 중 배치에서 >0 이면 자동출고 누락(재출고 필요) */
-    unissuedLines,
+    /** 출고 대상인데 아직 출고 기록이 없는 줄 — 진행 중 배치에서 >0 이면 자동출고 누락(재출고 필요). 연결 없어 출고 못 한 줄도 센다 */
+    unissuedLines: unissuedLines + unlinked.length,
     shortages,
+    /** 재고 원료와 연결되지 않아 출고할 수 없는 줄 (자동출고도 건너뛴다 — 연결 후 다시) */
+    unlinkedLines: unlinked,
     /** 기존 정책 — true: 부족분은 최근 LOT 에 음수 차감 / false: 출고 기록만 남고 재고는 차감되지 않음 */
     allowNegative: isNegativeStockAllowed(tenantId),
   };

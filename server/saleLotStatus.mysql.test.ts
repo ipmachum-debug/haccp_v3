@@ -1584,6 +1584,32 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(((await validateBatchStart(7301, T)) as any).shortages.map((x: any) => x.materialId)).not.toContain(701);
     });
 
+    it("번호 체계 2c — 투입 줄 번호는 재고 번호 칸: 같은 숫자가 다른 원료의 품목 번호여도 재고 원료로 출고 · 옛 품목 번호는 FK 로 · 연결 없음은 출고 안 함(원장에 그 숫자 안 남김)", async () => {
+      // 재고 700(멥쌀) — 같은 숫자의 품목 700 은 다른 재고 원료 705 에 연결 (숫자 우연 일치)
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, unit_price, is_active) VALUES (705, ?, 'M705', '찹쌀', 'kg', 3000, 1)`, [T]);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, unit_price, receipt_date, status) VALUES (9305, ?, 705, 'C-1', 50, 50, 50, 'kg', 3000, '2026-10-01', 'available')`, [T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, legacy_material_id, is_active) VALUES
+        (700, ?, 'I700', '찹쌀', 'raw_material', 'kg', 705, 1), (1710, ?, 'I1710', '멥쌀', 'raw_material', 'kg', 700, 1), (1720, ?, 'I1720', '연결 없음', 'raw_material', 'kg', NULL, 1)`, [T, T, T]);
+      // 옛 줄: 품목 번호 1710 (재고 원료로는 없는 숫자) → FK 700 / 연결 없는 품목 1720 / 어디에도 없는 번호 88999
+      await q(`UPDATE h_batch_inputs SET planned_quantity = 10 WHERE id = 801`);
+      await q(`INSERT INTO h_batch_inputs (id, tenant_id, batch_id, material_id, planned_quantity, unit, inventory_deducted) VALUES
+        (803, ?, 7301, 1710, 5, 'kg', 0), (805, ?, 7301, 1720, 2, 'kg', 0), (806, ?, 7301, 88999, 1, 'kg', 0)`, [T, T, T]);
+      const r = await dispatch();
+      expect(await avail(9305)).toBe(50); // 찹쌀 LOT 은 건드리지 않음 (이전 우려: 품목 해석으로 다른 원료 출고)
+      const used = await q(`SELECT source_line_id AS l, material_id AS m FROM h_inventory_transactions WHERE transaction_type = 'usage' ORDER BY id`);
+      expect([...new Set(used.map((x: any) => `${x.l}:${x.m}`))].sort()).toEqual(["801:700", "803:700"]);
+      expect(used.some((x: any) => [1720, 88999].includes(Number(x.m)))).toBe(false);
+      expect(r.errors.join(" / ")).toMatch(/품목\(번호 1720\)이 재고 원료와 연결되지 않았습니다.* — 출고하지 않았습니다/);
+      expect(r.errors.join(" / ")).toMatch(/원료\(번호 88999\)를 이 회사에서 찾을 수 없습니다\. — 출고하지 않았습니다/);
+      const ded = await q(`SELECT id, inventory_deducted AS d FROM h_batch_inputs WHERE id IN (805, 806) ORDER BY id`);
+      expect(ded.map((x: any) => Number(x.d))).toEqual([0, 0]); // 미출고로 남아 완료 관문이 드러낸다
+      const { validateBatchStart } = await import("./lib/production/batchStartValidation");
+      const v: any = await validateBatchStart(7301, T);
+      expect(v.unlinkedLines.map((x: any) => x.inputId)).toEqual([805, 806]);
+      expect(v.unissuedLines).toBeGreaterThanOrEqual(2);
+      expect(v.shortages.map((x: any) => x.materialId)).not.toContain(1720);
+    });
+
     it("재고 복구 도구의 거래 장부(Codex #569~571 검증 1번): 관문으로 입고·사용·반품·조정한 정상 LOT 은 불일치가 아님, 입고 기록 없는 LOT 은 판단 불가", async () => {
       const { withInventoryTx, receiveNewLot, applyLotDelta } = await import("./lib/inventory/applyInventoryDelta");
       const { loadLotLedger, classifyLot } = await import("../scripts/_lib/lotLedger");
@@ -3245,6 +3271,9 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`DELETE FROM h_ccp_instances WHERE batch_id = 9302`);
       await q(`INSERT INTO h_ccp_instances (tenant_id, batch_id, process_group_id, ccp_type) VALUES (?, 9302, 8921, 'CCP-1B')`, [T]);
       await q(`DELETE FROM h_batch_inputs WHERE batch_id = 9302`);
+      // 투입 줄 번호는 이 회사 재고 원료여야 출고된다 (번호 체계 2c — 없는 번호로는 원장을 남기지 않음)
+      await q(`DELETE FROM h_materials WHERE id = 999999`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (999999, ?, 'QA-999999', '시험 원료', 'kg', 1)`, [T]);
       await q(`INSERT INTO h_batch_inputs (batch_id, tenant_id, material_id, planned_quantity, unit) VALUES (9302, ?, 999999, 5, 'kg')`, [T]);
       const usage = async () => Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE source_id = 9302 AND transaction_type = 'usage'`))[0].n);
       try {
@@ -3260,6 +3289,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
         await q(`DELETE FROM h_inventory_transactions WHERE source_id = 9302 AND transaction_type = 'usage'`);
         await q(`DELETE FROM h_batch_inputs WHERE batch_id = 9302`);
         await q(`DELETE FROM h_ccp_instances WHERE batch_id = 9302`);
+        await q(`DELETE FROM h_materials WHERE id = 999999`);
       }
     });
 
@@ -3570,7 +3600,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
         expect((await issueLineNow({ tenantId: T, batchInputId: 97172, userId: 4 })).issued).toBe(true);
         expect(Number((await q(`SELECT issue_hold FROM h_batch_inputs WHERE id = 97172`))[0].issue_hold)).toBe(0);
         // 3) 원료 연결이 FK 로 확인되지 않으면 거부 — 확인 기록도 안 남김 / 예정 생산 건 거부 / 다른 회사 거부
-        await expect(issueLineNow({ tenantId: T, batchInputId: 97173, userId: 4 })).rejects.toThrow(/원료 연결/);
+        await expect(issueLineNow({ tenantId: T, batchInputId: 97173, userId: 4 })).rejects.toThrow(/원료\(번호 99977\)를 이 회사에서 찾을 수 없습니다.*연결을 확인한 뒤 출고/);
         expect(await decisions(97173)).toBe(0);
         await expect(issueLineNow({ tenantId: T, batchInputId: 97181, userId: 4 })).rejects.toThrow(/예정 생산 건/);
         await expect(issueLineNow({ tenantId: T + 1, batchInputId: 97174, userId: 4 })).rejects.toThrow(/이 회사의 투입 줄이 아닙니다/);
@@ -3880,25 +3910,25 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Array.from(byRep.values()).filter((v) => v == null).length).toBe(1);
     });
 
-    it("번호 체계 2단계 — 원료: 이름으로 잇지 않고, 같은 숫자가 다른 원료의 정체성 번호면 신뢰하지 않음으로 표시", async () => {
-      const { toInventoryMaterialId, inventoryMaterialIdOfItem, asItemMasterId, clearMaterialIdResolverCache } = await import("./lib/identity/itemIdentityService");
-      clearMaterialIdResolverCache();
+    it("번호 체계 2c — 투입 줄(재고 번호 칸): 재고 원료면 그대로, 옛 품목 번호는 FK 로만, 이름으로 잇지 않음, 연결 없음은 멈춤", async () => {
+      const { inventoryMaterialIdOfStockLine, inventoryMaterialIdOfItem, asItemMasterId } = await import("./lib/identity/itemIdentityService");
       const pool = await (await import("./db/connection")).getRawConnection();
       await q(`DELETE FROM h_materials WHERE id IN (8372, 8373, 8374)`);
-      await q(`DELETE FROM item_master WHERE id IN (8371, 8373)`);
+      await q(`DELETE FROM item_master WHERE id IN (8371, 8373, 8375)`);
       await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (8372, ?, 'N1', '이름같은원료'), (8373, ?, 'N2', '재고원료 8373'), (8374, ?, 'N3', '재고원료 8374')`, [T, T, T]);
-      // 연결 없는 정체성 원료 8371 — 이름이 재고 원료 8372 와 같아도 잇지 않는다
+      // 연결 없는 정체성 원료 8371 — 이름이 재고 원료 8372 와 같아도 잇지 않는다 → 연결 없음 (원래 숫자로 이어 가지 않음)
       await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active) VALUES (8371, ?, 'I1', '이름같은원료', 'raw_material', 'kg', 1)`, [T]);
-      const r1 = await toInventoryMaterialId(8371, T, pool);
-      expect(r1.id).not.toBe(8372);
-      expect(r1.trusted).toBe(false);
+      expect(await inventoryMaterialIdOfStockLine(8371, T, pool)).toMatchObject({ ok: false, reason: "unlinked" });
       expect(await inventoryMaterialIdOfItem(asItemMasterId(8371), T, pool)).toBeNull();
-      // 같은 숫자 8373: 재고 원료 8373 이면서, 정체성 원료 8373 은 재고 8374 에 연결 — 어느 쪽인지 모름 → 신뢰 안 함 표시
+      // 같은 숫자 8373: 재고 원료 8373 이면서 정체성 원료 8373 은 재고 8374 에 연결 — 투입 줄은 재고 번호 칸이므로 재고 8373
+      //   (이전: '신뢰 안 함' 으로 출고 확인을 막았다)
       await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES (8373, ?, 'I2', '재고원료 8374', 'raw_material', 'kg', 1, 8374)`, [T]);
-      clearMaterialIdResolverCache();
-      const r2 = await toInventoryMaterialId(8373, T, pool);
-      expect(r2).toMatchObject({ id: 8373, trusted: false, source: "hm_direct_ambiguous" });
-      // 번호 종류를 아는 곳은 FK 로 정확히
+      expect(await inventoryMaterialIdOfStockLine(8373, T, pool)).toMatchObject({ ok: true, inventoryMaterialId: 8373 });
+      // 옛 줄의 품목 번호(재고 원료로는 없는 숫자) → FK
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES (8375, ?, 'I3', '재고원료 8374', 'raw_material', 'kg', 1, 8374)`, [T]);
+      expect(await inventoryMaterialIdOfStockLine(8375, T, pool)).toMatchObject({ ok: true, inventoryMaterialId: 8374, itemMasterId: 8375 });
+      // 다른 회사·없는 번호
+      expect(await inventoryMaterialIdOfStockLine(8372, 99, pool)).toMatchObject({ ok: false, reason: "missing" });
       expect(await inventoryMaterialIdOfItem(asItemMasterId(8373), T, pool)).toBe(8374);
     });
   });
