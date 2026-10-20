@@ -378,13 +378,14 @@ export default function AdminSettings() {
             </div>
             <div className="flex flex-wrap gap-2">
               {(exemptList as any[]).length === 0 && <span className="text-xs text-muted-foreground">없음</span>}
+              {/* 해제 = 제외 목록의 재고 원료 번호 / 추가 = 품목 선택창의 품목 번호 — 번호 종류를 밝혀 보낸다 (번호 체계 2b) */}
               {(exemptList as any[]).map((m) => (
                 <span key={m.materialId} className="inline-flex items-center gap-1 rounded border px-2 py-0.5 text-xs">
                   {m.materialName}
                   <button
                     className="text-red-600"
                     disabled={setExemptMutation.isPending}
-                    onClick={() => { if (confirm(`${m.materialName} 을(를) 재고 차감에 다시 포함할까요?`)) setExemptMutation.mutate({ materialId: m.materialId, exempt: false }); }}
+                    onClick={() => { if (confirm(`${m.materialName} 을(를) 재고 차감에 다시 포함할까요?`)) setExemptMutation.mutate({ inventoryMaterialId: m.materialId, exempt: false }); }}
                   >×</button>
                 </span>
               ))}
@@ -402,7 +403,7 @@ export default function AdminSettings() {
               <Button
                 size="sm"
                 disabled={!exemptPick || setExemptMutation.isPending}
-                onClick={() => exemptPick && confirm(`${exemptPick.name} 을(를) 재고 차감에서 제외할까요?`) && setExemptMutation.mutate({ materialId: exemptPick.id, exempt: true })}
+                onClick={() => exemptPick && confirm(`${exemptPick.name} 을(를) 재고 차감에서 제외할까요?`) && setExemptMutation.mutate({ itemMasterId: exemptPick.id, exempt: true })}
               >제외 추가</Button>
             </div>
           </div>

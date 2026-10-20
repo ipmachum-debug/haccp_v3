@@ -88,7 +88,7 @@ export default function MaterialReceiptManagement() {
     const location = formData.get("location") as string;
 
     receiveMaterialMutation.mutate({
-      materialId,
+      itemMasterId: materialId, // material.list 에서 고른 품목 번호 (번호 체계 2b)
       quantity,
       unit,
       receiptDate,
@@ -101,7 +101,7 @@ export default function MaterialReceiptManagement() {
 
   // FEFO 순서로 LOT 조회
   const { data: fefoLots = [] } = trpc.inventory.getLotsByMaterialFefo.useQuery(
-    { materialId: selectedMaterialId! },
+    { itemMasterId: selectedMaterialId! }, // 품목 번호 — 서버가 FK 로 재고 원료 LOT 을 찾는다
     { enabled: !!selectedMaterialId }
   );
 
@@ -263,7 +263,7 @@ export default function MaterialReceiptManagement() {
                       <TableRow key={lot.id}>
                         <TableCell className="font-mono">{lot.lotNumber}</TableCell>
                         <TableCell>
-                          {materials.find((m: any) => m.id === lot.materialId)?.materialName || "-"}
+                          {materials.find((m: any) => m.inventoryMaterialId != null && Number(m.inventoryMaterialId) === Number(lot.materialId))?.materialName || "-"}
                         </TableCell>
                         <TableCell>{lot.quantity} {lot.unit}</TableCell>
                         <TableCell>{lot.availableQuantity} {lot.unit}</TableCell>

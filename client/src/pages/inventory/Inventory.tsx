@@ -85,7 +85,7 @@ export default function Inventory() {
     }
 
     createLotMutation.mutate({
-      materialId,
+      itemMasterId: materialId, // material.list 에서 고른 품목 번호 (번호 체계 2b)
       lotNumber,
       quantity,
       unit,

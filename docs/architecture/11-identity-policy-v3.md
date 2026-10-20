@@ -110,9 +110,17 @@ h_products_v2 (제품 상세)        h_materials (원재료 상세)   ← 배치
 - **숫자 우연 일치·이름 매칭 경로 제거**: 생산 제품 → BOM 은 `legacy_product_id` FK 만(직접 일치·역방향 흡수 없음),
   보고서 → 생산 제품 SQL(`bomProductV2IdExpr`)도 FK 만, 원료 정체성 ↔ 재고는 `legacy_material_id` FK 만(이름 매칭 없음),
   BOM → 투입 재생성(`batchHydrator`)도 FK 만(연결 없으면 멈춤). 운영 사본 점검: 이 경로로만 이어지던 것은 연결 빠진 시험 품목뿐.
-- 아직 남은 것 (2b): 재고 원료 칸에 두 종류 번호가 섞여 들어오는 옛 화면(입고 면제·포장 단위·실사/조정·발주 반복 품목 등).
-  `toInventoryMaterialId(any…)` 는 그 칸용으로 남기되, 같은 숫자가 다른 원료의 정체성 번호이면 `trusted=false (hm_direct_ambiguous)` 로 표시한다.
-  화면마다 번호 종류를 정해 이 함수를 없애는 것이 2b. 3단계(새 정체성 번호 범위 분리)·4단계(DB 제약)는 운영 DB 변경 — 승인 후.
+- **2b (적용 — 입고·조정·실사·차감 제외·포장 단위·LOT 조회·발주)**: API 가 원료 번호의 종류를 밝혀 받는다.
+  - 입력 계약 `MaterialRef` = `{ itemMasterId }`(품목 선택창) 또는 `{ inventoryMaterialId }`(재고·LOT·실사 목록) 중 하나 → `inventoryMaterialIdOfRef`
+    (품목 번호는 FK 만, 재고 번호는 이 회사 존재 확인만). 연결 없음·다른 회사·둘 다/없음은 **쓰기 전에** 거부.
+  - 품목 목록(`material.list`)은 FK 로 연결된 `inventoryMaterialId` 를 함께 준다 — 화면은 LOT·재고 목록과 이 값으로만 맞춘다 (품목 번호와 직접 비교 금지).
+  - 종류 표시가 없는 **저장 칸**(`purchase_order_lines.material_id`, `accounting_purchases.material_id` — 옛 줄 재고 번호/새 줄 품목 번호가 섞임)은
+    `inventoryMaterialIdOfStoredMixed`: 품목 해석과 재고 해석이 같은 원료일 때만 쓰고, 다르면 모호로 거부. 옛 값은 고치지 않는다.
+    새로 쓸 때는 `storableMaterialNumberOfItem` 이 다시 읽어도 같은 원료로 읽히는 숫자를 고른다 (품목 번호, 겹치면 FK 재고 번호, 둘 다 모호하면 거부).
+  - 발주 반복 추천: 이력마다 위 규칙으로 품목 정체성을 정하고 키 = 정체성 + 구매 단위 (단위 환산해 합치지 않음), 단가는 건수 가중 평균, 모호한 이력은 '연결 안 됨' 으로 따로.
+  - 남은 것: `toInventoryMaterialId(any…)` 는 생산 경로(투입 계획·자동 출고·시작 검사)에 남아 있다 — 다음 단계.
+    다른 화면(재고 추이·발주 제안 이력·원가 절감·단가 이력·매입 수정 전표·중간재 구성)도 품목 번호를 재고 칸에 보낸다 — 다음 단계.
+  - 섞인 저장 칸에 종류 표시 칸을 더하거나 값을 정리하는 일, 3단계(새 정체성 번호 범위 분리)·4단계(DB 제약)는 운영 DB 변경 — 승인 후.
 
 ## 4. 1단계 분류 기준 — 왜 "전면 재계산" 이 안 되는가
 

@@ -5,6 +5,24 @@ import { TRPCError } from "@trpc/server";
 import { eq, lt, or, and, inArray } from "drizzle-orm";
 import { hInventoryLots, hInventoryTransactions } from "../../../drizzle/schema";
 import { getDb } from "../../db";
+import { asInventoryMaterialId } from "../../../shared/identity/itemIds";
+
+/** 원료 번호 + 종류 — 품목 선택창 번호(itemMasterId) 또는 재고·LOT 목록 번호(inventoryMaterialId) 중 하나 (번호 체계 2b) */
+const materialRefInput = {
+  itemMasterId: z.number().int().positive().optional(),
+  inventoryMaterialId: z.number().int().positive().optional(),
+};
+
+/** LOT 조회용 — 종류대로 재고 원료 번호로. 연결 없음·다른 회사면 null (빈 목록, 숫자로 다른 원료 LOT 을 보여 주지 않음) */
+async function lotQueryMaterialId(input: { itemMasterId?: number; inventoryMaterialId?: number }, tenantId: number): Promise<number | null> {
+  const { materialRefOf, inventoryMaterialIdOfRef, MaterialRefError } = await import("../../lib/identity/itemIdentityService");
+  try {
+    return Number(await inventoryMaterialIdOfRef(materialRefOf(input), tenantId));
+  } catch (e) {
+    if (e instanceof MaterialRefError) return null;
+    throw e;
+  }
+}
 
 export const inventoryRouter = router({
     // LOT 목록 조회 (소비기한/생산일자 포함)
@@ -34,7 +52,7 @@ export const inventoryRouter = router({
     createLot: workerProcedure
       .input(
         z.object({
-          materialId: z.number(),
+          ...materialRefInput,
           lotNumber: z.string(),
           quantity: z.string(),
           unit: z.string(),
@@ -49,8 +67,9 @@ export const inventoryRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { createInventoryLot } = await import("../../db");
+        const { materialRefOf } = await import("../../lib/identity/itemIdentityService");
         return await createInventoryLot({
-          materialId: input.materialId,
+          material: materialRefOf(input),
           lotNumber: input.lotNumber,
           quantity: input.quantity,
           unit: input.unit,
@@ -69,7 +88,7 @@ export const inventoryRouter = router({
     receiveMaterial: workerProcedure
       .input(
         z.object({
-          materialId: z.number(),
+          ...materialRefInput,
           quantity: z.number(),
           unit: z.string(),
           receiptDate: z.string(),
@@ -82,8 +101,9 @@ export const inventoryRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { receiveMaterial } = await import("../../db");
+        const { materialRefOf } = await import("../../lib/identity/itemIdentityService");
         return await receiveMaterial({
-          materialId: input.materialId,
+          material: materialRefOf(input),
           quantity: input.quantity,
           unit: input.unit,
           receiptDate: input.receiptDate,
@@ -99,10 +119,11 @@ export const inventoryRouter = router({
     
     // FEFO 순서로 원재료별 LOT 조회
     getLotsByMaterialFefo: tenantRequiredProcedure
-      .input(z.object({ materialId: z.number() }))
+      .input(z.object(materialRefInput))
       .query(async ({ input, ctx }) => {
         const { getLotsByMaterialFefo } = await import("../../db");
-        return await getLotsByMaterialFefo({ materialId: input.materialId, tenantId: ctx.tenantId });
+        const inventoryMaterialId = await lotQueryMaterialId(input, ctx.tenantId);
+        return inventoryMaterialId == null ? [] : await getLotsByMaterialFefo({ inventoryMaterialId, tenantId: ctx.tenantId });
       }),
     
     // 재고 거래 내역 조회
@@ -126,10 +147,11 @@ export const inventoryRouter = router({
     
     // 원재료별 재고 LOT 조회 (FEFO 순서)
     getLotsByMaterialId: tenantRequiredProcedure
-      .input(z.object({ materialId: z.number() }))
+      .input(z.object(materialRefInput))
       .query(async ({ input, ctx }) => {
         const { getInventoryLotsByMaterialId } = await import("../../db");
-        return await getInventoryLotsByMaterialId(input.materialId, ctx.tenantId);
+        const inventoryMaterialId = await lotQueryMaterialId(input, ctx.tenantId);
+        return inventoryMaterialId == null ? [] : await getInventoryLotsByMaterialId(inventoryMaterialId, ctx.tenantId);
       }),
     
     // 원재료 투입
@@ -137,7 +159,7 @@ export const inventoryRouter = router({
       .input(
         z.object({
           batchId: z.number(),
-          materialId: z.number(),
+          ...materialRefInput,
           lotId: z.number(),
           quantity: z.string(),
           unit: z.string()
@@ -145,9 +167,10 @@ export const inventoryRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { addMaterialInputToBatch, notifyLowStock } = await import("../../db");
-        await addMaterialInputToBatch({
+        const { materialRefOf } = await import("../../lib/identity/itemIdentityService");
+        const added = await addMaterialInputToBatch({
           batchId: input.batchId,
-          materialId: input.materialId,
+          material: materialRefOf(input),
           lotId: input.lotId,
           quantity: input.quantity,
           unit: input.unit,
@@ -155,8 +178,8 @@ export const inventoryRouter = router({
           tenantId: ctx.tenantId
         });
         
-        // 재고 부족 감지 및 알림
-        await notifyLowStock(input.materialId, ctx.tenantId);
+        // 재고 부족 감지 및 알림 — 실제로 차감한 재고 원료 번호로 (이전: 화면의 품목 번호를 재고 번호로 읽음)
+        await notifyLowStock(added.inventoryMaterialId, ctx.tenantId);
         
         return { success: true, message: "원재료가 투입되었습니다" };
       }),
@@ -599,12 +622,15 @@ export const inventoryRouter = router({
       .input(
         z.object({
           productId: z.number().optional(),
-          materialId: z.number().optional(),
+          /** 품목 선택창(material.list)에서 고른 원료 = 품목 번호 → 서버가 FK 로 재고 원료 번호로 */
+          itemMasterId: z.number().int().positive().optional(),
+          /** 재고·LOT 목록에서 고른 원료 = 재고 원료 번호 (그대로, 이 회사 확인) */
+          inventoryMaterialId: z.number().int().positive().optional(),
           quantityChange: z.number(), // 양수=증가, 음수=감소
           reason: z.string().min(1),
         }).refine(
-          (v) => (v.productId && !v.materialId) || (!v.productId && v.materialId),
-          { message: "productId 또는 materialId 중 하나만 지정해야 합니다" },
+          (v) => [v.productId, v.itemMasterId, v.inventoryMaterialId].filter((x) => x != null && x > 0).length === 1,
+          { message: "제품 번호·품목 번호·재고 원료 번호 중 하나만 지정해야 합니다" },
         ),
       )
       .mutation(async ({ input, ctx }) => {
@@ -613,13 +639,16 @@ export const inventoryRouter = router({
         if (input.quantityChange === 0) throw new Error("조정 수량은 0 이 될 수 없습니다");
         const { withInventoryTx } = await import("../../lib/inventory/applyInventoryDelta");
         const { adjustBySubject } = await import("../../lib/inventory/stockAdjustment");
+        const { materialRefOf } = await import("../../lib/identity/itemIdentityService");
+        // 원료는 번호 종류를 밝혀 받는다 — 연결 없음·다른 회사는 LOT 을 건드리기 전에 거부 (번호 체계 2b)
+        const material = input.productId ? null : materialRefOf(input);
         const r = await withInventoryTx(
           (conn) => adjustBySubject(conn, {
             tenantId: ctx.tenantId,
-            subject: { productId: input.productId ?? null, materialId: input.materialId ?? null },
+            subject: { productId: input.productId ?? null, material },
             delta: input.quantityChange, reason: input.reason, userId: ctx.user.id, source: "ADJUST_SUBJECT",
           }),
-          `adjustStockByProduct:${input.productId ?? "m" + input.materialId}`,
+          `adjustStockByProduct:${input.productId ?? `${material!.kind}${material!.id}`}`,
         );
         return {
           success: true,
@@ -822,6 +851,7 @@ export const inventoryRouter = router({
         z.object({
           items: z.array(z.object({
             productId: z.number().optional(),
+            /** 재고 원료 번호(h_materials) — 실사 목록에서 받은 값 */
             materialId: z.number().optional(),
             actualQty: z.number().min(0),
             reason: z.string().optional(),
@@ -867,11 +897,15 @@ export const inventoryRouter = router({
           const key = item.productId ? `P${item.productId}` : `M${item.materialId}`;
           const meta = nameMap.get(key);
           const idInfo = item.productId ? { productId: item.productId } : { materialId: item.materialId! };
+          // 실사 목록(getMaterialInventorySnapshot)의 materialId = h_materials 번호 — 재고 번호 그대로 (품목 번호로 바꾸지 않음, 번호 체계 2b)
+          const subject = item.productId
+            ? { productId: item.productId }
+            : { material: { kind: "inventory" as const, id: asInventoryMaterialId(item.materialId!) } };
           const base = { ...idInfo, productCode: meta?.code, productName: meta?.name };
           const reason = `[실사] ${item.reason || input.defaultReason}`;
           try {
             const r = await withInventoryTx(
-              (conn) => applyPhysicalCount(conn, { tenantId: ctx.tenantId, subject: idInfo, actualQty: item.actualQty, reason, userId: ctx.user.id, unit: meta?.unit, countDate: input.countDate ?? null }),
+              (conn) => applyPhysicalCount(conn, { tenantId: ctx.tenantId, subject, actualQty: item.actualQty, reason, userId: ctx.user.id, unit: meta?.unit, countDate: input.countDate ?? null }),
               `physicalCount:${key}`,
             );
             results.push({ ...base, before: r.before, after: r.after, diff: r.diff, status: r.status, message: r.message,

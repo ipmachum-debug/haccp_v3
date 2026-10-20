@@ -145,7 +145,7 @@ export default function InventoryReceipt() {
       const mat = materials?.find((m: any) => m.id === selectedMaterialId);
       const supplierLabel = supplierId ? suppliers?.find((s: any) => s.id === supplierId)?.companyName : supplierName;
       createReceivingWithLotMutation.mutate({
-        materialId: selectedMaterialId,
+        itemMasterId: selectedMaterialId, // material.list 에서 고른 품목 번호 (번호 체계 2b)
         materialCode: mat?.materialCode || `M${selectedMaterialId}`,
         quantity: parseFloat(quantity),
         unit,
@@ -164,7 +164,7 @@ export default function InventoryReceipt() {
         return;
       }
       createLotMutation.mutate({
-        materialId: selectedMaterialId,
+        itemMasterId: selectedMaterialId,
         lotNumber: lotNumber.trim(),
         quantity,
         unit,
@@ -421,7 +421,7 @@ export default function InventoryReceipt() {
                     <TableRow key={lot.id}>
                       <TableCell className="font-medium">{lot.lotNumber}</TableCell>
                       <TableCell>
-                        {materials?.find((m: any) => m.id === lot.materialId)?.materialName || "-"}
+                        {materials?.find((m: any) => m.inventoryMaterialId != null && Number(m.inventoryMaterialId) === Number(lot.materialId))?.materialName || "-"}
                       </TableCell>
                       <TableCell>
                         {lot.quantity} {lot.unit}

@@ -21,7 +21,7 @@
  * 매입전표: 발주서 입고는 확정 때 대기 전표 초안을 입고 줄에 연결해 만든다 (CEO 결정). 전표 확정은 분개만 (재고 재생성 없음).
  */
 import { withInventoryTx, receiveNewLot, applyLotDelta, InventoryShortageError } from "../applyInventoryDelta";
-import { toInventoryMaterialId } from "../../identity/itemIdentityService";
+import { inventoryMaterialIdOfRef, inventoryMaterialIdOfStoredMixed, type MaterialRef } from "../../identity/itemIdentityService";
 import { isTenantFeatureEnabled } from "../../production/massBasisPolicy";
 import { publishEvent } from "../../../platform/event-bus";
 import { resolvePackConversion } from "./packUnits";
@@ -31,7 +31,8 @@ export const INBOUND_APPROVAL_FEATURE = "INBOUND_APPROVAL";
 const EPS = 0.0005;
 
 export interface InboundLineInput {
-  materialId: number;
+  /** 원료 번호 + 종류 — 품목 선택창 번호(item)는 FK 로만, 재고 원료 번호(inventory)는 이 회사 확인 후 그대로 (번호 체계 2b) */
+  material: MaterialRef;
   poLineId?: number | null;
   purchaseQuantity: number;
   purchaseUnit: string;
@@ -104,8 +105,10 @@ async function assertPoLine(conn: any, tenantId: number, poId: number, poLineId:
   const line = (pl as any[])[0];
   if (!line || Number(line.po_id) !== Number(poId)) throw new Error(`${label}: 이 발주서의 줄이 아닙니다.`);
   if (line.material_id == null) throw new Error(`${label}: 발주 줄이 원재료와 연결되지 않았습니다.`);
-  const poMat = (await toInventoryMaterialId(Number(line.material_id), tenantId, conn)).id;
-  if (poMat !== Number(materialId)) throw new Error(`${label}: 발주 줄 원료와 입고 원료가 다릅니다.`);
+  // 발주 줄 번호는 종류 표시가 없는 옛 칸 — 두 해석이 같은 원료일 때만 (모호하면 거부, 번호 체계 2b)
+  const poMat = await inventoryMaterialIdOfStoredMixed(Number(line.material_id), tenantId, conn);
+  if (!poMat.ok) throw new Error(`${label}: 발주 줄 — ${poMat.message}`);
+  if (Number(poMat.inventoryMaterialId) !== Number(materialId)) throw new Error(`${label}: 발주 줄 원료와 입고 원료가 다릅니다.`);
   if (normUnit(line.unit) !== normUnit(purchaseUnit)) throw new Error(`${label}: 매입 단위(${purchaseUnit}) 가 발주 단위(${line.unit}) 와 다릅니다 — 발주 단위로 입력하세요.`);
   return line;
 }
@@ -140,9 +143,11 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
       for (const [i, l] of p.lines.entries()) {
         if (!(l.purchaseQuantity > 0)) throw new Error(`${i + 1}번 줄: 수량은 0 보다 커야 합니다.`);
         if (!String(l.purchaseUnit ?? "").trim()) throw new Error(`${i + 1}번 줄: 단위가 필요합니다.`);
-        const { id } = await toInventoryMaterialId(Number(l.materialId), tenantId, conn);
-        const [m]: any = await conn.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [id, tenantId]);
-        if (!(m as any[])[0]) throw new Error(`${i + 1}번 줄: 원재료를 찾을 수 없습니다 (id=${l.materialId}).`);
+        // 이전: 숫자만 받아 추측 변환 — 품목 번호가 다른 원료의 재고 번호와 같으면 그 원료로 입고 줄을 만들었다 (Codex 2b 점검 P1).
+        //   지금: 종류대로 바꾸고, 연결 없음·다른 회사면 문서를 만들기 전에 거부.
+        let id: number;
+        try { id = await inventoryMaterialIdOfRef(l.material, tenantId, conn); }
+        catch (e: any) { throw new Error(`${i + 1}번 줄: ${e?.message ?? e}`); }
         // 포장 단위 환산 — 재고 수량은 서버가 설정으로 계산한다 (화면 값은 확인용). 회계만 사용 회사는 재고가 없으니 매입 수량 그대로.
         const pack = tracking
           ? await resolvePackConversion(conn, tenantId, id, l.purchaseUnit, l.purchaseQuantity, `${i + 1}번 줄`)
@@ -483,15 +488,21 @@ export async function getReceivableLines(poId: number, tenantIdIn: number) {
     // 재고 환산 미리보기 — 1 발주 단위 = ? 기준 단위 (설정 없으면 null → 화면에서 입고 차단·설정 안내)
     let conversion: { factor: number; baseUnit: string } | null = null;
     let conversionError: string | null = null;
-    if (inventoryTracking && r.material_id != null) {
+    // 이 줄의 재고 원료 번호 — 화면의 포장 단위 저장도 이 번호로 (발주 줄 숫자를 다시 추측하지 않게, 번호 체계 2b)
+    let inventoryMaterialId: number | null = null;
+    if (r.material_id != null) {
+      const res = await inventoryMaterialIdOfStoredMixed(Number(r.material_id), tenantId, conn);
+      if (res.ok) inventoryMaterialId = Number(res.inventoryMaterialId);
+      else if (inventoryTracking) conversionError = res.message;
+    }
+    if (inventoryTracking && inventoryMaterialId != null) {
       try {
-        const mid = (await toInventoryMaterialId(Number(r.material_id), tenantId, conn)).id;
-        const pk = await resolvePackConversion(conn, tenantId, mid, r.unit, 1, `${r.line_number}번 줄`);
+        const pk = await resolvePackConversion(conn, tenantId, inventoryMaterialId, r.unit, 1, `${r.line_number}번 줄`);
         conversion = { factor: pk.factor, baseUnit: pk.baseUnit };
       } catch (e: any) { conversionError = String(e?.message ?? e); }
     }
     out.push({
-      poLineId: Number(r.id), lineNumber: Number(r.line_number), materialId: r.material_id != null ? Number(r.material_id) : null,
+      poLineId: Number(r.id), lineNumber: Number(r.line_number), materialId: r.material_id != null ? Number(r.material_id) : null, inventoryMaterialId,
       itemName: r.item_name, unit: r.unit, unitPrice: Number(r.unit_price),
       orderedQty: Number(r.ordered_qty), receivedQty: Number(r.received_qty), remainingQty: Number(r.remaining_qty),
       conversion, conversionError, inventoryTracking,
@@ -740,7 +751,8 @@ export async function receiveDirect(p: {
   tenantId: number;
   userId: number;
   idempotencyKey?: string | null;
-  materialId: number;
+  /** 원료 번호 + 종류 (입고 탭 = 품목 선택창 번호, 재고 화면 = 재고 원료 번호) */
+  material: MaterialRef;
   quantity: number;
   unit: string;
   unitPrice?: number | null;
@@ -760,7 +772,7 @@ export async function receiveDirect(p: {
     supplierId: p.supplierId ?? null, supplierName: p.supplierName ?? null, inboundDate: p.receiptDate, notes: p.notes ?? null,
     createVoucherDrafts: p.createVoucherDraft && (p.unitPrice ?? 0) > 0,
     lines: [{
-      materialId: p.materialId, purchaseQuantity: p.quantity, purchaseUnit: p.unit,
+      material: p.material, purchaseQuantity: p.quantity, purchaseUnit: p.unit,
       unitPrice: p.unitPrice ?? 0, lotNumber: p.lotNumber ?? null, expiryDate: p.expiryDate ?? null,
       productionDate: p.productionDate ?? null, location: p.location ?? null, notes: p.notes ?? null,
     }],

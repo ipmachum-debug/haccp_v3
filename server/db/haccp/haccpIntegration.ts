@@ -1,4 +1,5 @@
 import { getDb, getRawConnection, withTransaction } from "../connection";
+import { asInventoryMaterialId } from "../../../shared/identity/itemIds";
 import { accountingPurchases, accountingSales } from "../../../drizzle/schema";
 import { eq, and} from "drizzle-orm";
 
@@ -195,7 +196,7 @@ async function createMaterialPurchaseViaInbound(params: {
     tenantId, userId: params.createdBy, idempotencyKey: key, sourceType: "direct", supplierId: params.partnerId,
     inboundDate: params.transactionDate, notes: params.memo ?? null, createVoucherDrafts: true,
     lines: [{
-      materialId, purchaseQuantity: params.quantity, purchaseUnit,
+      material: { kind: "inventory", id: asInventoryMaterialId(materialId) }, purchaseQuantity: params.quantity, purchaseUnit,
       stockQuantity, stockUnit: stockQuantity != null ? String(mat.unit) : null,
       unitPrice: params.unitPrice, totalPrice: supply, taxRate, taxAmount,
       expiryDate: params.expiryDate || null, productionDate: params.productionDate || null,

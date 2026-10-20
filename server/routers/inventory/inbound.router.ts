@@ -34,6 +34,12 @@ const lineInput = z.object({
   notes: z.string().nullish(),
 });
 
+/** 원료 번호 + 종류 — 품목 선택창 번호(itemMasterId) 또는 재고·LOT 목록 번호(inventoryMaterialId) 중 하나 (서버: materialRefOf) */
+const materialRefInput = {
+  itemMasterId: z.number().int().positive().optional(),
+  inventoryMaterialId: z.number().int().positive().optional(),
+};
+
 export const inboundRouter = router({
   createDraft: writeInventory
     .input(z.object({
@@ -105,13 +111,14 @@ export const inboundRouter = router({
     const { listStockExemptMaterials } = await import("../../lib/inventory/stockExemptPolicy");
     return listStockExemptMaterials(await getRawConnection(), ctx.tenantId);
   }),
+  // 추가(품목 선택창 = 품목 번호)와 해제(제외 목록 = 재고 원료 번호)가 같은 API 를 쓴다 — 화면이 번호 종류를 밝혀 보낸다 (번호 체계 2b)
   setStockExempt: adminProcedure
-    .input(z.object({ materialId: z.number().int().positive(), exempt: z.boolean() }))
+    .input(z.object({ ...materialRefInput, exempt: z.boolean() }))
     .mutation(async ({ ctx, input }) => {
       if (!ctx.tenantId) throw new Error("테넌트 정보가 필요합니다.");
       const conn = await getRawConnection();
-      const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
-      const materialId = (await toInventoryMaterialId(input.materialId, ctx.tenantId, conn)).id;
+      const { inventoryMaterialIdOfRef, materialRefOf } = await import("../../lib/identity/itemIdentityService");
+      const materialId = await inventoryMaterialIdOfRef(materialRefOf(input), ctx.tenantId, conn);
       const { setMaterialStockExempt } = await import("../../lib/inventory/stockExemptPolicy");
       await setMaterialStockExempt(conn, { tenantId: ctx.tenantId, materialId, exempt: input.exempt });
       const { createAuditLog } = await import("../../db/system/auditApprovalSupplier");
@@ -128,11 +135,11 @@ export const inboundRouter = router({
     .input(z.object({ materialId: z.number().int().positive().optional() }).optional())
     .query(async ({ ctx, input }) => listPackUnits(await getRawConnection(), ctx.tenantId, input?.materialId ?? null)),
   savePackUnit: writeInventory
-    .input(z.object({ materialId: z.number().int().positive(), packUnit: z.string().min(1).max(20), baseQty: z.number().positive() }))
+    .input(z.object({ ...materialRefInput, packUnit: z.string().min(1).max(20), baseQty: z.number().positive() }))
     .mutation(async ({ ctx, input }) => {
-      const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
+      const { inventoryMaterialIdOfRef, materialRefOf } = await import("../../lib/identity/itemIdentityService");
       const conn = await getRawConnection();
-      const materialId = (await toInventoryMaterialId(input.materialId, ctx.tenantId, conn)).id;
+      const materialId = await inventoryMaterialIdOfRef(materialRefOf(input), ctx.tenantId, conn);
       return upsertPackUnit(conn, { tenantId: ctx.tenantId, userId: ctx.user.id, materialId, packUnit: input.packUnit, baseQty: input.baseQty });
     }),
   deactivatePackUnit: writeInventory

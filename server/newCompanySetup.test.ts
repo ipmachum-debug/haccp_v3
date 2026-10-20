@@ -204,3 +204,44 @@ describe("신규 회사 시험 5차 — 완료 보고서 실제 읽힘 확인·�
     expect(s).toMatch(/max-w-\[44px\] whitespace-normal break-all/);
   });
 });
+
+describe("번호 체계 2b — 화면이 번호 종류를 밝혀 보낸다 (2026-10-20 Codex 점검)", () => {
+  it("조정 화면 LOT: 품목 번호와 LOT 의 재고 번호를 직접 비교하지 않고 FK 연결값으로만 (연결 없으면 빈 목록)", async () => {
+    const { lotsOfInventoryMaterial } = await import("../client/src/lib/materialLots");
+    const lots = [{ id: 1, materialId: 500, status: "available" }, { id: 2, materialId: 100, status: "available" }, { id: 3, materialId: 500, status: "depleted" }];
+    // 품목 100 = 쌀A (FK 500), 재고 100 = 설탕B
+    expect(lotsOfInventoryMaterial(lots, 500).map((l) => l.id)).toEqual([1]); // 이전: 품목 번호 100 으로 비교 → 설탕B LOT(2)
+    expect(lotsOfInventoryMaterial(lots, null)).toEqual([]);
+    const tab = read("client/src/pages/inventory/_inventoryManagement/AdjustmentTab.tsx");
+    expect(tab).not.toMatch(/Number\(l\.materialId\) === materialId/);
+    expect(tab).toMatch(/itemMasterId: materialId/);
+    expect(read("server/routers/master/material.router.ts")).toMatch(/inventoryMaterialId: hMaterials\.id/);
+  });
+  it("발주 반복 추천: 같은 품목·같은 단위만 중복 (kg 줄이 있어도 포대 추천은 넣을 수 있음), 연결 안 된 추천은 중복으로 보지 않음", async () => {
+    const { isSuggestionInLines } = await import("../client/src/lib/poSuggestions");
+    const lines = [{ materialId: 100, unit: "kg" }];
+    expect(isSuggestionInLines(lines, { itemMasterId: 100, unit: "KG " })).toBe(true);
+    expect(isSuggestionInLines(lines, { itemMasterId: 100, unit: "bag" })).toBe(false);
+    expect(isSuggestionInLines(lines, { itemMasterId: null, unit: "kg" })).toBe(false);
+    const c = read("client/src/pages/accounting/PurchaseOrderCreate.tsx");
+    expect(c).not.toMatch(/l\.materialId === s\.materialId/);
+    expect(c).toMatch(/itemMasterId: l\.materialId/);
+  });
+  it("호출부: 입고·LOT 조회·투입·차감 제외(추가=품목/해제=재고)·포장 단위(발주 줄의 풀린 재고 번호)·발주 수정(안 바꾼 줄은 그대로)", () => {
+    expect(read("client/src/pages/inventory/_inventoryManagement/ReceiptTab.tsx")).toMatch(/itemMasterId: matId/);
+    expect(read("client/src/pages/production/MaterialReceiptManagement.tsx")).toMatch(/\{ itemMasterId: selectedMaterialId! \}/);
+    const bd = read("client/src/pages/production/BatchDetail.tsx");
+    expect(bd).toMatch(/\{ itemMasterId: selectedMaterialId! \}/);
+    expect(bd).toMatch(/itemMasterId: selectedMaterialId,/);
+    const a = read("client/src/pages/system/AdminSettings.tsx");
+    expect(a).toMatch(/inventoryMaterialId: m\.materialId, exempt: false/);
+    expect(a).toMatch(/itemMasterId: exemptPick\.id, exempt: true/);
+    const l = read("client/src/pages/accounting/PurchaseOrderList.tsx");
+    expect(l).toMatch(/inventoryMaterialId: recv\.inventoryMaterialId!/);
+    expect(l).toMatch(/sameMaterialAsLineId: l\.keepLineId/);
+    // 서버: 추측 변환(toInventoryMaterialId) 을 입고·조정·설정 경로에서 쓰지 않는다
+    for (const f of ["server/lib/inventory/inbound/inboundService.ts", "server/lib/inventory/stockAdjustment.ts", "server/routers/inventory/inbound.router.ts", "server/db/inventory/inventoryFunctions.ts"]) {
+      expect(read(f)).not.toMatch(/toInventoryMaterialId\(/);
+    }
+  });
+});

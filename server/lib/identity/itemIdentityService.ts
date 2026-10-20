@@ -180,6 +180,108 @@ export async function inventoryMaterialIdOfItem(itemMasterId: ItemMasterId, tena
   return num((rows as any[])[0]?.legacy_material_id) as InventoryMaterialId | null;
 }
 
+/**
+ * 원료 번호 + 그 번호의 종류 (2026-10-20, 번호 체계 2b — 입고·조정·설정 입력 계약).
+ *   item      = 품목 선택창(material.list = item_master) 에서 고른 번호 → FK(legacy_material_id) 로만 재고 번호로
+ *   inventory = 재고·LOT·실사 목록(h_materials) 에서 온 번호 → 이 회사 h_materials 에 있는지만 확인, 그대로
+ * 종류는 화면/API 가 안다 — 숫자를 보고 추측하지 않는다 (같은 숫자가 다른 원료의 다른 종류 번호일 수 있음).
+ */
+export type MaterialRef =
+  | { kind: "item"; id: ItemMasterId }
+  | { kind: "inventory"; id: InventoryMaterialId };
+
+export class MaterialRefError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MaterialRefError";
+  }
+}
+
+/** API 입력 { itemMasterId } 또는 { inventoryMaterialId } — 정확히 하나 (둘 다·없음은 거부) */
+export function materialRefOf(input: { itemMasterId?: number | null; inventoryMaterialId?: number | null }): MaterialRef {
+  const im = num(input.itemMasterId);
+  const inv = num(input.inventoryMaterialId);
+  if ((im == null) === (inv == null)) throw new MaterialRefError("원료 번호는 품목 번호(itemMasterId) 또는 재고 원료 번호(inventoryMaterialId) 중 하나만 보내야 합니다.");
+  return im != null ? { kind: "item", id: im as ItemMasterId } : { kind: "inventory", id: inv as InventoryMaterialId };
+}
+
+/** 원료 번호(종류 명시) → 이 회사의 재고 원료 번호. 연결 없음·다른 회사·없는 번호는 쓰기 전에 거부 (추측·이름 매칭 없음) */
+export async function inventoryMaterialIdOfRef(ref: MaterialRef, tenantId: number, c?: IdentityConn): Promise<InventoryMaterialId> {
+  if (ref.kind === "item") {
+    const id = await inventoryMaterialIdOfItem(ref.id, tenantId, c);
+    if (id == null) throw new MaterialRefError(`이 품목(품목 번호 ${ref.id})은 재고 원료와 연결되지 않았습니다 — 원재료 정보에서 품목 연결을 확인하세요.`);
+    return id;
+  }
+  const [rows] = await (await conn(c)).execute<any[]>(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [ref.id, tenantId]);
+  if (!(rows as any[])[0]) throw new MaterialRefError(`재고 원료(번호 ${ref.id})를 이 회사에서 찾을 수 없습니다.`);
+  return ref.id;
+}
+
+export type StoredMaterialResolution =
+  | { ok: true; inventoryMaterialId: InventoryMaterialId; itemMasterId: ItemMasterId | null }
+  | { ok: false; reason: "ambiguous" | "unlinked" | "missing"; message: string };
+
+/**
+ * 저장된 칸의 원료 번호 → 재고 원료 번호 — 저장값의 종류가 섞인 옛 칸 전용 (2026-10-20, 번호 체계 2b).
+ *   purchase_order_lines.material_id · accounting_purchases.material_id 는 경로·시기에 따라 품목 번호도 재고 번호도 들어 있고,
+ *   어느 쪽인지 적힌 칸이 없다. 그래서 두 해석이 '같은 재고 원료' 를 가리킬 때만 쓰고, 다르면 쓰지 않는다 (추측 안 함):
+ *     품목 N 의 FK = X, 재고 N 없음      → X        (품목 번호로만 읽힘)
+ *     품목 N 없음, 재고 N 있음           → N        (재고 번호로만 읽힘 — 옛 줄)
+ *     품목 N 의 FK = N, 재고 N 있음      → N        (두 해석이 같음)
+ *     품목 N 의 FK = X≠N, 재고 N 있음    → 모호 — 거부
+ *     품목 N 연결 없음, 재고 N 있음      → 모호 — 거부
+ *     품목 N 연결 없음, 재고 N 없음      → 연결 없음 — 거부
+ *   새로 쓰는 값은 종류가 분명한 입력(MaterialRef)으로 받는다. 이 함수는 이미 저장된 값을 읽을 때만.
+ */
+export async function inventoryMaterialIdOfStoredMixed(stored: number, tenantId: number, c?: IdentityConn): Promise<StoredMaterialResolution> {
+  const n = num(stored);
+  if (n == null) return { ok: false, reason: "missing", message: "원료 번호가 없습니다." };
+  const cx = await conn(c);
+  const [im] = await cx.execute<any[]>(
+    // 품목 종류와 상관없이 '품목 번호로 읽히는지' 를 본다 (외부 제품 품목 번호를 재고 번호로 잘못 읽지 않게). 재고 연결은 원료 종류만.
+    `SELECT im.id, CASE WHEN im.item_type IN ${MATERIAL_TYPES} THEN hm.id END AS fk FROM item_master im
+       LEFT JOIN h_materials hm ON hm.id = im.legacy_material_id AND hm.tenant_id = im.tenant_id
+      WHERE im.id = ? AND im.tenant_id = ? LIMIT 1`,
+    [n, tenantId],
+  );
+  const [hm] = await cx.execute<any[]>(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [n, tenantId]);
+  const item = (im as any[])[0];
+  const fk = num(item?.fk);
+  const inv = (hm as any[])[0] ? n : null;
+  if (item && fk != null && (inv == null || fk === inv)) {
+    return { ok: true, inventoryMaterialId: fk as InventoryMaterialId, itemMasterId: n as ItemMasterId };
+  }
+  if (!item && inv != null) {
+    return { ok: true, inventoryMaterialId: inv as InventoryMaterialId, itemMasterId: await toItemMasterIdFromMaterial(inv as InventoryMaterialId, tenantId, cx) };
+  }
+  if (inv != null) {
+    return { ok: false, reason: "ambiguous", message: `원료 번호 ${n} 이(가) 품목 번호로도 재고 원료 번호로도 읽혀 서로 다른 원료를 가리킵니다 — 이 줄의 원료를 다시 선택하세요.` };
+  }
+  return item
+    ? { ok: false, reason: "unlinked", message: `품목(번호 ${n})이 재고 원료와 연결되지 않았습니다 — 원재료 정보에서 품목 연결을 확인하세요.` }
+    : { ok: false, reason: "missing", message: `원료(번호 ${n})를 이 회사에서 찾을 수 없습니다.` };
+}
+
+/**
+ * 품목 번호를 '종류 표시 없는 옛 칸'(발주 줄 등)에 새로 쓸 때 저장할 숫자 — 다시 읽어도(inventoryMaterialIdOfStoredMixed) 같은 원료로 읽히는 쪽.
+ *   품목 번호가 그대로 안전하면 품목 번호, 다른 원료의 재고 번호와 겹치면 그 품목의 재고 원료 번호(FK)가 안전할 때 그 번호.
+ *   둘 다 모호하면 저장 전에 거부. 재고 원료와 연결 안 된 품목은(겹치지 않을 때) 품목 번호 그대로 — 입고 때 '연결 없음' 으로 멈춘다.
+ */
+export async function storableMaterialNumberOfItem(itemMasterId: ItemMasterId, tenantId: number, c?: IdentityConn): Promise<number> {
+  const cx = await conn(c);
+  const [im] = await cx.execute<any[]>(`SELECT id FROM item_master WHERE id = ? AND tenant_id = ? LIMIT 1`, [itemMasterId, tenantId]);
+  if (!(im as any[])[0]) throw new MaterialRefError(`품목(번호 ${itemMasterId})을 이 회사에서 찾을 수 없습니다.`);
+  const asIs = await inventoryMaterialIdOfStoredMixed(itemMasterId, tenantId, cx);
+  if (asIs.ok && Number(asIs.itemMasterId) === Number(itemMasterId)) return itemMasterId;
+  if (!asIs.ok && asIs.reason === "unlinked") return itemMasterId;
+  const fk = await inventoryMaterialIdOfItem(itemMasterId, tenantId, cx);
+  if (fk != null) {
+    const viaFk = await inventoryMaterialIdOfStoredMixed(fk, tenantId, cx);
+    if (viaFk.ok && Number(viaFk.inventoryMaterialId) === Number(fk)) return fk;
+  }
+  throw new MaterialRefError(`이 품목(번호 ${itemMasterId})은 번호가 다른 원료와 겹쳐 발주 줄에 안전하게 저장할 수 없습니다 — 운영 담당에게 알려 주세요.`);
+}
+
 /** h_materials.id → item_master.id. 연결 없으면 null. */
 export async function toItemMasterIdFromMaterial(inventoryMaterialId: InventoryMaterialId, tenantId: number, c?: IdentityConn): Promise<ItemMasterId | null> {
   const [rows] = await (await conn(c)).execute<any[]>(
