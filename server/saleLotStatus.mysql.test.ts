@@ -3801,5 +3801,38 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await expect(mf.create(base({ ingredients: [{ materialId: IM_P, quantity: 100, unit: "%", isDeductible: 1, materialType: "RAW" }] }))).rejects.toThrow(/원료 칸에 맞지 않는 품목/);
       expect((await q(`SELECT COUNT(*) AS n FROM h_mf_reports WHERE report_no LIKE 'QA-MFR-%'`))[0].n).toBe(before);
     });
+
+    it("배합 승인 흐름 — 초안 → 승인 요청 → 승인, 상태가 맞지 않으면 거부, 상태·이력 한 번에", async () => {
+      await q(`CREATE TABLE IF NOT EXISTS h_mf_report_approvals (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, mf_report_version_id bigint NOT NULL, action varchar(20) NOT NULL, action_by bigint NOT NULL, action_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP, comment text NULL, created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+      const r = await mf.create(base());
+      const vid = Number((await q(`SELECT id FROM h_mf_report_versions WHERE mf_report_id = ?`, [r.mfReportId]))[0].id);
+      const st = async () => String((await q(`SELECT approval_status AS s FROM h_mf_report_versions WHERE id = ?`, [vid]))[0].s);
+      const hist = async () => (await q(`SELECT action FROM h_mf_report_approvals WHERE mf_report_version_id = ? ORDER BY id`, [vid])).map((x: any) => x.action);
+      expect(await st()).toBe("DRAFT");
+      await mf.requestApproval({ versionId: vid });
+      expect(await st()).toBe("PENDING");
+      await expect(mf.requestApproval({ versionId: vid })).rejects.toThrow(/지금 상태\(승인 대기\)/);
+      await mf.approveVersion({ versionId: vid });
+      expect(await st()).toBe("APPROVED");
+      expect(Number((await q(`SELECT approved_by FROM h_mf_report_versions WHERE id = ?`, [vid]))[0].approved_by)).toBe(4);
+      // 이미 승인된 버전은 다시 승인·반려·요청 불가 (덮어쓰지 않음)
+      await expect(mf.approveVersion({ versionId: vid })).rejects.toThrow(/지금 상태\(승인\)/);
+      await expect(mf.reject({ versionId: vid, reason: "x" })).rejects.toThrow(/지금 상태\(승인\)/);
+      await expect(mf.requestApproval({ versionId: vid })).rejects.toThrow(/지금 상태\(승인\)/);
+      expect(await st()).toBe("APPROVED");
+      expect(await hist()).toEqual(["REQUESTED", "APPROVED"]);
+      // 반려 → 다시 요청 가능
+      const r2 = await mf.create(base());
+      const v2 = Number((await q(`SELECT id FROM h_mf_report_versions WHERE mf_report_id = ?`, [r2.mfReportId]))[0].id);
+      await mf.reject({ versionId: v2, reason: "배합비 확인 필요" });
+      expect(String((await q(`SELECT approval_status AS s, rejection_reason AS r FROM h_mf_report_versions WHERE id = ?`, [v2]))[0].r)).toBe("배합비 확인 필요");
+      await expect(mf.approveVersion({ versionId: v2 })).rejects.toThrow(/지금 상태\(반려\)/);
+      await mf.requestApproval({ versionId: v2 });
+      // 다른 회사 caller 는 이 버전을 건드릴 수 없음 (회사 소유 검사)
+      const { mfReportRouter } = await import("./routers/production/mfReport.router");
+      const other = mfReportRouter.createCaller({ user: { id: 9, role: "admin", tenantId: 99, email: "o@o" }, tenantId: 99 } as any);
+      await expect(other.approveVersion({ versionId: v2 })).rejects.toThrow(/이 회사의/);
+      expect(String((await q(`SELECT approval_status AS s FROM h_mf_report_versions WHERE id = ?`, [v2]))[0].s)).toBe("PENDING");
+    });
   });
 });

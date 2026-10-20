@@ -128,95 +128,74 @@ export async function bulkExportMfReportsPdf(ids: number[], tenantId: number) {
 // 승인 워크플로 (요청, 승인, 반려, 이력)
 // ═══════════════════════════════════════════════════════════════
 
-/** 승인 요청 (버전 상태 PENDING + 이력 기록) */
+/**
+ * 배합(품목제조보고) 버전 승인 흐름 — 상태를 확인한 뒤에만 바꾼다 (2026-10-20, 신규 회사 시험: 배합 상세에서 승인 연결).
+ *   승인 요청: 초안·반려 → 승인 대기
+ *   승인    : 초안·승인 대기 → 승인 (반려된 버전은 다시 요청부터)
+ *   반려    : 초안·승인 대기 → 반려 (사유 필수)
+ * 상태 변경과 이력(h_mf_report_approvals)을 한 트랜잭션으로. 회사 조건을 걸고, 이미 처리된 버전은 바꾸지 않는다
+ *   (이전엔 상태와 상관없이 덮어써 승인된 버전을 다시 '대기' 로 돌리거나 이력만 쌓일 수 있었다).
+ */
+export class MfApprovalStateError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "MfApprovalStateError";
+  }
+}
+const TRANSITIONS = {
+  REQUESTED: { from: ["DRAFT", "REJECTED"], to: "PENDING" },
+  APPROVED: { from: ["DRAFT", "PENDING"], to: "APPROVED" },
+  REJECTED: { from: ["DRAFT", "PENDING"], to: "REJECTED" },
+} as const;
+const STATUS_TEXT: Record<string, string> = { DRAFT: "초안", PENDING: "승인 대기", APPROVED: "승인", REJECTED: "반려" };
+
+async function transitionMfVersion(action: keyof typeof TRANSITIONS, versionId: number, userId: number, comment: string | undefined, tenantId?: number) {
+  const db = await getDb();
+  if (!db) throw new Error("DB 연결 실패");
+  if (!tenantId) throw new MfApprovalStateError("회사 정보가 없습니다.");
+  const t = TRANSITIONS[action];
+  return db.transaction(async (tx: any) => {
+    const [cur]: any = await tx.execute(sql`SELECT v.approval_status AS s FROM h_mf_report_versions v JOIN h_mf_reports r ON r.id = v.mf_report_id
+      WHERE v.id = ${versionId} AND r.tenant_id = ${tenantId} FOR UPDATE`);
+    const now = (cur as any[])[0]?.s;
+    if (now == null) throw new MfApprovalStateError("이 회사의 배합 버전이 아닙니다.");
+    if (!(t.from as readonly string[]).includes(String(now))) {
+      throw new MfApprovalStateError(`지금 상태(${STATUS_TEXT[String(now)] ?? now})에서는 할 수 없습니다 — 화면을 새로 고쳐 상태를 확인하세요.`);
+    }
+    const set = action === "APPROVED" ? sql`approval_status = 'APPROVED', approved_by = ${userId}, approved_at = NOW()`
+      : action === "REJECTED" ? sql`approval_status = 'REJECTED', rejected_by = ${userId}, rejected_at = NOW(), rejection_reason = ${comment ?? null}`
+      : sql`approval_status = 'PENDING'`;
+    const [res]: any = await tx.execute(sql`UPDATE h_mf_report_versions SET ${set} WHERE id = ${versionId} AND approval_status = ${String(now)}`);
+    if (Number(res?.affectedRows ?? 0) !== 1) throw new MfApprovalStateError("다른 사람이 먼저 처리했습니다 — 화면을 새로 고치세요.");
+    const { hMfReportApprovals } = await import("../../../drizzle/schema/schema_recipe_new");
+    await tx.insert(hMfReportApprovals).values({ mfReportVersionId: versionId, action, actionBy: userId, comment: comment || null });
+    return { success: true, status: t.to };
+  });
+}
+
+/** 승인 요청 (초안·반려 → 승인 대기 + 이력) */
 export async function requestMfReportApproval(
   mfReportVersionId: number,
   requestedBy: number,
   comment?: string, tenantId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  // 버전 상태를 PENDING으로 변경
-  await db
-    .update(hMfReportVersions)
-    .set({ approvalStatus: "PENDING" })
-    .where(eq(hMfReportVersions.id, mfReportVersionId));
-  
-  // 승인 이력 추가
-  const { hMfReportApprovals } = await import("../../../drizzle/schema/schema_recipe_new");
-  await db.insert(hMfReportApprovals).values({
-    mfReportVersionId,
-    action: "REQUESTED",
-    actionBy: requestedBy,
-    comment: comment || null
-  });
-  
-  return { success: true };
+  return transitionMfVersion("REQUESTED", mfReportVersionId, requestedBy, comment, tenantId);
 }
 
-/**
- * 승인 처리
- */
+/** 승인 처리 (초안·승인 대기 → 승인 + 이력) */
 export async function approveMfReportVersion(
   versionId: number,
   approvedBy: number,
   comment?: string, tenantId?: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-
-  // 버전 상태를 APPROVED로 변경
-  await db
-    .update(hMfReportVersions)
-    .set({
-      approvalStatus: "APPROVED",
-      approvedBy,
-      approvedAt: new Date()
-    })
-    .where(eq(hMfReportVersions.id, versionId));
-  
-  // 승인 이력 추가
-  const { hMfReportApprovals } = await import("../../../drizzle/schema/schema_recipe_new");
-  await db.insert(hMfReportApprovals).values({
-    mfReportVersionId: versionId,
-    action: "APPROVED",
-    actionBy: approvedBy,
-    comment: comment || null
-  });
-  
-  return { success: true };
+  return transitionMfVersion("APPROVED", versionId, approvedBy, comment, tenantId);
 }
 
-/**
- * 반려 처리
- */
+/** 반려 처리 (초안·승인 대기 → 반려 + 사유 + 이력) */
 export async function rejectMfReportVersion(
   versionId: number,
   rejectedBy: number,
   reason: string, tenantId: number) {
-  const db = await getDb();
-  if (!db) throw new Error("DB 연결 실패");
-  
-  // 버전 상태를 REJECTED로 변경
-  await db
-    .update(hMfReportVersions)
-    .set({
-      approvalStatus: "REJECTED",
-      rejectedBy,
-      rejectedAt: new Date(),
-      rejectionReason: reason
-    })
-    .where(eq(hMfReportVersions.id, versionId));
-  
-  // 승인 이력 추가
-  const { hMfReportApprovals } = await import("../../../drizzle/schema/schema_recipe_new");
-  await db.insert(hMfReportApprovals).values({
-    mfReportVersionId: versionId,
-    action: "REJECTED",
-    actionBy: rejectedBy,
-    comment: reason
-  });
-  
-  return { success: true };
+  if (!reason?.trim()) throw new MfApprovalStateError("반려 사유를 넣으세요.");
+  return transitionMfVersion("REJECTED", versionId, rejectedBy, reason.trim(), tenantId);
 }
 
 /**
