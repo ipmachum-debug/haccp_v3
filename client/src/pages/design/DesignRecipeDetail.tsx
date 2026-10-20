@@ -8,7 +8,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { pickAllowed, replaceQuery, returnToFromSearch, withReturnTo } from "@/lib/urlState";
-import { UNSAVED_MESSAGE } from "@/hooks/useUnsavedChangesGuard";
+import { UNSAVED_MESSAGE, allowNextNavigation } from "@/hooks/useUnsavedChangesGuard";
 import { useLocation, useParams, useSearch } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -48,7 +48,12 @@ export default function DesignRecipeDetail() {
   useEffect(() => { if (tab === "edit") setEditMounted(true); }, [tab]);
   const [editDirty, setEditDirty] = useState(false);
   // 저장하지 않은 고치기가 있으면 다른 버전·목록으로 가기 전에 묻는다 (편집기 안의 보호는 새로고침·뒤로·메뉴 이동)
-  const leaveOk = () => !editDirty || window.confirm(UNSAVED_MESSAGE);
+  const leaveOk = () => {
+    if (!editDirty) return true;
+    if (!window.confirm(UNSAVED_MESSAGE)) return false;
+    allowNextNavigation(); // 이미 확인했다 — 이동 관문이 한 번 더 묻지 않게
+    return true;
+  };
   const go = (path: string) => { if (leaveOk()) navigate(withReturnTo(path, backTo)); };
   const [focus, setFocus] = useState<string | null>(null);
 

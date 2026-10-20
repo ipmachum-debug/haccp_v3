@@ -334,4 +334,11 @@ describe("작업 위치 보존 — 우선 3흐름 (2026-10-21 Codex 조사)", ()
     expect(read("client/src/main.tsx")).toMatch(/installUnsavedChangesGuard\(\);/);
     expect(read("client/src/hooks/useTabWithUrl.ts")).not.toMatch(/replaceState\(\{\}/);
   });
+  it("미저장 보호는 공용 이동 관문(pushState·replaceState)에서 — 링크 태그 클릭 감지에 의존하지 않음 (#630 Codex P1: 사이드 메뉴 버튼)", () => {
+    const g = read("client/src/hooks/useUnsavedChangesGuard.ts");
+    expect(g).toMatch(/window\.history\[key\] = function/);
+    expect(g).not.toMatch(/closest\(["']a/);
+    // 화면이 이미 확인한 이동은 관문에서 다시 묻지 않음
+    expect(read("client/src/pages/design/DesignRecipeDetail.tsx")).toMatch(/allowNextNavigation\(\)/);
+  });
 });

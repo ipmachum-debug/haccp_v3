@@ -10,6 +10,11 @@ import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { useUrlFilters } from "@/components/common/FilterBar";
 import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { returnToFromSearch, withReturnTo } from "@/lib/urlState";
+// 실제 운영 화면 틀 — 사이드 메뉴·즐겨찾기·로고·전역 검색 버튼 그대로 (서버 연결은 시험이 navTrpcStub 으로 바꿔 묶는다)
+import DashboardLayout from "@/components/dashboard/DashboardLayout";
+import { ThemeProvider } from "@/contexts/ThemeContext";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 function List() {
   const [tab, setTab] = useTabWithUrl("tab", "a", ["a", "b", "c"]);
@@ -47,14 +52,34 @@ function Edit() {
   );
 }
 
+// 실제 DashboardLayout 안의 수정 화면 — 같은 화면 안 탭(쿼리만 바꿈)은 묻지 않아야 한다
+function LayoutEdit() {
+  const [tab, setTab] = useTabWithUrl("tab", "table", ["table", "flow", "edit"]);
+  return (
+    <DashboardLayout>
+      <div data-testid="layout-tab">{tab}</div>
+      {["table", "flow", "edit"].map((t) => <button key={t} data-testid={`layout-tab-${t}`} onClick={() => setTab(t)}>{t}</button>)}
+      <Edit />
+    </DashboardLayout>
+  );
+}
+
 function App() {
   return (
     <Switch>
       <Route path="/list" component={List} />
       <Route path="/edit/:id" component={Edit} />
+      <Route path="/app/edit/:id" component={LayoutEdit} />
       <Route><div data-testid="page">other</div></Route>
     </Switch>
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);
+// 운영 앱과 같은 바깥 틀 (main.tsx·App.tsx) — 테마·툴팁·조회 캐시
+createRoot(document.getElementById("root")!).render(
+  <QueryClientProvider client={new QueryClient()}>
+    <ThemeProvider defaultTheme="light" switchable>
+      <TooltipProvider><App /></TooltipProvider>
+    </ThemeProvider>
+  </QueryClientProvider>,
+);
