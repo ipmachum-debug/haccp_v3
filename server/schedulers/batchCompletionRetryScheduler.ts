@@ -43,7 +43,7 @@ async function processBatchCompletionRetries() {
       for (const task of pendingTasks) {
         try {
           // 재시도 상태로 변경
-          await updateRetryTaskStatus(task.id, "retrying");
+          await updateRetryTaskStatus(task.id, "retrying", undefined, tenantId);
 
           // 작업 유형에 따라 재시도
           if (task.taskType === "pdf_generation") {
@@ -53,13 +53,13 @@ async function processBatchCompletionRetries() {
           }
 
           // 성공 시 상태 업데이트
-          await updateRetryTaskStatus(task.id, "success");
+          await updateRetryTaskStatus(task.id, "success", undefined, tenantId);
           console.log(`[Scheduler] [tenant:${tenantId}] 재시도 성공: Task ID ${task.id}, Type ${task.taskType}`);
         } catch (error) {
           console.error(`[Scheduler] [tenant:${tenantId}] 재시도 실패: Task ID ${task.id}`, error);
 
           // 재시도 횟수 증가
-          const maxRetriesReached = await incrementRetryCount(task.id);
+          const maxRetriesReached = await incrementRetryCount(task.id, tenantId);
 
           if (maxRetriesReached) {
             try {
@@ -74,7 +74,8 @@ async function processBatchCompletionRetries() {
             await updateRetryTaskStatus(
               task.id,
               "failed",
-              error instanceof Error ? error.message : "재시도 실패"
+              error instanceof Error ? error.message : "재시도 실패",
+              tenantId
             );
           }
         }

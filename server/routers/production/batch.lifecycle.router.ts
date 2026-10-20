@@ -531,7 +531,7 @@ export const batchLifecycleRouter = router({
                 batchId: input.batchId,
                 taskType: "notification",
                 errorMessage: notifyError instanceof Error ? notifyError.message : "알림 생성 실패"
-              });
+              }, ctx.tenantId);
             } catch (retryError) {
               console.error("[배치 완료] 재시도 큐 추가 실패:", retryError);
             }
@@ -582,7 +582,7 @@ export const batchLifecycleRouter = router({
                 batchId: input.batchId,
                 taskType: "pdf_generation",
                 errorMessage: pdfError instanceof Error ? pdfError.message : "PDF 생성 실패"
-              });
+              }, ctx.tenantId);
             } catch (retryError) {
               console.error("[배치 완료] 재시도 큐 추가 실패:", retryError);
             }

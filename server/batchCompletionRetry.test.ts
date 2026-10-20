@@ -10,6 +10,9 @@ import {
   deleteRetryTask
 } from "./db/production/batchCompletionRetries";
 
+// 재시도 큐는 회사 번호가 필수 (2026-10-21)
+const TEST_TENANT = 1;
+
 describe("배치 완료 재시도 로직 테스트", () => {
   let testBatchId: number;
   let testRetryTaskId: number;
@@ -24,7 +27,7 @@ describe("배치 완료 재시도 로직 테스트", () => {
       batchId: testBatchId,
       taskType: "pdf_generation",
       errorMessage: "테스트 오류"
-    });
+    }, TEST_TENANT);
 
     expect(result).toBeDefined();
 
@@ -49,7 +52,7 @@ describe("배치 완료 재시도 로직 테스트", () => {
   });
 
   it("2. 대기 중인 재시도 작업 조회", async () => {
-    const pendingTasks = await getPendingRetryTasks();
+    const pendingTasks = await getPendingRetryTasks(TEST_TENANT);
 
     expect(pendingTasks).toBeDefined();
     expect(Array.isArray(pendingTasks)).toBe(true);
@@ -61,7 +64,7 @@ describe("배치 완료 재시도 로직 테스트", () => {
   });
 
   it("3. 재시도 작업 상태 업데이트 (retrying)", async () => {
-    await updateRetryTaskStatus(testRetryTaskId, "retrying");
+    await updateRetryTaskStatus(testRetryTaskId, "retrying", undefined, TEST_TENANT);
 
     const db = await getDb();
     if (!db) throw new Error("DB 연결 실패");
@@ -76,7 +79,7 @@ describe("배치 완료 재시도 로직 테스트", () => {
   });
 
   it("4. 재시도 작업 상태 업데이트 (success)", async () => {
-    await updateRetryTaskStatus(testRetryTaskId, "success");
+    await updateRetryTaskStatus(testRetryTaskId, "success", undefined, TEST_TENANT);
 
     const db = await getDb();
     if (!db) throw new Error("DB 연결 실패");
@@ -96,7 +99,7 @@ describe("배치 완료 재시도 로직 테스트", () => {
       batchId: testBatchId,
       taskType: "notification",
       errorMessage: "재시도 횟수 테스트"
-    });
+    }, TEST_TENANT);
 
     const db = await getDb();
     if (!db) throw new Error("DB 연결 실패");
@@ -112,13 +115,13 @@ describe("배치 완료 재시도 로직 테스트", () => {
     expect(newTask).toBeDefined();
 
     // 재시도 횟수 증가 (최대 3회)
-    const maxReached1 = await incrementRetryCount(newTask.id);
+    const maxReached1 = await incrementRetryCount(newTask.id, TEST_TENANT);
     expect(maxReached1).toBe(false);
 
-    const maxReached2 = await incrementRetryCount(newTask.id);
+    const maxReached2 = await incrementRetryCount(newTask.id, TEST_TENANT);
     expect(maxReached2).toBe(false);
 
-    const maxReached3 = await incrementRetryCount(newTask.id);
+    const maxReached3 = await incrementRetryCount(newTask.id, TEST_TENANT);
     expect(maxReached3).toBe(true); // 3회 초과 시 true 반환
 
     // 재시도 횟수 확인
@@ -129,6 +132,14 @@ describe("배치 완료 재시도 로직 테스트", () => {
 
     expect(updatedTask.retryCount).toBe(3);
     expect(updatedTask.status).toBe("failed");
+  });
+
+  it("5-1. 다른 회사로는 이 회사의 재시도 작업을 보거나 바꿀 수 없다 (2026-10-21)", async () => {
+    const OTHER_TENANT = TEST_TENANT + 1;
+    const others = await getPendingRetryTasks(OTHER_TENANT);
+    expect(others.find((t) => t.id === testRetryTaskId)).toBeUndefined();
+    await expect(incrementRetryCount(testRetryTaskId, OTHER_TENANT)).rejects.toThrow("재시도 작업을 찾을 수 없습니다");
+    await expect(getPendingRetryTasks(undefined as unknown as number)).rejects.toThrow("tenantId 가 필요합니다");
   });
 
   it("6. 재시도 작업 정리 (테스트 데이터 삭제)", async () => {

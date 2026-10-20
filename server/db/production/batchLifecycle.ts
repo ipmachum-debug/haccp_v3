@@ -421,7 +421,7 @@ export async function completeBatch(params: {
   await db
     .update(hCcpInstances)
     .set({ status: "approved" })
-    .where(eq(hCcpInstances.batchId, batchId));
+    .where(and(eq(hCcpInstances.tenantId, tenantId), eq(hCcpInstances.batchId, batchId)));
 
   // 5. 배치 완료 보고서 PDF 생성
   let pdfUrl: string | null = null;
