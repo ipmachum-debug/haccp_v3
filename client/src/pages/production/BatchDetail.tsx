@@ -1,6 +1,7 @@
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { PROD_STATE_UI, batchState, batchStatusLabel } from "@/lib/productionState";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -26,7 +27,7 @@ type BatchCostMaterial = {
 type AiAlert = { id: number; level?: string; title?: string; message?: string; [k: string]: unknown };
 import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, Loader2, RefreshCw, Settings, ClipboardCheck, Brain, Shield, XCircle } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { useParams, useLocation } from "wouter";
+import { Link, useParams, useLocation } from "wouter";
 import { toast } from "sonner";
 import LineIssueExceptions from "@/components/production/LineIssueExceptions";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -90,6 +91,8 @@ export default function BatchDetail() {
 
   const { user: currentUser } = useAuth();
   const { data: batch, isLoading } = trpc.batch.getById.useQuery({ id: batchId });
+  /** 무효(중복 정리)·취소 생산 건 — 이력으로만, 확인·마감·승인 동작 없음 */
+  const voided = !!(batch as any)?.voidedAt;
   const { data: ccpList, refetch: refetchCcps, isLoading: ccpLoading } = trpc.ccp.getByBatchId.useQuery(
     { batchId },
     { enabled: !!batchId }
@@ -433,30 +436,26 @@ export default function BatchDetail() {
                 </span>
               </div>
             )}
-            <span
-              className={`px-4 py-2 rounded-full text-sm font-medium ${
-                batch.status === "completed"
-                  ? "bg-green-100 text-green-700"
-                  : batch.status === "in_progress"
-                    ? "bg-blue-100 text-blue-700"
-                    : batch.status === "shipped"
-                      ? "bg-purple-100 text-purple-700"
-                      : "bg-orange-100 text-orange-700"
-              }`}
-            >
-              {batch.status === "completed"
-                ? "완료"
-                : batch.status === "in_progress"
-                  ? "진행 중"
-                  : batch.status === "shipped"
-                    ? "출하됨"
-                    : "계획"}
+            {/* 상태 = 3가지 색 + DB 상태 글자 그대로 (모르는 상태를 '계획' 으로 바꾸지 않음) */}
+            <span className={`px-4 py-2 rounded-full text-sm font-medium border ${PROD_STATE_UI[batchState(batch as any)].soft}`} data-testid="batch-status">
+              {batchStatusLabel(batch as any)}
             </span>
           </div>
         </div>
 
+        {/* 무효(중복 정리) — 맨 위 안내, 확인·마감·승인 동작은 숨김 (원본·이력은 그대로 보존) */}
+        {voided && (
+          <div className="rounded-lg border border-gray-300 bg-gray-50 dark:bg-gray-500/10 px-4 py-3 text-sm" data-testid="voided-banner">
+            <div className="font-semibold">
+              무효(중복){(batch as any).supersededByBatchId ? <>, <Link href={`/dashboard/batch/${(batch as any).supersededByBatchId}`} className="text-blue-600 hover:underline">{(batch as any).supersededByCode ?? `#${(batch as any).supersededByBatchId}`} 생산 건</Link>으로 정리됨</> : " — 정상 생산에서 제외됨"}
+            </div>
+            {(batch as any).voidReason && <p className="text-xs text-muted-foreground mt-1">{(batch as any).voidReason}</p>}
+            <p className="text-xs text-muted-foreground mt-1">이 생산 건은 이력으로만 보존합니다 — 확인·마감·승인은 대체 생산 건에서 합니다.</p>
+          </div>
+        )}
+
         {/* 원료 출고 확인 — 보류·옛 출고와 대응이 애매한 줄만 (#608 검토 P1) */}
-        <LineIssueExceptions batchId={batchId} canResolve={["admin", "super_admin"].includes(String((currentUser as any)?.role ?? ""))} />
+        <LineIssueExceptions batchId={batchId} canResolve={!voided && ["admin", "super_admin"].includes(String((currentUser as any)?.role ?? ""))} />
 
         {/* 배치 정보 카드 */}
         <Card>
@@ -499,8 +498,8 @@ export default function BatchDetail() {
         {/* AI 리스크 요약 카드 */}
         <BatchAIRiskCard batchId={batchId} />
 
-        {/* 상태 관리 및 승인 */}
-        <Card>
+        {/* 상태 관리 및 승인 — 무효 생산 건은 숨김 */}
+        {!voided && <Card>
           <CardHeader>
             <CardTitle>상태 관리 및 승인</CardTitle>
             <CardDescription>{`${L("batch")}의 생산 단계를 변경하거나 승인/반려하세요`}</CardDescription>
@@ -553,7 +552,7 @@ export default function BatchDetail() {
               )}
             </div>
           </CardContent>
-        </Card>
+        </Card>}
 
         {/* 매출액 입력 */}
         <Card>
@@ -883,7 +882,7 @@ export default function BatchDetail() {
                   )}
                 </CardDescription>
               </div>
-              <div className="flex gap-2 flex-wrap justify-end">
+              {!voided && <div className="flex gap-2 flex-wrap justify-end">
                 {selectedCcpIds.length > 0 && (
                   <Button
                     onClick={handleBulkDeleteCcp}
@@ -944,7 +943,7 @@ export default function BatchDetail() {
                     {generateHaccpReportMutation.isPending ? "보고서 생성 중..." : "HACCP 보고서"}
                   </Button>
                 )}
-              </div>
+              </div>}
             </div>
           </CardHeader>
           <CardContent>
@@ -987,8 +986,8 @@ export default function BatchDetail() {
             ) : (
               /* CCP 목록 표시 */
               <div className="space-y-4">
-                {/* 처리 흐름 안내 배너 */}
-                {batch?.mode === "auto" ? (
+                {/* 처리 흐름 안내 배너 — 무효 생산 건은 승인 요청 없음 */}
+                {voided ? null : batch?.mode === "auto" ? (
                   <div className="flex items-start gap-3 p-3 bg-blue-50 dark:bg-blue-950/30 rounded-lg text-xs text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800">
                     <Zap className="h-4 w-4 flex-shrink-0 mt-0.5" />
                     <div>
@@ -1058,8 +1057,11 @@ CCP 기록지 수동 확인 후 승인 요청`,
           </CardContent>
         </Card>
 
-        {/* ── CCP 모니터링 기록지 (공식 양식) ── */}
-        {batch && (
+        {/* ── CCP 모니터링 기록지 (공식 양식) ── 무효 생산 건은 기록지 작성·제출 없음 (이력은 보존) */}
+        {batch && voided && (
+          <p className="text-sm text-muted-foreground" data-testid="voided-forms-note">CCP 모니터링 기록지 — 무효 생산 건이라 작성·제출하지 않습니다. 대체 생산 건의 기록지를 쓰세요.</p>
+        )}
+        {batch && !voided && (
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">

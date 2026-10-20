@@ -55,17 +55,21 @@ export async function getCcpFormRows(formRecordId: number, tenantId?: number) {
     .where(conditions)
     .orderBy(hCcpFormRows.batchSeq);
   // 통과량 단위(pass_unit) — Drizzle 스키마 밖 컬럼이라 따로 읽는다 (마이그레이션 전 DB 에서도 깨지지 않게, 2026-10-18)
-  try {
-    const conn = await getRawConnection();
-    const [u]: any = await conn.execute(
-      `SELECT id, pass_unit FROM h_ccp_form_rows WHERE form_record_id = ?${tenantId ? " AND tenant_id = ?" : ""} AND pass_unit IS NOT NULL`,
-      tenantId ? [formRecordId, tenantId] : [formRecordId],
-    );
-    const unit = new Map((u as any[]).map((r) => [Number(r.id), String(r.pass_unit)]));
-    if (unit.size) return rows.map((r: any) => ({ ...r, passUnit: unit.get(Number(r.id)) ?? null }));
-  } catch (e: any) {
-    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+  // 예정 시각(planned_time, 현장 확인 기록지) — 화면이 '+N분' 같은 계산 간격 대신 저장된 예정 시각을 보이게 (2026-10-20)
+  const conn = await getRawConnection();
+  const where = `form_record_id = ?${tenantId ? " AND tenant_id = ?" : ""}`;
+  const args = tenantId ? [formRecordId, tenantId] : [formRecordId];
+  const extra = new Map<number, { passUnit: string | null; plannedTime: string | null }>();
+  for (const cols of ["pass_unit, planned_time", "pass_unit"]) {
+    try {
+      const [u]: any = await conn.execute(`SELECT id, ${cols} FROM h_ccp_form_rows WHERE ${where}`, args);
+      for (const r of u as any[]) extra.set(Number(r.id), { passUnit: r.pass_unit ?? null, plannedTime: r.planned_time ?? null });
+      break;
+    } catch (e: any) {
+      if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+    }
   }
+  if (extra.size) return rows.map((r: any) => ({ ...r, passUnit: extra.get(Number(r.id))?.passUnit ?? null, plannedTime: extra.get(Number(r.id))?.plannedTime ?? null }));
   return rows;
 }
 

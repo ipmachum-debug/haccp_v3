@@ -552,6 +552,8 @@ export const batchCrudRouter = router({
            * 'planned' = 생산일(planned_date) 최신순, 같은 날은 id 최신순, 생산일 없는 행은 뒤로 — 대시보드 최근 생산 배치용.
            */
           sort: z.enum(["created", "planned"]).optional(),
+          /** 달력 표시 (확인 남음·출고 보류·결재 대기) 함께 — 달력만 쓴다 (2026-10-20) */
+          withMarks: z.boolean().optional(),
         }).optional()
       )
       .query(async ({ input, ctx }) => {

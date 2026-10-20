@@ -253,7 +253,7 @@ export const batchPlanRouter = router({
     .query(async ({ input, ctx }) => {
       const conn = await getRawConnection();
       const [bRows]: any = await conn.execute(
-        `SELECT b.id, b.batch_code, b.day_batch_group, b.batch_order, b.status, b.mode,
+        `SELECT b.id, b.batch_code, b.day_batch_group, b.batch_order, b.status, b.mode, b.product_id,
                 b.planned_quantity, b.actual_quantity, p.product_name, b.plan_only, b.superseded_by_batch_id, b.voided_at, b.setup_pending,
                 (SELECT ar.status FROM h_approval_requests ar
                   WHERE ar.tenant_id = b.tenant_id AND ar.reference_type = 'batch' AND ar.reference_id = b.id
@@ -298,7 +298,7 @@ export const batchPlanRouter = router({
         const f = forms.get(Number(r.id)) ?? { total: 0, unconfirmed: 0, approved: 0 };
         const row = {
           id: Number(r.id), batchCode: String(r.batch_code), dayBatchGroup: r.day_batch_group ?? null, batchOrder: r.batch_order != null ? Number(r.batch_order) : null,
-          productName: r.product_name ?? null, status: String(r.status), mode: r.mode ?? null,
+          productId: r.product_id != null ? Number(r.product_id) : null, productName: r.product_name ?? null, status: String(r.status), mode: r.mode ?? null,
           plannedKg: r.planned_quantity != null ? Number(r.planned_quantity) : null, actualKg: r.actual_quantity != null ? Number(r.actual_quantity) : null,
           approvalStatus: r.approval_status ?? null, ccpForms: f, planOnly: Number(r.plan_only ?? 0) === 1,
           voidedSupersededBy: r.voided_at ? (r.superseded_by_batch_id != null ? Number(r.superseded_by_batch_id) : 0) : null,

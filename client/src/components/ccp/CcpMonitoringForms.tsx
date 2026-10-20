@@ -90,6 +90,8 @@ interface CcpFormRow {
   equipmentType?: string | null;
   productName?: string | null;
   measurementTime?: string | null;
+  /** 현장 확인 기록지의 저장된 예정 시각 (없으면 표시 안 함) */
+  plannedTime?: string | null;
   inputQtyKg?: string | null;
   result?: "적합" | "부적합" | null;
   heatTimeMin?: number | null;
@@ -250,8 +252,7 @@ function EquipmentAssignSection({
     const saved = savedEquipmentOf(i + 1);
     const equipIdx = equipmentList.length > 0 ? i % equipmentList.length : -1;
     const equip = saved !== undefined ? saved : equipIdx >= 0 ? equipmentList[equipIdx] : null;
-    const timeOffset = equipGroupMode === "sequential" ? i * equipIntervalMin : 0;
-    return { batchSeq: i + 1, equip, timeOffset, suggested: saved === undefined };
+    return { batchSeq: i + 1, equip, suggested: saved === undefined };
   });
   const anySuggested = assignments.some((a) => a.suggested);
   const anySaved = assignments.some((a) => !a.suggested);
@@ -304,9 +305,6 @@ function EquipmentAssignSection({
                 <span className={a.suggested ? "text-slate-600" : "font-medium text-orange-700"}>
                   {a.equip ? `${a.equip.equipment_name}${a.equip.equipment_type ? ` (${a.equip.equipment_type})` : ""}` : "설비없음"}{a.suggested ? " (제안)" : ""}
                 </span>
-                {a.timeOffset > 0 && (
-                  <span className="text-gray-400">+{a.timeOffset}분</span>
-                )}
               </div>
             ))}
           </div>
@@ -852,6 +850,13 @@ function CcpFormPanel({
 
       {expanded && (
         <div className="p-3 space-y-3">
+          {/* 지난 날짜 기록지를 나중에 확인할 때 (2026-10-20, 10/15 복구 뒤) — 미리 채운 시각·값은 예정값이다. 실제 기록으로 고친 뒤 제출 */}
+          {String(formRecord.workDate ?? "").slice(0, 10) < todayLocal() && formRecord.status !== "approved" && !(formRecord as any).confirmed && (
+            <div className="p-2 bg-amber-50 border border-amber-300 rounded text-xs text-amber-900" data-testid="past-form-note">
+              지난 날짜 기록지입니다. 칸에 미리 채워진 시각·온도·시간은 계획(예정)값입니다 — 실제 기록(종이 일지 등)과 다르면 행마다 고친 뒤 제출하세요.
+              제출하면 보이는 값을 확인한 것으로 남습니다.
+            </div>
+          )}
           {/* CL 기준값 표시 */}
           <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
             <span className="font-semibold">CL 기준:</span>{" "}
@@ -927,7 +932,6 @@ function CcpFormPanel({
               const equip: { equipment_name: string; equipment_type?: string } | null = existingRow
                 ? (savedEquipName ? { equipment_name: savedEquipName, equipment_type: (existingRow as any).equipmentType ?? undefined } : null)
                 : suggested;
-              const timeOffset = equipGroupMode === "sequential" ? (i * equipIntervalMin) : 0;
 
               return (
                 <div key={seq} className="border rounded">
@@ -940,8 +944,9 @@ function CcpFormPanel({
                           {equip.equipment_type === "시루" ? "시루" : "설비"}: {equip.equipment_name}{existingRow ? "" : " (제안)"}
                         </span>
                       )}
-                      {timeOffset > 0 && (
-                        <span className="text-xs text-gray-500">+{timeOffset}분 후 시작</span>
+                      {/* 시각은 저장된 예정 시각만 — '+N분' 같은 계산 간격은 실제 계획과 달라 오해를 만든다 (2026-10-20 Codex 검토 4) */}
+                      {existingRow?.plannedTime && (
+                        <span className="text-xs text-gray-500" data-testid="planned-time">예정 {String(existingRow.plannedTime).slice(0, 5)}</span>
                       )}
                       {existingRow && <ResultBadge result={existingRow.result} />}
                     </div>

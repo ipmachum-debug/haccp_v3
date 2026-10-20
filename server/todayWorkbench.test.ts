@@ -75,7 +75,7 @@ describe("생산 화면 하나 — 입력·클릭·이동이 줄었는가 (2026-
     const ui = read("client/src/pages/production/TodayProduction.tsx");
     expect(ui).toMatch(/data-testid="day-status"/);
     expect(ui).toMatch(/<TodayProductionWorkbench embedded workDate=\{date\} hideBoard onCreated=/);
-    expect(ui).toMatch(/<FieldRowsPanel heat=\{heat\} bare onChanged=\{onChanged\} \/>/);
+    expect(ui).toMatch(/<FieldRowsPanel pastDate=\{past\} heat=\{heat\} bare onChanged=\{onChanged\} \/>/);
     expect(ui).toMatch(/<LineIssueExceptions batchId=\{b\.id\} canResolve=\{isAdmin\} \/>/);
     expect(ui).toMatch(/scope: view === "all" \? "all" : "mine"/);
     expect(ui).not.toMatch(/todayProduction\.start|생산 시작<\/Button>/);
@@ -113,6 +113,23 @@ describe("생산 화면 하나 — 입력·클릭·이동이 줄었는가 (2026-
     expect(reg).toMatch(/\{ from: "\/dashboard\/field", to: "\/dashboard\/production\/today\?view=mine"/);
     expect(reg).toMatch(/\{ from: "\/dashboard\/pipeline", to: "\/dashboard\/production\/today\?view=all"/);
     expect(read("client/src/pages/production/ProductionManagement.tsx")).not.toMatch(/value="pipeline"/);
+  });
+});
+
+describe("지난 날짜 기록 — 실제 시각 필수, 예정값을 실측으로 인정하지 않음 (2026-10-20, 10/15 복구 뒤)", () => {
+  const read = (f: string) => readFileSync(join(__dirname, "..", f), "utf-8");
+  it("서버: 지난 날짜 확인·통과는 사람이 넣은 시각만 — 없으면 거부, 이력에 lateEntryOf", () => {
+    const fw = read("server/services/fieldWork.ts");
+    expect(fw).toMatch(/const past = String\(form\.wd \?\? ""\) !== "" && String\(form\.wd\) < todayKST\(\);/);
+    expect(fw).toMatch(/if \(!past\) return t;/);
+    expect(fw).toMatch(/지금 시각이나 예정 시각으로 채우지 않습니다/);
+    expect(fw).toMatch(/\.\.\.\(lateEntryOf \? \{ lateEntryOf \} : \{\}\)/);
+  });
+  it("화면: 지난 날짜면 [확인] 이 실제 시각 칸을 열고(예정 시각 미리 채우지 않음), 예전 방식 기록지는 마감 표에서 '제출됨' 으로 보이지 않음", () => {
+    const p = read("client/src/components/production/FieldRowsPanel.tsx");
+    expect(p).toMatch(/r\.confirmed \? \(r\.values\?\.\[f\.key\] \?\? r\.measurementTime \?\? null\) : null/);
+    expect(read("client/src/pages/production/TodayProduction.tsx")).toMatch(/const legacy = !finished && !b\.planOnly && b\.check\.rows\.total === 0 && b\.ccpForms\.total > 0;/);
+    expect(read("client/src/components/ccp/CcpMonitoringForms.tsx")).toMatch(/data-testid="past-form-note"/);
   });
 });
 

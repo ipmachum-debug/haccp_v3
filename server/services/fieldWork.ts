@@ -105,7 +105,17 @@ async function addEvent(c: any, e: { tenantId: number; formId: number; rowId: nu
   );
 }
 
-type Values = Partial<Record<keyof typeof EDITABLE, string | number | null>>;
+/**
+ * 지난 날짜 기록의 실제 시각 (2026-10-20, 10/15 복구 뒤 사후 입력) — 화면 이름 → 칸.
+ *   오늘 기록은 누른 시각이 측정 시각이지만, 지난 날짜(작업일 < 오늘) 기록을 오늘 확인하면 오늘 시각이 그날 측정 시각으로 남는다.
+ *   그래서 지난 날짜는 실제 시각(종이 기록 등)을 사람이 넣어야 확인된다 — 지금 시각·예정 시각으로 채우지 않는다.
+ *   오늘·예정 기록에서는 이 값을 쓰지 않는다 (누른 시각 그대로).
+ */
+const TIME_KEYS: Record<string, { col: string; label: string }> = {
+  measurementTime: { col: "measurement_time", label: "측정" }, metalPassTime: { col: "metal_pass_time", label: "점검" },
+  passTimeStart: { col: "pass_time_start", label: "통과 시작" }, passTimeEnd: { col: "pass_time_end", label: "통과 종료" },
+};
+type Values = Partial<Record<keyof typeof EDITABLE | keyof typeof TIME_KEYS, string | number | null>>;
 type WriteAction = "confirm" | "edit" | "pass_start" | "pass_end";
 
 /**
@@ -123,7 +133,9 @@ function planWrite(form: any, row: any, input: { action: WriteAction; expectedRo
   const vals: unknown[] = [];
   const after: Record<string, unknown> = { ...row };
   // 값 고치기 (화이트리스트)
+  const past = String(form.wd ?? "") !== "" && String(form.wd) < todayKST();
   for (const [k, v] of Object.entries(input.values ?? {})) {
+    if (TIME_KEYS[k]) continue; // 시각은 아래 동작에서만 (지난 날짜일 때)
     const col = EDITABLE[k];
     if (!col) throw new FieldRejectedError([`고칠 수 없는 칸입니다: ${k}`]);
     // 숫자 칸은 숫자만, 수량은 음수·자릿수 검사 (쓰기 경계 — #611 추가 검토 4)
@@ -138,21 +150,38 @@ function planWrite(form: any, row: any, input: { action: WriteAction; expectedRo
 
   let confirm = false;
   const t = hm();
+  // 시각: 오늘 = 누른 시각, 지난 날짜 = 사람이 넣은 실제 시각 (없으면 거부 — 지금·예정 시각으로 채우지 않음)
+  const timeOf = (key: keyof typeof TIME_KEYS): string => {
+    if (!past) return t;
+    const v = String((input.values as any)?.[key] ?? "").trim();
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(v)) {
+      throw new FieldRejectedError([`지난 날짜(${form.wd}) 기록입니다 — 실제 ${TIME_KEYS[key].label} 시각(종이 기록 등)을 넣어 확인하세요. 지금 시각이나 예정 시각으로 채우지 않습니다.`]);
+    }
+    return v;
+  };
   if (input.action === "confirm") {
     if (kind === "passage") throw new FieldRejectedError(["통과 행은 [통과 종료] 로 확인합니다."]);
-    if (kind === "heat") { sets.push("measurement_time = ?"); vals.push(t); after.measurement_time = t; }
-    else { sets.push("metal_pass_time = ?"); vals.push(t); after.metal_pass_time = t; }
+    if (kind === "heat") { const v = timeOf("measurementTime"); sets.push("measurement_time = ?"); vals.push(v); after.measurement_time = v; }
+    else { const v = timeOf("metalPassTime"); sets.push("metal_pass_time = ?"); vals.push(v); after.metal_pass_time = v; }
     confirm = true;
   } else if (input.action === "pass_start") {
     if (kind !== "passage") throw new FieldRejectedError(["통과 행이 아닙니다."]);
     if (row.pass_time_start) throw new FieldRejectedError([`이미 ${String(row.pass_time_start).slice(0, 5)} 에 통과를 시작했습니다.`]);
     const det = form.detector_equipment_id != null ? Number(form.detector_equipment_id) : null;
-    sets.push("pass_time_start = ?"); vals.push(t); after.pass_time_start = t;
+    const v = timeOf("passTimeStart");
+    sets.push("pass_time_start = ?"); vals.push(v); after.pass_time_start = v;
     if (det) { sets.push("equipment_id = ?"); vals.push(det); after.equipment_id = det; }
   } else if (input.action === "pass_end") {
     if (kind !== "passage") throw new FieldRejectedError(["통과 행이 아닙니다."]);
-    if (!row.pass_time_start) throw new FieldRejectedError(["먼저 [통과 시작] 을 누르세요."]);
-    if (!row.pass_time_end) { sets.push("pass_time_end = ?"); vals.push(t); after.pass_time_end = t; }
+    if (!row.pass_time_start) {
+      // 지난 날짜는 시작·종료를 한 번에 옮겨 적는다 (그날 [통과 시작] 을 누를 수 없으므로)
+      if (!past) throw new FieldRejectedError(["먼저 [통과 시작] 을 누르세요."]);
+      const s0 = timeOf("passTimeStart");
+      const det = form.detector_equipment_id != null ? Number(form.detector_equipment_id) : null;
+      sets.push("pass_time_start = ?"); vals.push(s0); after.pass_time_start = s0;
+      if (det) { sets.push("equipment_id = ?"); vals.push(det); after.equipment_id = det; }
+    }
+    if (!row.pass_time_end) { const v = timeOf("passTimeEnd"); sets.push("pass_time_end = ?"); vals.push(v); after.pass_time_end = v; }
     confirm = true;
   }
   if (confirm) {
@@ -169,6 +198,8 @@ function activationBatchOf(form: any, row: any, action: WriteAction): number | n
   const kind = kindOf(form, row);
   if (action === "confirm" && kind === "heat") return form.batch_id != null ? Number(form.batch_id) : null;
   if (action === "pass_start" && kind === "passage") return row.row_batch_id != null ? Number(row.row_batch_id) : null;
+  // 지난 날짜 통과 행을 시작·종료 한 번에 옮겨 적을 때도 첫 통과 = 시작
+  if (action === "pass_end" && kind === "passage" && !row.pass_time_start) return row.row_batch_id != null ? Number(row.row_batch_id) : null;
   return null;
 }
 
@@ -237,7 +268,9 @@ export async function writeFieldRow(input: {
       const [[fresh]]: any = await c.execute(`SELECT ${ROW_COLS} FROM h_ccp_form_rows r WHERE r.id = ? AND r.tenant_id = ?`, [row.id, input.tenantId]);
       // 이력 이름 — 값을 고치며 확인했으면 edit_confirm (전/후 값이 함께 남는다)
       const event = input.action === "edit" ? (before.confirmed ? "edit_unconfirm" : "edit") : input.action === "confirm" && valueChanges > 0 ? "edit_confirm" : input.action;
-      const after = { ...snapshot(fresh), ...(activation ? { batchActivated: activation.batchId } : {}) };
+      // 지난 날짜 기록을 오늘 옮겨 적은 확인이면 이력에 그 표시 — 이력의 at(서버 시각)이 적은 시각, 행의 시각이 실제 시각
+      const lateEntryOf = input.action !== "edit" && String(form.wd ?? "") !== "" && String(form.wd) < todayKST() ? String(form.wd) : null;
+      const after = { ...snapshot(fresh), ...(activation ? { batchActivated: activation.batchId } : {}), ...(lateEntryOf ? { lateEntryOf } : {}) };
       await addEvent(c, { tenantId: input.tenantId, formId: Number(form.id), rowId: Number(row.id), event, userId: input.userId, rowVersion: newVersion, before, after, requestId: input.requestId, meta });
       await c.commit();
       result = { status: "done", rowId: Number(row.id), rowVersion: newVersion, confirmed: confirm };

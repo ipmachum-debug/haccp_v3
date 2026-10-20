@@ -36,6 +36,56 @@ export interface DayCheck {
 
 const empty = (): DayCheck => ({ setupPending: false, rows: { total: 0, confirmed: 0 }, issueLines: 0, shortLines: 0, shortMaterials: [] });
 
+/**
+ * 달력 표시 — 생산 건마다 가벼운 표시 3가지 (2026-10-20, 달력 3상태 + 표시). 색이 아니라 작은 표시로만 쓴다.
+ *   rowsLeft        : 현장 확인 안 된 행 수 (현장 확인 기록지)
+ *   heldLines       : 출고 보류 줄 (출고 안 됐고 보류 표시된 원료 줄)
+ *   approvalPending : 결재가 진행 중 (생산 건 또는 그 생산 건 기록지의 대기 결재)
+ * 무효·취소 생산 건은 보지 않는다. 읽기만 한다. 칸이 없는 예전 DB 는 그 표시만 0.
+ */
+export interface BatchMark { rowsLeft: number; heldLines: number; approvalPending: boolean }
+export async function loadBatchMarks(conn: any, tenantId: number, batchIds: number[]): Promise<Map<number, BatchMark>> {
+  const out = new Map<number, BatchMark>();
+  const ids = Array.from(new Set(batchIds.map(Number).filter((x) => x > 0)));
+  for (const id of ids) out.set(id, { rowsLeft: 0, heldLines: 0, approvalPending: false });
+  if (!ids.length) return out;
+  const soft = async (fn: () => Promise<void>) => {
+    try { await fn(); } catch (e: any) { if (!["ER_BAD_FIELD_ERROR", "ER_NO_SUCH_TABLE"].includes(e?.code)) throw e; }
+  };
+  await soft(async () => {
+    const [rows]: any = await conn.query(
+      `SELECT COALESCE(r.batch_id, f.batch_id) AS bid,
+              SUM(NOT (r.row_confirmed_at IS NOT NULL AND r.row_confirmed_version = r.row_version)) AS left_n
+         FROM h_ccp_form_rows r JOIN h_ccp_form_records f ON f.id = r.form_record_id AND f.tenant_id = r.tenant_id
+        WHERE r.tenant_id = ? AND f.field_mode = 1 AND f.voided_at IS NULL
+          AND ((f.ccp_type <> 'CCP-4P' AND f.batch_id IN (?)) OR (f.ccp_type = 'CCP-4P' AND r.batch_id IN (?)))
+        GROUP BY COALESCE(r.batch_id, f.batch_id)`,
+      [tenantId, ids, ids],
+    );
+    for (const r of rows as any[]) { const m = out.get(Number(r.bid)); if (m) m.rowsLeft = Number(r.left_n ?? 0); }
+  });
+  await soft(async () => {
+    const [rows]: any = await conn.query(
+      `SELECT batch_id, COUNT(*) AS n FROM h_batch_inputs
+        WHERE tenant_id = ? AND batch_id IN (?) AND issue_hold = 1 AND inventory_deducted = 0 GROUP BY batch_id`,
+      [tenantId, ids],
+    );
+    for (const r of rows as any[]) { const m = out.get(Number(r.batch_id)); if (m) m.heldLines = Number(r.n ?? 0); }
+  });
+  await soft(async () => {
+    const [rows]: any = await conn.query(
+      `SELECT DISTINCT CASE WHEN ar.reference_type = 'batch' THEN ar.reference_id ELSE f.batch_id END AS bid
+         FROM h_approval_requests ar
+         LEFT JOIN h_ccp_form_records f ON ar.reference_type = 'ccp_form_record' AND f.id = ar.reference_id AND f.tenant_id = ar.tenant_id
+        WHERE ar.tenant_id = ? AND ar.status IN ('pending_writer', 'pending_review', 'pending_approval', 'pending')
+          AND ((ar.reference_type = 'batch' AND ar.reference_id IN (?)) OR (ar.reference_type = 'ccp_form_record' AND f.ccp_type <> 'CCP-4P' AND f.batch_id IN (?)))`,
+      [tenantId, ids, ids],
+    );
+    for (const r of rows as any[]) { const m = out.get(Number(r.bid)); if (m) m.approvalPending = true; }
+  });
+  return out;
+}
+
 export async function loadDayChecks(conn: any, tenantId: number, batches: Array<{ id: number; plan_only?: unknown; status?: unknown; mode?: unknown; voided_at?: unknown; setup_pending?: unknown }>): Promise<Map<number, DayCheck>> {
   const out = new Map<number, DayCheck>();
   const live = batches.filter((b) => !b.voided_at && String(b.status) !== "cancelled");
