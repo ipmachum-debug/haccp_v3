@@ -2,6 +2,7 @@
 import { router, tenantRequiredProcedure, workerProcedure } from "../../_core/trpc";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
+import { asProductionProductId } from "../../../shared/identity/itemIds";
 
 export const ccpFormRouter = router({
 
@@ -487,7 +488,7 @@ export const ccpFormRouter = router({
           if (r) return { bomBatchKg: Number(r.bom_batch_kg), batchCount: r.batch_count != null ? Number(r.batch_count) : null, source: "record" as const };
         }
         const { selectBomVersion } = await import("../../lib/identity/itemIdentityService");
-        const sel = await selectBomVersion(input.productId, ctx.tenantId, conn);
+        const sel = await selectBomVersion(asProductionProductId(input.productId), ctx.tenantId, conn);
         if (!sel) return { bomBatchKg: null, batchCount: null, source: "none" as const };
         const [vr]: any = await conn.execute(`SELECT batch_target_kg FROM h_mf_report_versions WHERE id = ?`, [sel.versionId]);
         const kg = Number((vr as any[])[0]?.batch_target_kg ?? 0);

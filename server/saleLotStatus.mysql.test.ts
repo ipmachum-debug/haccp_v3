@@ -890,7 +890,9 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     beforeEach(async () => {
       for (const t of ["h_mf_reports", "h_mf_report_versions", "h_batch_mass_basis", "tenant_feature_settings"]) await q(`DELETE FROM ${t}`);
       await q(`INSERT INTO tenant_feature_settings (tenant_id, feature_code, enabled) VALUES (?, 'PRODUCTION_MASS_BASIS', 1)`, [T]); // 회사 선택
-      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status) VALUES (373, ?, 38, 'R373', '2026-03-31', 'ACTIVE')`, [T]);
+      // 보고서 product_id 는 정체성 번호 — 운영과 같게 정체성 제품 1038 → 생산 제품 38 연결 (번호 체계 2단계: 숫자 직접 일치 없음)
+      await q(`INSERT IGNORE INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES (1038, ?, 'P38', '우유설기', 'own_product', 38, 1)`, [T]);
+      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status) VALUES (373, ?, 1038, 'R373', '2026-03-31', 'ACTIVE')`, [T]);
       await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg, reference_finished_kg, mass_basis_enabled)
         VALUES (377, ?, 373, 1, '2026-02-19', 'APPROVED', 100, NULL, 0), (472, ?, 373, 2, '2026-05-08', 'APPROVED', 12.5, 12.5, 1)`, [T, T]);
       await q(`INSERT INTO h_mf_ingredients (mf_report_version_id, line_no, material_id, quantity, unit, is_deductible, material_type, process_group_id, basis_raw_kg, pretreatment_factor) VALUES
@@ -1008,7 +1010,9 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
         (168, ?, 'M168', '멥쌀(국내산)', 'raw_material', 'kg', 1, 168), (191, ?, 'M191', '정제수', 'raw_material', 'kg', 1, 191),
         (177, ?, 'M177', '설탕', 'raw_material', 'kg', 1, 177), (188, ?, 'M188', '우유(국내산)', 'raw_material', 'kg', 1, 188),
         (199, ?, 'M199', '천일염', 'raw_material', 'kg', 1, 199)`, [T, T, T, T, T]);
-      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status, report_type) VALUES (373, ?, 38, 'R373', '2026-03-31', 'ACTIVE', 'BASIC')`, [T]);
+      // 보고서 product_id 는 정체성 번호 — 운영과 같게 정체성 제품 1038 → 생산 제품 38 연결 (번호 체계 2단계: 숫자 직접 일치 없음)
+      await q(`INSERT IGNORE INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES (1038, ?, 'P38', '우유설기', 'own_product', 38, 1)`, [T]);
+      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status, report_type) VALUES (373, ?, 1038, 'R373', '2026-03-31', 'ACTIVE', 'BASIC')`, [T]);
       await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg, reference_finished_kg, mass_basis_enabled)
         VALUES (472, ?, 373, 2, '2026-05-08', 'APPROVED', 5, 12.5, 1)`, [T]);
       // 운영 저장값 그대로 (Codex 확인 2026-10-16): 정제수도 차감·공정 2
@@ -1029,7 +1033,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     it("생산 설계 제품 배합의 공정 투입 = 실제 계획(loadPlanBom)과 같은 계산 — 5kg 아닌 5.172kg, 원물·전처리 근거 그대로 (#600 F600-01)", async () => {
       await q(`DELETE FROM h_products_v2 WHERE id = 38`);
       await q(`INSERT INTO h_products_v2 (id, tenant_id, product_code, product_name) VALUES (38, ?, 'P38', '우유설기')`, [T]);
-      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES (1038, ?, 'P38', '우유설기', 'own_product', 38, 1)`, [T]);
+      await q(`INSERT IGNORE INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES (1038, ?, 'P38', '우유설기', 'own_product', 38, 1)`, [T]);
       await q(`UPDATE h_mf_reports SET product_id = 1038 WHERE id = 373`);
       try {
         const { loadRecipes } = await import("./lib/production/designOverview");
@@ -1195,7 +1199,8 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES
         (168, ?, 'M168', '멥쌀', 'raw_material', 'kg', 1, 168), (177, ?, 'M177', '설탕', 'raw_material', 'kg', 1, 177),
         (199, ?, 'M199', '천일염', 'raw_material', 'g', 1, 199), (191, ?, 'M191', '정제수', 'raw_material', 'kg', 1, 191)`, [T, T, T, T]);
-      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status, report_type) VALUES (390, ?, 39, 'R390', '2026-10-01', 'ACTIVE', 'BASIC')`, [T]);
+      await q(`INSERT IGNORE INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES (1039, ?, 'P39', '시험떡', 'own_product', 39, 1)`, [T]); // 정체성 1039 → 생산 39
+      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status, report_type) VALUES (390, ?, 1039, 'R390', '2026-10-01', 'ACTIVE', 'BASIC')`, [T]);
       await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg) VALUES (490, ?, 390, 1, '2026-10-01', 'APPROVED', 10)`, [T]);
       // 주원료 % (멥쌀 62.6% · 천일염 5% — 천일염 재고 단위 g), 추가 원재료 설탕 500g (차감), 정제수 3kg (차감 안 함, 공정 2)
       await q(`INSERT INTO h_mf_ingredients (id, mf_report_version_id, line_no, material_id, quantity, unit, is_deductible, material_type, process_group_id, adjusted_weight_kg, is_additional) VALUES
@@ -3888,6 +3893,47 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
         process.env.AWS_S3_BUCKET = keep.b ?? ""; process.env.AWS_ACCESS_KEY_ID = keep.a ?? ""; process.env.AWS_SECRET_ACCESS_KEY = keep.s ?? "";
         if (!keep.b) delete process.env.AWS_S3_BUCKET;
       }
+    });
+
+    it("번호 체계 2단계 — 생산 제품 번호는 FK 로만 BOM 을 찾는다 (같은 숫자의 다른 품목 BOM 을 고르지 않음)", async () => {
+      const { selectBomVersion, asProductionProductId, bomProductV2IdExpr } = await import("./lib/identity/itemIdentityService");
+      const linked = await mf.create(base());
+      // 숫자 우연 일치: 생산 제품 8360 (연결 없음) 과 같은 숫자의 정체성 제품 8360 은 '다른 제품' 이고 BOM 이 있다
+      await q(`DELETE FROM item_master WHERE id = 8360`);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, is_active) VALUES (8360, ?, 'OTHER', '다른 제품', 'own_product', 1)`, [T]);
+      await mf.create(base({ productId: 8360 }));
+      const pool = await (await import("./db/connection")).getRawConnection();
+      expect(await selectBomVersion(asProductionProductId(8360), T, pool)).toBeNull(); // 이전: 다른 제품 BOM 을 골랐다
+      const sel = await selectBomVersion(asProductionProductId(PV2), T, pool);
+      // 연결된 정체성 제품(IM_P)의 BOM 을 고른다 (같은 블록 앞 시험들이 만든 IM_P 보고서 중 하나일 수 있음)
+      expect(Number((await q(`SELECT product_id FROM h_mf_reports WHERE id = ?`, [sel?.reportId]))[0].product_id)).toBe(IM_P);
+      // 보고서 → 생산 제품 번호 SQL 도 FK 만: 연결 없는 정체성 제품 8360 의 보고서는 생산 제품 없음
+      const [rows]: any = await pool.execute(`SELECT r.id, ${bomProductV2IdExpr("r")} AS pid FROM h_mf_reports r WHERE r.tenant_id = ? AND r.product_id IN (?, ?) ORDER BY r.id`, [T, IM_P, 8360]);
+      const byRep = new Map((rows as any[]).map((r) => [Number(r.id), r.pid == null ? null : Number(r.pid)]));
+      expect(byRep.get(linked.mfReportId)).toBe(PV2);
+      expect(Array.from(byRep.values()).filter((v) => v == null).length).toBe(1);
+    });
+
+    it("번호 체계 2단계 — 원료: 이름으로 잇지 않고, 같은 숫자가 다른 원료의 정체성 번호면 신뢰하지 않음으로 표시", async () => {
+      const { toInventoryMaterialId, inventoryMaterialIdOfItem, asItemMasterId, clearMaterialIdResolverCache } = await import("./lib/identity/itemIdentityService");
+      clearMaterialIdResolverCache();
+      const pool = await (await import("./db/connection")).getRawConnection();
+      await q(`DELETE FROM h_materials WHERE id IN (8372, 8373, 8374)`);
+      await q(`DELETE FROM item_master WHERE id IN (8371, 8373)`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (8372, ?, 'N1', '이름같은원료'), (8373, ?, 'N2', '재고원료 8373'), (8374, ?, 'N3', '재고원료 8374')`, [T, T, T]);
+      // 연결 없는 정체성 원료 8371 — 이름이 재고 원료 8372 와 같아도 잇지 않는다
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active) VALUES (8371, ?, 'I1', '이름같은원료', 'raw_material', 'kg', 1)`, [T]);
+      const r1 = await toInventoryMaterialId(8371, T, pool);
+      expect(r1.id).not.toBe(8372);
+      expect(r1.trusted).toBe(false);
+      expect(await inventoryMaterialIdOfItem(asItemMasterId(8371), T, pool)).toBeNull();
+      // 같은 숫자 8373: 재고 원료 8373 이면서, 정체성 원료 8373 은 재고 8374 에 연결 — 어느 쪽인지 모름 → 신뢰 안 함 표시
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES (8373, ?, 'I2', '재고원료 8374', 'raw_material', 'kg', 1, 8374)`, [T]);
+      clearMaterialIdResolverCache();
+      const r2 = await toInventoryMaterialId(8373, T, pool);
+      expect(r2).toMatchObject({ id: 8373, trusted: false, source: "hm_direct_ambiguous" });
+      // 번호 종류를 아는 곳은 FK 로 정확히
+      expect(await inventoryMaterialIdOfItem(asItemMasterId(8373), T, pool)).toBe(8374);
     });
   });
 });

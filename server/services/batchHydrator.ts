@@ -18,6 +18,7 @@
 import { getRawConnection, getDb } from "../db";
 
 import { todayKST } from "../utils/timezone";
+import { asProductionProductId } from "../../shared/identity/itemIds";
 
 export interface HydrationOptions {
   tenantId: number;
@@ -418,7 +419,7 @@ export async function hydrateBatchInputs(
     });
   } else {
     // 품목제조보고 조회 — product_id 가 v2 id 또는 item_master id 일 수 있음 (bomProductResolver)
-    const bomProductIds = await resolveBomProductIds(productId, tenantId);
+    const bomProductIds = await resolveBomProductIds(asProductionProductId(productId), tenantId);
     const mfReport = await db
       .select({ id: hMfReports.id })
       .from(hMfReports)
@@ -488,32 +489,18 @@ export async function hydrateBatchInputs(
     const conn = await getRawConnection();
     const placeholders = candidateMaterialIds.map(() => "?").join(",");
 
-    // STEP 1: ID 표준화 — rawId가 h_materials.id에 직접 있으면 그대로,
-    //         없으면 item_master.id → item_name → h_materials.material_name JOIN
+    // STEP 1: ID 표준화 — BOM 원료 번호는 정체성 번호(item_master) → 재고 원료 번호는 FK(legacy_material_id) 로만
+    //   (2026-10-20 번호 체계 2단계: 이전엔 같은 숫자의 재고 원료를 먼저 잡고, 없으면 이름으로 맞췄다 — 숫자가 겹치면 다른 원료로 투입됐다.
+    //    생산 건 만들기(batchCRUD)와 같은 규칙: 연결이 없으면 아래에서 멈춘다)
     const [idRows]: any = await conn.execute(
-      `SELECT
-         raw.raw_id,
-         COALESCE(hm_direct.id, hm_byname.id) AS canonical_id,
-         im.id AS im_id
-       FROM (
-         SELECT id AS raw_id FROM (
-           ${candidateMaterialIds.map(() => "SELECT ? AS id").join(" UNION ALL ")}
-         ) t
-       ) raw
-       LEFT JOIN h_materials hm_direct
-         ON hm_direct.id = raw.raw_id AND hm_direct.tenant_id = ?
-       LEFT JOIN item_master im
-         ON im.id = raw.raw_id AND im.tenant_id = ?
-       LEFT JOIN h_materials hm_byname
-         ON hm_direct.id IS NULL
-        AND hm_byname.tenant_id = ?
-        AND TRIM(hm_byname.material_name) = TRIM(im.item_name)`,
-      [...candidateMaterialIds, tenantId, tenantId, tenantId],
+      `SELECT im.id AS raw_id, hm.id AS canonical_id
+         FROM item_master im
+         JOIN h_materials hm ON hm.id = im.legacy_material_id AND hm.tenant_id = im.tenant_id
+        WHERE im.tenant_id = ? AND im.id IN (${placeholders}) AND im.item_type IN ('raw_material', 'subsidiary')`,
+      [tenantId, ...candidateMaterialIds],
     );
     for (const r of (idRows as any[])) {
-      const rawId = Number(r.raw_id);
-      const canonicalId = r.canonical_id != null ? Number(r.canonical_id) : rawId;
-      idMap.set(rawId, canonicalId);
+      idMap.set(Number(r.raw_id), Number(r.canonical_id));
     }
 
     const canonicalIds = Array.from(new Set(Array.from(idMap.values()))).filter((id) => Number.isFinite(id));
@@ -589,7 +576,10 @@ export async function hydrateBatchInputs(
         unit = conv.unit;
       }
       const rawId = Number(ing.materialId);
-      const canonicalId = idMap.get(rawId) ?? rawId;
+      const canonicalId = idMap.get(rawId);
+      if (canonicalId == null) {
+        throw new Error(`[hydrateBatchInputs] batch=${batchId} 원료(품목 #${rawId}) 이(가) 재고 원료와 연결돼 있지 않습니다 — 품목 연결 후 다시 하세요 (숫자·이름으로 추측하지 않음)`);
+      }
       if (canonicalId !== rawId) {
         console.info(
           `[hydrateBatchInputs] id-standardize batch=${batchId} raw=${rawId} → canonical=${canonicalId}`,

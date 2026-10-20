@@ -18,6 +18,7 @@
 
 import { getRawConnection } from "../db";
 import { todayKST } from "../utils/timezone";
+import { asProductionProductId } from "../../shared/identity/itemIds";
 
 export interface SingleBatchInput {
   tenantId: number;
@@ -374,7 +375,7 @@ export async function verifyBatchSetup(batchId: number, tenantId: number, opts: 
   if (!b) return ["생산 건이 없습니다"];
   // 원료 투입 계획
   const { selectBomVersion } = await import("../lib/identity/itemIdentityService");
-  const picked = await selectBomVersion(Number(b.product_id), tenantId, conn);
+  const picked = await selectBomVersion(asProductionProductId(Number(b.product_id)), tenantId, conn);
   if (picked) {
     const [[e]]: any = await conn.execute(
       `SELECT COUNT(*) AS n FROM h_mf_ingredients WHERE mf_report_version_id = ? AND material_id IS NOT NULL AND (is_deductible IS NULL OR is_deductible <> 0)`, [picked.versionId]);

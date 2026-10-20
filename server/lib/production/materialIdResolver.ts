@@ -59,7 +59,8 @@ interface ResolveResult {
   materialName: string | null;
   // im_to_hm_byfk: item_master.legacy_material_id FK 로 변환 (신뢰 경로, 2026-07 P1)
   // im_to_hm_byname: FK 부재/dangling 시 이름 문자열 폴백 (레거시, 취약)
-  source: "hm_direct" | "im_to_hm_byfk" | "im_to_hm_byname" | "fallback_unchanged" | "not_found";
+  // hm_direct_ambiguous: 같은 숫자가 다른 원료의 정체성 번호이기도 함 — 재고 번호로 읽었지만 호출측 번호 종류를 알 수 없어 신뢰 안 함 (2026-10-20)
+  source: "hm_direct" | "hm_direct_ambiguous" | "im_to_hm_byfk" | "fallback_unchanged" | "not_found";
 }
 
 // 프로세스 메모리 캐시 (요청 단위로는 충분)
@@ -106,21 +107,31 @@ export async function resolveMaterialIds(
   );
   if ((hmRows as any[]).length > 0) {
     const hm = (hmRows as any[])[0];
-    // h_materials.id로 직접 매칭됨 → 같은 이름의 item_master.id를 보너스로 찾아둠
-    let imId: number | null = null;
-    if (hm.material_name) {
-      const [imLookup]: any = await conn.execute(
-        `SELECT id FROM item_master
-           WHERE tenant_id = ? AND TRIM(item_name) = TRIM(?) LIMIT 1`,
-        [tenantId, hm.material_name]
-      );
-      imId = (imLookup as any[])[0]?.id ?? null;
+    // 정체성 번호는 FK(legacy_material_id) 로만 — 이름으로 찾지 않는다 (2026-10-20 번호 체계 2단계, 이전: 같은 이름의 item_master)
+    const [imLookup]: any = await conn.execute(
+      `SELECT id FROM item_master
+         WHERE tenant_id = ? AND legacy_material_id = ? AND item_type IN ('raw_material', 'subsidiary')
+         ORDER BY is_active DESC, id ASC LIMIT 1`,
+      [tenantId, Number(hm.id)]
+    );
+    const imId: number | null = (imLookup as any[])[0]?.id ?? null;
+    // 같은 숫자가 '다른 원료' 의 정체성 번호이기도 하면 (그 정체성 품목은 다른 재고 원료에 연결됨) — 호출측이 어느 번호를 줬는지 모른다.
+    //   기존 동작(재고 번호로 읽기)은 유지하되 신뢰하지 않음으로 표시하고 남긴다. 번호 종류를 아는 호출측은 expect 로 정확히 변환한다.
+    const [clash]: any = await conn.execute(
+      `SELECT id, legacy_material_id FROM item_master
+         WHERE id = ? AND tenant_id = ? AND item_type IN ('raw_material', 'subsidiary')
+           AND legacy_material_id IS NOT NULL AND legacy_material_id <> ? LIMIT 1`,
+      [rawId, tenantId, rawId]
+    );
+    const ambiguous = (clash as any[]).length > 0;
+    if (ambiguous) {
+      console.warn(`[materialIdResolver] 번호 ${rawId} 은(는) 재고 원료 번호이면서 다른 원료(재고 ${(clash as any[])[0].legacy_material_id})의 정체성 번호입니다 — 호출측 번호 종류 확인 필요 (tenant=${tenantId})`);
     }
     const result: ResolveResult = {
       canonicalId: Number(hm.id),
       itemMasterId: imId,
       materialName: hm.material_name ?? null,
-      source: "hm_direct",
+      source: ambiguous ? "hm_direct_ambiguous" : "hm_direct",
     };
     setCache(cacheKey, result);
     return result;
@@ -157,31 +168,14 @@ export async function resolveMaterialIds(
         setCache(cacheKey, result);
         return result;
       }
-      // FK 가 dangling(가리키는 h_materials 없음) → 이름 폴백으로 진행 (경고).
+      // FK 가 dangling(가리키는 h_materials 없음) → 연결 없음으로 (경고).
       console.warn(
-        `[materialIdResolver] item_master.id=${rawId} legacy_material_id=${legacyId} dangling — 이름 폴백. (P0 진단 1b 대상)`
+        `[materialIdResolver] item_master.id=${rawId} legacy_material_id=${legacyId} dangling — 재고 원료 연결 없음. (P0 진단 1b 대상)`
       );
     }
 
-    // 2b) FK 부재/dangling → item_name → h_materials.material_name 매칭 (레거시 폴백)
-    if (itemName) {
-      const [hmByName]: any = await conn.execute(
-        `SELECT id, material_name FROM h_materials
-           WHERE tenant_id = ? AND TRIM(material_name) = TRIM(?) LIMIT 1`,
-        [tenantId, itemName]
-      );
-      if ((hmByName as any[]).length > 0) {
-        const hm = (hmByName as any[])[0];
-        const result: ResolveResult = {
-          canonicalId: Number(hm.id),
-          itemMasterId: rawId,
-          materialName: hm.material_name ?? itemName,
-          source: "im_to_hm_byname",
-        };
-        setCache(cacheKey, result);
-        return result;
-      }
-    }
+    // 2b) FK 부재/dangling — 이름으로 맞추지 않는다 (2026-10-20 번호 체계 2단계: 이전엔 item_name = material_name 으로 이었음).
+    //     연결이 없는 원료는 재고 원료를 모르는 것으로 둔다 → 출고·LOT 조회가 비고, 화면이 '품목 연결 필요' 로 드러낸다.
     // h_materials에 매칭 없음 → item_master만 알고 있는 자재
     const result: ResolveResult = {
       canonicalId: rawId, // h_materials에 없으므로 그냥 raw ID 반환 (lot 조회는 실패할 것)

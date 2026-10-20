@@ -11,6 +11,7 @@ import { selectBomVersion } from "../identity/itemIdentityService";
 import { CCP_BOM_ROWS_SQL, ccpInputKgByGroup, ccpInputKgFromSnapshot } from "./ccpBomInput";
 import { BomQtyError, isPlannedInputRow, plannedInputQty } from "./batchInputPlan";
 import { toMin, type BusySlot } from "./ccpDayPlanner";
+import { asProductionProductId } from "../../../shared/identity/itemIds";
 
 export interface PlanBom {
   versionId: number | null;
@@ -29,7 +30,7 @@ export interface PlanBom {
 
 /** 배치가 쓰는 BOM 버전 하나 기준의 회차 기준량·공정 투입량 (원물·공정 기준 회사면 그 스냅샷 계산) */
 export async function loadPlanBom(conn: any, tenantId: number, productId: number, plannedKg: number): Promise<PlanBom> {
-  const pick = await selectBomVersion(productId, tenantId, conn);
+  const pick = await selectBomVersion(asProductionProductId(productId), tenantId, conn);
   if (!pick) return { versionId: null, versionNo: null, approved: false, subBatchKg: null, inputByGroup: {}, massBasis: "legacy" };
   const [vRows]: any = await conn.execute(`SELECT version_no, batch_target_kg FROM h_mf_report_versions WHERE id = ?`, [pick.versionId]);
   const v = (vRows as any[])[0] ?? {};

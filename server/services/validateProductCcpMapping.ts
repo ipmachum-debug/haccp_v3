@@ -18,6 +18,7 @@
 
 import { getRawConnection } from "../db/connection";
 import { selectBomVersion } from "../lib/identity/itemIdentityService";
+import { asProductionProductId } from "../../shared/identity/itemIds";
 
 export interface MappingValidation {
   /** 진행 가능 여부 */
@@ -54,7 +55,7 @@ export async function validateProductCcpMapping(args: {
 }): Promise<MappingValidation> {
   const { productId, productName, tenantId } = args;
   const conn = await getRawConnection();
-  const pick = await selectBomVersion(productId, tenantId, conn);
+  const pick = await selectBomVersion(asProductionProductId(productId), tenantId, conn);
 
   // 1. 생산에 쓰는 버전의 원료에 지정된 가열 공정 (활성, 금속검출 제외)
   let bomMappingCount = 0;

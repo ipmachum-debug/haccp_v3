@@ -16,6 +16,7 @@ import { selectBomVersion } from "../../lib/identity/itemIdentityService";
 import { buildMassBasisSnapshot, type MassBasisSnapshot } from "../../../shared/production/massBasisPlan";
 import { isTenantFeatureEnabled, MASS_BASIS_FEATURE } from "../../lib/production/massBasisPolicy";
 import { kgToMaterialUnit } from "../../lib/production/batchInputPlan";
+import { asProductionProductId } from "../../../shared/identity/itemIds";
 
 export type MassBasisPlan =
   | { mode: "legacy"; reason: string }
@@ -35,7 +36,7 @@ export async function prepareBatchMassBasis(
 ): Promise<MassBasisPlan> {
   const c = conn ?? (await getRawConnection());
   if (!(await isTenantFeatureEnabled(c, tenantId, MASS_BASIS_FEATURE))) return { mode: "legacy", reason: "tenant-disabled" };
-  const pick = await selectBomVersion(productId, tenantId, c);
+  const pick = await selectBomVersion(asProductionProductId(productId), tenantId, c);
   if (!pick) return { mode: "legacy", reason: "no-version" };
   const [vRows]: any = await c.execute(
     `SELECT id, reference_finished_kg, reference_raw_total_kg, mass_basis_enabled, batch_target_kg

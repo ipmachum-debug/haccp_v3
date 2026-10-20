@@ -1,40 +1,41 @@
 import { describe, it, expect, vi } from "vitest";
-import { resolveBomProductIds, inPlaceholders, bomProductV2IdExpr } from "./lib/production/bomProductResolver";
+import { resolveBomProductIds, bomItemIdsOfProduct, inPlaceholders, bomProductV2IdExpr } from "./lib/production/bomProductResolver";
+import { asProductionProductId } from "../shared/identity/itemIds";
 
-function fakeConn(rows: Array<{ candidate: number | string | null }>) {
+function fakeConn(rows: Array<{ id: number | string | null }>) {
   const execute = vi.fn(async () => [rows, []] as any);
   return { execute } as any;
 }
+const pp = (n: number) => asProductionProductId(n);
 
-describe("resolveBomProductIds", () => {
-  it("직접 일치 ID 가 항상 첫 원소", async () => {
-    const ids = await resolveBomProductIds(82, 2, fakeConn([]));
-    expect(ids).toEqual([82]);
+// 번호 체계 2단계 (2026-10-20): 생산 제품 번호 → 정체성 번호는 FK(legacy_product_id) 만. 숫자 직접 일치·역방향 흡수 없음.
+describe("resolveBomProductIds — FK 만", () => {
+  it("연결된 정체성 번호만 (찹쌀떡 생산 82 → 정체성 256), 입력 숫자 자체는 넣지 않음", async () => {
+    const conn = fakeConn([{ id: 256 }]);
+    const ids = await resolveBomProductIds(pp(82), 2, conn);
+    expect(ids).toEqual([256]);
+    const [sql, params] = conn.execute.mock.calls[0];
+    expect(sql).toMatch(/legacy_product_id = \?/);
+    expect(sql).not.toMatch(/UNION/);
+    expect(params).toEqual([2, 82]);
   });
 
-  it("item_master.legacy_product_id 로 연결된 id 를 후보에 추가 (찹쌀떡 82 → 256)", async () => {
-    const conn = fakeConn([{ candidate: 256 }]);
-    const ids = await resolveBomProductIds(82, 2, conn);
-    expect(ids).toEqual([82, 256]);
-    // tenant 격리 파라미터가 두 UNION 가지 모두에 들어간다
-    const [, params] = conn.execute.mock.calls[0];
-    expect(params).toEqual([2, 82, 2, 82]);
+  it("연결이 없으면 [0] — 아무 보고서도 고르지 않음 (같은 숫자의 다른 품목으로 잇지 않음)", async () => {
+    expect(await resolveBomProductIds(pp(82), 2, fakeConn([]))).toEqual([0]);
   });
 
-  it("중복·비정상 값은 걸러낸다", async () => {
-    const ids = await resolveBomProductIds(82, 2, fakeConn([{ candidate: 82 }, { candidate: "256" }, { candidate: null }, { candidate: 0 }]));
-    expect(ids).toEqual([82, 256]);
+  it("비정상 값은 걸러낸다", async () => {
+    expect(await bomItemIdsOfProduct(pp(82), 2, fakeConn([{ id: 256 }, { id: "300" }, { id: null }, { id: 0 }]))).toEqual([256, 300]);
   });
 
-  it("조회 실패 시 직접 일치만 반환 (기존 동작 유지)", async () => {
+  it("조회 실패 시 [0] (추측하지 않음)", async () => {
     const conn = { execute: vi.fn(async () => { throw new Error("boom"); }) } as any;
-    const ids = await resolveBomProductIds(82, 2, conn);
-    expect(ids).toEqual([82]);
+    expect(await resolveBomProductIds(pp(82), 2, conn)).toEqual([0]);
   });
 
-  it("0 이하 ID 는 조회 없이 그대로", async () => {
-    const conn = fakeConn([{ candidate: 1 }]);
-    expect(await resolveBomProductIds(0, 2, conn)).toEqual([0]);
+  it("0 이하 번호는 조회 없이 [0]", async () => {
+    const conn = fakeConn([{ id: 1 }]);
+    expect(await resolveBomProductIds(pp(0), 2, conn)).toEqual([0]);
     expect(conn.execute).not.toHaveBeenCalled();
   });
 });
@@ -45,10 +46,10 @@ describe("SQL 조각", () => {
     expect(inPlaceholders([82, 256])).toBe("?, ?");
   });
 
-  it("bomProductV2IdExpr 는 직접 일치 → legacy_product_id 순 COALESCE", () => {
+  it("bomProductV2IdExpr 는 FK(legacy_product_id) 만 — 같은 숫자의 생산 제품과 직접 맞추지 않음", () => {
     const e = bomProductV2IdExpr("r");
-    expect(e).toContain("p0.id = r.product_id");
     expect(e).toContain("im0.legacy_product_id");
-    expect(e.indexOf("h_products_v2")).toBeLessThan(e.indexOf("item_master"));
+    expect(e).not.toContain("p0.id = r.product_id");
+    expect(e).not.toContain("h_products_v2");
   });
 });

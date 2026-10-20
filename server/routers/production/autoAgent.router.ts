@@ -19,6 +19,7 @@ import { router, tenantRequiredProcedure } from "../../_core/trpc";
 import { TRPCError } from "@trpc/server";
 import { getRawConnection } from "../../db";
 import { resolveBomProductIds, inPlaceholders } from "../../lib/identity/itemIdentityService";
+import { asProductionProductId } from "../../../shared/identity/itemIds";
 
 /** 제품 매칭 후보 (프론트엔드 교체 UI 용) */
 export interface ProductCandidate {
@@ -287,7 +288,7 @@ async function buildPlanDetail(tenantId: number, productId: number, quantity: nu
   // BOM 조회 (APPROVED 버전 우선 — 배치 생성이 사용하는 기준과 동일)
   let bomInfo: { batchKg: number; batchCount: number; versionId: number } | null = null;
   try {
-    const bomPids = await resolveBomProductIds(productId, tenantId, pool);
+    const bomPids = await resolveBomProductIds(asProductionProductId(productId), tenantId, pool);
     const [bomRows]: any = await pool.execute(
       `SELECT v.batch_target_kg, v.id AS version_id
        FROM h_mf_reports r

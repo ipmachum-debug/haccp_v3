@@ -29,6 +29,7 @@ import { getRawConnection } from "../db";
 import { selectBomVersion } from "../lib/identity/itemIdentityService";
 import { planDay, type PlannedItem, type PlannerGroup, type PlannerItem } from "../lib/production/ccpDayPlanner";
 import { loadPlanBom, loadDayBusy, type PlanBom } from "../lib/production/ccpPlanContext";
+import { asProductionProductId } from "../../shared/identity/itemIds";
 
 export interface ProcessGroupInfo {
   id: number;
@@ -166,7 +167,7 @@ export async function getProcessGroupsForProduct(args: {
   //   이전에는 APPROVED 버전 전부의 공정을 합쳐 — 새 버전에서 원료를 다른 공정으로 옮겨도(보고서 418 호두 공정4→1)
   //   옛 공정 CCP 기록지가 계속 생겼다. 공정 지정(NULL 포함)은 읽기만 한다.
   //   BOM product_id 가 v2 id 또는 item_master id 인 경우도 selectBomVersion 이 처리 (bomProductResolver).
-  const bomPick = await selectBomVersion(productId, tenantId, conn);
+  const bomPick = await selectBomVersion(asProductionProductId(productId), tenantId, conn);
   const [bomRows] = bomPick ? await conn.execute<any[]>(
     `SELECT DISTINCT
        g.id, g.name, g.ccp_type,

@@ -8,6 +8,7 @@ import { resolveBomProductIds, selectBomVersion } from "../../lib/identity/itemI
 import { todayKST, toKSTTimestamp } from "../../utils/timezone";
 import { BomQtyError, isPlannedInputRow, plannedInputQty } from "../../lib/production/batchInputPlan";
 import { hBatches, hBatchInputs, hCcpInstances, hCcpRecords, hProductsV2, hMaterials, hInventory, hInventoryTransactions, hApprovalRequests } from "../../../drizzle/schema";
+import { asProductionProductId } from "../../../shared/identity/itemIds";
 
 
 export async function createBatch(batch: {
@@ -39,7 +40,7 @@ export async function createBatch(batch: {
 
   // ★ 2026-10-07: h_mf_reports.product_id 가 h_products_v2.id / item_master.id 두 네임스페이스를
   //   섞어 쓰므로 (bomProductResolver 참고) 후보 ID 전부로 조회하고 직접 일치를 우선한다.
-  const bomProductIds = await resolveBomProductIds(batch.productId, batch.tenantId);
+  const bomProductIds = await resolveBomProductIds(asProductionProductId(batch.productId), batch.tenantId);
   const directFirst = sql`(${hMfReports.productId} = ${batch.productId}) DESC`;
 
   // ★ 2026-05-10 (PR #299): 혼합 mfReport 차단 (생산은 단품만)
@@ -165,7 +166,7 @@ export async function insertPlannedBatchInputs(conn: any, a: { batchId: number; 
   }
   // 1·2. 제품의 품목제조보고 + 사용할 버전 하나 (v2 id 직접 일치 우선, APPROVED 최신 → 없으면 최신)
   //   ★ 2026-10-16: CCP 기록지 투입량(ccpFormSettings) 과 같은 함수로 고른다 (selectBomVersion).
-  const picked = await selectBomVersion(a.productId, tenantId, conn);
+  const picked = await selectBomVersion(asProductionProductId(a.productId), tenantId, conn);
   if (!picked) return 0;
   if (!picked.approved) console.log("[createBatch] APPROVED 버전 없음, 최신 버전 fallback 사용");
   const versionId = picked.versionId;

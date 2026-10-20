@@ -8,7 +8,7 @@
  *                       그 변경 뒤에 만들어진 생산 건(또는 CCP 기록) 수
  */
 import { checkRecipe, groupIssues, processLoads, type DesignGroup, type RecipeIngredient, type ReadinessIssue, type Signal } from "../../../shared/production/designReadiness";
-import { toProductionProductId, toProductionProductIds } from "../identity/itemIdentityService";
+import { toProductionProductId, toProductionProductIds, asItemMasterId } from "../identity/itemIdentityService";
 import { rowKg } from "./ccpBomInput";
 import { BomQtyError } from "./batchInputPlan";
 import { heatingFor, occupancyFor, type PlannerEquipment } from "./ccpDayPlanner";
@@ -318,7 +318,7 @@ export async function loadHistory(conn: any, tenantId: number, limit = 100): Pro
       appliedLabel = "이후 이 설비가 배정된 CCP 기록";
     } else if (kind === "recipe" && a.entity_id) {
       const [[rep]]: any = await conn.execute(`SELECT product_id FROM h_mf_reports WHERE id = ? AND tenant_id = ?`, [a.entity_id, tenantId]);
-      const pid = rep?.product_id ? await toProductionProductId(Number(rep.product_id), tenantId, conn) : null;
+      const pid = rep?.product_id ? await toProductionProductId(asItemMasterId(rep.product_id), tenantId, conn) : null; // 보고서 product_id = 정체성 번호
       if (pid) applied = await countAfter(conn, `SELECT COUNT(*) AS n, DATE_FORMAT(MIN(planned_date), '%Y-%m-%d') AS first FROM h_batches WHERE tenant_id = ? AND product_id = ? AND created_at > ? AND status <> 'cancelled'`, [tenantId, pid, a.raw_at]);
       appliedLabel = "이후 만들어진 생산 건";
     }
@@ -331,7 +331,7 @@ export async function loadHistory(conn: any, tenantId: number, limit = 100): Pro
     });
   }
   for (const p of pRows as any[]) {
-    const pid = p.product_id ? await toProductionProductId(Number(p.product_id), tenantId, conn) : null;
+    const pid = p.product_id ? await toProductionProductId(asItemMasterId(p.product_id), tenantId, conn) : null;
     const applied = pid ? await countAfter(conn, `SELECT COUNT(*) AS n, DATE_FORMAT(MIN(planned_date), '%Y-%m-%d') AS first FROM h_batches WHERE tenant_id = ? AND product_id = ? AND created_at > ? AND status <> 'cancelled'`, [tenantId, pid, p.raw_at]) : { n: 0, first: null };
     const act = String(p.action).toUpperCase();
     out.push({
@@ -436,7 +436,7 @@ export async function loadRecipeDetail(conn: any, tenantId: number, reportId: nu
 export async function trialCalc(conn: any, tenantId: number, reportId: number, plannedKg: number, startOverride: string | null) {
   const [r] = await loadRecipes(conn, tenantId, { reportId });
   if (!r) return null;
-  const pid = await toProductionProductId(r.productItemId, tenantId, conn);
+  const pid = await toProductionProductId(asItemMasterId(r.productItemId), tenantId, conn);
   if (!pid) return { ok: false as const, reason: "이 제품은 생산 품목과 연결되어 있지 않아 계산할 수 없습니다 (품목 연결 확인)." };
 
   const { planCcpForDay } = await import("../../services/ccp-batch");

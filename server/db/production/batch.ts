@@ -13,6 +13,7 @@ import {
   hMfIngredients,
   hMaterials
 } from "../../../drizzle/schema";
+import { asProductionProductId } from "../../../shared/identity/itemIds";
 
 /**
  * 배치 관리 DB 헬퍼 함수
@@ -56,7 +57,7 @@ export async function createBatch(data: {
   // 2. 품목제조보고의 배합비를 기준으로 원재료 투입 계획 자동 생성
   try {
     // 2-1. 제품의 품목제조보고 조회
-    const bomProductIds = await resolveBomProductIds(data.productId, data.tenantId);
+    const bomProductIds = await resolveBomProductIds(asProductionProductId(data.productId), data.tenantId);
     const mfReport = await db
       .select({ id: hMfReports.id })
       .from(hMfReports)

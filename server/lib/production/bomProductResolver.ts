@@ -18,53 +18,48 @@
  *
  * ## 규칙
  *
- * - 입력은 배치가 쓰는 `h_products_v2.id`. 반환은 BOM 조회에 써야 할 product_id 후보 목록.
- * - 후보 순서: 직접 일치(v2 id) → item_master 경유 id. 호출측은 `IN (...)` 으로 찾되,
- *   여러 건이면 `product_id = <v2 id>` 인 행을 우선한다 (`orderByDirectMatchSql` 참고).
- * - 역방향(입력이 item_master.id 인 경우)도 `legacy_product_id` 를 후보에 넣어 흡수한다.
+ * - 입력은 배치가 쓰는 `h_products_v2.id` (ProductionProductId). 반환은 그 제품의 정체성 번호(ItemMasterId) — FK(legacy_product_id) 만.
+ * - 숫자가 우연히 같은 다른 품목으로 잇지 않는다 (2026-10-20 번호 체계 2단계에서 직접 일치·역방향 흡수 제거).
  * - 데이터는 바꾸지 않는다. 근본 정리(h_mf_reports.product_id 를 v2 로 통일)는 별도 마이그레이션.
  */
 
 import type { Pool, PoolConnection, Connection } from "mysql2/promise";
 import { getRawConnection } from "../../db/connection";
+import type { ItemMasterId, ProductionProductId } from "../../../shared/identity/itemIds";
 
 export type AnyConn = Pick<Pool | PoolConnection | Connection, "execute">;
 
 /**
- * BOM 조회용 product_id 후보 목록.
- * 항상 입력 ID 를 첫 원소로 포함하므로 빈 배열이 되지 않는다.
+ * 생산 제품 번호 → 그 제품의 BOM 이 쓰는 정체성 번호(item_master.id) 목록 — FK(legacy_product_id) 만 (2026-10-20, 번호 체계 2단계).
+ *   이전: 입력 숫자 자체도 후보에 넣고(직접 일치 우선) 역방향(입력이 정체성 번호인 경우)도 흡수했다 →
+ *   생산 제품 번호와 같은 숫자의 다른 정체성 품목에 BOM 이 있으면 그것을 골랐다(숫자 우연 일치).
+ *   운영 사본 점검(2026-10-20): 이 경로로만 이어지던 것은 연결이 빠진 시험 품목 1건뿐 — 실제 품목은 모두 FK 로 이어짐.
+ * 연결이 없으면 빈 배열 (추측하지 않음).
  */
-export async function resolveBomProductIds(
-  productId: number,
-  tenantId: number,
-  conn?: AnyConn,
-): Promise<number[]> {
-  const ids: number[] = [productId];
-  if (!Number.isFinite(productId) || productId <= 0) return ids;
+export async function bomItemIdsOfProduct(productId: ProductionProductId, tenantId: number, conn?: AnyConn): Promise<ItemMasterId[]> {
+  if (!Number.isFinite(productId) || productId <= 0) return [];
+  const c = conn ?? (await getRawConnection());
+  const [rows] = await c.execute<any[]>(
+    `SELECT im.id FROM item_master im
+      WHERE im.tenant_id = ? AND im.legacy_product_id = ? AND im.item_type IN ('own_product', 'external_product')
+      ORDER BY im.id`,
+    [tenantId, productId],
+  );
+  return (rows as any[]).map((r) => Number(r.id) as ItemMasterId).filter((n) => Number.isFinite(n) && n > 0);
+}
 
+/**
+ * BOM 조회용 product_id 목록 — `IN (...)` 에 바로 쓰는 호환 함수. bomItemIdsOfProduct 와 같고, 비면 [0]
+ * (h_mf_reports.product_id 는 0 이 없으므로 아무것도 고르지 않는다 — 빈 IN() 오류 방지).
+ */
+export async function resolveBomProductIds(productId: ProductionProductId, tenantId: number, conn?: AnyConn): Promise<number[]> {
   try {
-    const c = conn ?? (await getRawConnection());
-    const [rows] = await c.execute<any[]>(
-      `SELECT im.id AS candidate
-         FROM item_master im
-        WHERE im.tenant_id = ? AND im.legacy_product_id = ?
-          AND im.item_type IN ('own_product', 'external_product')
-       UNION
-       SELECT im.legacy_product_id AS candidate
-         FROM item_master im
-        WHERE im.tenant_id = ? AND im.id = ? AND im.legacy_product_id IS NOT NULL
-          AND im.item_type IN ('own_product', 'external_product')`,
-      [tenantId, productId, tenantId, productId],
-    );
-    for (const r of rows as any[]) {
-      const n = Number(r.candidate);
-      if (Number.isFinite(n) && n > 0 && !ids.includes(n)) ids.push(n);
-    }
+    const ids = await bomItemIdsOfProduct(productId, tenantId, conn);
+    return ids.length ? ids : [0];
   } catch (err: any) {
-    // 변환 실패는 조용히 직접 일치만 사용 (기존 동작과 동일)
     console.warn(`[bomProductResolver] product=${productId} tenant=${tenantId} 변환 실패: ${err?.message || err}`);
+    return [0];
   }
-  return ids;
 }
 
 /** mysql2 `?` 플레이스홀더용 — `IN (?, ?, ?)` 조각 */
@@ -79,13 +74,11 @@ export function inPlaceholders(ids: number[]): string {
  *   JOIN h_products_v2 p ON p.tenant_id = r.tenant_id AND p.id = ${bomProductV2IdExpr("r")}
  */
 export function bomProductV2IdExpr(reportAlias: string): string {
+  // 보고서의 product_id 는 정체성 번호 — 같은 숫자의 생산 제품과 직접 맞추지 않고 FK 로만 (2026-10-20, 번호 체계 2단계)
   const r = reportAlias;
-  return `COALESCE(
-    (SELECT p0.id FROM h_products_v2 p0 WHERE p0.id = ${r}.product_id AND p0.tenant_id = ${r}.tenant_id),
-    (SELECT im0.legacy_product_id FROM item_master im0
+  return `(SELECT im0.legacy_product_id FROM item_master im0
       WHERE im0.id = ${r}.product_id AND im0.tenant_id = ${r}.tenant_id
-        AND im0.item_type IN ('own_product', 'external_product') LIMIT 1)
-  )`;
+        AND im0.item_type IN ('own_product', 'external_product') LIMIT 1)`;
 }
 
 /**
@@ -100,19 +93,20 @@ export function bomProductV2IdExpr(reportAlias: string): string {
  * @returns 버전 id 와 보고서 id, 없으면 null
  */
 export async function selectBomVersion(
-  productId: number,
+  productId: ProductionProductId,
   tenantId: number,
   conn?: AnyConn,
 ): Promise<{ reportId: number; versionId: number; approved: boolean } | null> {
   if (!Number.isFinite(productId) || productId <= 0) return null;
   const c = conn ?? (await getRawConnection());
-  const ids = await resolveBomProductIds(productId, tenantId, c);
+  const ids = await bomItemIdsOfProduct(productId, tenantId, c);
+  if (!ids.length) return null;
   const [reports] = await c.execute<any[]>(
     `SELECT id FROM h_mf_reports
       WHERE tenant_id = ? AND product_id IN (${inPlaceholders(ids)})
-      ORDER BY (product_id = ?) DESC, id ASC
+      ORDER BY id ASC
       LIMIT 1`,
-    [tenantId, ...ids, productId],
+    [tenantId, ...ids],
   );
   const reportId = Number((reports as any[])[0]?.id ?? 0);
   if (!reportId) return null;
