@@ -11,13 +11,17 @@ import {
 
 /**
  * LOT 추적성 DB 헬퍼 함수
+ *
+ * 테넌트 격리: 모든 함수가 tenantId 를 필수로 받고, 첫 조회 · 후속 조회 · LEFT JOIN 조건 ·
+ * 내부 재호출에 모두 같은 tenantId 를 적용한다. 다른 회사의 lotId / batchId / LOT 번호를
+ * 넣으면 "찾을 수 없음" 으로 끝난다.
  */
 
 /**
  * 정방향 추적: 원재료 LOT → 배치 → 완제품
  * 특정 원재료 LOT이 어느 배치에 사용되었고, 어떤 완제품이 생산되었는지 추적
  */
-export async function traceLotForward(lotId: number, tenantId?: number) {
+export async function traceLotForward(lotId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
@@ -25,7 +29,7 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
   const [lot] = await db
     .select()
     .from(hInventoryLots)
-    .where(eq(hInventoryLots.id, lotId));
+    .where(and(eq(hInventoryLots.tenantId, tenantId), eq(hInventoryLots.id, lotId)));
   if (!lot) {
     throw new Error("LOT을 찾을 수 없습니다.");
   }
@@ -38,7 +42,7 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
       uom: hBatchInputs.unit
     })
     .from(hBatchInputs)
-    .where(and(eq(hBatchInputs.tenantId, tenantId as any) , eq(hBatchInputs.lotId, lotId)) as any);
+    .where(and(eq(hBatchInputs.tenantId, tenantId), eq(hBatchInputs.lotId, lotId)));
   if (batchMaterials.length === 0) {
     return {
       lot,
@@ -63,14 +67,17 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
       endTime: hBatches.endTime
     })
     .from(hBatches)
-    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
-    .where(inArray(hBatches.id, batchIds));
+    .leftJoin(
+      hProductsV2,
+      and(eq(hBatches.productId, hProductsV2.id), eq(hProductsV2.tenantId, hBatches.tenantId))
+    )
+    .where(and(eq(hBatches.tenantId, tenantId), inArray(hBatches.id, batchIds)));
 
   // 4. 각 배치의 완제품 LOT 정보 조회
   const batchProducts = await db
     .select()
     .from(hBatchProducts)
-    .where(inArray(hBatchProducts.batchId, batchIds));
+    .where(and(eq(hBatchProducts.tenantId, tenantId), inArray(hBatchProducts.batchId, batchIds)));
 
   return {
     lot,
@@ -88,7 +95,7 @@ export async function traceLotForward(lotId: number, tenantId?: number) {
  * 역방향 추적: 완제품 → 배치 → 원재료 LOT
  * 특정 완제품 배치가 어떤 원재료 LOT으로 만들어졌는지 추적
  */
-export async function traceLotBackward(batchId: number, tenantId?: number) {
+export async function traceLotBackward(batchId: number, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
@@ -107,8 +114,11 @@ export async function traceLotBackward(batchId: number, tenantId?: number) {
       endTime: hBatches.endTime
     })
     .from(hBatches)
-    .leftJoin(hProductsV2, eq(hBatches.productId, hProductsV2.id))
-    .where(eq(hBatches.id, batchId));
+    .leftJoin(
+      hProductsV2,
+      and(eq(hBatches.productId, hProductsV2.id), eq(hProductsV2.tenantId, hBatches.tenantId))
+    )
+    .where(and(eq(hBatches.tenantId, tenantId), eq(hBatches.id, batchId)));
 
   if (!batch) {
     throw new Error("배치를 찾을 수 없습니다.");
@@ -126,15 +136,21 @@ export async function traceLotBackward(batchId: number, tenantId?: number) {
       expiryDate: hInventoryLots.expiryDate
     })
     .from(hBatchInputs)
-    .leftJoin(hMaterials, eq(hBatchInputs.materialId, hMaterials.id))
-    .leftJoin(hInventoryLots, eq(hBatchInputs.lotId, hInventoryLots.id))
-    .where(eq(hBatchInputs.batchId, batchId));
+    .leftJoin(
+      hMaterials,
+      and(eq(hBatchInputs.materialId, hMaterials.id), eq(hMaterials.tenantId, hBatchInputs.tenantId))
+    )
+    .leftJoin(
+      hInventoryLots,
+      and(eq(hBatchInputs.lotId, hInventoryLots.id), eq(hInventoryLots.tenantId, hBatchInputs.tenantId))
+    )
+    .where(and(eq(hBatchInputs.tenantId, tenantId), eq(hBatchInputs.batchId, batchId)));
 
   // 3. 배치에서 생산된 완제품 LOT 조회
   const batchProducts = await db
     .select()
     .from(hBatchProducts)
-    .where(and(eq(hBatchProducts.tenantId, tenantId as any) , eq(hBatchProducts.batchId, batchId)) as any);
+    .where(and(eq(hBatchProducts.tenantId, tenantId), eq(hBatchProducts.batchId, batchId)));
   return {
     batch,
     materialInputs,
@@ -146,7 +162,7 @@ export async function traceLotBackward(batchId: number, tenantId?: number) {
  * 완제품 LOT 번호로 역방향 추적
  * 완제품 LOT 번호로 배치를 찾고, 해당 배치의 원재료 LOT을 추적
  */
-export async function traceLotByProductLotNumber(lotNumber: string, tenantId?: number) {
+export async function traceLotByProductLotNumber(lotNumber: string, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
@@ -154,19 +170,19 @@ export async function traceLotByProductLotNumber(lotNumber: string, tenantId?: n
   const [batchProduct] = await db
     .select()
     .from(hBatchProducts)
-    .where(and(eq(hBatchProducts.tenantId, tenantId as any) , eq(hBatchProducts.lotNumber, lotNumber)) as any);
+    .where(and(eq(hBatchProducts.tenantId, tenantId), eq(hBatchProducts.lotNumber, lotNumber)));
   if (!batchProduct) {
     throw new Error("해당 LOT 번호의 완제품을 찾을 수 없습니다.");
   }
 
   // 2. 역방향 추적 실행
-  return await traceLotBackward(batchProduct.batchId);
+  return await traceLotBackward(batchProduct.batchId, tenantId);
 }
 
 /**
  * 원재료 LOT 번호로 정방향 추적
  */
-export async function traceLotByMaterialLotNumber(lotNumber: string, tenantId?: number) {
+export async function traceLotByMaterialLotNumber(lotNumber: string, tenantId: number) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
@@ -174,11 +190,11 @@ export async function traceLotByMaterialLotNumber(lotNumber: string, tenantId?: 
   const [lot] = await db
     .select()
     .from(hInventoryLots)
-    .where(eq(hInventoryLots.lotNumber, lotNumber));
+    .where(and(eq(hInventoryLots.tenantId, tenantId), eq(hInventoryLots.lotNumber, lotNumber)));
   if (!lot) {
     throw new Error("해당 LOT 번호의 원재료를 찾을 수 없습니다.");
   }
 
   // 2. 정방향 추적 실행
-  return await traceLotForward(lot.id);
+  return await traceLotForward(lot.id, tenantId);
 }
