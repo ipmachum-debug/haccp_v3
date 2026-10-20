@@ -319,8 +319,10 @@ export async function createMfReportVersion(data: {
     changeReason: data.changeReason,
     compositionTotalRule: data.compositionTotalRule || "100%",
     createdBy: data.createdBy,
-    approvalStatus: "DRAFT"
-  });
+    approvalStatus: "DRAFT",
+    // 이전에는 빠져 DB 기본값(1)으로 저장됐다 — 운영 회사(2)의 새 버전이 회사 1 번호를 갖게 됨 (2026-10-21)
+    tenantId
+  } as any);
   
   return result.insertId;
 }

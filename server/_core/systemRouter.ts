@@ -3,6 +3,12 @@ import { TRPCError } from "@trpc/server";
 import { notifyOwner } from "./notification";
 import { adminProcedure, publicProcedure, router } from "./trpc";
 
+/** 배치 완료 재시도 큐는 회사별 — 슈퍼관리자도 회사를 선택한 상태에서만 (2026-10-21) */
+function requireRetryTenant(tenantId: number | null | undefined): number {
+  if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "회사를 선택한 뒤 다시 시도하세요." });
+  return tenantId;
+}
+
 export const systemRouter = router({
   health: publicProcedure
     .input(
@@ -82,20 +88,21 @@ export const systemRouter = router({
   
   // 배치 완료 재시도 작업 목록 조회 (실패한 작업만)
   getFailedBatchCompletionRetries: adminProcedure
-    .query(async () => {
+    .query(async ({ ctx }) => {
       const { getFailedRetryTasks } = await import("../db/production/batchCompletionRetries");
-      return await getFailedRetryTasks();
+      return await getFailedRetryTasks(requireRetryTenant(ctx.tenantId));
     }),
   
   // 배치 완료 재시도 작업 수동 재시도
   retryBatchCompletionTask: adminProcedure
     .input(z.object({ taskId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { getPendingRetryTasks, updateRetryTaskStatus } = await import("../db/production/batchCompletionRetries");
       const { notifyOwner } = await import("./notification");
+      const tenantId = requireRetryTenant(ctx.tenantId);
       
-      // 작업 조회
-      const tasks = await getPendingRetryTasks();
+      // 작업 조회 (이 회사 작업만)
+      const tasks = await getPendingRetryTasks(tenantId);
       const task = tasks.find(t => t.id === input.taskId);
       
       if (!task) {
@@ -107,7 +114,7 @@ export const systemRouter = router({
       
       try {
         // 재시도 상태로 변경
-        await updateRetryTaskStatus(task.id, "retrying");
+        await updateRetryTaskStatus(task.id, "retrying", undefined, tenantId);
         
         // 작업 유형에 따라 재시도
         if (task.taskType === "pdf_generation") {
@@ -121,7 +128,7 @@ export const systemRouter = router({
         }
         
         // 성공 시 상태 업데이트
-        await updateRetryTaskStatus(task.id, "success");
+        await updateRetryTaskStatus(task.id, "success", undefined, tenantId);
         
         return {
           success: true,
@@ -132,7 +139,8 @@ export const systemRouter = router({
         await updateRetryTaskStatus(
           task.id,
           "failed",
-          error instanceof Error ? error.message : "재시도 실패"
+          error instanceof Error ? error.message : "재시도 실패",
+          tenantId
         );
         
         throw new TRPCError({
@@ -145,9 +153,9 @@ export const systemRouter = router({
   // 배치 완료 재시도 작업 삭제
   deleteBatchCompletionRetry: adminProcedure
     .input(z.object({ taskId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { deleteRetryTask } = await import("../db/production/batchCompletionRetries");
-      await deleteRetryTask(input.taskId);
+      await deleteRetryTask(input.taskId, requireRetryTenant(ctx.tenantId));
       return {
         success: true,
         message: "재시도 작업이 삭제되었습니다.",
