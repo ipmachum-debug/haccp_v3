@@ -23,17 +23,19 @@ export async function createBatch(batch: {
   batchStartTime?: string; // "HH:mm" format
   createdBy: number;
   tenantId: number;
+  /** 생성 요청 줄 번호 (h_batch_create_requests.id) — 같은 INSERT 에 남겨 재시도가 이 생산 건을 찾는다 (2026-10-20) */
+  createRequestId?: number | null;
+  /** 예정 생산 건 — 만드는 순간부터 예정 (따로 UPDATE 하다 멈추면 예정 아닌 계획이 남았다) */
+  planOnly?: boolean;
+  /** 지난 날짜 즉시 실행 — 실행 단계가 남았음을 같은 INSERT 에 (커밋 뒤 한 번 처리) */
+  activationPending?: boolean;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database not available");
 
   // ★ 2026-05-10 (PR #299): 혼합 mfReport (MIXED) 인 제품은 batch 생성 차단
   // 정책: "생산은 단품으로 한다" — 혼합은 출고 단위, 생산 단위 X
-  // 작업자가 mfReport 등록 시 혼합으로 분류한 제품으로 batch 생성 시도하면 명확한 안내
-  // (hMfReports import 는 아래쪽 동일 import 라인에서 함께 처리)
-
-  const { hBatches, hBatchInputs } = await import("../../../drizzle/schema");
-  const { hMfReports, hMfReportVersions, hMfIngredients } = await import("../../../drizzle/schema/schema_recipe_new");
+  const { hMfReports } = await import("../../../drizzle/schema/schema_recipe_new");
 
   // ★ 2026-10-07: h_mf_reports.product_id 가 h_products_v2.id / item_master.id 두 네임스페이스를
   //   섞어 쓰므로 (bomProductResolver 참고) 후보 ID 전부로 조회하고 직접 일치를 우선한다.
@@ -83,279 +85,190 @@ export async function createBatch(batch: {
     ? `${plannedDateStr} ${batch.batchStartTime}:00`
     : null;
 
-  // Use raw SQL to avoid Drizzle's date serialization and `as any` type issues
-  const conn = await getRawConnection();
   const isAutoCompleted = batch.status === "completed";
 
   // ★ 2026-10-16 (수율 기준 PR C, Codex #546 P1): 원물·공정 기준은 배치를 만들기 **전에** 계산한다.
   //   회사가 선택했고 버전이 켜져 있는데 계산이 안 되면(기준값 누락·단위 등) 배치를 만들지 않는다 —
   //   조용히 기존 계산(배합비 × 생산량)으로 넘어가면 원료가 과다 차감된다.
-  const { prepareBatchMassBasis, saveBatchMassBasis, rawKgToMaterialUnit } = await import("./batchMassBasis");
+  const { prepareBatchMassBasis } = await import("./batchMassBasis");
   const massBasisPlan = await prepareBatchMassBasis(batch.tenantId, batch.productId, parseFloat(batch.plannedQuantity));
   if (massBasisPlan.mode === "error") {
     throw new Error(`[수율 환산] 품목제조보고 버전 ${massBasisPlan.versionId} 의 원물·공정 기준을 계산할 수 없어 배치를 만들지 않았습니다: ${massBasisPlan.reason}`);
   }
 
   // auto 모드: 종료시간 계산 (시작시간 + BOM 배치수 × 사이클시간)
-  // 정확한 계산은 BOM 조회가 필요하므로, 여기서는 시작시간 + 2시간을 기본값으로 설정
   // 실제 종료시간은 completeBatch에서 정확히 갱신
   let endTimeStr: string | null = null;
   if (isAutoCompleted && startTimeStr) {
-    // 시작시간에서 2시간 후를 기본 종료시간으로 설정
     const [h, m] = (batch.batchStartTime || "09:00").split(":").map(Number);
     const endH = h + 2;
     endTimeStr = `${plannedDateStr} ${String(endH).padStart(2, "0")}:${String(m).padStart(2, "0")}:00`;
   }
 
-  const [result]: any = await conn.execute(
-    `INSERT INTO h_batches
-       (tenant_id, site_id, batch_code, day_batch_group, batch_order,
-        product_id, planned_quantity, actual_quantity, planned_date, start_time, end_time,
-        status, mode, completed_at, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      batch.tenantId,
-      batch.siteId,
-      batch.batchCode,
-      batch.dayBatchGroup || null,
-      batch.batchOrder != null ? batch.batchOrder : null,
-      batch.productId,
-      batch.plannedQuantity,
-      isAutoCompleted ? batch.plannedQuantity : null,
-      plannedDateStr,
-      startTimeStr,
-      endTimeStr,                                        // 종료시간 추가
-      batch.status || "planned",
-      batch.mode || "auto",
-      isAutoCompleted ? new Date() : null,
-      batch.createdBy,
-    ]
-  );
-
-  const batchId = Number(result.insertId);
-  const tenantId = batch.tenantId;
-  const plannedQty = parseFloat(batch.plannedQuantity);
-
-  // === 원재료 투입 자동생성 (품목제조보고 배합비 기반) ===
+  // ★ 2026-10-20 (생산계획 생애주기 검토 4·5): 생산 건 머리글 + 원물·공정 기준 스냅샷 + 원료 투입 계획을 **한 트랜잭션** —
+  //   원료 계획을 못 만들면 생산 건도 만들지 않는다 (이전: 기준 계산이 아닌 경로는 투입 없이 생산 건을 남기고 로그만).
+  //   준비 미완(setup_pending=1) 으로 넣고, CCP·기록지·행·SKU 까지 확인된 뒤 호출자(오케스트레이터)가 0 으로 바꾼다.
+  const pool = await getRawConnection();
+  const conn = await (pool as any).getConnection();
   try {
-    // 1·2. 제품의 품목제조보고 + 사용할 버전 하나 (v2 id 직접 일치 우선, APPROVED 최신 → 없으면 최신)
-    //   ★ 2026-10-16: CCP 기록지 투입량(ccpFormSettings) 과 같은 함수로 고른다 (selectBomVersion).
-    const picked = await selectBomVersion(batch.productId, tenantId);
-    const mfReport = picked ? [{ id: picked.reportId }] : [];
-    if (picked && !picked.approved) console.log("[createBatch] APPROVED 버전 없음, 최신 버전 fallback 사용");
-
-    if (mfReport.length > 0) {
-      const latestVersion = picked ? [{ id: picked.versionId }] : [];
-
-      if (latestVersion.length > 0) {
-        // 3. 배합비(원재료 함량) 조회
-        // item_master.base_unit으로 실제 단위(kg/g) 조회
-        // h_mf_ingredients.material_id → item_master.id (직접 참조)
-        const { itemMaster } = await import("../../../drizzle/schema/schema_dual_unit");
-        const ingredientsRaw = await db
-          .select({
-            id: hMfIngredients.id,
-            materialId: hMfIngredients.materialId,
-            quantity: hMfIngredients.quantity,
-            correctedQuantity: hMfIngredients.correctedQuantity,
-            isDeductible: hMfIngredients.isDeductible,
-            unit: hMfIngredients.unit,         // BOM 단위 (%)
-            processGroupId: hMfIngredients.processGroupId,
-            materialUnit: itemMaster.baseUnit,  // item_master.base_unit (kg 등)
-          })
-          .from(hMfIngredients)
-          .leftJoin(itemMaster, eq(hMfIngredients.materialId, itemMaster.id))
-          .where(eq(hMfIngredients.mfReportVersionId, latestVersion[0].id))
-          .orderBy(hMfIngredients.lineNo);
-        const ingredients = ingredientsRaw;
-
-        // ★ 2026-10-16 (수율 기준 PR C): 기준 계산이면 스냅샷을 고정하고 원료 투입 계획(=자동 출고량)을 스냅샷의 행별 원물 kg 로.
-        //   스냅샷 버전 = 이 배치 버전이어야 하고, 차감 대상 원료 행은 모두 스냅샷에 있어야 한다 (없으면 실패 → 아래 롤백).
-        let massBasisRawByIngredient: Map<number, number> | null = null;
-        if (massBasisPlan.mode === "basis") {
-          if (massBasisPlan.snapshot.versionId !== latestVersion[0].id) {
-            throw new Error(`[수율 환산] 기준 버전(${massBasisPlan.snapshot.versionId}) 과 배치 버전(${latestVersion[0].id}) 이 다릅니다`);
-          }
-          const stored = await saveBatchMassBasis(conn, batchId, tenantId, massBasisPlan.snapshot, massBasisPlan.subBatchKg);
-          massBasisRawByIngredient = recordedRawKgByIngredient({ recorded: true, snapshot: stored.snapshot });
-          const missing = ingredients.filter((ing: any) => ing.materialId !== null && ing.isDeductible !== 0 && !massBasisRawByIngredient!.has(Number(ing.id)));
-          if (missing.length > 0) {
-            throw new Error(`[수율 환산] 원료 행 ${missing.map((m: any) => m.id).join(",")} 이 기준 스냅샷에 없습니다`);
-          }
-        }
-
-        // 4. 배합비 x 생산량으로 원재료 투입 계획 생성 (보정 배합비 기준)
-        // 정제수도 투입 계획에 포함 (투입량 표시), 원가 계산에서만 제외
-        // ★ 2026-05-10 (PR #297): unit_price/total_price 마스터 lookup 후 INSERT 시 채움
-        // ★ 2026-05-10 (PR #298): material_id 표준화 — h_mf_ingredients.material_id (= item_master.id) 를
-        //    자재명 매칭으로 canonical h_materials.id 로 변환 후 INSERT.
-        //    이로써 신규 배치는 lot/inventory 시스템과 ID 네임스페이스가 일치 → 자동출고 정상 작동.
-        //    h_materials 에 매칭 없는 자재만 item_master.id 그대로 유지 (호환성 유지).
-        if (ingredients.length > 0) {
-          const filteredIngredients = ingredients.filter((ing: any) => isPlannedInputRow(ing));
-
-          const candidateRawIds = filteredIngredients
-            .map((ing: any) => Number(ing.materialId))
-            .filter((id: number) => Number.isFinite(id));
-
-          // ★ ID 표준화 맵: rawId(item_master.id) → canonicalId(h_materials.id)
-          //   미매칭 시 raw 그대로 유지 (호환성)
-          const idMap = new Map<number, number>(); // rawId → canonicalId
-          const nameMap = new Map<number, string>(); // canonicalId → name
-          if (candidateRawIds.length > 0) {
-            const ph = candidateRawIds.map(() => "?").join(",");
-            // item_master.id → item_name → h_materials.id 자재명 매칭
-            const [mapRows]: any = await conn.execute(
-              `SELECT im.id AS raw_id, im.item_name,
-                      hm.id AS hm_id, hm.material_name
-                 FROM item_master im
-                 LEFT JOIN h_materials hm
-                   ON hm.tenant_id = im.tenant_id
-                  AND TRIM(hm.material_name) = TRIM(im.item_name)
-                WHERE im.tenant_id = ? AND im.id IN (${ph})`,
-              [tenantId, ...candidateRawIds],
-            );
-            for (const r of (mapRows as any[])) {
-              const rawId = Number(r.raw_id);
-              const hmId = r.hm_id ? Number(r.hm_id) : null;
-              const name = r.material_name || r.item_name || null;
-              if (hmId) {
-                idMap.set(rawId, hmId);
-                if (name) nameMap.set(hmId, name);
-              } else {
-                idMap.set(rawId, rawId); // h_materials 에 없으면 raw 유지
-                if (r.item_name) nameMap.set(rawId, r.item_name);
-              }
-            }
-            // 위 lookup 에서 누락된 raw id 는 그대로 raw 사용 (item_master 에도 없는 경우)
-            for (const rawId of candidateRawIds) {
-              if (!idMap.has(rawId)) idMap.set(rawId, rawId);
-            }
-          }
-
-          // 표준화된 canonical ID 목록으로 단가 lookup
-          const canonicalIds = Array.from(new Set(Array.from(idMap.values())));
-
-          // 단가 lookup 1차: h_materials.unit_price (canonicalId 기준)
-          const priceMap = new Map<number, number>(); // canonicalId → unit_price
-          if (canonicalIds.length > 0) {
-            const ph = canonicalIds.map(() => "?").join(",");
-            const [priceRows]: any = await conn.execute(
-              `SELECT id, unit_price FROM h_materials
-                WHERE tenant_id = ? AND id IN (${ph}) AND unit_price > 0`,
-              [tenantId, ...canonicalIds],
-            );
-            for (const r of (priceRows as any[])) {
-              const p = parseFloat(r.unit_price ?? 0);
-              if (p > 0) priceMap.set(Number(r.id), p);
-            }
-          }
-
-          // 단가 lookup 2차: 마지막 입고 lot.unit_price (h_materials 가격 0 인 경우)
-          const stillMissing = canonicalIds.filter((id) => !priceMap.has(id));
-          if (stillMissing.length > 0) {
-            const ph = stillMissing.map(() => "?").join(",");
-            const [lotRows]: any = await conn.execute(
-              `SELECT material_id, unit_price
-                 FROM (
-                   SELECT material_id, unit_price,
-                          ROW_NUMBER() OVER (PARTITION BY material_id ORDER BY receipt_date DESC, id DESC) AS rn
-                     FROM h_inventory_lots
-                    WHERE tenant_id = ? AND material_id IN (${ph})
-                      AND unit_price IS NOT NULL AND unit_price > 0
-                 ) t
-                WHERE rn = 1`,
-              [tenantId, ...stillMissing],
-            );
-            for (const r of (lotRows as any[])) {
-              const p = parseFloat(r.unit_price ?? 0);
-              if (p > 0) priceMap.set(Number(r.material_id), p);
-            }
-          }
-
-          // 단가 lookup 3차: item_master.default_unit_price (raw id 기준 — h_materials 에 없는 자재)
-          const stillMissing2 = canonicalIds.filter((id) => !priceMap.has(id));
-          if (stillMissing2.length > 0) {
-            const ph = stillMissing2.map(() => "?").join(",");
-            const [imRows]: any = await conn.execute(
-              `SELECT id, default_unit_price FROM item_master
-                WHERE tenant_id = ? AND id IN (${ph})
-                  AND default_unit_price > 0`,
-              [tenantId, ...stillMissing2],
-            );
-            for (const r of (imRows as any[])) {
-              const p = parseFloat(r.default_unit_price ?? 0);
-              if (p > 0) priceMap.set(Number(r.id), p);
-            }
-          }
-
-          const batchInputs = filteredIngredients
-            .map((ing: any) => {
-              // 보정 배합비 사용 (없으면 법적 배합비 fallback) — 생산 설계 시험 계산과 같은 식 (batchInputPlan)
-              // 기준 스냅샷이 있으면 그 행의 원물 kg (불리기 전, 재고 출고 기준) — 없으면 기존 배합비 × 생산량
-              let plannedQ = legacyInputQty(ing, plannedQty);
-              let unit = ing.materialUnit || "kg";                // 원재료 실제 단위 사용
-              if (massBasisRawByIngredient) {
-                const conv = rawKgToMaterialUnit(massBasisRawByIngredient.get(Number(ing.id))!, ing.materialUnit);
-                if (!conv) throw new Error(`[수율 환산] 원료 행 ${ing.id} 의 단위(${ing.materialUnit}) 는 kg 기준으로 바꿀 수 없습니다`);
-                plannedQ = conv.qty;
-                unit = conv.unit;
-              }
-              const rawId = Number(ing.materialId);
-              const canonicalId = idMap.get(rawId) ?? rawId;
-              const unitPrice = priceMap.get(canonicalId) ?? 0;
-              const totalPrice = unitPrice > 0 ? plannedQ * unitPrice : 0;
-              if (canonicalId !== rawId) {
-                console.info(
-                  `[createBatch] id-standardize batch=${batchId} raw=${rawId} -> canonical=${canonicalId} ` +
-                  `name="${nameMap.get(canonicalId) ?? "(unknown)"}"`
-                );
-              }
-              return {
-                batchId,
-                materialId: canonicalId,                          // ★ canonical h_materials.id 저장
-                plannedQuantity: plannedQ.toFixed(3),
-                unit,
-                processGroupId: ing.processGroupId ?? null,
-                unitPrice: unitPrice.toFixed(2),
-                totalPrice: totalPrice.toFixed(2),
-                tenantId
-              };
-            });
-
-          if (batchInputs.length > 0) {
-            await db.insert(hBatchInputs).values(batchInputs as any);
-            console.log("[createBatch] 원재료 투입 자동생성:", batchInputs.length, "건 (PR#298 ID 표준화)");
-          }
-        }
-      }
-    }
-  } catch (error) {
-    if (massBasisPlan.mode === "basis") {
-      // 기준 계산 배치는 반쪽(빈 투입·구식 계획) 으로 남기지 않는다 — 방금 만든 배치·스냅샷·투입을 되돌리고 실패
-      await rollbackFailedBatchCreate(conn, batchId, tenantId);
-      throw error;
-    }
-    console.error("[createBatch] 원재료 투입 자동생성 실패 (배치 생성은 유지):", error);
+    await conn.beginTransaction();
+    const [result]: any = await conn.execute(
+      `INSERT INTO h_batches
+         (tenant_id, site_id, batch_code, day_batch_group, batch_order,
+          product_id, planned_quantity, actual_quantity, planned_date, start_time, end_time,
+          status, mode, completed_at, created_by, create_request_id, plan_only, activation_pending, setup_pending)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1)`,
+      [
+        batch.tenantId,
+        batch.siteId,
+        batch.batchCode,
+        batch.dayBatchGroup || null,
+        batch.batchOrder != null ? batch.batchOrder : null,
+        batch.productId,
+        batch.plannedQuantity,
+        isAutoCompleted ? batch.plannedQuantity : null,
+        plannedDateStr,
+        startTimeStr,
+        endTimeStr,
+        batch.status || "planned",
+        batch.mode || "auto",
+        isAutoCompleted ? new Date() : null,
+        batch.createdBy,
+        batch.createRequestId ?? null,
+        batch.planOnly ? 1 : 0,
+        batch.activationPending ? 1 : 0,
+      ]
+    );
+    const batchId = Number(result.insertId);
+    await insertPlannedBatchInputs(conn, { batchId, tenantId: batch.tenantId, productId: batch.productId, plannedQty: parseFloat(batch.plannedQuantity), massBasisPlan });
+    await conn.commit();
+    return batchId;
+  } catch (e) {
+    try { await conn.rollback(); } catch { /* 원래 오류 */ }
+    throw e;
+  } finally {
+    conn.release();
   }
-
-  return batchId;
 }
 
-/** 기준 계산 배치 생성이 중간에 실패했을 때 — 이 호출이 만든 행만 되돌린다 (이후 단계가 없으므로 다른 연결 데이터 없음) */
-async function rollbackFailedBatchCreate(conn: any, batchId: number, tenantId: number): Promise<void> {
-  // 문장마다 따로 — 하나가 실패해도(예: 스냅샷 저장 자체가 실패한 경우) 나머지, 특히 배치 행은 지운다
-  for (const [sql, label] of [
-    [`DELETE FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`, "투입 계획"],
-    [`DELETE FROM h_batch_mass_basis WHERE batch_id = ? AND tenant_id = ?`, "기준 스냅샷"],
-    [`DELETE FROM h_batches WHERE id = ? AND tenant_id = ?`, "배치"],
-  ] as const) {
-    try {
-      await conn.execute(sql, [batchId, tenantId]);
-    } catch (e) {
-      console.error(`[createBatch] 실패한 배치 #${batchId} ${label} 되돌리기 실패 — 수동 확인 필요:`, e);
+/**
+ * 원료 투입 계획 — 생산 건 생성·재계획이 같은 함수 (호출자 트랜잭션 conn 안에서).
+ *   버전 하나(selectBomVersion) · 배합비 × 계획량 또는 원물·공정 기준 스냅샷 · 단가 조회.
+ *   ★ 2026-10-20 (생산계획 생애주기 검토 5): 원료 정체성은 정본 연결(item_master.legacy_material_id → h_materials, 같은 회사)로만.
+ *     이름이 같다는 이유로 연결하지 않고, 다른 표의 같은 숫자 id 를 같은 원료로 보지 않는다. 연결이 없으면 설정 오류로 막는다.
+ */
+export async function insertPlannedBatchInputs(conn: any, a: { batchId: number; tenantId: number; productId: number; plannedQty: number; massBasisPlan?: any }): Promise<number> {
+  const { batchId, tenantId, plannedQty } = a;
+  const massBasisPlan = a.massBasisPlan ?? (await (await import("./batchMassBasis")).prepareBatchMassBasis(tenantId, a.productId, plannedQty));
+  if (massBasisPlan.mode === "error") {
+    throw new Error(`[수율 환산] 품목제조보고 버전 ${massBasisPlan.versionId} 의 원물·공정 기준을 계산할 수 없습니다: ${massBasisPlan.reason}`);
+  }
+  // 1·2. 제품의 품목제조보고 + 사용할 버전 하나 (v2 id 직접 일치 우선, APPROVED 최신 → 없으면 최신)
+  //   ★ 2026-10-16: CCP 기록지 투입량(ccpFormSettings) 과 같은 함수로 고른다 (selectBomVersion).
+  const picked = await selectBomVersion(a.productId, tenantId, conn);
+  if (!picked) return 0;
+  if (!picked.approved) console.log("[createBatch] APPROVED 버전 없음, 최신 버전 fallback 사용");
+  const versionId = picked.versionId;
+
+  // 3. 배합비 — h_mf_ingredients.material_id = item_master.id, 단위는 item_master.base_unit
+  const [ingRows]: any = await conn.execute(
+    `SELECT i.id, i.material_id AS materialId, i.quantity, i.corrected_quantity AS correctedQuantity, i.is_deductible AS isDeductible,
+            i.unit, i.process_group_id AS processGroupId, im.base_unit AS materialUnit
+       FROM h_mf_ingredients i LEFT JOIN item_master im ON im.id = i.material_id AND im.tenant_id = ?
+      WHERE i.mf_report_version_id = ? ORDER BY i.line_no, i.id`,
+    [tenantId, versionId],
+  );
+  const ingredients = (ingRows as any[]).map((r) => ({ ...r, materialId: r.materialId != null ? Number(r.materialId) : null, isDeductible: r.isDeductible != null ? Number(r.isDeductible) : null }));
+
+  // ★ 2026-10-16 (수율 기준 PR C): 기준 계산이면 스냅샷을 고정하고 원료 투입 계획(=자동 출고량)을 스냅샷의 행별 원물 kg 로.
+  let massBasisRawByIngredient: Map<number, number> | null = null;
+  if (massBasisPlan.mode === "basis") {
+    if (massBasisPlan.snapshot.versionId !== versionId) {
+      throw new Error(`[수율 환산] 기준 버전(${massBasisPlan.snapshot.versionId}) 과 배치 버전(${versionId}) 이 다릅니다`);
+    }
+    const { saveBatchMassBasis } = await import("./batchMassBasis");
+    const stored = await saveBatchMassBasis(conn, batchId, tenantId, massBasisPlan.snapshot, massBasisPlan.subBatchKg);
+    massBasisRawByIngredient = recordedRawKgByIngredient({ recorded: true, snapshot: stored.snapshot });
+    const missing = ingredients.filter((ing: any) => ing.materialId !== null && ing.isDeductible !== 0 && !massBasisRawByIngredient!.has(Number(ing.id)));
+    if (missing.length > 0) {
+      throw new Error(`[수율 환산] 원료 행 ${missing.map((m: any) => m.id).join(",")} 이 기준 스냅샷에 없습니다`);
     }
   }
+
+  const filtered = ingredients.filter((ing: any) => isPlannedInputRow(ing));
+  if (!filtered.length) return 0;
+
+  // 4. 정본 연결 — item_master.id → legacy_material_id (같은 회사 h_materials 에 있어야)
+  const rawIds = Array.from(new Set(filtered.map((ing: any) => Number(ing.materialId))));
+  const [mapRows]: any = await conn.query(
+    `SELECT im.id AS raw_id, im.item_name, hm.id AS hm_id, hm.material_name
+       FROM item_master im
+       LEFT JOIN h_materials hm ON hm.id = im.legacy_material_id AND hm.tenant_id = im.tenant_id
+      WHERE im.tenant_id = ? AND im.id IN (?)`,
+    [tenantId, rawIds],
+  );
+  const idMap = new Map<number, number>(); // item_master.id → h_materials.id
+  const nameOf = new Map<number, string>();
+  for (const r of mapRows as any[]) {
+    nameOf.set(Number(r.raw_id), String(r.item_name ?? ""));
+    if (r.hm_id != null) idMap.set(Number(r.raw_id), Number(r.hm_id));
+  }
+  const unlinked = rawIds.filter((id) => !idMap.has(id));
+  if (unlinked.length) {
+    const names = unlinked.slice(0, 3).map((id) => `${nameOf.get(id) || "품목"}(#${id})`).join(", ");
+    throw new Error(`[원료 연결] ${names}${unlinked.length > 3 ? ` 외 ${unlinked.length - 3}개` : ""} 이(가) 재고 원료와 연결되어 있지 않아 생산 건을 만들지 않았습니다 — 품목 마스터에서 원료 연결을 먼저 하세요 (이름으로 추정하지 않습니다).`);
+  }
+
+  // 5. 단가 — 1차 h_materials.unit_price, 2차 마지막 입고 LOT, 3차 item_master.default_unit_price (각자 자기 표의 id 로)
+  const canonicalIds = Array.from(new Set(Array.from(idMap.values())));
+  const priceMap = new Map<number, number>();
+  {
+    const [rows]: any = await conn.query(`SELECT id, unit_price FROM h_materials WHERE tenant_id = ? AND id IN (?) AND unit_price > 0`, [tenantId, canonicalIds]);
+    for (const r of rows as any[]) { const p = parseFloat(r.unit_price ?? 0); if (p > 0) priceMap.set(Number(r.id), p); }
+  }
+  const miss1 = canonicalIds.filter((id) => !priceMap.has(id));
+  if (miss1.length) {
+    const [rows]: any = await conn.query(
+      `SELECT material_id, unit_price FROM (
+         SELECT material_id, unit_price, ROW_NUMBER() OVER (PARTITION BY material_id ORDER BY receipt_date DESC, id DESC) AS rn
+           FROM h_inventory_lots WHERE tenant_id = ? AND material_id IN (?) AND unit_price IS NOT NULL AND unit_price > 0
+       ) t WHERE rn = 1`,
+      [tenantId, miss1],
+    );
+    for (const r of rows as any[]) { const p = parseFloat(r.unit_price ?? 0); if (p > 0) priceMap.set(Number(r.material_id), p); }
+  }
+  const imPrice = new Map<number, number>(); // item_master.id → default_unit_price
+  const miss2Raw = rawIds.filter((rid) => !priceMap.has(idMap.get(rid)!));
+  if (miss2Raw.length) {
+    const [rows]: any = await conn.query(`SELECT id, default_unit_price FROM item_master WHERE tenant_id = ? AND id IN (?) AND default_unit_price > 0`, [tenantId, miss2Raw]);
+    for (const r of rows as any[]) { const p = parseFloat(r.default_unit_price ?? 0); if (p > 0) imPrice.set(Number(r.id), p); }
+  }
+
+  const { rawKgToMaterialUnit } = await import("./batchMassBasis");
+  let n = 0;
+  for (const ing of filtered as any[]) {
+    // 보정 배합비 사용 (없으면 법적 배합비) — 생산 설계 시험 계산과 같은 식 (batchInputPlan)
+    // 기준 스냅샷이 있으면 그 행의 원물 kg (불리기 전, 재고 출고 기준)
+    let plannedQ = legacyInputQty(ing, plannedQty);
+    let unit = ing.materialUnit || "kg";
+    if (massBasisRawByIngredient) {
+      const conv = rawKgToMaterialUnit(massBasisRawByIngredient.get(Number(ing.id))!, ing.materialUnit);
+      if (!conv) throw new Error(`[수율 환산] 원료 행 ${ing.id} 의 단위(${ing.materialUnit}) 는 kg 기준으로 바꿀 수 없습니다`);
+      plannedQ = conv.qty;
+      unit = conv.unit;
+    }
+    const rawId = Number(ing.materialId);
+    const canonicalId = idMap.get(rawId)!;
+    const unitPrice = priceMap.get(canonicalId) ?? imPrice.get(rawId) ?? 0;
+    const totalPrice = unitPrice > 0 ? plannedQ * unitPrice : 0;
+    await conn.execute(
+      `INSERT INTO h_batch_inputs (tenant_id, batch_id, material_id, planned_quantity, unit, process_group_id, unit_price, total_price)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [tenantId, batchId, canonicalId, plannedQ.toFixed(3), unit, ing.processGroupId ?? null, unitPrice.toFixed(2), totalPrice.toFixed(2)],
+    );
+    n++;
+  }
+  return n;
 }
 
 /** 스냅샷이 기록된 경우 원료 행 id → 원물 kg (차감 대상 행만). 기록 안 됐으면 null → 기존 계산 */
@@ -696,117 +609,93 @@ export async function updateBatchStatus(batchId: number, status: string, tenantI
  *   4) 기존 자식(ccp/inputs/schedules/docs/approvals/sku/metal) 정리.
  *   5) 배치 삭제.
  */
+/**
+ * 생산 건 삭제 — 손 안 댄 계획만 (2026-10-20, 생산계획 생애주기 검토 6)
+ *
+ * 원료 출고·확인·저장·결재·완제품 LOT 흔적이 하나라도 있으면 지우지 않는다 — 실행된 생산 건은 이력 보존형 경로(무효·정정)로.
+ *   (이전: 출고 거래를 지우고 LOT 수량을 되돌리는 물리 삭제 — 원장 이력이 사라졌다.)
+ * 한 트랜잭션 (생산 건 행·기록 행 잠금 뒤 다시 검사): 이 생산 건의 미확인 파생 계획만 정리 —
+ *   원료 투입·원물 기준·CCP 공정·회차·이 생산 건 기록지와 행·금속검출 하루 기록지의 이 생산 건 통과 행·SKU 구성·일정 표.
+ *   금속검출 하루 기록지는 그날 공용 — 이 생산 건을 기준으로 잡고 있으면 그날 다른 생산 건으로 옮기고, 남는 생산 건이 없고
+ *   사람이 손대지 않았을 때만 지운다. 다른 생산 건의 통과 행·사람 기록은 그대로.
+ * 표가 없는 DB 만 넘어가고(ER_NO_SUCH_TABLE), 다른 오류는 전부 되돌린다.
+ */
 export async function deleteBatch(batchId: number, tenantId?: number) {
+  if (!tenantId) throw new Error("회사 정보가 필요합니다 (생산 건 삭제).");
   const pool = await getRawConnection();
   // 이력 보존형 복구로 무효 처리된 생산 건은 원본 보존 — 지우면 역거래·대체 관계·보관 이력이 끊긴다 (2026-10-19)
-  if (tenantId) {
-    const { assertBatchNotVoided } = await import("../../lib/production/batchVoidGuard");
-    await assertBatchNotVoided(pool, batchId, tenantId);
-  }
-  const conn = await pool.getConnection();
-  const tf = tenantId ? " AND tenant_id = ?" : "";
-  const bp = tenantId ? [batchId, tenantId] : [batchId];
+  const { assertBatchNotVoided } = await import("../../lib/production/batchVoidGuard");
+  await assertBatchNotVoided(pool, batchId, tenantId);
+  const { batchHistoryReasons } = await import("../../lib/production/batchTouchGuard");
+  const conn = await (pool as any).getConnection();
+  const opt = async (sql: string, p: unknown[]) => {
+    try { await conn.execute(sql, p); } catch (e: any) { if (e?.code !== "ER_NO_SUCH_TABLE") throw e; }
+  };
+  let workDate: string | null = null;
   try {
+    await conn.query("SET TRANSACTION ISOLATION LEVEL READ COMMITTED");
     await conn.beginTransaction();
-
-    // ── 0. 배치 로드 (없으면 조용히 종료) ──
-    const [bRows]: any = await conn.execute(
-      `SELECT id, product_id, status FROM h_batches WHERE id = ?${tf} LIMIT 1`, bp);
-    if ((bRows as any[]).length === 0) { await conn.commit(); return; }
-
-    // ── 1. 완제품 LOT 안전검사 — 이미 출고/소비됐으면 삭제 불가 ──
-    const [prodLots]: any = await conn.execute(
-      `SELECT id, quantity, available_quantity FROM h_inventory_lots
-        WHERE batch_id = ?${tf} AND product_id IS NOT NULL`, bp);
-    for (const l of prodLots as any[]) {
-      const q = parseFloat(l.quantity || "0"), av = parseFloat(l.available_quantity || "0");
-      if (av + 0.001 < q) {
-        throw new Error(`이미 출고/소비된 완제품 LOT(#${l.id})이 있어 배치를 삭제할 수 없습니다. 제품 출고를 먼저 취소하세요.`);
-      }
-    }
-    const prodLotIds = (prodLots as any[]).map((l) => Number(l.id));
-
-    // ── 2. 원재료 소모 복원 (배치가 없던 일이 되므로) ──
-    const [usageTx]: any = await conn.execute(
-      `SELECT id, lot_id, quantity FROM h_inventory_transactions
-        WHERE source_type='BATCH' AND source_id = ? AND transaction_type='usage'${tf}`, bp);
-    const restoredLotIds = new Set<number>();
-    for (const t of usageTx as any[]) {
-      const lotId = Number(t.lot_id || 0), q = parseFloat(t.quantity || "0");
-      if (lotId > 0 && q > 0) {
-        await conn.execute(
-          `UPDATE h_inventory_lots
-              SET available_quantity = available_quantity + ?,
-                  current_quantity = COALESCE(current_quantity, quantity) + ?,
-                  status = CASE WHEN status IN ('used','disposed','expired') THEN 'available' ELSE status END,
-                  updated_at = NOW()
-            WHERE id = ?${tenantId ? " AND tenant_id = ?" : ""}`,
-          tenantId ? [q, q, lotId, tenantId] : [q, q, lotId]);
-        restoredLotIds.add(lotId);
-      }
-    }
-    // 복원된 LOT 들의 자재 집계(h_inventory) 재계산 — LOT 정본과 일치시킴
-    if (restoredLotIds.size > 0 && tenantId) {
-      try {
-        const ph = [...restoredLotIds].map(() => "?").join(",");
-        const [mats]: any = await conn.execute(
-          `SELECT DISTINCT material_id FROM h_inventory_lots WHERE id IN (${ph}) AND material_id IS NOT NULL`,
-          [...restoredLotIds]);
-        const { recomputeAggregateFromLots } = await import("../../lib/inventory/applyInventoryDelta");
-        for (const m of mats as any[]) {
-          await recomputeAggregateFromLots(conn as any, { tenantId, subject: { materialId: Number(m.material_id) } });
-        }
-      } catch (e) { console.error(`[deleteBatch] 자재 집계 재계산 경고(배치#${batchId}):`, e); }
-    }
-
-    // ── 3. 배치 재고 거래 + 제품 LOT 삭제 (orphan 원천 제거) ──
+    const [[b]]: any = await conn.execute(
+      `SELECT id, DATE_FORMAT(planned_date, '%Y-%m-%d') AS wd FROM h_batches WHERE id = ? AND tenant_id = ? FOR UPDATE`, [batchId, tenantId]);
+    if (!b) { await conn.commit(); return; }
+    workDate = b.wd;
     await conn.execute(
-      `DELETE FROM h_inventory_transactions WHERE source_type='BATCH' AND source_id = ?${tf}`, bp);
-    if (prodLotIds.length > 0) {
-      const ph = prodLotIds.map(() => "?").join(",");
-      await conn.execute(
-        `DELETE FROM h_inventory_transactions WHERE lot_id IN (${ph})${tenantId ? " AND tenant_id = ?" : ""}`,
-        tenantId ? [...prodLotIds, tenantId] : [...prodLotIds]);
-      await conn.execute(
-        `DELETE FROM h_inventory_lots WHERE id IN (${ph})${tenantId ? " AND tenant_id = ?" : ""}`,
-        tenantId ? [...prodLotIds, tenantId] : [...prodLotIds]);
+      `SELECT r.id FROM h_ccp_form_rows r JOIN h_ccp_form_records f ON f.id = r.form_record_id AND f.tenant_id = r.tenant_id
+        WHERE r.tenant_id = ? AND ((f.batch_id = ? AND f.ccp_type <> 'CCP-4P') OR (f.ccp_type = 'CCP-4P' AND r.batch_id = ?)) FOR UPDATE`,
+      [tenantId, batchId, batchId]);
+    const why = await batchHistoryReasons(conn, batchId, tenantId);
+    if (why.length) {
+      throw new Error(`손 안 댄 계획만 지울 수 있습니다 — ${why.join(", ")}. 실행된 생산 건은 이력 보존형 경로(무효·정정)로 처리합니다.`);
     }
-
-    // ── 4. 기존 자식 데이터 정리 ──
-    await conn.execute(`DELETE r FROM h_ccp_rows r
-      INNER JOIN h_ccp_instances i ON r.instance_id = i.id
-      WHERE i.batch_id = ?${tenantId ? " AND i.tenant_id = ?" : ""}`, bp);
-    await conn.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ?${tf}`, bp);
-    await conn.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ?${tf}`, bp);
-    await conn.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ?${tf}`, bp);
-    await conn.execute(`DELETE FROM h_approval_requests
-      WHERE reference_type IN ('batch','batch_group') AND reference_id = ?${tf}`, bp);
-    // 존재하지 않을 수 있는 테이블 — 개별 try/catch(트랜잭션 abort 방지)
-    try {
-      await conn.execute(`DELETE rows FROM h_ccp_form_rows rows JOIN h_ccp_form_records rec ON rows.form_record_id = rec.id WHERE rec.batch_id = ?${tenantId ? " AND rec.tenant_id = ?" : ""}`, bp);
-      await conn.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ?${tf}`, bp);
-    } catch (_e) { /* table 없음 */ }
-    try {
-      await conn.execute(`DELETE FROM document_instances WHERE batch_id = ?${tf}`, bp);
-    } catch (_e) { /* table 없음 */ }
-    try {
-      await conn.execute(`DELETE FROM production_sku_output WHERE batch_id = ?${tf}`, bp);
-    } catch { /* 없음 */ }
-    try {
-      await conn.execute(`DELETE sc FROM h_ccp_metal_sensitivity_checks sc JOIN h_ccp_batch_process_runs pr ON sc.batch_process_run_id = pr.id WHERE pr.batch_id = ?${tenantId ? " AND pr.tenant_id = ?" : ""}`, bp);
-      await conn.execute(`DELETE sl FROM h_ccp_metal_sku_slots sl JOIN h_ccp_batch_process_runs pr ON sl.batch_process_run_id = pr.id WHERE pr.batch_id = ?${tenantId ? " AND pr.tenant_id = ?" : ""}`, bp);
-      await conn.execute(`DELETE FROM h_ccp_batch_process_runs WHERE batch_id = ?${tf}`, bp);
-    } catch { /* 없음 */ }
-
-    // ── 5. 배치 삭제 ──
-    await conn.execute(`DELETE FROM h_batches WHERE id = ?${tf}`, bp);
-
+    const bp = [batchId, tenantId];
+    await conn.execute(`DELETE r FROM h_ccp_rows r JOIN h_ccp_instances i ON i.id = r.instance_id AND i.tenant_id = r.tenant_id WHERE i.batch_id = ? AND i.tenant_id = ?`, bp);
+    await conn.execute(`DELETE FROM h_ccp_instances WHERE batch_id = ? AND tenant_id = ?`, bp);
+    await conn.execute(`DELETE r FROM h_ccp_form_rows r JOIN h_ccp_form_records f ON f.id = r.form_record_id AND f.tenant_id = r.tenant_id WHERE f.batch_id = ? AND f.tenant_id = ? AND f.ccp_type <> 'CCP-4P'`, bp);
+    await conn.execute(`DELETE FROM h_ccp_form_records WHERE batch_id = ? AND tenant_id = ? AND ccp_type <> 'CCP-4P'`, bp);
+    // 금속검출 하루 기록지(공용): 이 생산 건 통과 행만, 기준 생산 건이면 그날 다른 생산 건으로
+    await conn.execute(`DELETE FROM h_ccp_form_rows WHERE batch_id = ? AND tenant_id = ? AND equipment_type = 'passage'`, bp);
+    const [[other]]: any = await conn.execute(
+      `SELECT id FROM h_batches WHERE tenant_id = ? AND planned_date = ? AND id <> ? AND status <> 'cancelled' AND voided_at IS NULL ORDER BY id LIMIT 1`,
+      [tenantId, workDate, batchId]);
+    if (other) await conn.execute(`UPDATE h_ccp_form_records SET batch_id = ? WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND batch_id = ?`, [other.id, tenantId, batchId]);
+    else {
+      const { dropEmptyDailyMetal } = await import("../../lib/production/batchTouchGuard");
+      await dropEmptyDailyMetal(conn, tenantId, batchId);
+    }
+    await conn.execute(`DELETE FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`, bp);
+    await conn.execute(`DELETE FROM h_batch_schedules WHERE batch_id = ? AND tenant_id = ?`, bp);
+    await opt(`DELETE FROM h_batch_mass_basis WHERE batch_id = ? AND tenant_id = ?`, bp);
+    await opt(`DELETE FROM document_instances WHERE batch_id = ? AND tenant_id = ?`, bp);
+    await opt(`DELETE FROM production_sku_output WHERE batch_id = ? AND tenant_id = ?`, bp);
+    await opt(`DELETE sc FROM h_ccp_metal_sensitivity_checks sc JOIN h_ccp_batch_process_runs pr ON sc.batch_process_run_id = pr.id WHERE pr.batch_id = ? AND pr.tenant_id = ?`, bp);
+    await opt(`DELETE sl FROM h_ccp_metal_sku_slots sl JOIN h_ccp_batch_process_runs pr ON sl.batch_process_run_id = pr.id WHERE pr.batch_id = ? AND pr.tenant_id = ?`, bp);
+    await opt(`DELETE FROM h_ccp_batch_process_runs WHERE batch_id = ? AND tenant_id = ?`, bp);
+    await conn.execute(`DELETE FROM h_batches WHERE id = ? AND tenant_id = ?`, bp);
     await conn.commit();
   } catch (e) {
     try { await conn.rollback(); } catch { /* noop */ }
     throw e;
   } finally {
     conn.release();
+  }
+  // 커밋 뒤: 그날 금속검출 하루 기록지 — 남은 생산 건 기준으로 손 안 댄 행만 맞추고, 비고 손 안 댄 기록지는 정리
+  if (workDate) {
+    try {
+      const [[fr]]: any = await (pool as any).execute(
+        `SELECT id, field_mode, detector_equipment_id FROM h_ccp_form_records WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ? ORDER BY id LIMIT 1`, [tenantId, workDate]);
+      if (fr && Number(fr.field_mode ?? 0) === 1) {
+        const { syncFieldMetalRows } = await import("../../lib/haccp/fieldMetalRows");
+        await syncFieldMetalRows(pool, { formRecordId: Number(fr.id), tenantId, workDate, detectorId: fr.detector_equipment_id ?? null });
+        const { dailyMetalTouched } = await import("../../lib/production/batchTouchGuard");
+        const [[left]]: any = await (pool as any).execute(`SELECT COUNT(*) AS n FROM h_batches WHERE tenant_id = ? AND planned_date = ? AND status <> 'cancelled' AND voided_at IS NULL`, [tenantId, workDate]);
+        if (Number(left.n) === 0 && !(await dailyMetalTouched(pool, Number(fr.id), tenantId))) {
+          await (pool as any).execute(`DELETE FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ?`, [fr.id, tenantId]);
+          await (pool as any).execute(`DELETE FROM h_ccp_form_records WHERE id = ? AND tenant_id = ?`, [fr.id, tenantId]);
+        }
+      }
+    } catch (e) {
+      console.error(`[deleteBatch] 금속검출 하루 기록지 정리 실패 (생산 건 삭제는 유지) batch=${batchId}:`, e);
+    }
   }
 }
 
@@ -825,6 +714,12 @@ export async function deleteBatchesByDate(plannedDate: string, tenantId: number)
   // 무효 처리된(이력 보존형 복구) 생산 건이 있는 날은 일괄 삭제하지 않는다 — 하나도 지우기 전에 거부
   const { assertBatchNotVoided } = await import("../../lib/production/batchVoidGuard");
   for (const batchId of batchIds) await assertBatchNotVoided(pool, Number(batchId), tenantId);
+  // 실행 흔적이 있는 생산 건이 하나라도 있으면 하나도 지우지 않는다 (2026-10-20, 생산계획 생애주기 검토 6)
+  const { batchHistoryReasons } = await import("../../lib/production/batchTouchGuard");
+  for (const batchId of batchIds) {
+    const why = await batchHistoryReasons(pool, Number(batchId), tenantId);
+    if (why.length) throw new Error(`생산 건 #${batchId} 은 지울 수 없습니다 — ${why.join(", ")}. 이 날짜는 일괄 삭제하지 않았습니다.`);
+  }
 
   for (const batchId of batchIds) {
     await deleteBatch(batchId, tenantId);

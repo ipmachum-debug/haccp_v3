@@ -25,7 +25,8 @@ describe("무효 생산 건은 다시 시작·확인·승인·삭제하지 않�
     expect(read("lib/production/batchApprovalGate.ts")).toMatch(/assertBatchNotVoided\(await getRawConnection\(\), batchId, tenantId\)/);
     const crud = read("db/production/batchCRUD.ts");
     expect(crud).toMatch(/export async function deleteBatch[\s\S]{0,400}assertBatchNotVoided\(pool, batchId, tenantId\)/);
-    expect(crud).toMatch(/for \(const batchId of batchIds\) await assertBatchNotVoided\(pool, Number\(batchId\), tenantId\);\s*\n\s*\n?\s*for \(const batchId of batchIds\) \{\s*await deleteBatch/);
+    // 날짜 일괄 삭제: 무효 검사 → 실행 흔적 검사를 모두 마친 뒤에야 하나씩 지운다 (2026-10-20, 생산계획 생애주기 검토 6)
+    expect(crud).toMatch(/for \(const batchId of batchIds\) await assertBatchNotVoided\(pool, Number\(batchId\), tenantId\);[\s\S]*?batchHistoryReasons\(pool, Number\(batchId\), tenantId\)[\s\S]*?for \(const batchId of batchIds\) \{\s*await deleteBatch/);
   });
   it("자동 출고는 무효 생산 건·보류 줄을 출고하지 않는다", () => {
     const a = read("lib/production/autoMaterialIssue.ts");

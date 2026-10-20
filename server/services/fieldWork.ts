@@ -187,9 +187,12 @@ export async function writeFieldRow(input: {
   const p = pool ?? (await getRawConnection());
   const meta = input.meta ?? {};
   if (!/^[A-Za-z0-9._:-]{8,64}$/.test(input.requestId)) throw new FieldRejectedError(["요청 키가 올바르지 않습니다."]);
-  // 같은 요청이 이미 처리됐으면 그대로 (중복 클릭·재시도)
+  // 같은 요청이 이미 처리됐으면 그대로 (중복 클릭·재시도) — 재고·행·이력은 다시 처리하지 않고, 남은 실행 단계만 이어서 (#612 추가 검토 3)
   const prev = await priorResult(p, input.tenantId, input.requestId);
-  if (prev) return await currentState(p, Number(prev.form_row_id), input.tenantId, "duplicate");
+  if (prev) {
+    await resumeForRow(p, Number(prev.form_row_id), input.tenantId, input.userId);
+    return await currentState(p, Number(prev.form_row_id), input.tenantId, "duplicate");
+  }
 
   let activation: BatchActivation | null = null;
   let activationBatchId: number | null = null;
@@ -201,7 +204,11 @@ export async function writeFieldRow(input: {
     try {
       const { row, form } = await loadRow(c, input.rowId, input.tenantId, true);
       const again = await priorResult(c, input.tenantId, input.requestId);
-      if (again) { await c.rollback(); return await currentState(p, Number(again.form_row_id), input.tenantId, "duplicate"); }
+      if (again) {
+        await c.rollback();
+        await resumeForRow(p, Number(again.form_row_id), input.tenantId, input.userId);
+        return await currentState(p, Number(again.form_row_id), input.tenantId, "duplicate");
+      }
       if (form.wd > todayKST()) throw new FieldRejectedError([`작업일(${form.wd})이 아직 오지 않았습니다.`]);
       const before = snapshot(row);
       // 통과 종료가 자정을 넘기는지 — 통과 시작 이력(서버 시각) 날짜 < 오늘이면
@@ -238,7 +245,10 @@ export async function writeFieldRow(input: {
       activation = null;
       if (e?.code === "ER_DUP_ENTRY" && /uq_cre_tenant_request/.test(String(e?.message))) {
         const pr = await priorResult(p, input.tenantId, input.requestId);
-        if (pr) return await currentState(p, Number(pr.form_row_id), input.tenantId, "duplicate");
+        if (pr) {
+          await resumeForRow(p, Number(pr.form_row_id), input.tenantId, input.userId);
+          return await currentState(p, Number(pr.form_row_id), input.tenantId, "duplicate");
+        }
       }
       throw e;
     }
@@ -253,6 +263,19 @@ export async function writeFieldRow(input: {
     console.error("[fieldWork] 예정 생산 건 실행 뒤 단계 실패 — 다음 확인 때 이어서:", e);
   }
   return result;
+}
+
+/** 이 행이 속한 생산 건의 남은 실행 단계를 이어서 (이미 끝났거나 다른 요청이 하는 중이면 아무것도 안 함). 실패는 다음으로 미룬다 */
+async function resumeForRow(p: any, rowId: number, tenantId: number, userId: number): Promise<void> {
+  try {
+    const [[r]]: any = await p.execute(
+      `SELECT r.batch_id AS row_batch_id, f.batch_id AS form_batch_id, f.ccp_type FROM h_ccp_form_rows r JOIN h_ccp_form_records f ON f.id = r.form_record_id AND f.tenant_id = r.tenant_id
+        WHERE r.id = ? AND r.tenant_id = ?`, [rowId, tenantId]);
+    const batchId = r ? (String(r.ccp_type) === "CCP-4P" ? r.row_batch_id : r.form_batch_id) : null;
+    if (batchId) await resumeBatchActivation(Number(batchId), tenantId, userId);
+  } catch (e) {
+    console.error("[fieldWork] 남은 실행 단계 이어서 하기 실패 — 다음에 다시:", e);
+  }
 }
 
 async function currentState(p: any, rowId: number, tenantId: number, status: "done" | "duplicate") {

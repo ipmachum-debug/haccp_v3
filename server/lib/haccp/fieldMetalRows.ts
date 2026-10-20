@@ -18,8 +18,37 @@
 
 const SENS_NORMAL = { metal_fe_mid: "O", metal_sus_mid: "O", metal_product_only: "X", metal_fe_product: "O", metal_sus_product: "O" };
 
+/**
+ * 손대지 않은 행만 바꾸는 조건 — 읽은 행 버전 그대로이고 사람 흔적(확인·시각)이 없을 때만 (2026-10-20, #612 추가 검토 2).
+ *   읽은 뒤 작업자가 먼저 확인·수정했으면 affectedRows 0 → 사람 기록을 그대로 둔다.
+ */
+const UNTOUCHED_AT = `row_version = ? AND row_confirmed_at IS NULL AND pass_time_start IS NULL AND pass_time_end IS NULL AND metal_pass_time IS NULL`;
+
+/**
+ * 같은 기록지 동기화는 한 번에 하나 (이름 잠금 — 행 잠금 순서와 얽히지 않음). 승인된 기록지는 건드리지 않고,
+ * 실제로 바뀌면 기록지 확인(제출)을 무효로 (행 버전↑ — 다시 확인해야 승인).
+ */
 export async function syncFieldMetalRows(conn: any, p: { formRecordId: number; tenantId: number; workDate: string; detectorId?: number | null }): Promise<number> {
+  const own = typeof conn.getConnection === "function" ? await conn.getConnection() : null;
+  const c = own ?? conn;
+  const lockName = `millio:metal-sync:${p.tenantId}:${p.formRecordId}`;
+  try {
+    const [[got]]: any = await c.query("SELECT GET_LOCK(?, 15) AS ok", [lockName]);
+    if (Number(got?.ok) !== 1) throw new Error("금속검출 기록지 동기화가 다른 요청과 겹쳤습니다 — 잠시 뒤 다시 시도하세요.");
+    try {
+      return await syncFieldMetalRowsLocked(c, p);
+    } finally {
+      await c.query("SELECT RELEASE_LOCK(?)", [lockName]).catch(() => undefined);
+    }
+  } finally {
+    if (own) own.release();
+  }
+}
+
+async function syncFieldMetalRowsLocked(conn: any, p: { formRecordId: number; tenantId: number; workDate: string; detectorId?: number | null }): Promise<number> {
   const { formRecordId, tenantId, workDate } = p;
+  const [[rec]]: any = await conn.execute(`SELECT status FROM h_ccp_form_records WHERE id = ? AND tenant_id = ?`, [formRecordId, tenantId]);
+  if (!rec || String(rec.status) === "approved") return 0; // 승인된 기록지는 그대로
   let detectorId = p.detectorId != null ? Number(p.detectorId) : null;
   let detectorName: string | null = null;
   if (!detectorId) {
@@ -69,8 +98,9 @@ export async function syncFieldMetalRows(conn: any, p: { formRecordId: number; t
     const hit = passRows.find((r) => keyOfRow(r) === k);
     if (hit) {
       if (!touched(hit) && (Math.abs(Number(hit.pass_qty) - w.qty) > 0.0005 || String(hit.pass_unit ?? "") !== w.unit || String(hit.product_name ?? "") !== w.name)) {
-        await conn.execute(`UPDATE h_ccp_form_rows SET pass_qty = ?, pass_unit = ?, product_name = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`, [w.qty, w.unit, w.name, hit.id, tenantId]);
-        changed++;
+        const [u]: any = await conn.execute(`UPDATE h_ccp_form_rows SET pass_qty = ?, pass_unit = ?, product_name = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ? AND ${UNTOUCHED_AT}`,
+          [w.qty, w.unit, w.name, hit.id, tenantId, Number(hit.row_version ?? 0)]);
+        if (Number(u?.affectedRows ?? 0) === 1) changed++;
       }
       continue;
     }
@@ -86,8 +116,8 @@ export async function syncFieldMetalRows(conn: any, p: { formRecordId: number; t
   }
   for (const r of passRows) {
     if (!wantKeys.has(keyOfRow(r)) && !touched(r)) {
-      await conn.execute(`DELETE FROM h_ccp_form_rows WHERE id = ? AND tenant_id = ?`, [r.id, tenantId]);
-      changed++;
+      const [d]: any = await conn.execute(`DELETE FROM h_ccp_form_rows WHERE id = ? AND tenant_id = ? AND ${UNTOUCHED_AT}`, [r.id, tenantId, Number(r.row_version ?? 0)]);
+      if (Number(d?.affectedRows ?? 0) === 1) changed++;
     }
   }
 
@@ -110,13 +140,14 @@ export async function syncFieldMetalRows(conn: any, p: { formRecordId: number; t
   }
   for (const r of sensRows) {
     if (!products.includes(String(r.product_name ?? "")) && !touched(r)) {
-      await conn.execute(`DELETE FROM h_ccp_form_rows WHERE id = ? AND tenant_id = ?`, [r.id, tenantId]);
-      changed++;
+      const [d]: any = await conn.execute(`DELETE FROM h_ccp_form_rows WHERE id = ? AND tenant_id = ? AND ${UNTOUCHED_AT}`, [r.id, tenantId, Number(r.row_version ?? 0)]);
+      if (Number(d?.affectedRows ?? 0) === 1) changed++;
     }
   }
   if (changed) {
     const kg = wants.filter((w) => w.unit === "kg").reduce((s, w) => s + w.qty, 0);
-    await conn.execute(`UPDATE h_ccp_form_records SET batch_count = ?, planned_qty_kg = ? WHERE id = ? AND tenant_id = ?`,
+    // 기록지 내용이 바뀌었으니 기존 확인(제출)은 무효 — 행 버전↑ (승인된 기록지는 위에서 건너뜀)
+    await conn.execute(`UPDATE h_ccp_form_records SET batch_count = ?, planned_qty_kg = ?, rows_version = rows_version + 1 WHERE id = ? AND tenant_id = ? AND status <> 'approved'`,
       [new Set(wants.map((w) => w.batchId)).size, kg, formRecordId, tenantId]);
   }
   return changed;

@@ -24,20 +24,33 @@ export function duplicateLineProblems(items: DayLine[], nameOf: (id: number) => 
   return out;
 }
 
-/** 같은 업무일에 이미 있는 같은 제품 생산 건 (취소 제외). 같은 요청의 재시도(같은 일일 그룹)는 제외 */
+/**
+ * 같은 업무일에 이미 있는 같은 제품 생산 건 (취소·무효 제외).
+ *   excludeBatchIds: 이 요청이 만든 생산 건만 뺀다 (재시도 때 자기 자신) — 같은 일일 그룹 전체를 빼지 않는다
+ *   (2026-10-20, 생산계획 생애주기 검토 1: 그룹을 통째로 빼면 완료 표시만 실패한 재시도가 같은 제품을 한 번 더 만들었다).
+ */
 export async function existingSameDayRuns(
-  conn: any, tenantId: number, workDate: string, productIds: number[], excludeDayGroup: string | null,
+  conn: any, tenantId: number, workDate: string, productIds: number[], excludeBatchIds: number[] = [],
 ): Promise<Map<number, string[]>> {
   const ids = Array.from(new Set(productIds.filter((x) => Number.isFinite(x))));
   const out = new Map<number, string[]>();
   if (!ids.length) return out;
-  const [rows]: any = await conn.query(
-    `SELECT product_id, batch_code FROM h_batches
-      WHERE tenant_id = ? AND planned_date = ? AND product_id IN (?) AND status <> 'cancelled'
-        AND (? IS NULL OR day_batch_group IS NULL OR day_batch_group <> ?)
-      ORDER BY id`,
-    [tenantId, workDate, ids, excludeDayGroup, excludeDayGroup],
-  );
+  const ex = excludeBatchIds.length ? excludeBatchIds : [0];
+  let rows: any;
+  try {
+    [rows] = await conn.query(
+      `SELECT product_id, batch_code FROM h_batches
+        WHERE tenant_id = ? AND planned_date = ? AND product_id IN (?) AND status <> 'cancelled' AND voided_at IS NULL AND id NOT IN (?)
+        ORDER BY id`,
+      [tenantId, workDate, ids, ex],
+    );
+  } catch (e: any) {
+    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e; // 무효 칸 생성 전 DB
+    [rows] = await conn.query(
+      `SELECT product_id, batch_code FROM h_batches WHERE tenant_id = ? AND planned_date = ? AND product_id IN (?) AND status <> 'cancelled' AND id NOT IN (?) ORDER BY id`,
+      [tenantId, workDate, ids, ex],
+    );
+  }
   for (const r of rows as any[]) {
     const k = Number(r.product_id);
     out.set(k, [...(out.get(k) ?? []), String(r.batch_code)]);

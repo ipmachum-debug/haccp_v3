@@ -14,6 +14,7 @@ import { ensureRequiredSchema } from "./db/startupMigrations";
 
 const uq = (...cols: string[]) => cols.map((col) => ({ col, nu: 0 }));
 const GOOD_KEYS: Record<string, any[]> = {
+  uq_batch_tenant_create_req: uq("tenant_id", "create_request_id"),
   uq_lot_tenant_inbound_line: uq("tenant_id", "inbound_line_id"),
   uq_ibl_tenant_lot: uq("tenant_id", "lot_id"),
   uq_ibh_tenant_idem: uq("tenant_id", "idempotency_key"),

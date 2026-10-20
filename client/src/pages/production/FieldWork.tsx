@@ -26,7 +26,7 @@ type Row = any;
  * 행 쓰기 상태 — saving(보내는 중) · failed(통신 실패: 저장됐는지 모름 → 같은 요청 키·같은 내용으로만 다시 보내기)
  *   · rejected(서버가 확실히 거부: 저장 안 됨 → 이유를 보이고 그 자리 편집기로 고쳐 새 요청으로) — 2026-10-20 #611 추가 검토
  */
-type Pending = { requestId: string; action: string; values?: Record<string, any>; state: "saving" | "failed" | "rejected"; message?: string };
+type Pending = { requestId: string; action: string; values?: Record<string, any>; expectedRowVersion: number; state: "saving" | "failed" | "rejected"; message?: string };
 
 const rid = () => `fw-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
@@ -70,12 +70,17 @@ export default function FieldWork() {
   const mine: number[] = (eq.data as any)?.mine ?? [];
   const toggleMine = (id: number) => setMine.mutate({ equipmentIds: mine.includes(id) ? mine.filter((x) => x !== id) : [...mine, id] });
 
-  /** 한 행 쓰기 — 실패하면 같은 요청 키로 다시 보낼 수 있게 남긴다 */
+  /**
+   * 한 행 쓰기 — 실패하면 같은 요청 키로 다시 보낼 수 있게 남긴다.
+   *   다시 보낼 때는 처음 요청 그대로 (요청 키·동작·값·행 버전) — 그 사이 화면이 새 버전을 받아도 버전을 올려 붙이지 않는다.
+   *   다른 사람이 먼저 바꿨으면 서버가 충돌로 막고 새 값을 보여 준다 (예전 값으로 덮어쓰지 않음, #612 추가 검토 1).
+   */
   const send = async (row: Row, action: string, values?: Record<string, any>, retry?: Pending) => {
     const requestId = retry?.requestId ?? rid();
-    setPending((p) => ({ ...p, [row.rowId]: { requestId, action, values, state: "saving" } }));
+    const expectedRowVersion = retry ? retry.expectedRowVersion : row.rowVersion;
+    setPending((p) => ({ ...p, [row.rowId]: { requestId, action, values, expectedRowVersion, state: "saving" } }));
     try {
-      await write.mutateAsync({ rowId: row.rowId, action: action as any, expectedRowVersion: row.rowVersion, values, requestId });
+      await write.mutateAsync({ rowId: row.rowId, action: action as any, expectedRowVersion, values, requestId });
       setPending((p) => { const n = { ...p }; delete n[row.rowId]; return n; });
       setEditing((e) => { const n = { ...e }; delete n[row.rowId]; return n; });
       await utils.field.work.invalidate();
@@ -90,12 +95,12 @@ export default function FieldWork() {
       }
       if (code === "PRECONDITION_FAILED" || code === "BAD_REQUEST") {
         // 서버가 확실히 거부 (필수값·한계기준·원료 출고 실패 등) — 저장 안 됨. 이유를 보이고, 값 문제면 그 자리에서 고치게 편집기를 연다
-        setPending((p) => ({ ...p, [row.rowId]: { requestId: rid(), action, values, state: "rejected", message: e.message } }));
+        setPending((p) => ({ ...p, [row.rowId]: { requestId: rid(), action, values, expectedRowVersion, state: "rejected", message: e.message } }));
         if (action !== "pass_start") setEditing((x) => (x[row.rowId] ? x : { ...x, [row.rowId]: editInit(row, values) }));
         return;
       }
       // 통신 실패 — 서버 저장 여부를 모른다. 같은 요청 키로 다시 보내면 두 번 기록되지 않는다
-      setPending((p) => ({ ...p, [row.rowId]: { requestId, action, values, state: "failed", message: "통신 실패" } }));
+      setPending((p) => ({ ...p, [row.rowId]: { requestId, action, values, expectedRowVersion, state: "failed", message: "통신 실패" } }));
     }
   };
 

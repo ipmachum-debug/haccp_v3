@@ -23,6 +23,15 @@ export async function prepareBatchForApproval(batchId: number, tenantId: number,
   // 무효 처리된 생산 건(이력 보존형 복구)은 승인하지 않는다
   const { assertBatchNotVoided } = await import("./batchVoidGuard");
   try { await assertBatchNotVoided(await getRawConnection(), batchId, tenantId); } catch (e: any) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message }); }
+  // 필수 준비가 끝나지 않은 생산 건은 승인하지 않는다 (생산계획 생애주기 검토 4)
+  try {
+    const res: any = await (await getRawConnection()).execute(`SELECT setup_pending FROM h_batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
+    const sp = res?.[0]?.[0];
+    if (Number(sp?.setup_pending ?? 0) === 1) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `배치 #${batchId} 승인 불가 — 생산 건 준비(원료 계획·CCP 기록지)가 끝나지 않았습니다.` });
+  } catch (e: any) {
+    if (e instanceof TRPCError) throw e;
+    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+  }
   // 예정 생산 건(미래 날짜로 만든 것)은 기록지가 작성중(draft)이라 아래 formBlockers 에서 막힌다 — 그날 확인이 먼저 (현장 1)
   const { getBatchApprovalOverview } = await import("../../db/production/batchApprovalOverview");
   const ov = await getBatchApprovalOverview(batchId, tenantId);

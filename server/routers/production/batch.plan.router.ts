@@ -57,7 +57,7 @@ export const batchPlanRouter = router({
       // 입력량 = 하루 총생산량 — 같은 제품 여러 줄·이미 있는 생산 건은 생성 때 막힌다 (F-PROD-01)
       const guard = await import("../../lib/production/dayProductionGuard");
       const dupLines = guard.duplicateLineProblems(input.items, (id) => names.get(id) ?? `제품 #${id}`);
-      const sameDay = await guard.existingSameDayRuns(conn, ctx.tenantId, input.workDate, ids, null);
+      const sameDay = await guard.existingSameDayRuns(conn, ctx.tenantId, input.workDate, ids, []);
 
       const rows = [];
       for (const [i, it] of input.items.entries()) {

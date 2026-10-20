@@ -86,11 +86,11 @@ export function GlobalMenuSearch({ sections, onNavigate, compact = false }: {
         </button>
       ) : (
         <button type="button" onClick={() => setOpen(true)} data-testid="header-search"
-          className={cn("h-9 w-56 lg:w-72 inline-flex items-center gap-2 rounded-xl border bg-background px-3 text-sm text-muted-foreground",
+          className={cn("h-9 w-full min-w-[7.5rem] max-w-[18rem] md:w-36 lg:w-56 xl:w-72 inline-flex items-center gap-2 rounded-xl border bg-background px-3 text-sm text-muted-foreground",
             "hover:bg-muted/50 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40")}>
-          <Search className="h-4 w-4" />
-          <span className="flex-1 text-left">화면 찾기</span>
-          <span className="hidden lg:inline-flex items-center gap-0.5"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></span>
+          <Search className="h-4 w-4 shrink-0" />
+          <span className="flex-1 truncate whitespace-nowrap text-left">화면 찾기</span>
+          <span className="hidden xl:inline-flex items-center gap-0.5"><Kbd>Ctrl</Kbd><Kbd>K</Kbd></span>
         </button>
       )}
       <Dialog open={open} onOpenChange={setOpen}>

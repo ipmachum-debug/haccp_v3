@@ -14,7 +14,12 @@ describe("미래 날짜 = 예정", () => {
   it("생산 건 만들기: 오늘 KST 보다 뒤 날짜면 실행 단계를 건너뛰고 plan_only = 1", () => {
     const o = read("services/batchOrchestrator.ts");
     expect(o).toMatch(/const planOnly = input\.workDate >= todayKST\(\);/); // 오늘도 예정 (하루 생산 흐름)
-    expect(o).toMatch(/if \(planOnly\) \{\s*await \(await getRawConnection\(\)\)\.execute\(`UPDATE h_batches SET plan_only = 1/);
+    // 예정 표시는 생산 건을 만드는 같은 INSERT 에 (따로 UPDATE 하다 멈추면 예정 아닌 계획이 남았다 — 생산계획 생애주기 검토 4)
+    expect(o).toMatch(/planOnly,\s*activationPending: !planOnly,/);
+    expect(read("db/production/batchCRUD.ts")).toMatch(/create_request_id, plan_only, activation_pending, setup_pending\)/);
+    // 지난 날짜(즉시 실행): 실행권을 잡고 필수 단계가 다 성공해야 남음 0 (#612 추가 검토 3)
+    expect(o).toMatch(/if \(!planOnly\) \{[^]*?activation_claimed_at = NOW\(\) WHERE id = \? AND tenant_id = \? AND activation_pending = 1/);
+    expect(o).toMatch(/finishBatchActivation\(\{[^]*?\}, \{ startDone: false \}\);/);
     // 실행 단계(진행 중·출고·승인요청·기록지 제출·일지)는 한 함수 — 만들 때와 그날 확인 때 같은 코드
     expect(o).toMatch(/async function runExecutionSteps\(/);
     expect(o.match(/await runExecutionSteps\(/g)?.length).toBe(2);
@@ -30,7 +35,9 @@ describe("미래 날짜 = 예정", () => {
 describe("그날 첫 확인에서 한 번", () => {
   it("확인·시작·상태 변경은 먼저 ensureBatchActivated (예정일 전이면 거부), 승인은 기록지 미확인으로 이미 막힘", () => {
     expect(read("routers/haccp/ccpForm.router.ts")).toMatch(/ensureActivatedForFormRecord\(input\.formRecordId, ctx\.tenantId, ctx\.user\.id\)/);
-    expect(read("routers/production/batch.crud.router.ts")).toMatch(/input\.status === "in_progress" \|\| input\.status === "completed"\) \{\s*const \{ ensureBatchActivated \}/);
+    // 상태 변경: 진행 중만 시작 경로(첫 확인과 같은 실행), 완료는 [완료] 창으로만 (생산계획 생애주기 검토 2)
+    expect(read("routers/production/batch.crud.router.ts")).toMatch(/if \(input\.status === "in_progress"\) \{[^]*?const \{ ensureBatchActivated \}/);
+    expect(read("routers/production/batch.crud.router.ts")).toMatch(/if \(input\.status === "completed"\) \{\s*throw new TRPCError/);
     expect(read("routers/production/todayProduction.router.ts")).toMatch(/await ensureBatchActivated\(input\.batchId, ctx\.tenantId, ctx\.user\.id\)/);
     const gate = read("lib/production/batchApprovalGate.ts");
     expect(gate).not.toMatch(/batchOrchestrator/); // lib → services 의존 금지 (depcruise)
@@ -43,8 +50,9 @@ describe("그날 첫 확인에서 한 번", () => {
     expect(inTx).toMatch(/UPDATE h_batches SET plan_only = 0, activation_pending = 1 WHERE id = \? AND tenant_id = \?/);
     expect(inTx).toMatch(/throw new Error\(`원료 출고가 끝나지 않아 확인하지 않았습니다/);
     expect(inTx).not.toMatch(/runExecutionSteps|plan_only = 1/); // 되돌리기 없음 — 롤백이 되돌린다
-    expect(o).toMatch(/UPDATE h_batches SET activation_pending = 0 WHERE id = \? AND tenant_id = \? AND activation_pending = 1/);
-    expect(o).toMatch(/\}, \{ startDone: true \}\);/); // 출고는 위에서 끝냈으니 실행 단계는 시작 부분 건너뜀
+    expect(o).toMatch(/UPDATE h_batches SET activation_claimed_at = NOW\(\) WHERE id = \? AND tenant_id = \? AND activation_pending = 1/);
+    expect(o).toMatch(/ok \? `UPDATE h_batches SET activation_pending = 0, activation_claimed_at = NULL/);
+    expect(o).toMatch(/\}, \{ startDone: opts\.startDone \?\? true \}\);/); // 첫 확인은 출고를 끝냈으니 시작 부분 건너뜀 (지난 날짜가 멈춘 경우만 시작부터)
     expect(o).toMatch(/withTransaction\(\(conn\) => activateBatchInTx\(conn, batchId, tenantId, userId\), "ensureBatchActivated"\)/);
   });
   it("오늘 생산 목록: 예정 생산 건은 '예정' 으로 (확인 제출 할 일로 보이지 않음)", () => {
