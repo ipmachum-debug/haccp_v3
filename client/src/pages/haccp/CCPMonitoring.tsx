@@ -433,11 +433,14 @@ function EquipmentBasedCcpForm() {
       </div>
 
       {/* 설비 등록 다이얼로그 */}
-      <EquipmentFormDialog
-        open={isCreateDialogOpen}
-        onOpenChange={setIsCreateDialogOpen}
-        onSaved={handleSaved}
-      />
+      {/* 새 등록은 열 때마다 빈 양식 — 앞서 등록한 설비 값이 남아 같은 이름·코드로 다시 등록되지 않게 (2026-10-20 신규 회사 시험) */}
+      {isCreateDialogOpen && (
+        <EquipmentFormDialog
+          open={isCreateDialogOpen}
+          onOpenChange={setIsCreateDialogOpen}
+          onSaved={handleSaved}
+        />
+      )}
 
       {/* 설비 수정 다이얼로그 */}
       {editingEquipment && (

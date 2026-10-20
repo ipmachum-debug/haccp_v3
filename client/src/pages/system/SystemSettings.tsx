@@ -125,12 +125,12 @@ export default function SystemSettings() {
                 <div className="space-y-1 flex-1">
                   <Label className="text-sm font-medium">현재 업종</Label>
                   <Select
-                    value={pendingIndustryCode || industryCode || "C10"}
+                    value={pendingIndustryCode || industryCode || undefined}
                     onValueChange={handleIndustryChange}
                     disabled={updateIndustryMut.isPending}
                   >
                     <SelectTrigger className="w-full">
-                      <SelectValue placeholder="업종 선택" />
+                      <SelectValue placeholder="아직 정하지 않음 — 업종을 고르세요" />
                     </SelectTrigger>
                     <SelectContent>
                       {INDUSTRY_OPTIONS.map(opt => {

@@ -107,12 +107,17 @@ function ProcessGroupFormDialog({
   initialData,
   equipmentList,
   onSubmit,
+  error,
+  pending,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialData?: CcpLimitInitialData;
   equipmentList: EquipmentRow[];
   onSubmit: (data: Record<string, unknown>) => void;
+  /** 저장 실패 이유 — 창 안에 남긴다 (입력값·설비 선택은 그대로) */
+  error?: string | null;
+  pending?: boolean;
 }) {
   const L = useIndustryLabel();
   const [activeTab, setActiveTab] = useState("basic");
@@ -120,14 +125,14 @@ function ProcessGroupFormDialog({
     name: initialData?.name || "",
     ccpType: initialData?.ccp_type || initialData?.ccpType || "CCP-1B",
     description: initialData?.description || "",
-    temperatureMin: initialData?.temperature_min || initialData?.temperatureMin || "",
-    temperatureMax: initialData?.temperature_max || initialData?.temperatureMax || "",
-    timeMin: initialData?.time_min || initialData?.timeMin || "",
-    timeMax: initialData?.time_max || initialData?.timeMax || "",
-    pressureMin: initialData?.pressure_min || initialData?.pressureMin || "",
-    pressureMax: initialData?.pressure_max || initialData?.pressureMax || "",
-    phMin: initialData?.ph_min || initialData?.phMin || "",
-    phMax: initialData?.ph_max || initialData?.phMax || "",
+    temperatureMin: initialData?.temperature_min ?? initialData?.temperatureMin ?? "", // 0 도 값 (빈칸 = 기준 없음)
+    temperatureMax: initialData?.temperature_max ?? initialData?.temperatureMax ?? "", // 0 도 값 (빈칸 = 기준 없음)
+    timeMin: initialData?.time_min ?? initialData?.timeMin ?? "", // 0 도 값 (빈칸 = 기준 없음)
+    timeMax: initialData?.time_max ?? initialData?.timeMax ?? "", // 0 도 값 (빈칸 = 기준 없음)
+    pressureMin: initialData?.pressure_min ?? initialData?.pressureMin ?? "", // 0 도 값 (빈칸 = 기준 없음)
+    pressureMax: initialData?.pressure_max ?? initialData?.pressureMax ?? "", // 0 도 값 (빈칸 = 기준 없음)
+    phMin: initialData?.ph_min ?? initialData?.phMin ?? "", // 0 도 값 (빈칸 = 기준 없음)
+    phMax: initialData?.ph_max ?? initialData?.phMax ?? "", // 0 도 값 (빈칸 = 기준 없음)
     monitoringMethod: initialData?.monitoring_method || initialData?.monitoringMethod || "",
     monitoringCycle: initialData?.monitoring_cycle || initialData?.monitoringCycle || "",
     correctiveAction: initialData?.corrective_action || initialData?.correctiveAction || "",
@@ -468,9 +473,15 @@ function ProcessGroupFormDialog({
                 </div>
               </div>
 
+              {error && (
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded px-3 py-2 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30" role="alert" data-testid="group-save-error">
+                  저장하지 못했습니다 — {error} (입력한 값과 설비 선택은 그대로 있습니다)
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground" data-testid="limit-blank-note">빈 칸 = 그 방향 기준 없음 (예: 최소 90℃만 정하고 최대는 비움). 0 을 넣으면 0 이 기준입니다.</p>
               <div className="flex justify-end gap-2 pt-2">
                 <Button type="button" variant="outline" size="sm" onClick={() => onOpenChange(false)}>취소</Button>
-                <Button type="submit" size="sm">{initialData ? "수정" : "생성"}</Button>
+                <Button type="submit" size="sm" disabled={pending}>{pending ? "저장 중…" : initialData ? "수정" : "생성"}</Button>
               </div>
             </form>
           </TabsContent>
@@ -1057,6 +1068,13 @@ function ProductTimeProfileMapDialog({
   );
 }
 
+/** 저장 오류를 사람이 읽을 말로 — 입력 검사 오류(zod)는 칸 이름 대신 한 줄로 */
+function saveErrorText(err: { message: string; data?: any }): string {
+  const z = err?.data?.zodError?.fieldErrors as Record<string, string[]> | undefined;
+  if (z && Object.keys(z).length) return Object.entries(z).map(([k, v]) => `${k}: ${(v ?? []).join(", ")}`).join(" / ");
+  return err?.message || "알 수 없는 오류";
+}
+
 // ========== 메인 컴포넌트 ==========
 export default function CCPLimitsManagement() {
   const L = useIndustryLabel();
@@ -1076,13 +1094,15 @@ export default function CCPLimitsManagement() {
   const equipmentList: EquipmentRow[] = (equipmentData as { items?: EquipmentRow[] } | undefined)?.items ?? [];
 
   // 공정 그룹 생성
+  // 새 공정 창은 성공한 뒤에만 닫고 비운다 (실패하면 이유를 창 안에, 입력은 그대로)
+  const [createKey, setCreateKey] = useState(0);
   const createMutation = trpc.ccpMonitoring.createProcessGroup.useMutation({
     onSuccess: () => {
       toast.success("공정 그룹이 생성되었습니다");
       refetch();
       setIsCreateOpen(false);
+      setCreateKey((k) => k + 1);
     },
-    onError: (err: { message: string }) => toast.error("생성 실패: " + err.message),
   });
 
   // 공정 그룹 수정
@@ -1092,7 +1112,6 @@ export default function CCPLimitsManagement() {
       refetch();
       setEditingGroup(null);
     },
-    onError: (err: { message: string }) => toast.error("수정 실패: " + err.message),
   });
 
   // 공정 그룹 삭제
@@ -1281,10 +1300,13 @@ export default function CCPLimitsManagement() {
 
       {/* 생성 다이얼로그 */}
       <ProcessGroupFormDialog
+        key={`create-${createKey}`}
         open={isCreateOpen}
-        onOpenChange={setIsCreateOpen}
+        onOpenChange={(o) => { setIsCreateOpen(o); if (!o) createMutation.reset(); }}
         equipmentList={equipmentList}
-        onSubmit={(data) => createMutation.mutate(data)}
+        onSubmit={(data) => createMutation.mutate(data as any)}
+        error={createMutation.error ? saveErrorText(createMutation.error) : null}
+        pending={createMutation.isPending}
       />
 
       {/* 수정 다이얼로그 */}
@@ -1292,10 +1314,12 @@ export default function CCPLimitsManagement() {
         <ProcessGroupFormDialog
           key={editingGroup.id}
           open={!!editingGroup}
-          onOpenChange={(open) => { if (!open) setEditingGroup(null); }}
+          onOpenChange={(open) => { if (!open) { setEditingGroup(null); updateMutation.reset(); } }}
           initialData={editingGroup}
           equipmentList={equipmentList}
           onSubmit={(data) => updateMutation.mutate({ id: editingGroup.id, ...data })}
+          error={updateMutation.error ? saveErrorText(updateMutation.error) : null}
+          pending={updateMutation.isPending}
         />
       )}
 

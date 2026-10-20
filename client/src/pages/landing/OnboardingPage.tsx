@@ -3,6 +3,9 @@
  * 회원가입 → 플랜 선택 → 완료 (3단계 스텝)
  */
 import { useState } from "react";
+import { TRIAL_DAYS } from "@shared/const";
+import { INDUSTRY_OPTIONS } from "@/lib/industryOptions";
+import { cn } from "@/lib/utils";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,6 +96,7 @@ export default function OnboardingPage() {
     if (form.password !== form.passwordConfirm) return "비밀번호가 일치하지 않습니다";
     if (!form.name) return "이름을 입력해주세요";
     if (!form.companyName) return "회사명을 입력해주세요";
+    if (!form.industryCode) return "업종을 골라주세요";
     return null;
   };
 
@@ -157,7 +161,7 @@ export default function OnboardingPage() {
           <Card className="max-w-lg mx-auto">
             <CardHeader className="text-center">
               <CardTitle className="text-2xl">무료 체험 시작하기</CardTitle>
-              <CardDescription>14일 무료 체험 후 원하는 플랜을 선택하세요</CardDescription>
+              <CardDescription>{TRIAL_DAYS}일 무료 체험 후 원하는 플랜을 선택하세요</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
@@ -191,6 +195,24 @@ export default function OnboardingPage() {
                   value={form.companyName} onChange={(e) => setForm({ ...form, companyName: e.target.value })} />
               </div>
 
+              {/* 업종 — 회사 첫 입력에서 정한다. 로그인하면 이 업종의 메뉴(식품이면 생산·생산 설계·CCP)로 바로 열린다 (2026-10-20) */}
+              <div className="space-y-2" data-testid="signup-industry">
+                <Label className="flex items-center gap-1.5"><Building2 className="h-4 w-4" /> 업종 *</Label>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {INDUSTRY_OPTIONS.map((o) => {
+                    const Icon = o.icon;
+                    return (
+                      <button key={o.code} type="button" onClick={() => setForm({ ...form, industryCode: o.code })} data-testid={`industry-${o.code}`}
+                        className={cn("min-h-11 rounded-md border px-2 py-2 text-sm flex items-center gap-1.5 text-left",
+                          form.industryCode === o.code ? "border-blue-600 bg-blue-50 text-blue-800 dark:bg-blue-500/10 dark:text-blue-300" : "bg-background hover:bg-accent")}>
+                        <Icon className="h-4 w-4 shrink-0" />{o.label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs text-muted-foreground">고른 업종에 맞는 메뉴와 기록지가 열립니다. 나중에 관리자 설정에서 바꿀 수 있습니다.</p>
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-2">
                   <Label htmlFor="businessNumber" className="flex items-center gap-1.5"><Briefcase className="h-4 w-4" /> 사업자번호</Label>
@@ -221,7 +243,7 @@ export default function OnboardingPage() {
           <div className="space-y-6">
             <div className="text-center">
               <h2 className="text-2xl font-bold">플랜을 선택하세요</h2>
-              <p className="text-muted-foreground mt-1">모든 플랜 14일 무료 체험 포함 / 부가세 별도</p>
+              <p className="text-muted-foreground mt-1">모든 플랜 {TRIAL_DAYS}일 무료 체험 포함 / 부가세 별도</p>
             </div>
 
             <div className="grid md:grid-cols-3 gap-5">
@@ -305,6 +327,10 @@ export default function OnboardingPage() {
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">회사명</span>
                   <span className="font-medium">{form.companyName}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">업종</span>
+                  <span className="font-medium">{INDUSTRY_OPTIONS.find((o) => o.code === form.industryCode)?.label ?? "-"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">플랜</span>

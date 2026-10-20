@@ -3697,4 +3697,61 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE tenant_id = ? AND source_type = 'LEDGER_DEDUP'`, [T]))[0].n).toBe(1);
     });
   });
+
+  describe("공정 그룹 생성 — 빈칸 = 기준 없음, 생성·수정 같은 계약, 부분 저장 없음 (2026-10-20 신규 회사 시험 P1)", () => {
+    const O2 = 9;
+    let caller: (tenantId: number) => any;
+    const ensureCol = async (table: string, col: string, ddl: string) => {
+      const [c]: any = await admin.query(`SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, col]);
+      if (!c.length) await admin.query(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
+    };
+    beforeAll(async () => {
+      await q(`CREATE TABLE IF NOT EXISTS ccp_process_groups (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, name varchar(100) NOT NULL, ccp_type varchar(20) NULL, status varchar(20) NOT NULL DEFAULT 'active', sort_order int NOT NULL DEFAULT 0)`);
+      for (const [c, d] of [["description", "text NULL"], ["temperature_min", "decimal(5,2) NULL"], ["temperature_max", "decimal(5,2) NULL"], ["time_min", "int NULL"], ["time_max", "int NULL"],
+        ["pressure_min", "decimal(6,3) NULL"], ["pressure_max", "decimal(6,3) NULL"], ["ph_min", "decimal(4,2) NULL"], ["ph_max", "decimal(4,2) NULL"], ["monitoring_method", "text NULL"],
+        ["monitoring_cycle", "text NULL"], ["corrective_action", "text NULL"], ["equip_group_mode", "varchar(50) NULL DEFAULT 'sequential'"], ["equip_interval_min", "int NULL DEFAULT 10"], ["equip_batch_size", "int NULL DEFAULT 1"]] as const) {
+        await ensureCol("ccp_process_groups", c, d);
+      }
+      await q(`CREATE TABLE IF NOT EXISTS ccp_process_group_equipments (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, process_group_id int NOT NULL, equipment_id int NOT NULL, sort_order int NULL DEFAULT 0)`);
+      await q(`CREATE TABLE IF NOT EXISTS equipments (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, name varchar(100) NOT NULL, status varchar(20) NOT NULL DEFAULT 'active', default_temperature decimal(6,2) NULL, default_time int NULL, batch_operation_time int NULL)`);
+      await q(`DELETE FROM equipments WHERE id IN (8901, 8902)`);
+      await q(`INSERT INTO equipments (id, tenant_id, name) VALUES (8901, ?, '시험 교반기 1호'), (8902, ?, '남의 교반기')`, [T, O2]);
+      await q(`DELETE ge FROM ccp_process_group_equipments ge JOIN ccp_process_groups g ON g.id = ge.process_group_id WHERE g.name LIKE 'QA-NEW-%'`);
+      await q(`DELETE FROM ccp_process_groups WHERE name LIKE 'QA-NEW-%'`);
+      const { processGroupsRouter } = await import("./routers/ccpMonitoring/processGroups.router");
+      caller = (tenantId: number) => processGroupsRouter.createCaller({ user: { id: 4, role: "admin", tenantId, email: "t@t" }, tenantId } as any);
+    });
+    const row = async (id: number) => (await q(`SELECT temperature_min + 0 AS tlo, temperature_max AS thi, time_min AS hlo, time_max AS hhi, pressure_min + 0 AS plo, pressure_max AS phi, ph_min AS pho, ph_max AS phh FROM ccp_process_groups WHERE id = ?`, [id]))[0];
+
+    it("하한만 (최소 90℃·10분·0.16MPa, 최대·pH 빈칸) → 생성되고 다시 읽어도 상한 NULL, 설비 연결", async () => {
+      const r = await caller(T).createProcessGroup({ name: "QA-NEW-교반", ccpType: "CCP-1B", temperatureMin: 90, temperatureMax: null, timeMin: 10, timeMax: null, pressureMin: 0.16, pressureMax: null, phMin: null, phMax: null, equipmentIds: [8901] });
+      const g = await row(r.id);
+      expect(Number(g.tlo)).toBe(90); expect(g.thi).toBeNull();
+      expect(Number(g.hlo)).toBe(10); expect(g.hhi).toBeNull();
+      expect(Number(g.plo)).toBeCloseTo(0.16); expect(g.phi).toBeNull();
+      expect(g.pho).toBeNull(); expect(g.phh).toBeNull();
+      expect((await q(`SELECT equipment_id FROM ccp_process_group_equipments WHERE process_group_id = ?`, [r.id])).map((x: any) => Number(x.equipment_id))).toEqual([8901]);
+    });
+    it("상한만 · 양쪽 · 안 보낸 칸 · 0 은 값", async () => {
+      const a = await caller(T).createProcessGroup({ name: "QA-NEW-상한만", ccpType: "CCP-2B", temperatureMax: 200 });
+      expect((await row(a.id)).tlo).toBeNull(); expect(Number((await row(a.id)).thi)).toBe(200);
+      const b = await caller(T).createProcessGroup({ name: "QA-NEW-양쪽", ccpType: "CCP-2B", temperatureMin: 150, temperatureMax: 200, timeMin: 0 });
+      const gb = await row(b.id);
+      expect([Number(gb.tlo), Number(gb.thi), Number(gb.hlo)]).toEqual([150, 200, 0]); // 0 은 지우지 않음
+      expect(gb.hhi).toBeNull();
+    });
+    it("최소 > 최대 · 남의 회사 설비 → 거부, 공정·연결 아무것도 남지 않음", async () => {
+      const before = (await q(`SELECT COUNT(*) AS n FROM ccp_process_groups WHERE name LIKE 'QA-NEW-%'`))[0].n;
+      await expect(caller(T).createProcessGroup({ name: "QA-NEW-역전", ccpType: "CCP-1B", temperatureMin: 95, temperatureMax: 90 })).rejects.toThrow(/최소/);
+      await expect(caller(T).createProcessGroup({ name: "QA-NEW-남의설비", ccpType: "CCP-1B", temperatureMin: 90, equipmentIds: [8901, 8902] })).rejects.toThrow(/이 회사의 설비가 아닌/);
+      expect((await q(`SELECT COUNT(*) AS n FROM ccp_process_groups WHERE name LIKE 'QA-NEW-%'`))[0].n).toBe(before);
+      expect((await q(`SELECT COUNT(*) AS n FROM ccp_process_group_equipments WHERE equipment_id = 8902`))[0].n).toBe(0);
+    });
+    it("수정도 같은 계약 — 빈칸(null)은 지우고, 안 보낸 칸은 그대로", async () => {
+      const r = await caller(T).createProcessGroup({ name: "QA-NEW-수정", ccpType: "CCP-1B", temperatureMin: 90, temperatureMax: 99, timeMin: 10 });
+      await caller(T).updateProcessGroup({ id: r.id, temperatureMax: null });
+      const g = await row(r.id);
+      expect(Number(g.tlo)).toBe(90); expect(g.thi).toBeNull(); expect(Number(g.hlo)).toBe(10);
+    });
+  });
 });

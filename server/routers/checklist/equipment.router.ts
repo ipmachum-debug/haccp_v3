@@ -24,9 +24,21 @@ export const equipmentRouter = router({
         notes: z.string().optional()
       }))
       .mutation(async ({ ctx, input }) => {
-        const { createEquipment, createAuditLog } = await import("../../db");
-        
-        const equipmentId = await createEquipment(input, ctx.tenantId);
+        const { createEquipment, createAuditLog, getRawConnection } = await import("../../db");
+        // 같은 회사에 같은 코드·이름의 설비를 또 만들지 않는다 (2026-10-20 신규 회사 시험 — 앞 양식 값이 남아 중복 등록되던 문제)
+        const code = input.code.trim(), name = input.name.trim();
+        if (!name) throw new TRPCError({ code: "BAD_REQUEST", message: "설비 이름을 입력하세요." });
+        const pool: any = await getRawConnection();
+        const [dup]: any = await pool.execute(
+          `SELECT code, name FROM equipments WHERE tenant_id = ? AND ((? <> '' AND code = ?) OR name = ?) LIMIT 1`,
+          [ctx.tenantId, code, code, name],
+        );
+        if ((dup as any[]).length) {
+          const d = (dup as any[])[0];
+          throw new TRPCError({ code: "CONFLICT", message: d.name === name ? `같은 이름의 설비가 이미 있습니다: ${name}` : `같은 코드의 설비가 이미 있습니다: ${code}` });
+        }
+
+        const equipmentId = await createEquipment({ ...input, code, name }, ctx.tenantId);
         
         await createAuditLog({
           userId: ctx.user.id,

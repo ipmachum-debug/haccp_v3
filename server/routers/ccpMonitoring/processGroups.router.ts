@@ -7,6 +7,7 @@ import { getEffectiveTenantId } from "./_helpers";
 import { bomProductV2IdExpr } from "../../lib/identity/itemIdentityService";
 import { createAuditLog } from "../../db/system/auditApprovalSupplier";
 import { AUDITED_GROUP_FIELDS, diffAuditedGroupFields } from "../../lib/haccp/processGroupAudit";
+import { limitProblems } from "../../lib/haccp/processGroupLimits";
 
 export const processGroupsRouter = router({
   // ========== 공정 그룹 관리 API ==========
@@ -39,19 +40,22 @@ export const processGroupsRouter = router({
     }),
 
   // 공정 그룹 생성
+  //   ★ 2026-10-20 (신규 회사 시험 P1): 빈칸 = 그 방향 기준 없음 (null) — 수정(updateProcessGroup)과 같은 계약.
+  //   이전엔 생성 입력이 null 을 받지 않아 '하한만 있는 공정'(예: 최소 90℃, 최대 빈칸)을 만들 수 없었다.
+  //   0 은 값이다 (|| 로 지우지 않음). 공정·설비 연결은 한 트랜잭션 — 실패하면 아무것도 남지 않는다.
   createProcessGroup: tenantRequiredProcedure
     .input(z.object({
-      name: z.string(),
+      name: z.string().trim().min(1, '공정 그룹명을 입력하세요'),
       ccpType: z.string(),
       description: z.string().optional(),
-      temperatureMin: z.number().optional(),
-      temperatureMax: z.number().optional(),
-      timeMin: z.number().optional(),
-      timeMax: z.number().optional(),
-      pressureMin: z.number().optional(),
-      pressureMax: z.number().optional(),
-      phMin: z.number().optional(),
-      phMax: z.number().optional(),
+      temperatureMin: z.number().nullable().optional(),
+      temperatureMax: z.number().nullable().optional(),
+      timeMin: z.number().nullable().optional(),
+      timeMax: z.number().nullable().optional(),
+      pressureMin: z.number().nullable().optional(),
+      pressureMax: z.number().nullable().optional(),
+      phMin: z.number().nullable().optional(),
+      phMax: z.number().nullable().optional(),
       monitoringMethod: z.string().optional(),
       monitoringCycle: z.string().optional(),
       correctiveAction: z.string().optional(),
@@ -59,30 +63,50 @@ export const processGroupsRouter = router({
       equipmentIds: z.array(z.number()).optional(),
       // 배치 운영 설정 (공정그룹에서 관리)
       equipGroupMode: z.enum(['sequential', 'concurrent', 'grouped']).optional(),
-      equipIntervalMin: z.number().optional(),
-      equipBatchSize: z.number().optional(),
+      equipIntervalMin: z.number().nullable().optional(),
+      equipBatchSize: z.number().nullable().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = await getDb();
-      if (!db) throw new Error('Database not available');
       const tenantId = getEffectiveTenantId(ctx);
-
-      const [result] = await db.execute(
-        sql`INSERT INTO ccp_process_groups (tenant_id, name, ccp_type, description, temperature_min, temperature_max, time_min, time_max, pressure_min, pressure_max, ph_min, ph_max, monitoring_method, monitoring_cycle, corrective_action, sort_order, equip_group_mode, equip_interval_min, equip_batch_size)
-        VALUES (${tenantId}, ${input.name}, ${input.ccpType}, ${input.description || null}, ${input.temperatureMin || null}, ${input.temperatureMax || null}, ${input.timeMin || null}, ${input.timeMax || null}, ${input.pressureMin || null}, ${input.pressureMax || null}, ${input.phMin || null}, ${input.phMax || null}, ${input.monitoringMethod || null}, ${input.monitoringCycle || null}, ${input.correctiveAction || null}, ${input.sortOrder || 0}, ${input.equipGroupMode || 'sequential'}, ${input.equipIntervalMin ?? 10}, ${input.equipBatchSize ?? 1})`
-      );
-
-      const groupId = (result as any).insertId;
-
-      if (input.equipmentIds && input.equipmentIds.length > 0) {
-        for (let i = 0; i < input.equipmentIds.length; i++) {
-          await db.execute(
-            sql`INSERT INTO ccp_process_group_equipments (tenant_id, process_group_id, equipment_id, sort_order) VALUES (${tenantId}, ${groupId}, ${input.equipmentIds[i]}, ${i})`
+      const problems = limitProblems(input);
+      if (problems.length) throw new TRPCError({ code: 'BAD_REQUEST', message: problems.join(' / ') });
+      const equipmentIds = Array.from(new Set((input.equipmentIds ?? []).map(Number)));
+      const { getRawConnection } = await import("../../db");
+      const pool: any = await getRawConnection();
+      const c = await pool.getConnection();
+      try {
+        await c.beginTransaction();
+        try {
+          if (equipmentIds.length) {
+            const [own]: any = await c.query(`SELECT id FROM equipments WHERE tenant_id = ? AND id IN (?)`, [tenantId, equipmentIds]);
+            if ((own as any[]).length !== equipmentIds.length) throw new TRPCError({ code: 'BAD_REQUEST', message: '이 회사의 설비가 아닌 번호가 있습니다.' });
+          }
+          const v = (x: number | null | undefined) => (x == null ? null : x);
+          const [result]: any = await c.execute(
+            `INSERT INTO ccp_process_groups (tenant_id, name, ccp_type, description, temperature_min, temperature_max, time_min, time_max, pressure_min, pressure_max, ph_min, ph_max, monitoring_method, monitoring_cycle, corrective_action, sort_order, equip_group_mode, equip_interval_min, equip_batch_size)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [tenantId, input.name.trim(), input.ccpType, input.description || null,
+              v(input.temperatureMin), v(input.temperatureMax), v(input.timeMin), v(input.timeMax),
+              v(input.pressureMin), v(input.pressureMax), v(input.phMin), v(input.phMax),
+              input.monitoringMethod || null, input.monitoringCycle || null, input.correctiveAction || null, input.sortOrder ?? 0,
+              input.equipGroupMode || 'sequential', input.equipIntervalMin ?? 10, input.equipBatchSize ?? 1],
           );
+          const groupId = Number(result.insertId);
+          for (let i = 0; i < equipmentIds.length; i++) {
+            await c.execute(
+              `INSERT INTO ccp_process_group_equipments (tenant_id, process_group_id, equipment_id, sort_order) VALUES (?, ?, ?, ?)`,
+              [tenantId, groupId, equipmentIds[i], i],
+            );
+          }
+          await c.commit();
+          return { id: groupId, success: true };
+        } catch (e) {
+          try { await c.rollback(); } catch { /* 원래 오류 */ }
+          throw e;
         }
+      } finally {
+        c.release();
       }
-
-      return { id: groupId, success: true };
     }),
 
   // 공정 그룹 수정
@@ -114,6 +138,9 @@ export const processGroupsRouter = router({
       const db = await getDb();
       if (!db) throw new Error('Database not available');
       const tenantId = getEffectiveTenantId(ctx);
+
+      const problems = limitProblems(input);
+      if (problems.length) throw new TRPCError({ code: 'BAD_REQUEST', message: problems.join(' / ') });
 
       // Build dynamic SET clauses using sql.join to avoid COALESCE issues
       const setClauses: SQL[] = [];

@@ -82,7 +82,12 @@ function ProductPicker({ products, value, onChange, used = [] }: { products: Arr
         <Command>
           <CommandInput placeholder="제품 이름·코드 검색" />
           <CommandList>
-            <CommandEmpty>제품이 없습니다.</CommandEmpty>
+            <CommandEmpty>
+              {products.length ? "찾는 제품이 없습니다." : (
+                // 제품이 하나도 없으면 첫 등록으로 바로 (2026-10-20 신규 회사 시험)
+                <span>등록된 제품이 없습니다. <Link href="/dashboard/master-data?tab=products" className="text-blue-600 hover:underline" data-testid="product-first-add">제품 등록하기 →</Link></span>
+              )}
+            </CommandEmpty>
             <CommandGroup>
               {products.map((p) => {
                 // 다른 줄에서 이미 고른 제품 — 하루 총생산량은 한 줄에 (원래 일괄 생성 화면과 같은 규칙)

@@ -25,10 +25,16 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
+import { useAuth } from "@/_core/hooks/useAuth";
+import IndustryPicker from "@/components/system/IndustryPicker";
+import { Factory } from "lucide-react";
 // DashboardLayout removed - managed by SystemManagement
 
 export default function AdminSettings() {
   const L = useIndustryLabel();
+  // DB 초기화·샘플 데이터는 개발·운영 도구 — 플랫폼 관리자에게만 (고객 관리자 화면에서 숨김, 서버도 같은 조건)
+  const { user } = useAuth();
+  const isPlatformAdmin = String((user as any)?.role ?? "") === "super_admin";
   const [showInitDialog, setShowInitDialog] = useState(false);
   const [showSeedDialog, setShowSeedDialog] = useState(false);
   const [deleteOldDays, setDeleteOldDays] = useState(30);
@@ -213,9 +219,21 @@ export default function AdminSettings() {
       <div>
         <h1 className="text-3xl font-bold">관리자 설정</h1>
         <p className="text-muted-foreground mt-2">
-          회사 정보, 시스템 데이터베이스 초기화 및 샘플 데이터 생성
+          업종, 회사 정보, 알림·보관 설정{isPlatformAdmin ? " · (플랫폼 관리자) 개발용 도구" : ""}
         </p>
       </div>
+
+      {/* 업종 — 메뉴·기록지·라벨이 업종을 따른다 (2026-10-20 신규 회사 시험: 설정에서 업종 칸을 찾을 수 없었음) */}
+      <Card data-testid="industry-card">
+        <CardHeader>
+          <div className="flex items-center gap-2">
+            <Factory className="h-5 w-5 text-primary" />
+            <CardTitle>업종</CardTitle>
+          </div>
+          <CardDescription>고른 업종에 맞는 메뉴(식품이면 생산·생산 설계·CCP)와 기록지가 열립니다.</CardDescription>
+        </CardHeader>
+        <CardContent><IndustryPicker /></CardContent>
+      </Card>
 
       {/* ★ 2026-04-13: 회사 정보 (거래명세표 PDF 에 자동 반영) */}
       <Card>
@@ -631,6 +649,7 @@ export default function AdminSettings() {
           </CardContent>
         </Card>
 
+        {isPlatformAdmin && (<>
         {/* 데이터베이스 초기화 */}
         <Card>
           <CardHeader>
@@ -733,6 +752,7 @@ export default function AdminSettings() {
             </Button>
           </CardContent>
         </Card>
+        </>)}
       </div>
 
       {/* 데이터베이스 초기화 확인 다이얼로그 */}

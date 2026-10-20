@@ -1,4 +1,5 @@
 import { motion as _motion } from "framer-motion";
+import { TRIAL_DAYS } from "@shared/const";
 const motion = _motion as any;
 import { Link } from "wouter";
 import { MillioMark } from "@/components/brand/MillioMark";
@@ -374,7 +375,7 @@ export default function RoadmapPage() {
             <div className="mt-8 flex flex-wrap gap-3 justify-center">
               <Link href="/">
                 <a className="inline-flex items-center gap-2 px-6 py-3 bg-white text-[#1a1a2e] rounded-full font-semibold hover:scale-105 transition-transform shadow-lg">
-                  30일 무료 시작
+                  {TRIAL_DAYS}일 무료 시작
                 </a>
               </Link>
               <Link href="/support">
