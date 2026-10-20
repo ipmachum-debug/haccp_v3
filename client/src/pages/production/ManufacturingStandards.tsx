@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ClipboardList, FileCode, Info, Printer } from "lucide-react";
@@ -7,7 +7,8 @@ import MfReportList from "@/pages/production/MfReportList";
 import MaterialUsageReportList from "@/pages/accounting/MaterialUsageReportList";
 
 export default function ManufacturingStandards() {
-  const [activeTab, setActiveTab] = useState("material-ledger");
+  // 선택한 탭은 URL(?tab=) — 새로고침·수정 화면에서 돌아와도 같은 탭 (2026-10-21). 모르는 값은 원료수불부
+  const [activeTab, setActiveTab] = useTabWithUrl("tab", "material-ledger", ["material-ledger", "usage-reports", "mf-reports"]);
 
   return (
     <DashboardLayout>

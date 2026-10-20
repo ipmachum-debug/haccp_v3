@@ -6,7 +6,9 @@
  * 흐름도: 원료 → (공정·설비) → 성형·합류 → 완제품 → 공통 후속 공정. 지금 데이터로 그릴 수 있는 '분류도' 다 —
  *   공정끼리의 순서·합류 위치는 저장된 정보가 없어 나란히 그린다 (추측해서 선을 긋지 않는다).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { pickAllowed, replaceQuery, returnToFromSearch, withReturnTo } from "@/lib/urlState";
+import { UNSAVED_MESSAGE } from "@/hooks/useUnsavedChangesGuard";
 import { useLocation, useParams, useSearch } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -35,8 +37,19 @@ export default function DesignRecipeDetail() {
   const versionParam = Number(search.get("version")) || undefined;
   const q = trpc.productionDesign.recipeDetail.useQuery({ reportId, versionId: versionParam }, { enabled: reportId > 0, retry: 1 });
   const d: any = q.data;
-  // 설계 현황 경고에서 왔으면(focus=unknown) 바로 '배합 고치기' — 들어가는 곳은 공정 칸에서 고른다
-  const [tab, setTab] = useState(search.get("focus") === "unknown" || search.get("tab") === "edit" ? "edit" : "table");
+  // 보고 있는 보기(배합표·흐름도·고치기)는 URL(?tab=) — 새로고침·뒤로가기에도 같은 보기 (2026-10-21 작업 위치 보존).
+  //   설계 현황 경고에서 왔으면(focus=unknown) 바로 '배합 고치기' — 들어가는 곳은 공정 칸에서 고른다
+  const tab = pickAllowed(search.get("tab"), search.get("focus") === "unknown" ? "edit" : "table", ["table", "flow", "edit"]);
+  const setTab = (v: string) => replaceQuery({ tab: v === "table" ? null : v, focus: null });
+  // 돌아갈 목록 = 들어온 목록(신호등·검색 그대로), 직접 링크면 제품 배합 목록
+  const backTo = returnToFromSearch(useSearch(), ROUTES.DESIGN_RECIPES);
+  // 고치기는 한 번 열면 다른 보기로 가도 내려놓지 않는다 — 탭만 바꿔서 입력이 사라지지 않게. 취소하면 내려놓고 다음에 새로 불러온다
+  const [editMounted, setEditMounted] = useState(tab === "edit");
+  useEffect(() => { if (tab === "edit") setEditMounted(true); }, [tab]);
+  const [editDirty, setEditDirty] = useState(false);
+  // 저장하지 않은 고치기가 있으면 다른 버전·목록으로 가기 전에 묻는다 (편집기 안의 보호는 새로고침·뒤로·메뉴 이동)
+  const leaveOk = () => !editDirty || window.confirm(UNSAVED_MESSAGE);
+  const go = (path: string) => { if (leaveOk()) navigate(withReturnTo(path, backTo)); };
   const [focus, setFocus] = useState<string | null>(null);
 
   const rows: any[] = d?.ingredients ?? [];
@@ -66,7 +79,7 @@ export default function DesignRecipeDetail() {
       <div className="space-y-4">
         <PageHeader title={d ? d.productName : "제품 배합"} description="배합표와 공정 흐름도는 같은 데이터입니다. 고칠 때는 '배합 고치기' — 이 화면 안에서 고치고 저장하면 끝납니다."
           primary={d ? { label: "배합 고치기", icon: Pencil, onClick: () => setTab("edit") } : undefined}
-          secondary={{ label: "목록", onClick: () => navigate(ROUTES.DESIGN_RECIPES) }} />
+          secondary={{ label: "목록", onClick: () => { if (leaveOk()) navigate(backTo); } }} />
         {q.isLoading && <Card><CardContent className="py-10 text-center text-sm text-muted-foreground"><Loader2 className="inline h-4 w-4 mr-1 animate-spin" />불러오는 중…</CardContent></Card>}
         {q.isError && <Card><CardContent className="py-8 text-center text-sm text-red-700">{q.error?.message}</CardContent></Card>}
         {d && (
@@ -80,7 +93,7 @@ export default function DesignRecipeDetail() {
                 <span className="basis-full flex flex-wrap items-center gap-1.5 text-xs" data-testid="version-chips">
                   <span className="text-muted-foreground">버전:</span>
                   {(d.versions as any[]).map((v) => (
-                    <button key={v.versionId} type="button" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId, { versionId: v.versionId }))}
+                    <button key={v.versionId} type="button" onClick={() => go(EDIT_PATHS.recipeDetail(d.reportId, { versionId: v.versionId }))}
                       className={cn("min-h-9 rounded-full border px-3", v.versionId === d.versionId ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent")}>
                       v{v.versionNo} {v.status === "APPROVED" ? "승인" : v.status === "REJECTED" ? "반려" : v.status === "PENDING" ? "승인 대기" : "초안"}
                     </button>
@@ -88,12 +101,12 @@ export default function DesignRecipeDetail() {
                 </span>
                 {d.versionRole === "production" && d.newerDraft && (
                   <span className="basis-full text-xs text-blue-800">수정안 v{d.newerDraft.versionNo}(승인 전)이 있습니다 — 승인되면 그 버전으로 생산합니다.{" "}
-                    <button type="button" className="underline" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId, { versionId: d.newerDraft.versionId }))}>수정안 보기</button></span>
+                    <button type="button" className="underline" onClick={() => go(EDIT_PATHS.recipeDetail(d.reportId, { versionId: d.newerDraft.versionId }))}>수정안 보기</button></span>
                 )}
                 {d.versionRole !== "production" && (
                   <span className="basis-full rounded border border-blue-200 bg-blue-50 px-2 py-1 text-xs text-blue-900">
                     이 버전은 지금 생산에 쓰이지 않습니다 ({d.versionRole === "draft" ? "승인 전 수정안" : "옛 버전"}). 지금 생산 상태(신호등)는 생산에 쓰는 버전 기준입니다.{" "}
-                    <button type="button" className="underline" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId))}>생산에 쓰는 버전 보기</button>
+                    <button type="button" className="underline" onClick={() => go(EDIT_PATHS.recipeDetail(d.reportId))}>생산에 쓰는 버전 보기</button>
                   </span>
                 )}
                 <VersionApproval versionId={d.versionId} versionNo={d.versionNo}
@@ -121,18 +134,21 @@ export default function DesignRecipeDetail() {
                 <TabsTrigger value="edit" className="min-h-11 px-5">배합 고치기</TabsTrigger>
               </TabsList>
 
-              <TabsContent value="edit">
+              <TabsContent value="edit" forceMount className="data-[state=inactive]:hidden">
                 {/* 제조기준관리의 품목제조보고 편집기와 같은 것 — 저장하면 현황·배합표·흐름도가 서버 판정으로 새로 읽힌다.
                     편집기는 보고서의 가장 최신 버전을 고친다 → 다른 버전을 보고 있으면 편집기를 열지 않고 고칠 버전을 분명히 (Codex #605 P2) */}
                 {(d.versions as any[])[0]?.versionId === d.versionId ? (
                   <>
                     <p className="mb-2 text-xs text-muted-foreground" data-testid="editing-version">고치는 버전: v{d.versionNo} ({d.approved ? "승인" : "초안"}) — 원료마다 '공정' 칸에서 가열 공정 또는 성형에 바로·나중에 넣음을 고르고 저장하세요.</p>
-                    <MfReportEditor reportId={d.reportId} embedded onCancel={() => setTab("table")} />
+                    {editMounted && (
+                      <MfReportEditor reportId={d.reportId} embedded onDirtyChange={setEditDirty}
+                        onCancel={() => { setEditDirty(false); setEditMounted(false); setTab("table"); }} />
+                    )}
                   </>
                 ) : (
                   <Card><CardContent className="py-4 text-sm space-y-2">
                     <p>지금 보고 있는 v{d.versionNo} 은 최신 버전이 아닙니다. 배합 고치기는 최신 버전 v{(d.versions as any[])[0]?.versionNo} 을 고칩니다.</p>
-                    <Button className="h-11" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId, { versionId: (d.versions as any[])[0]?.versionId }) + "&tab=edit")}>v{(d.versions as any[])[0]?.versionNo} 열어서 고치기</Button>
+                    <Button className="h-11" onClick={() => go(EDIT_PATHS.recipeDetail(d.reportId, { versionId: (d.versions as any[])[0]?.versionId }) + "&tab=edit")}>v{(d.versions as any[])[0]?.versionNo} 열어서 고치기</Button>
                   </CardContent></Card>
                 )}
               </TabsContent>

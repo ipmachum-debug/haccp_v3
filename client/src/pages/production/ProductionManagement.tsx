@@ -1,3 +1,4 @@
+import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { useState } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs";
@@ -16,7 +17,8 @@ import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
  */
 export default function ProductionManagement() {
   const L = useIndustryLabel();
-  const [activeTab, setActiveTab] = useState("list");
+  // 선택한 탭은 URL(?tab=) — 생산 상세에서 돌아와도·새로고침해도 같은 탭 (2026-10-21)
+  const [activeTab, setActiveTab] = useTabWithUrl("tab", "list", ["list", "cost-analysis", "batch-cost", "profitability", "material-price"]);
 
   return (
     <DashboardLayout>

@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader2, Search, FileText, Eye, Edit, Trash2, Plus, Filter, CheckSquare, FileDown, AlertTriangle, Shield, Save, FlaskConical, FileSpreadsheet, Sheet } from "lucide-react";
 import { useLocation, useSearch } from "wouter";
+import { useUrlFilters } from "@/components/common/FilterBar";
+import { withReturnTo } from "@/lib/urlState";
 import { toast } from "sonner";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import ProductionLogsSection from "@/components/production/ProductionLogsSection";
@@ -352,12 +354,19 @@ function DeviationAnalysisSection({ versionId }: { versionId: number }) {
 export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [key: string]: any } = {}) {
   const L = useIndustryLabel();
   const [, setLocation] = useLocation();
-  const [searchTerm, setSearchTerm] = useState("");
+  // 검색·상태·기간은 URL 쿼리 (2026-10-21 작업 위치 보존) — 수정 화면에 갔다 와도·새로고침해도 같은 조건.
+  //   제조기준관리의 다른 탭과 겹치지 않게 mf 접두 키
+  const [mfFilters, setMfFilters] = useUrlFilters({ mfQ: "", mfStatus: "ACTIVE", mfFrom: "", mfTo: "" });
+  const searchTerm = mfFilters.mfQ;
+  const setSearchTerm = (v: string) => setMfFilters({ mfQ: v });
+  const statusFilter = mfFilters.mfStatus;
+  const setStatusFilter = (v: string) => setMfFilters({ mfStatus: v });
+  const startDate = mfFilters.mfFrom;
+  const setStartDate = (v: string) => setMfFilters({ mfFrom: v });
+  const endDate = mfFilters.mfTo;
+  const setEndDate = (v: string) => setMfFilters({ mfTo: v });
   const [selectedReport, setSelectedReport] = useState<number | null>(null);
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string>("ACTIVE");
-  const [startDate, setStartDate] = useState<string>("");
-  const [endDate, setEndDate] = useState<string>("");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [bulkAction, setBulkAction] = useState<string>("");
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
@@ -507,12 +516,12 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
 
   // 품목제조보고 수정
   const handleEdit = (reportId: number) => {
-    setLocation(`/dashboard/mf-report/modify/${reportId}`);
+    setLocation(withReturnTo(`/dashboard/mf-report/modify/${reportId}`)); // 돌아올 곳 = 지금 탭·조건
   };
 
   // 보정배합비 / 공정매핑 관리
   const handleFormula = (reportId: number) => {
-    setLocation(`/dashboard/mf-report/edit/${reportId}`);
+    setLocation(withReturnTo(`/dashboard/mf-report/edit/${reportId}`));
   };
 
   // 배합표 출력
@@ -676,7 +685,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
           <h1 className="text-3xl font-bold">품목제조보고</h1>
           <p className="text-muted-foreground mt-1">제품별 품목제조보고서를 관리합니다</p>
         </div>
-        <Button onClick={() => setLocation("/dashboard/mf-report/create")}>
+        <Button onClick={() => setLocation(withReturnTo("/dashboard/mf-report/create"))}>
           <Plus className="w-4 h-4 mr-2" />
           신규 등록
         </Button>
@@ -905,7 +914,7 @@ export default function MfReportList({ embedded, ..._ }: { embedded?: boolean; [
               <Button
                 variant="outline"
                 className="mt-4"
-                onClick={() => setLocation("/dashboard/mf-report/create")}
+                onClick={() => setLocation(withReturnTo("/dashboard/mf-report/create"))}
               >
                 <Plus className="w-4 h-4 mr-2" />
                 첫 품목제조보고 등록하기

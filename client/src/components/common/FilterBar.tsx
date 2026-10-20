@@ -9,7 +9,8 @@
  *   </FilterBar>
  */
 import { useCallback, useMemo, type ReactNode } from "react";
-import { useLocation, useSearch } from "wouter";
+import { useSearch } from "wouter";
+import { replaceQuery } from "@/lib/urlState";
 import { Search, RotateCcw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -37,14 +38,17 @@ export function writeFilters<T extends Record<string, string>>(search: string, d
 
 export function useUrlFilters<T extends Record<string, string>>(defaults: T): [T, (next: Partial<T>) => void, () => void] {
   const search = useSearch();
-  const [location, navigate] = useLocation();
   const values = useMemo(() => readFilters(search, defaults), [search]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 2026-10-21: 지금 주소(window.location)를 기준으로 바꾼다 — 같은 화면의 탭 훅이 방금 바꾼 쿼리를 덮지 않게,
+  //   기존 history.state 는 그대로 (replaceQuery). 방문 이력은 쌓지 않는다 (검색 한 글자마다 이력이 생기지 않게).
   const set = useCallback((next: Partial<T>) => {
-    navigate(`${location}${writeFilters(search, defaults, next)}`, { replace: true });
-  }, [location, search]); // eslint-disable-line react-hooks/exhaustive-deps
+    const patch: Record<string, string | null> = {};
+    for (const [k, v] of Object.entries(next)) patch[k] = v == null || v === "" || v === defaults[k as keyof T] ? null : String(v);
+    replaceQuery(patch);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const reset = useCallback(() => {
-    navigate(`${location}${writeFilters(search, defaults, Object.fromEntries(Object.keys(defaults).map((k) => [k, ""])) as Partial<T>)}`, { replace: true });
-  }, [location, search]); // eslint-disable-line react-hooks/exhaustive-deps
+    replaceQuery(Object.fromEntries(Object.keys(defaults).map((k) => [k, null])));
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return [values, set, reset];
 }
 

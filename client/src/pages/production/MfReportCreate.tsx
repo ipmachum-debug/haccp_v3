@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import { returnToFromSearch, withReturnTo } from "@/lib/urlState";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,6 +60,8 @@ const stageFrom = (v: string): { processGroupId: number | null; entryStage: "dir
 export default function MfReportCreate() {
   const L = useIndustryLabel();
   const [, setLocation] = useLocation();
+  // 돌아갈 곳 = 들어온 목록(제품 배합·품목제조보고 탭 그대로), 직접 링크면 제조기준관리의 품목제조보고 탭
+  const backTo = returnToFromSearch(useSearch(), "/dashboard/manufacturing-standards?tab=mf-reports");
   // 제품 = 품목 정체성 번호(item_master, 자사 제품) — BOM 은 이 번호로 저장한다 (11-identity-policy-v3, 2026-10-20 신규 회사 시험:
   //   생산 제품 목록(h_products_v2) 번호를 보내 '다른 회사 품목' 으로 거절됨). 원료 목록(material.list)도 item_master 번호.
   const [selectedProductId, setSelectedProductId] = useState<string>(() => new URLSearchParams(window.location.search).get("itemId") ?? "");
@@ -141,7 +144,8 @@ export default function MfReportCreate() {
     onSuccess: (r: any) => {
       toast.success("배합을 저장했습니다 — 배합표·흐름도에서 확인하고 승인하세요");
       // 저장한 배합으로 바로 (생산 설계 > 제품 배합 상세: 배합표 · 흐름도 · 승인)
-      setLocation(r?.mfReportId ? `/design/recipes/${r.mfReportId}` : "/design/recipes");
+      // 저장 뒤에는 새 배합 상세 — 그 상세의 '목록' 은 처음 들어온 목록으로 (2026-10-21)
+      setLocation(r?.mfReportId ? withReturnTo(`/design/recipes/${r.mfReportId}`, backTo) : backTo);
     },
     onError: (error: { message: string }) => {
       // 이유는 이 화면에 남기고, 넣은 값은 그대로 (같은 값을 다시 넣지 않게)
@@ -775,7 +779,7 @@ export default function MfReportCreate() {
           </p>
         )}
         <div className="flex justify-end gap-4">
-          <Button type="button" variant="outline" onClick={() => setLocation("/dashboard/mf-reports")}>
+          <Button type="button" variant="outline" onClick={() => setLocation(backTo)}>
             <ArrowLeft className="w-4 h-4 mr-2" />
             취소
           </Button>

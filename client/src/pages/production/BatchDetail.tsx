@@ -27,7 +27,8 @@ type BatchCostMaterial = {
 type AiAlert = { id: number; level?: string; title?: string; message?: string; [k: string]: unknown };
 import { ArrowLeft, Package, Zap, CheckCircle2, Clock, AlertTriangle, Plus, FileDown, Trash2, Edit, CheckSquare, Square, UserCheck, DollarSign, TrendingUp, Loader2, RefreshCw, Settings, ClipboardCheck, Brain, Shield, XCircle } from "lucide-react";
 import { useState, useEffect, useRef } from "react";
-import { Link, useParams, useLocation } from "wouter";
+import { Link, useParams, useLocation, useSearch } from "wouter";
+import { safeReturnTo } from "@/lib/urlState";
 import { toast } from "sonner";
 import LineIssueExceptions from "@/components/production/LineIssueExceptions";
 import { useAuth } from "@/_core/hooks/useAuth";
@@ -88,6 +89,8 @@ export default function BatchDetail() {
   const L = useIndustryLabel();
   const params = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
+  // 들어온 곳(생산 기록 달력의 그 월·날짜, 생산 화면 등) — 같은 사이트 상대 경로만. 없으면 아래 기본 복귀 (2026-10-21)
+  const cameFrom = new URLSearchParams(useSearch()).get("returnTo");
   const batchId = params.id ? parseInt(params.id, 10) : 0;
 
   const { user: currentUser } = useAuth();
@@ -404,7 +407,7 @@ export default function BatchDetail() {
         <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
           <Package className="h-16 w-16 text-muted-foreground" />
           <p className="text-muted-foreground">{`${L("batch")}를 찾을 수 없습니다`}</p>
-          <Button onClick={() => setLocation("/dashboard/batch-management")}>
+          <Button onClick={() => setLocation(safeReturnTo(cameFrom, "/dashboard/batch-management"))}>
             <ArrowLeft className="mr-2 h-4 w-4" />
             목록으로 돌아가기
           </Button>
@@ -422,7 +425,8 @@ export default function BatchDetail() {
             {/* 돌아가기 = 생산 화면의 그 날짜, 이 생산 건 줄을 펼친 채로 (2026-10-20 생산 화면 하나로) */}
             <Button variant="outline" size="icon" aria-label="생산 화면으로" onClick={() => {
               const d = batch.plannedDate ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date(batch.plannedDate as any)) : "";
-              setLocation(`/dashboard/production/today?view=all${d ? `&date=${d}` : ""}&batch=${batchId}`);
+              // 들어온 곳이 있으면 그곳(예: 생산 기록 달력의 같은 월·날짜), 없으면(직접 링크) 생산 화면의 그 날짜·이 생산 건
+              setLocation(safeReturnTo(cameFrom, `/dashboard/production/today?view=all${d ? `&date=${d}` : ""}&batch=${batchId}`));
             }}>
               <ArrowLeft className="h-4 w-4" />
             </Button>

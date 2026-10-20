@@ -9,8 +9,11 @@ import { getLoginUrl } from "./const";
 import "./index.css";
 import { registerServiceWorker, setupInstallPrompt } from "./registerSW";
 import { installChunkReload } from "./lib/chunkReload";
+import { installUnsavedChangesGuard } from "./hooks/useUnsavedChangesGuard";
 
 installChunkReload();
+// 저장하지 않은 입력 보호 — 브라우저 뒤로/앞으로를 라우터보다 먼저 받도록 앱을 그리기 전에 (2026-10-21)
+installUnsavedChangesGuard();
 
 const queryClient = new QueryClient();
 
