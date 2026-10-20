@@ -19,7 +19,7 @@ import { classifyBatchLines, isRepresented } from "./issuedBatchLines";
 import { assertBatchNotVoided } from "./batchVoidGuard";
 import { insertAuditWith } from "./designFactorySave";
 import { autoIssueMaterialsDispatch } from "./autoMaterialIssueDispatcher";
-import { toInventoryMaterialId } from "../identity/itemIdentityService";
+import { inventoryMaterialIdOfStockLine } from "../identity/itemIdentityService";
 
 const EPS = 0.0005;
 
@@ -121,8 +121,9 @@ export async function issueLineNow(input: {
       if (info.state === "ambiguous" && info.decision == null) throw new Error("줄 번호 없는 옛 출고와 대응이 애매한 줄입니다 — 먼저 '기존 출고로 인정' 또는 '옛 출고와 무관' 을 고르세요.");
       if (info.decision === "existing") throw new Error("이 줄은 옛 출고로 인정된 줄입니다.");
       if (!(info.quantity > 0)) throw new Error("출고할 수량이 없습니다.");
-      const mapped = await toInventoryMaterialId(Number(line.material_id), input.tenantId, c);
-      if (!mapped.trusted) throw new Error("원료 연결(품목 ↔ 재고)이 확인되지 않았습니다 — 이름만으로 연결해 출고하지 않습니다. 원료 마스터 연결을 먼저 확인하세요.");
+      // 투입 줄 번호 = 재고 원료 번호 칸 (번호 체계 2c). 이전엔 같은 숫자가 다른 원료의 품목 번호이면 '신뢰 안 함' 으로 정상 줄을 막았다.
+      const mapped = await inventoryMaterialIdOfStockLine(Number(line.material_id), input.tenantId, c);
+      if (!mapped.ok) throw new Error(`${mapped.message} — 연결을 확인한 뒤 출고합니다 (번호로 추측해 출고하지 않음).`);
       if (info.decision == null) {
         await c.execute(
           `INSERT INTO h_batch_line_issue_decisions (tenant_id, batch_input_id, decision, tx_id, decided_by, decided_at, note) VALUES (?, ?, 'issue_new', NULL, ?, NOW(), ?)`,

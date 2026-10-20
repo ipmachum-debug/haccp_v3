@@ -22,7 +22,7 @@
 
 import type { Pool, PoolConnection, Connection } from "mysql2/promise";
 import { getRawConnection } from "../../db/connection";
-import { resolveMaterialIds, resolvePriceFallback, clearMaterialIdResolverCache } from "../production/materialIdResolver";
+import { resolvePriceFallback, clearMaterialIdResolverCache } from "../production/materialIdResolver";
 import { resolveBomProductIds, bomItemIdsOfProduct, bomProductV2IdExpr, inPlaceholders, selectBomVersion } from "../production/bomProductResolver";
 import type { ItemMasterId, ProductionProductId, InventoryMaterialId } from "../../../shared/identity/itemIds";
 export type { ItemMasterId, ProductionProductId, InventoryMaterialId } from "../../../shared/identity/itemIds";
@@ -147,23 +147,27 @@ export { resolvePriceFallback, clearMaterialIdResolverCache };
 // ────────────────────────────────────────────────────────────────────────────
 
 /**
- * 어느 네임스페이스인지 모르는 material_id → h_materials.id (LOT·재고·원장이 쓰는 id).
- * materialIdResolver 위임: h_materials 직접 일치 → legacy_material_id FK. 이름 매칭은 하지 않는다 (2026-10-20).
- * 신뢰 경로가 아니면(같은 숫자가 다른 원료의 정체성 번호이기도 한 경우 포함) `trusted=false` 로 알려 준다.
+ * 수량 세계 칸(생산 건 투입 줄 h_batch_inputs.material_id 등)의 원료 번호 → 재고 원료 번호 (2026-10-20, 번호 체계 2c).
+ *   정책(§3-1): 이 칸은 재고 원료 번호 칸이다 — 지금 생산 건을 만드는 경로(BOM → 투입 줄)는 FK 로 바꾼 재고 번호를 쓴다.
+ *     이 회사에 그 재고 원료가 있으면 → 그 번호 (같은 숫자가 다른 원료의 품목 번호여도 재고 번호로 읽는다 — 칸의 종류가 재고)
+ *     없으면 옛 줄의 품목 번호일 수 있다 → 그 품목의 FK 로만 (재고 번호로는 읽힐 수 없으니 모호하지 않다)
+ *     둘 다 아니면 → 연결 없음 (원래 숫자를 재고 번호처럼 써서 출고·LOT 조회를 이어 가지 않는다)
+ *   이름 매칭·캐시 없음.
  */
-export async function toInventoryMaterialId(
-  anyMaterialId: number,
-  tenantId: number,
-  c?: IdentityConn,
-): Promise<{ id: number; trusted: boolean; source: string; itemMasterId: number | null }> {
-  // 번호 종류가 분명한 곳은 inventoryMaterialIdOfItem(정체성) 을 쓰거나 재고 번호를 그대로 쓴다 — 이 함수는 종류가 섞인 옛 칸용 (2026-10-20)
-  const r = await resolveMaterialIds(anyMaterialId, tenantId, await conn(c));
-  return {
-    id: r.canonicalId,
-    trusted: r.source === "hm_direct" || r.source === "im_to_hm_byfk",
-    source: r.source,
-    itemMasterId: r.itemMasterId,
-  };
+export async function inventoryMaterialIdOfStockLine(stored: number, tenantId: number, c?: IdentityConn): Promise<StoredMaterialResolution> {
+  const n = num(stored);
+  if (n == null) return { ok: false, reason: "missing", message: "원료 번호가 없습니다." };
+  const cx = await conn(c);
+  const [hm] = await cx.execute<any[]>(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [n, tenantId]);
+  if ((hm as any[])[0]) {
+    return { ok: true, inventoryMaterialId: n as InventoryMaterialId, itemMasterId: await toItemMasterIdFromMaterial(n as InventoryMaterialId, tenantId, cx) };
+  }
+  const fk = await inventoryMaterialIdOfItem(n as ItemMasterId, tenantId, cx);
+  if (fk != null) return { ok: true, inventoryMaterialId: fk, itemMasterId: n as ItemMasterId };
+  const [im] = await cx.execute<any[]>(`SELECT id FROM item_master WHERE id = ? AND tenant_id = ? LIMIT 1`, [n, tenantId]);
+  return (im as any[])[0]
+    ? { ok: false, reason: "unlinked", message: `품목(번호 ${n})이 재고 원료와 연결되지 않았습니다 — 원재료 정보에서 품목 연결을 확인하세요.` }
+    : { ok: false, reason: "missing", message: `원료(번호 ${n})를 이 회사에서 찾을 수 없습니다.` };
 }
 
 /**

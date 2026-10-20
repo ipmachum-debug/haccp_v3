@@ -28,7 +28,7 @@ import { resolveBatchBusinessDate } from "./batchBusinessDate";
 import { reconcileNegativeLots, createNegativePlaceholderLot } from "../inventory/negativeLotReconcile";
 import { NoLotsForNegativeError, type FefoAllocation } from "../inventory/fefoLotAllocation";
 import { eq, and, sql } from "drizzle-orm";
-import { toInventoryMaterialId, resolvePriceFallback } from "../identity/itemIdentityService";
+import { inventoryMaterialIdOfStockLine, resolvePriceFallback } from "../identity/itemIdentityService";
 import { classifyBatchLines, isRepresented, batchLineIssueState } from "./issuedBatchLines";
 import {
   ensureProductionLogForBatch,
@@ -170,7 +170,7 @@ export async function autoIssueMaterialsForBatch(
     //   h_batch_inputs.material_id 에 저장하여 ID 네임스페이스가 다시 깨짐.
     //   해결: LEFT JOIN h_materials + LEFT JOIN item_master 두 란으로 모든 ID 출처를 흡수,
     //   단가는 NULLIF(0) + COALESCE 로 폴백, 자재명도 COALESCE.
-    //   차감 lookup 은 루프 내부에서 resolveMaterialIds() 로 canonical h_materials.id 로 변환 후 진행.
+    //   차감 lookup 은 루프 내부에서 inventoryMaterialIdOfStockLine() 으로 재고 원료 번호를 정한 뒤 진행 (연결 없음은 출고 안 함).
     const [batchInputRows]: any = await db.execute(sql`
       SELECT bi.id, bi.material_id, bi.planned_quantity, bi.actual_quantity,
              bi.unit, bi.inventory_deducted, bi.process_group_id,
@@ -303,33 +303,20 @@ export async function autoIssueMaterialsForBatch(
       }
 
       // ────────────────────────────────────────────────────────────────────
-      // 2026-05-10 (PR #298): ID 네임스페이스 변환 + 4단 폴백 단가
+      // 투입 줄 번호 → 재고 원료 번호 (2026-10-20, 번호 체계 2c)
+      //   이 칸은 재고 원료 번호 칸 — 이 회사 재고 원료면 그대로, 옛 줄의 품목 번호면 FK 로만.
+      //   둘 다 아니면 출고하지 않고 알린다 (이전: 원래 숫자를 재고 번호처럼 써서 LOT·원장을 그 숫자로 남길 수 있었다).
+      //   줄은 미출고로 남아 완료 관문·현장 확인이 드러낸다. 연결 후 다시 출고하면 된다.
       // ────────────────────────────────────────────────────────────────────
-      // bi.material_id 가 item_master.id 일 수 있으므로 자재명 매칭으로 canonical
-      // h_materials.id 를 추출. 모든 lot/inventory lookup 은 canonicalId 사용.
-      let canonicalId = rawMaterialId;
-      let itemMasterId: number | null = null;
-      let resolveSource: string = "raw";
-      try {
-        const rawConn = await getRawConnection();
-        const r = await toInventoryMaterialId(rawMaterialId, tenantId, rawConn);
-        canonicalId = r.id;
-        itemMasterId = r.itemMasterId;
-        resolveSource = r.source;
-        if (!r.trusted && r.id !== rawMaterialId) {
-          console.warn(`[id-resolve] untrusted_path batch=${batchId} input=${input.id} raw=${rawMaterialId} canonical=${r.id} src=${r.source} — legacy_material_id 백필 필요`);
-        }
-        if (canonicalId !== rawMaterialId) {
-          console.info(
-            `[id-resolve] batch=${batchId} input=${input.id} ` +
-            `raw=${rawMaterialId} canonical=${canonicalId} src=${resolveSource} name="${materialName}"`
-          );
-        }
-      } catch (resolveErr: any) {
-        console.warn(
-          `[id-resolve] resolve_failed batch=${batchId} input=${input.id} ` +
-          `raw=${rawMaterialId} err="${resolveErr.message}"`
-        );
+      const resolved = await inventoryMaterialIdOfStockLine(rawMaterialId, tenantId, await getRawConnection());
+      if (!resolved.ok) {
+        result.errors.push(`${materialName}: ${resolved.message} — 출고하지 않았습니다`);
+        continue;
+      }
+      const canonicalId = Number(resolved.inventoryMaterialId);
+      const itemMasterId: number | null = resolved.itemMasterId != null ? Number(resolved.itemMasterId) : null;
+      if (canonicalId !== rawMaterialId) {
+        console.info(`[id-resolve] batch=${batchId} input=${input.id} raw=${rawMaterialId} canonical=${canonicalId} src=legacy_item_fk name="${materialName}"`);
       }
 
       // 1차 단가: bi/m/im SELECT 결과의 COALESCE 값 (NULLIF(0) 적용됨)

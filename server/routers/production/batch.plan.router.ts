@@ -163,13 +163,16 @@ export const batchPlanRouter = router({
         [ctx.tenantId, list.map((x) => x.i.lineId)],
       );
       const nm = new Map((names as any[]).map((r) => [Number(r.id), r]));
-      const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
+      const { inventoryMaterialIdOfStockLine } = await import("../../lib/identity/itemIdentityService");
       const out = [];
       for (const { i, kind } of list) {
         // 원료 연결·LOT (읽기만) — 출고하면 먼저 들어온 LOT 부터, 모자라면 회사 음수 정책대로
         let stock: { trusted: boolean; lots: number; available: number } | null = null;
         try {
-          const mapped = await toInventoryMaterialId(i.materialId, ctx.tenantId, conn);
+          // 투입 줄 번호 = 재고 원료 번호 칸 (옛 줄 품목 번호는 FK 로만) — 연결 없음이면 LOT 을 보여 주지 않는다 (번호 체계 2c)
+          const res = await inventoryMaterialIdOfStockLine(i.materialId, ctx.tenantId, conn);
+          if (!res.ok) throw new Error(res.message);
+          const mapped = { id: Number(res.inventoryMaterialId), trusted: true };
           const [[s]]: any = await conn.execute(
             // 남은 양 = 출고가 쓰는 기준과 같게 (fefoLotAllocation: 폐기·보류·만료 상태 제외, 가용량 > 0)
             `SELECT COUNT(*) AS lots,

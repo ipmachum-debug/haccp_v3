@@ -243,5 +243,10 @@ describe("번호 체계 2b — 화면이 번호 종류를 밝혀 보낸다 (2026
     for (const f of ["server/lib/inventory/inbound/inboundService.ts", "server/lib/inventory/stockAdjustment.ts", "server/routers/inventory/inbound.router.ts", "server/db/inventory/inventoryFunctions.ts"]) {
       expect(read(f)).not.toMatch(/toInventoryMaterialId\(/);
     }
+    // 2c: 생산 경로(자동 출고·출고 확인·시작 검사·현장 확인 목록)도 투입 줄 규칙으로 — 추측 변환 함수 자체를 없앴다
+    expect(read("server/lib/identity/itemIdentityService.ts")).not.toMatch(/export async function toInventoryMaterialId/);
+    for (const f of ["server/lib/production/autoMaterialIssue.ts", "server/lib/production/lineIssueDecision.ts", "server/lib/production/batchStartValidation.ts", "server/routers/production/batch.plan.router.ts"]) {
+      expect(read(f)).toMatch(/inventoryMaterialIdOfStockLine/);
+    }
   });
 });
