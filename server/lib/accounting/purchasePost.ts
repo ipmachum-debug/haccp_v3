@@ -411,88 +411,20 @@ type PurchaseAccounts = {
 };
 
 async function resolvePurchaseItem(db: any, purchase: any, tenantId: number): Promise<{ resolvedMaterialId: number | null; resolvedItemType: string }> {
-  // PR-K3 (2026-04-26): canonical PK = h_materials.id 통일 후 폴백 체인 재정렬
-  //   1순위: accounting_purchases.material_id FK (이제 h_materials.id 우선)
-  //   2순위: item_name 으로 h_materials 매칭 (canonical)
-  //   3순위: item_name 으로 item_master 매칭 (external_product 등 예외 폴백)
-  //
-  // h_materials.kind: 'RAW' / 'MIXED' (모두 raw_material 유형)
-  // item_master.item_type: 'raw_material' / 'subsidiary' / 'external_product' (다양)
-  let resolvedMaterialId: number | null = (purchase as any).materialId
-    ? Number((purchase as any).materialId)
-    : null;
-
-  // 품목 유형 조회 (회계 계정 분기용)
-  let resolvedItemType: string = "raw_material";
-  if (resolvedMaterialId) {
-    // 1순위: h_materials 에서 존재 확인 (있으면 raw_material 확정)
-    let foundInHMaterials = false;
-    try {
-      const hmResult: any = await db.execute(sql`
-        SELECT id FROM h_materials
-        WHERE id = ${resolvedMaterialId} AND tenant_id = ${tenantId}
-        LIMIT 1
-      `);
-      const hmRows: any[] = (hmResult as any)?.[0] || [];
-      if (hmRows[0]?.id) {
-        foundInHMaterials = true;
-        resolvedItemType = "raw_material";
-      }
-    } catch (_) { /* graceful */ }
-
-    // 폴백: item_master 의 item_type 조회 (external_product 등 h_materials 외 케이스)
-    if (!foundInHMaterials) {
-      try {
-        const itemTypeResult: any = await db.execute(sql`
-          SELECT item_type FROM item_master
-          WHERE id = ${resolvedMaterialId} AND tenant_id = ${tenantId}
-          LIMIT 1
-        `);
-        const itemTypeRows: any[] = (itemTypeResult as any)?.[0] || [];
-        if (itemTypeRows[0]?.item_type) {
-          resolvedItemType = String(itemTypeRows[0].item_type);
-        }
-      } catch (_) { /* graceful */ }
-    }
-  }
-
-  if (!resolvedMaterialId && purchase.itemName) {
-    try {
-      const itemName = purchase.itemName;
-      const likePattern = `%${itemName}%`;
-      // 2순위: h_materials canonical 매칭 (PR-K3 후 우선)
-      const matResult: any = await db.execute(sql`
-        SELECT id FROM h_materials
-        WHERE tenant_id = ${tenantId} AND is_active = 1
-          AND (material_name = ${itemName} OR material_name LIKE ${likePattern})
-        ORDER BY (material_name = ${itemName}) DESC, id ASC
-        LIMIT 1
-      `);
-      const matRowsArr: any[] = (matResult as any)?.[0] || [];
-      if (matRowsArr[0]?.id) {
-        resolvedMaterialId = Number(matRowsArr[0].id);
-        resolvedItemType = "raw_material";
-      } else {
-        // 3순위: item_master 폴백 (external_product 등 예외)
-        const imResult: any = await db.execute(sql`
-          SELECT id, item_type FROM item_master
-          WHERE tenant_id = ${tenantId} AND is_active = 1
-            AND (item_name = ${itemName} OR item_name LIKE ${likePattern})
-          ORDER BY (item_name = ${itemName}) DESC, id ASC
-          LIMIT 1
-        `);
-        const imRows: any[] = (imResult as any)?.[0] || [];
-        if (imRows[0]?.id) {
-          resolvedMaterialId = Number(imRows[0].id);
-          resolvedItemType = String(imRows[0].item_type || "raw_material");
-        }
-      }
-    } catch (matErr) {
-      console.error(`[purchasePost] material_id 조회 실패 (계속):`, matErr);
-    }
-  }
-
-  return { resolvedMaterialId, resolvedItemType };
+  // 2026-10-20 (번호 체계 2d): accounting_purchases.material_id 는 종류 표시가 없는 섞인 칸 (입고 연동 전표 = 재고 번호, 옛 화면 = 품목 번호).
+  //   이전: 재고 번호로 먼저 읽고, 없으면 품목 번호를 그대로 재고 번호처럼 썼으며, 번호가 없으면 품목 이름 LIKE 로 원료를 골라 LOT 을 만들었다.
+  //   지금: 두 해석이 같은 원료일 때만 재고 원료 (inventoryMaterialIdOfStoredMixed). 모호하면 확정 전에 멈춤.
+  //         재고 원료와 연결 안 된 품목(외부 상품 등)은 재고 없이 계정 유형만. 번호가 없으면 이름으로 찾지 않는다 — 재고 없이 분개만.
+  const raw = Number((purchase as any).materialId) || null;
+  if (!raw) return { resolvedMaterialId: null, resolvedItemType: "raw_material" };
+  const { inventoryMaterialIdOfStoredMixed } = await import("../identity/itemIdentityService");
+  const { getRawConnection } = await import("../../db/connection");
+  const conn = await getRawConnection();
+  const r = await inventoryMaterialIdOfStoredMixed(raw, tenantId, conn);
+  if (r.ok) return { resolvedMaterialId: Number(r.inventoryMaterialId), resolvedItemType: "raw_material" };
+  if (r.reason === "ambiguous") throw new Error(`매입 ${(purchase as any).id ?? ""}: ${r.message}`);
+  const [im]: any = await conn.execute(`SELECT item_type FROM item_master WHERE id = ? AND tenant_id = ? LIMIT 1`, [raw, tenantId]);
+  return { resolvedMaterialId: null, resolvedItemType: String((im as any[])[0]?.item_type ?? "raw_material") };
 }
 
 async function resolvePurchaseAccounts(tenantId: number, resolvedItemType: string, taxAmount: number): Promise<PurchaseAccounts> {

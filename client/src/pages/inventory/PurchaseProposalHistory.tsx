@@ -40,7 +40,7 @@ export default function PurchaseProposalHistory() {
     startDate,
     endDate,
     status: selectedStatus === "all" ? undefined : selectedStatus,
-    materialId: selectedMaterialId,
+    itemMasterId: selectedMaterialId, // 품목 선택창 번호 — 서버가 FK 로 재고 원료로 (번호 체계 2d)
   });
 
   const getStatusBadge = (status: string) => {

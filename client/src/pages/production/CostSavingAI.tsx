@@ -20,23 +20,23 @@ export default function CostSavingAI() {
   const { data: _rawMaterials } = trpc.material.list.useQuery({ limit: 9999 });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
   const { data: proposal, isLoading: proposalLoading } = trpc.costSavingAI.generateProposal.useQuery(
-    { materialId: selectedMaterialId! },
+    { itemMasterId: selectedMaterialId! },
     { enabled: !!selectedMaterialId }
   );
   const { data: priceTrend } = trpc.costSavingAI.analyzePriceTrend.useQuery(
     {
-      materialId: selectedMaterialId!,
+      itemMasterId: selectedMaterialId!, // 품목 선택창 번호 — 서버가 FK 로 재고 원료로 (번호 체계 2d)
       startDate: new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString(),
       endDate: new Date().toISOString(),
     },
     { enabled: !!selectedMaterialId }
   );
   const { data: purchaseTiming } = trpc.costSavingAI.recommendPurchaseTiming.useQuery(
-    { materialId: selectedMaterialId! },
+    { itemMasterId: selectedMaterialId! },
     { enabled: !!selectedMaterialId }
   );
   const { data: alternativeSuppliers } = trpc.costSavingAI.recommendAlternativeSuppliers.useQuery(
-    { materialId: selectedMaterialId! },
+    { itemMasterId: selectedMaterialId! },
     { enabled: !!selectedMaterialId }
   );
 

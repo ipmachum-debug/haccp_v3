@@ -41,7 +41,7 @@ export default function InventoryPredictionDashboard() {
       return;
     }
     updateSafetyStock.mutate({
-      materialId: selectedMaterialId,
+      id: selectedMaterialId, // material.update 는 품목 번호를 id 로 받는다 (이전: materialId 로 보내 입력 검사에서 실패)
       safetyStockLevel: safetyStockLevel,
     });
   };

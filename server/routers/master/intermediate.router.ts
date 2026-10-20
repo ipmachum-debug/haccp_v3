@@ -316,7 +316,9 @@ export const intermediateRouter = router({
     .input(
       z.object({
         intermediateId: z.number(),
-        componentMaterialId: z.number(),
+        /** 구성 원재료 — 품목 선택창 번호(itemMasterId) 또는 재고 원료 번호. 구성 칸은 재고 원료 번호(h_materials)로 저장 (번호 체계 2d) */
+        itemMasterId: z.number().int().positive().optional(),
+        inventoryMaterialId: z.number().int().positive().optional(),
         ratioPercent: z.number().nonnegative().optional(),
         gramsPerKg: z.number().nonnegative().optional(),
         note: z.string().optional(),
@@ -325,10 +327,18 @@ export const intermediateRouter = router({
     .mutation(async ({ ctx, input }) => {
       const db = await getDb();
       if (!db) throw new Error("DB 연결 실패");
+      const { getRawConnection } = await import("../../db/connection");
+      const conn = await getRawConnection();
+      // 혼합재제는 이 회사 재고 원료(h_materials) 여야 — 다른 회사 번호로 구성을 붙이지 않는다
+      const [im]: any = await conn.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [input.intermediateId, ctx.tenantId]);
+      if (!(im as any[])[0]) throw new Error("혼합재제를 찾을 수 없습니다.");
+      // 이전: 품목 선택창 번호를 그대로 저장 — 읽는 쪽은 재고 원료 번호로 이어 '미매칭' 이나 다른 원료로 보였다
+      const { inventoryMaterialIdOfRef, materialRefOf } = await import("../../lib/identity/itemIdentityService");
+      const componentMaterialId = Number(await inventoryMaterialIdOfRef(materialRefOf(input), Number(ctx.tenantId), conn));
       const result: any = await db.insert(hMixedMaterialComponents).values({
         tenantId: Number(ctx.tenantId),
         intermediateMaterialId: input.intermediateId,
-        componentMaterialId: input.componentMaterialId,
+        componentMaterialId,
         ratioPercent: input.ratioPercent !== undefined ? input.ratioPercent.toString() : null,
         gramsPerKg: input.gramsPerKg !== undefined ? input.gramsPerKg.toString() : null,
         note: input.note || null,

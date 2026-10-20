@@ -211,13 +211,21 @@ export const dashboardRouter = router({
           siteId: z.number().optional(),
           startDate: z.string().optional(),
           endDate: z.string().optional(),
-          materialId: z.number().optional()
+          /** 품목 선택창 번호 (번호 체계 2d — 서버가 FK 로 재고 원료로) */
+          itemMasterId: z.number().int().positive().optional(),
+          /** 재고 원료 번호 (재고 목록에서 온 경우) */
+          inventoryMaterialId: z.number().int().positive().optional(),
         })
       )
       .query(async ({ input, ctx }) => {
         const { getInventoryTrendData } = await import("../../db");
         const siteId = input.siteId || ctx.user.siteId;
         if (!siteId) throw new Error("사이트 ID가 필요합니다");
-        return await getInventoryTrendData({ ...input, siteId, tenantId: ctx.tenantId });
+        // 원료 거르기 — 거래 원장의 material_id 는 재고 원료 번호. 연결 없는 품목은 빈 추이 (숫자로 다른 원료 추이를 보이지 않음)
+        const { inventoryMaterialIdForQuery } = await import("../../lib/identity/itemIdentityService");
+        const mid = await inventoryMaterialIdForQuery(input, ctx.tenantId);
+        if (mid === null) return { inventoryTrend: [], turnoverAnalysis: [], expiringMaterials: [] };
+        const { itemMasterId: _i, inventoryMaterialId: _v, ...rest } = input;
+        return await getInventoryTrendData({ ...rest, materialId: mid ?? undefined, siteId, tenantId: ctx.tenantId });
       })
 });

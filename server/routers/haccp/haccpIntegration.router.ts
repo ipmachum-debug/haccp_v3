@@ -264,7 +264,8 @@ export const haccpIntegrationRouter = router({
           id: z.number(),
           transactionDate: z.string().optional(),
           partnerId: z.number().optional(),
-          materialId: z.number().optional(), // ★ 2026-04-13 추가: 원재료 FK
+          /** 품목을 새로 고른 경우만 — 품목 선택창 번호 (번호 체계 2d). 생략하면 저장된 원료 그대로 */
+          itemMasterId: z.number().int().positive().optional(),
           itemName: z.string().optional(),
           category: z.string().optional(),
           quantity: z.number().optional(),
@@ -279,8 +280,30 @@ export const haccpIntegrationRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { updatePurchase } = await import("../../db/haccp/haccpIntegration");
-        const { id, ...data } = input;
-        return await updatePurchase(id, data, ctx.tenantId);
+        const { id, itemMasterId, ...data } = input;
+        // 새로 고른 품목 → 다시 읽어도 같은 원료로 읽히는 번호 (매입 전표 원료 칸은 종류 표시 없는 섞인 칸)
+        let materialId: number | undefined;
+        if (itemMasterId != null) {
+          const { storableMaterialNumberOfItem, asItemMasterId } = await import("../../lib/identity/itemIdentityService");
+          materialId = await storableMaterialNumberOfItem(asItemMasterId(itemMasterId), ctx.tenantId);
+        }
+        return await updatePurchase(id, { ...data, ...(materialId != null ? { materialId } : {}) }, ctx.tenantId);
+      }),
+
+    /** 매입 전표에 저장된 원료 → 품목 번호 (수정 화면 표시용, 두 해석이 같은 원료일 때만 — 번호 체계 2d) */
+    purchaseMaterialItem: tenantRequiredProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .query(async ({ input, ctx }) => {
+        const { getRawConnection } = await import("../../db/connection");
+        const conn = await getRawConnection();
+        const [rows]: any = await conn.execute(`SELECT material_id FROM accounting_purchases WHERE id = ? AND tenant_id = ? LIMIT 1`, [input.id, ctx.tenantId]);
+        const raw = Number((rows as any[])[0]?.material_id) || null;
+        if (!raw) return { itemMasterId: null, problem: null };
+        const { inventoryMaterialIdOfStoredMixed } = await import("../../lib/identity/itemIdentityService");
+        const r = await inventoryMaterialIdOfStoredMixed(raw, ctx.tenantId, conn);
+        if (r.ok) return { itemMasterId: r.itemMasterId != null ? Number(r.itemMasterId) : null, problem: null };
+        if (r.reason === "unlinked") return { itemMasterId: raw, problem: null }; // 재고 연결 없는 품목(외부 상품 등) — 품목 번호 그대로
+        return { itemMasterId: null, problem: r.message };
       }),
 
     // 매입 거래 삭제

@@ -264,3 +264,25 @@ describe("금속검출 하루 기록지 — 승인 뒤 추가 생산 (2026-10-20
     expect(c).toMatch(/SET \$\{updateFields\.join\(', '\)\} WHERE id = \? AND tenant_id = \? AND status <> 'approved'/);
   });
 });
+
+describe("번호 체계 2d — 남은 화면이 품목 번호를 밝혀 보낸다 (2026-10-20)", () => {
+  it("재고 추이·발주 제안 이력·원가 절감·단가 이력·매입 전표 수정·중간재 구성·재고 예측", () => {
+    expect(read("client/src/pages/inventory/InventoryTrend.tsx")).toMatch(/itemMasterId: selectedMaterialId/);
+    expect(read("client/src/pages/inventory/PurchaseProposalHistory.tsx")).toMatch(/itemMasterId: selectedMaterialId/);
+    expect(read("client/src/pages/production/CostSavingAI.tsx")).not.toMatch(/materialId: selectedMaterialId/);
+    expect(read("client/src/pages/master/MaterialManagement.tsx")).toMatch(/itemMasterId: priceHistoryMaterialId!/);
+    expect(read("client/src/components/masterData/MaterialPriceChart.tsx")).toMatch(/itemMasterId: materialId/);
+    const ep = read("client/src/components/accounting/EditPurchaseDialog.tsx");
+    expect(ep).toMatch(/itemMasterId: formData\.materialId \|\| undefined/);
+    expect(ep).toMatch(/purchaseMaterialItem\.useQuery/);
+    expect(read("client/src/pages/manufacturing/IntermediatesPage.tsx")).toMatch(/itemMasterId: componentMaterialId/);
+    expect(read("client/src/pages/inventory/InventoryPredictionDashboard.tsx")).toMatch(/id: selectedMaterialId/);
+    // 원가 절감 함수 인자 순서 (회사, 원료)
+    expect(read("server/routers/production/costSavingAI.router.ts")).not.toMatch(/\(input\.materialId, tenantId/);
+    // 매입 확정: 이름으로 원료를 찾지 않는다
+    const pp = read("server/lib/accounting/purchasePost.ts");
+    expect(pp).not.toMatch(/material_name LIKE/);
+    expect(pp).not.toMatch(/item_name LIKE/);
+    expect(pp).toMatch(/inventoryMaterialIdOfStoredMixed/);
+  });
+});

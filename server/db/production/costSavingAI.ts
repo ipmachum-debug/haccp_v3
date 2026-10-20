@@ -5,6 +5,9 @@ import { invokeLLM } from "../../_core/llm";
 /**
  * 원재료 가격 변동 추이 분석
  */
+/** db.execute 결과 [행, 필드] → 행 (2026-10-20: 이전엔 결과 묶음을 행처럼 읽어 원료 이름·이력이 늘 비었다) */
+const rowsOf = (r: any): any[] => (Array.isArray(r) && Array.isArray(r[0]) ? r[0] : Array.isArray(r) ? r : []);
+
 export async function analyzePriceTrend(
   tenantId: number,
   materialId: number,
@@ -20,7 +23,7 @@ export async function analyzePriceTrend(
     FROM h_materials
     WHERE id = ${materialId} AND tenant_id = ${tenantId}
   `;
-  const materialResult: any = await db.execute(materialQuery);
+  const materialResult: any = rowsOf(await db.execute(materialQuery));
   if (!materialResult || materialResult.length === 0) {
     return null;
   }
@@ -36,7 +39,7 @@ export async function analyzePriceTrend(
       AND changed_at <= ${endDate}
     ORDER BY changed_at ASC
   `;
-  const priceHistory: any = await db.execute(priceHistoryQuery);
+  const priceHistory: any = rowsOf(await db.execute(priceHistoryQuery));
 
   const priceChanges = (priceHistory || []).map((row: any) => ({
     price: Number(row.new_price),
@@ -129,7 +132,7 @@ export async function recommendAlternativeSuppliers(tenantId: number, materialId
     FROM h_materials
     WHERE id = ${materialId} AND tenant_id = ${tenantId}
   `;
-  const materialResult: any = await db.execute(materialQuery);
+  const materialResult: any = rowsOf(await db.execute(materialQuery));
   if (!materialResult || materialResult.length === 0) {
     return null;
   }
@@ -142,7 +145,7 @@ export async function recommendAlternativeSuppliers(tenantId: number, materialId
     WHERE is_active = 1 AND tenant_id = ${tenantId}
     LIMIT 5
   `;
-  const suppliers: any = await db.execute(supplierQuery);
+  const suppliers: any = rowsOf(await db.execute(supplierQuery));
 
   return {
     materialId,
@@ -174,7 +177,7 @@ export async function generateCostSavingProposal(tenantId: number, materialId: n
     FROM h_materials
     WHERE id = ${materialId} AND tenant_id = ${tenantId}
   `;
-  const materialResult: any = await db.execute(materialQuery);
+  const materialResult: any = rowsOf(await db.execute(materialQuery));
   if (!materialResult || materialResult.length === 0) {
     return null;
   }

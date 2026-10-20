@@ -481,29 +481,19 @@ export const materialRouter = router({
         };
       }),
 
-    // 가격 이력 조회
+    // 가격 이력 조회 (2026-10-20, 번호 체계 2d) — 품목 선택창 번호를 FK 로 재고 원료로 바꿔, 공식 단가 이력(h_material_price_history)을 읽는다.
+    //   이전: 없는 칸 이름(il.receivedAt·il.materialId…)으로 LOT 을 읽어 항상 실패했고, 품목 번호를 재고 번호처럼 비교했다.
+    //   연결 없는 품목은 빈 목록. 차트용 date·price 와 이력용 changedAt·oldPrice·newPrice 를 함께 준다.
     getPriceHistory: tenantRequiredProcedure
-      .input(z.object({ materialId: z.number() }))
+      .input(z.object({ itemMasterId: z.number().int().positive().optional(), inventoryMaterialId: z.number().int().positive().optional() }))
       .query(async ({ input, ctx }) => {
-        const db = await getDb();
-        if (!db) throw new Error("DB 연결 실패");
-        
-        // 원재료 입고 이력에서 가격 정보 추출
-        const history = await db.execute(sql`
-          SELECT 
-            il.receivedAt as date,
-            il.unitPrice as price,
-            il.quantity,
-            s.supplierName as supplier
-          FROM h_inventory_lots il
-          LEFT JOIN h_suppliers s ON il.supplierId = s.id AND s.tenant_id = ${ctx.tenantId}
-          WHERE il.materialId = ${input.materialId}
-            AND il.tenant_id = ${ctx.tenantId}
-            AND il.unitPrice IS NOT NULL
-          ORDER BY il.receivedAt DESC
-          LIMIT 50
-        `);
-        
-        return (history as unknown as any[])[0] || [];
+        const { inventoryMaterialIdForQuery } = await import("../../lib/identity/itemIdentityService");
+        const { getRawConnection } = await import("../../db/connection");
+        const conn = await getRawConnection();
+        const mid = await inventoryMaterialIdForQuery(input, ctx.tenantId, conn);
+        if (mid == null) return [];
+        const { getMaterialPriceHistory } = await import("../../lib/inventory/materialPrice");
+        const rows = await getMaterialPriceHistory(conn as any, Number(mid), ctx.tenantId, 50);
+        return rows.map((r) => ({ ...r, date: r.changedAt, price: r.newPrice }));
       })
 });

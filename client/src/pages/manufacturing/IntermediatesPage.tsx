@@ -467,7 +467,7 @@ function ComponentsDialog({
           <ComponentAddDialog
             materials={materials as any[]}
             existing={components as any[]}
-            onAdd={(data) => addMut.mutate({ intermediateId: intermediate.id, ...data })}
+            onAdd={({ componentMaterialId, ...data }) => addMut.mutate({ intermediateId: intermediate.id, itemMasterId: componentMaterialId, ...data })} // 품목 번호 — 서버가 FK 로 재고 원료로 (번호 체계 2d)
             isPending={addMut.isPending}
           />
         </Dialog>
@@ -554,10 +554,10 @@ function ComponentAddDialog({
   });
   const [search, setSearch] = useState("");
 
-  // 이미 추가된 원재료는 제외
+  // 이미 추가된 원재료는 제외 — 구성 칸은 재고 원료 번호라 품목의 FK 연결값으로 맞춘다 (품목 번호와 직접 비교하지 않음, 번호 체계 2d)
   const existingIds = new Set(existing.map((c) => c.componentMaterialId));
   const filteredMaterials = (Array.isArray(materials) ? (materials as any[]) : [])
-    .filter((m) => !existingIds.has(Number(m.id)))
+    .filter((m) => !(m.inventoryMaterialId != null && existingIds.has(Number(m.inventoryMaterialId))))
     .filter((m) => {
       if (!search.trim()) return true;
       const q = search.trim().toLowerCase();

@@ -72,7 +72,7 @@ export default function MaterialManagement() {
   const updateMutation = trpc.material.update.useMutation();
   const updatePriceMutation = trpc.material.update.useMutation();
   const { data: priceHistory } = trpc.material.getPriceHistory.useQuery(
-    { materialId: priceHistoryMaterialId! },
+    { itemMasterId: priceHistoryMaterialId! }, // 품목 번호 — 서버가 FK 로 재고 원료 단가 이력 (번호 체계 2d)
     { enabled: !!priceHistoryMaterialId }
   );
   const deleteMutation = trpc.material.delete.useMutation();

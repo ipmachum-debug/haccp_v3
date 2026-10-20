@@ -509,12 +509,16 @@ export const inventoryRouter = router({
           startDate: z.string().optional(),
           endDate: z.string().optional(),
           status: z.enum(["draft", "submitted", "approved", "received", "cancelled"]).optional(),
-          materialId: z.number().optional()
+          ...materialRefInput, // 품목 선택창 번호(itemMasterId) 또는 재고 원료 번호 — 발주 제안 품목은 재고 원료 번호로 저장 (번호 체계 2d)
         })
       )
       .query(async ({ input, ctx }) => {
         const { getPurchaseProposalHistory } = await import("../../db");
-        return await getPurchaseProposalHistory({ ...input, tenantId: ctx.tenantId });
+        const { inventoryMaterialIdForQuery } = await import("../../lib/identity/itemIdentityService");
+        const mid = await inventoryMaterialIdForQuery(input, ctx.tenantId);
+        if (mid === null) return []; // 연결 없는 품목 — 숫자로 다른 원료 이력을 보이지 않음
+        const { itemMasterId: _i, inventoryMaterialId: _v, ...rest } = input;
+        return await getPurchaseProposalHistory({ ...rest, materialId: mid ?? undefined, tenantId: ctx.tenantId });
       }),
     
     // 재고 출고 (LOT 수량 차감)
