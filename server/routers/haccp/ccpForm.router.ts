@@ -407,8 +407,14 @@ export const ccpFormRouter = router({
         } catch (e: any) {
           throw new TRPCError({ code: e?.name === "SheetConfirmConflictError" ? "CONFLICT" : "PRECONDITION_FAILED", message: e?.message ?? "제출할 수 없습니다." });
         }
+        // 기록지 확인 제출 = 작성자 단계 — 자동으로 만든 결재의 '작성자 제출 대기' 를 같은 확인으로 넘긴다 (같은 확인을 결재에서 또 하지 않음)
+        const { advanceWriterStepOnSheetConfirm } = await import("../../lib/haccp/ccpRequestGate");
+        const writerAdvanced = await advanceWriterStepOnSheetConfirm(ctx.tenantId, input.formRecordId, ctx.user.id).catch((e) => {
+          console.error("[ccpForm.submit] 작성자 단계 넘기기 실패 (확인은 저장됨 — 결재 화면에서 작성자 제출 가능):", e);
+          return [] as number[];
+        });
         if (pre.record.status === "submitted") {
-          return { success: true, approvalRequestId: null, confirmedOnly: true };
+          return { success: true, approvalRequestId: null, confirmedOnly: true, writerAdvanced };
         }
         const { submitCcpFormRecord } = await import("../../db/haccp/ccpFormRecords");
         const approvalId = await submitCcpFormRecord({

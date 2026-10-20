@@ -338,29 +338,86 @@ export default function TodayProductionWorkbench({ embedded = false, workDate: w
   const batchLines = filled.filter((e) => e.line.unit === "batch").length;
   const blockedCount = preview?.rows.filter((r) => r.blocking.length).length ?? 0;
 
+  // 줄마다 계산 결과 한 줄 — 회차·설비·시각 (자세한 회차·시간표는 '예외·자세히' 안에)
+  const summaryOf = (r: PreviewRow) => {
+    const rounds = r.processes.flatMap((p) => p.rounds);
+    const eqs = Array.from(new Set(rounds.map((x) => x.equipmentName).filter(Boolean)));
+    const starts = rounds.map((x) => x.plannedStart).filter(Boolean).sort() as string[];
+    const ends = rounds.map((x) => x.plannedEnd).filter(Boolean).sort() as string[];
+    return [`${r.plannedKg}kg${r.batchCount ? ` (${r.batchCount}배치)` : ""}`, `${r.roundsCount}회`, eqs.length ? eqs.join("·") : r.metal ? "금속검출만" : null,
+      starts.length ? `${starts[0]}${ends.length ? `~${ends[ends.length - 1]}` : ""}` : null].filter(Boolean).join(" · ");
+  };
+  const previewOf = (l: Line) => (preview && !previewStale ? preview.rows.find((r) => r.rowKey === l.rowKey) ?? null : null);
+  const exceptionCount = (days > 1 ? 1 : 0) + (excluded.length ? 1 : 0) + (defaultMode !== "auto" ? 1 : 0) + (dayStartTime !== "09:00" ? 1 : 0)
+    + lines.filter((l) => l.mode !== defaultMode || l.startOverride || Object.values(l.sku).some((q) => parseInt(q) > 0)).length;
+
+  /*
+   * 계획 입력 = 제품과 수량(kg 또는 배치 수)만 (2026-10-20, 대표: 정상 생산에서 사용자가 해야 하는 일을 먼저 없앤다).
+   *   설비·운전 방식·시각은 저장된 공장 설정으로 자동 — 예외일 때만 '예외' 를 열어 이번 생산만 바꾼다.
+   *   입력하면 자동 계산(미리보기와 같은 서버 계산)이 줄 아래 한 줄로 — 확인하고 [생성]. 막히는 줄은 그 자리에 이유.
+   */
   const content = (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          {!embedded && <h1 className="text-2xl font-bold">오늘 생산</h1>}
-          <p className="text-sm text-muted-foreground">제품별 하루 총생산량을 입력하면 증숙·교반·굽기 회차와 설비·시각을 자동으로 계산합니다. 계산 결과를 확인하고 [생성].</p>
+    <div className="space-y-3">
+      {!embedded && <h1 className="text-2xl font-bold">생산 계획</h1>}
+      <div className="space-y-2">
+        {lines.map((l, idx) => {
+          const res = results[l.rowKey];
+          const failed = res && res.status !== "created" && res.status !== "reused" ? res : null;
+          const done = res && (res.status === "created" || res.status === "reused") ? res : null;
+          const dup = dupLineIds.has(l.id);
+          const pv = previewOf(l);
+          return (
+            <div key={l.id} className={cn("rounded-lg border p-2 space-y-1", failed || dup || pv?.blocking.length ? "border-red-300 bg-red-50/40 dark:bg-red-500/5" : "")} data-testid="plan-line">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="min-w-[200px] flex-1">
+                  <ProductPicker products={products} value={l.productId} used={lines.map((x) => x.productId).filter((x): x is number => !!x)} onChange={(id) => update(l.id, { productId: id, sku: {} })} />
+                </div>
+                <Input type="number" inputMode="decimal" min={0} step={l.unit === "batch" ? "1" : "0.1"} className="h-11 w-28" data-testid="total-kg"
+                  placeholder={l.unit === "batch" ? "배치 수" : "kg"} aria-label={l.unit === "batch" ? "배치 수 (BOM 1회 기준량)" : "하루 총생산량 (kg)"}
+                  value={l.totalKg} onChange={(e) => update(l.id, { totalKg: e.target.value })} />
+                <Select value={l.unit} onValueChange={(v) => update(l.id, { unit: v as "kg" | "batch" })}>
+                  <SelectTrigger className="h-11 w-20 shrink-0" data-testid="qty-unit"><SelectValue /></SelectTrigger>
+                  <SelectContent><SelectItem value="kg">kg</SelectItem><SelectItem value="batch">배치</SelectItem></SelectContent>
+                </Select>
+                <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="줄 삭제"
+                  onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.id !== l.id) : [emptyLine(defaultMode)]))}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+              {/* 자동 계산 결과 / 막힌 이유 / 생성 결과 — 같은 줄 아래 */}
+              {pv && !pv.blocking.length && !done && <p className="text-xs text-muted-foreground" data-testid="plan-summary">{summaryOf(pv)}{pv.warnings.length || pv.processes.some((p) => p.warnings.length) ? " · 확인할 점 있음 (예외·자세히)" : ""}</p>}
+              {pv?.blocking.map((b, k) => <p key={k} className="text-xs text-red-700">만들 수 없음: {b}</p>)}
+              {dup && <p className="text-xs text-red-700">같은 제품이 다른 줄에도 있습니다 — 하루 총생산량은 한 줄에 입력하세요.</p>}
+              {failed && <p className="text-xs text-red-700">저장 안 됨: {failed.error} — 고친 뒤 [생성]을 다시 누르면 이 줄만 이어서 만듭니다.</p>}
+              {done && <p className="text-xs text-emerald-700">만들었습니다{done.batchCode ? ` (${done.batchCode})` : ""}.</p>}
+            </div>
+          );
+        })}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" className="h-11" onClick={() => setLines((ls) => [...ls, emptyLine(defaultMode)])}><Plus className="h-4 w-4 mr-1" />제품 추가</Button>
+          {previewMut.isPending && <span className="text-xs text-muted-foreground flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />계산 중</span>}
+          <Button className="h-11 ml-auto" onClick={runCreate} data-testid="plan-create"
+            disabled={createMut.isPending || multiBusy || !preview || previewStale || !filled.length || !dates.length || dupLineIds.size > 0 || (!!preview && blockedCount >= preview.rows.length)}>
+            {createMut.isPending || multiBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
+            {Object.values(results).some((r) => r.status === "failed") ? "남은 줄 다시 생성" : dates.length > 1 ? `${dates.length}일 × ${filled.length}건 생성` : `${filled.length || ""}건 생성`}
+          </Button>
         </div>
-        <Button variant={showAI ? "default" : "outline"} onClick={() => setShowAI((v) => !v)}>
-          <Sparkles className="h-4 w-4 mr-1.5" />AI로 입력표 채우기
-        </Button>
+        {summary && <p className="text-sm text-muted-foreground">{summary}</p>}
+        {Object.keys(dayResults).length > 0 && (
+          <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs space-y-0.5" data-testid="day-results">
+            {Object.entries(dayResults).map(([d, t]) => <p key={d} className={t.startsWith("저장 안 됨") ? "text-red-700" : ""}>{d}: {t}</p>)}
+          </div>
+        )}
       </div>
 
-      {showAI && <AIProductionParser onConfirm={onAI as any} onClose={() => setShowAI(false)} />}
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">작업일 · 기본값 · 오늘만 바꿀 것</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
+      {/* 예외일 때만 — 이번 생산만 바꾸는 것 (공장 설정은 그대로). 자세한 회차·설비 시간표도 여기 */}
+      <details className="rounded-md border" data-testid="plan-exceptions" open={exceptionCount > 0 || undefined}>
+        <summary className="px-3 py-2 text-sm cursor-pointer select-none">예외·자세히 <span className="text-muted-foreground">— 여러 날 · 시작시각 · 처리방식 · 오늘 못 쓰는 설비 · SKU · AI 입력 · 회차별 시간표{exceptionCount ? ` (바꾼 것 ${exceptionCount})` : ""}</span></summary>
+        <div className="border-t p-3 space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="space-y-1"><Label>작업일</Label>{workDateProp
-                ? <div className="h-11 flex items-center px-3 rounded-md border bg-muted/40 text-sm" data-testid="work-date-fixed">{workDate}</div>
-                : <Input type="date" className="h-11" value={workDate} onChange={(e) => setWorkDate(e.target.value)} />}
+              ? <div className="h-11 flex items-center px-3 rounded-md border bg-muted/40 text-sm" data-testid="work-date-fixed">{workDate}</div>
+              : <Input type="date" className="h-11" value={workDate} onChange={(e) => setWorkDate(e.target.value)} />}
               {/* 미래 날짜 = 예정 (현장 1) — 서버가 같은 기준(오늘 KST)으로 판단한다 */}
               {workDate >= todayLocal() && <p className="text-xs text-blue-800" data-testid="plan-only-note">예정으로 만듭니다 — 원료는 현장에서 처음 확인할 때 (금속검출만 하는 제품은 통과 시작 때) 한 번 출고</p>}
             </div>
@@ -371,7 +428,7 @@ export default function TodayProductionWorkbench({ embedded = false, workDate: w
                 <SelectContent><SelectItem value="1">하루</SelectItem><SelectItem value="7">7일</SelectItem><SelectItem value="14">14일</SelectItem></SelectContent>
               </Select>
             </div>
-            <div className="space-y-1"><Label>기본 시작시각</Label><Input type="time" className="h-11" value={dayStartTime} onChange={(e) => setDayStartTime(e.target.value)} /></div>
+            <div className="space-y-1"><Label>설비 시작이 없을 때 시작시각</Label><Input type="time" className="h-11" value={dayStartTime} onChange={(e) => setDayStartTime(e.target.value)} /></div>
             <div className="space-y-1">
               <Label>기본 처리방식</Label>
               <Select value={defaultMode} onValueChange={(v) => setDefaultMode(v as Mode)}>
@@ -395,10 +452,10 @@ export default function TodayProductionWorkbench({ embedded = false, workDate: w
             </div>
           )}
           {(equipments as any[]).length > 0 && (
-            // 설비는 자동 배정이 기본 — 고장·정비로 오늘 못 쓰는 설비가 있을 때만 펼쳐서 뺀다 (F-PROD-04)
-            <details className="space-y-1" open={excluded.length > 0}>
-              <summary className="text-sm cursor-pointer select-none py-1">설비 예외 (선택) — 오늘 못 쓰는 설비{excluded.length ? ` ${excluded.length}대 제외 중` : ""} <span className="text-xs text-muted-foreground">(이번 생산에만 적용 — 설비 설정은 바뀌지 않습니다)</span></summary>
-              <div className="flex flex-wrap gap-2 pt-1">
+            // 설비는 공장 설정대로 자동 배정 — 고장·정비로 오늘 못 쓰는 설비만 뺀다 (설비 설정은 바뀌지 않음)
+            <div className="space-y-1">
+              <p className="text-sm">오늘 못 쓰는 설비{excluded.length ? ` — ${excluded.length}대 제외 중` : ""}</p>
+              <div className="flex flex-wrap gap-2">
                 {(equipments as Array<{ id: number; name: string; processes: string }>).map((e) => {
                   const on = excluded.includes(e.id);
                   return (
@@ -410,195 +467,103 @@ export default function TodayProductionWorkbench({ embedded = false, workDate: w
                   );
                 })}
               </div>
-            </details>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">입력표</CardTitle>
-          <CardDescription>한 줄에 제품 하나 — 그 제품의 <b>하루 총생산량</b>을 입력하세요. 증숙·교반·굽기 회차는 BOM 1회 기준량으로 자동 계산되며 줄을 늘리지 않습니다.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {lines.map((l, idx) => {
-            const failed = [results[l.rowKey]].filter((r) => r && r.status !== "created" && r.status !== "reused");
-            const dup = dupLineIds.has(l.id);
-            return (
-              <div key={l.id} className={cn("rounded-lg border p-3 space-y-2", failed.length || dup ? "border-red-300 bg-red-50/40" : "")}>
-                <div className="grid grid-cols-2 md:grid-cols-12 gap-2 items-end">
-                  <div className="col-span-2 md:col-span-3 space-y-1">
-                    <Label className="text-xs">{idx + 1}. 제품</Label>
-                    <ProductPicker products={products} value={l.productId} used={lines.map((x) => x.productId).filter((x): x is number => !!x)} onChange={(id) => update(l.id, { productId: id, sku: {} })} />
-                  </div>
-                  <div className="md:col-span-3 space-y-1">
-                    <Label className="text-xs">{l.unit === "batch" ? "배치 수 (BOM 1회 기준량)" : "하루 총생산량 (kg)"}</Label>
-                    <div className="flex gap-1">
-                      <Input type="number" inputMode="decimal" min={0} step={l.unit === "batch" ? "1" : "0.1"} className="h-11" data-testid="total-kg" value={l.totalKg} onChange={(e) => update(l.id, { totalKg: e.target.value })} />
-                      <Select value={l.unit} onValueChange={(v) => update(l.id, { unit: v as "kg" | "batch" })}>
-                        <SelectTrigger className="h-11 w-24 shrink-0" data-testid="qty-unit"><SelectValue /></SelectTrigger>
-                        <SelectContent><SelectItem value="kg">kg</SelectItem><SelectItem value="batch">배치</SelectItem></SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                  <div className="md:col-span-2 space-y-1">
-                    <Label className="text-xs">처리방식</Label>
-                    <Select value={l.mode} onValueChange={(v) => update(l.id, { mode: v as Mode })}>
-                      <SelectTrigger className="h-11"><SelectValue /></SelectTrigger>
-                      <SelectContent><SelectItem value="auto">자동</SelectItem><SelectItem value="manual">수동</SelectItem></SelectContent>
-                    </Select>
-                  </div>
-                  <div className="md:col-span-2 space-y-1">
-                    <Label className="text-xs" title="오늘만 — 설비 작업 시작시각보다 우선">오늘만 시작시각</Label>
-                    <Input type="time" className="h-11" value={l.startOverride} onChange={(e) => update(l.id, { startOverride: e.target.value })} />
-                  </div>
-                  <div className="md:col-span-1 flex justify-end">
-                    <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="줄 삭제"
-                      onClick={() => setLines((ls) => (ls.length > 1 ? ls.filter((x) => x.id !== l.id) : [emptyLine(defaultMode)]))}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                {dup && <p className="text-xs text-red-700">같은 제품이 다른 줄에도 있습니다 — 하루 총생산량은 한 줄에 입력하세요 (회차는 자동 계산). 이 줄을 지우거나 수량을 앞 줄에 합치세요.</p>}
-                {l.productId && (
-                  <details>
-                    <summary className="text-xs text-muted-foreground cursor-pointer select-none py-1">SKU 예상수량 (이 생산 건 전체)</summary>
-                    <div className="pt-2"><SkuInputs productId={l.productId} plannedKg={l.unit === "batch" ? (preview?.rows.find((r) => r.rowKey === l.rowKey)?.plannedKg ?? 0) : (Number(l.totalKg) || 0)} value={l.sku} onChange={(v) => update(l.id, { sku: v })} /></div>
-                  </details>
-                )}
-                {failed.map((r, i) => <p key={i} className="text-xs text-red-700">실패: {r!.error}</p>)}
-              </div>
-            );
-          })}
-          <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" className="h-11" onClick={() => setLines((ls) => [...ls, emptyLine(defaultMode)])}><Plus className="h-4 w-4 mr-1" />줄 추가</Button>
-            <span className="text-sm text-muted-foreground ml-auto">생산 건 {filled.length}개 · 하루 총 {totalKg.toLocaleString()} kg{batchLines ? ` + 배치 수 입력 ${batchLines}줄(미리보기에서 kg)` : ""}{dates.length > 1 ? ` · ${dates.length}일` : ""}</span>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="pb-3 flex-row items-center justify-between space-y-0 gap-2 flex-wrap">
-          <div>
-            <CardTitle className="text-base">미리보기</CardTitle>
-            <CardDescription>실제 생성과 같은 계산입니다. 미리보기만으로는 아무것도 저장되지 않습니다.</CardDescription>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" className="h-11" onClick={runPreview} disabled={previewMut.isPending || !filled.length || !dates.length}>
-              {previewMut.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Eye className="h-4 w-4 mr-1" />}미리보기
-            </Button>
-            <Button className="h-11" onClick={runCreate} disabled={createMut.isPending || multiBusy || !preview || previewStale || !filled.length || !dates.length || dupLineIds.size > 0 || (!!preview && blockedCount >= preview.rows.length)}>
-              {createMut.isPending || multiBusy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}
-              {Object.keys(results).length && Object.values(results).some((r) => r.status === "failed") ? "실패한 생산 건 다시 생성" : dates.length > 1 ? `${dates.length}일 × 생산 건 ${filled.length}개 생성` : `생산 건 ${filled.length}개 생성`}
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {summary && <div className="rounded-md border bg-muted/40 px-3 py-2 text-sm">{summary}</div>}
-          {Object.keys(dayResults).length > 0 && (
-            <div className="rounded-md border bg-muted/40 px-3 py-2 text-xs space-y-0.5" data-testid="day-results">
-              {Object.entries(dayResults).map(([d, t]) => <p key={d} className={t.startsWith("저장 안 됨") ? "text-red-700" : ""}>{d}: {t}</p>)}
             </div>
           )}
+          {/* 줄마다 이번만 바꿀 것 — 처리방식 · 시작시각 · SKU 예상수량 */}
+          {lines.filter((l) => l.productId).map((l) => (
+            <div key={l.id} className="rounded-md border p-2 space-y-2 text-sm">
+              <div className="flex flex-wrap items-end gap-2">
+                <span className="font-medium mr-2">{nameOf(l.productId)}</span>
+                <label className="text-xs space-y-0.5"><span className="block text-muted-foreground">처리방식</span>
+                  <Select value={l.mode} onValueChange={(v) => update(l.id, { mode: v as Mode })}>
+                    <SelectTrigger className="h-10 w-24"><SelectValue /></SelectTrigger>
+                    <SelectContent><SelectItem value="auto">자동</SelectItem><SelectItem value="manual">수동</SelectItem></SelectContent>
+                  </Select>
+                </label>
+                <label className="text-xs space-y-0.5" title="오늘만 — 설비 작업 시작시각보다 우선"><span className="block text-muted-foreground">오늘만 시작시각</span>
+                  <Input type="time" className="h-10 w-32" value={l.startOverride} onChange={(e) => update(l.id, { startOverride: e.target.value })} />
+                </label>
+              </div>
+              <details>
+                <summary className="text-xs text-muted-foreground cursor-pointer select-none py-1">SKU 예상수량 (이 생산 건 전체)</summary>
+                <div className="pt-2">{l.productId && <SkuInputs productId={l.productId} plannedKg={l.unit === "batch" ? (preview?.rows.find((r) => r.rowKey === l.rowKey)?.plannedKg ?? 0) : (Number(l.totalKg) || 0)} value={l.sku} onChange={(v) => update(l.id, { sku: v })} />}</div>
+              </details>
+            </div>
+          ))}
+          <div>
+            <Button variant={showAI ? "default" : "outline"} size="sm" onClick={() => setShowAI((v) => !v)}><Sparkles className="h-4 w-4 mr-1.5" />AI로 입력표 채우기</Button>
+            {showAI && <div className="mt-2"><AIProductionParser onConfirm={onAI as any} onClose={() => setShowAI(false)} /></div>}
+          </div>
           {preview && !previewStale && dates.length > 1 && (
             <div className="text-xs space-y-0.5" data-testid="other-days">
-              <p className="text-muted-foreground">아래 자세한 미리보기는 {firstDate}. 다른 날:</p>
+              <p className="text-muted-foreground">아래 자세한 계산은 {firstDate}. 다른 날:</p>
               {dates.slice(1).map((d) => {
                 const o = otherDays[d];
                 return <p key={d} className={o && o.blocked !== 0 ? "text-red-700" : ""}>{d}: {!o ? "확인 중…" : o.blocked === 0 ? "모두 생성됨" : o.blocked < 0 ? o.reasons[0] : `${o.blocked}개 막힘 — ${o.reasons.join(" / ")}`}</p>;
               })}
             </div>
           )}
-          {!preview && <p className="text-sm text-muted-foreground">입력표를 채우면 생산 건별 회차·설비·시각·투입량을 자동으로 보여 줍니다. 확인한 뒤 [생성].</p>}
-          {previewStale && <p className="text-sm text-amber-700 flex items-center gap-1"><RefreshCw className="h-4 w-4" />입력이 바뀌어 다시 계산하는 중입니다…</p>}
-          {preview && !previewStale && blockedCount > 0 && (
-            <p className="text-sm text-red-700 flex items-center gap-1"><AlertTriangle className="h-4 w-4" />{blockedCount}개 생산 건은 이대로 생성되지 않습니다 (아래 사유). 나머지는 생성됩니다.</p>
-          )}
-          {preview && (
-            <div className="space-y-2">
-              {preview.rows.map((r, i) => (
-                <div key={r.rowKey} className={cn("rounded-md border p-2 text-sm", r.blocking.length ? "border-red-300 bg-red-50/40" : "")}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="font-medium">{i + 1}. {r.productName ?? nameOf(r.productId)}</span>
-                    <span>하루 총 {r.plannedKg} kg{r.batchCount ? ` (배치 ${r.batchCount})` : ""}</span>
-                    <Badge variant="outline">BOM {r.bom.versionNo ? `v${r.bom.versionNo}` : "없음"}{r.bom.approved ? "" : " (미승인)"}</Badge>
-                    <Badge variant="outline">회차 {r.roundsCount}{r.bom.subBatchKg ? ` (1회 ${r.bom.subBatchKg}kg)` : ""}</Badge>
-                    {r.bom.massBasis === "basis" && <Badge variant="outline">원물 기준</Badge>}
-                    {r.metal && <Badge variant="outline">금속검출 포함</Badge>}
-                  </div>
-                  {r.blocking.map((b, k) => <p key={k} className="text-xs text-red-700 mt-1">생성 안 됨: {b}</p>)}
-                  {r.processes.map((p) => (
-                    <div key={p.processGroupId} className="mt-1 text-xs">
-                      <span className="font-medium">{p.name}</span>{" "}
-                      <span className="text-muted-foreground">
-                        {p.rounds.map((rd) => `${rd.equipmentName ?? "설비 없음"} ${rd.plannedStart ?? "--:--"}${rd.inputKg != null ? ` ${rd.inputKg}kg` : ""}`).join(" · ")}
-                      </span>
-                      {/* 운영 기본값 — 설비·공정 설정에서 계산된 값 (현장은 다를 때만 기록지에서 고친다) */}
-                      {(() => {
-                        const r0 = p.rounds.find((rd) => rd.tempC != null || rd.pressureBar != null || rd.heatingMin != null);
-                        if (!r0) return null;
-                        return <p className="text-muted-foreground">기본값: {[r0.tempC != null ? `${r0.tempC}℃` : null, r0.pressureBar != null ? `${r0.pressureBar} bar` : null, r0.heatingMin != null ? `가열 ${r0.heatingMin}분` : null].filter(Boolean).join(" · ")}</p>;
-                      })()}
-                      {p.warnings.map((w, k) => <p key={k} className="text-amber-700">{w}</p>)}
-                    </div>
-                  ))}
-                  {r.warnings.map((w, k) => <p key={k} className="text-xs text-amber-700 mt-1">{w}</p>)}
+          {preview && !previewStale && preview.rows.map((r, i) => (
+            <div key={r.rowKey} className="text-xs">
+              <span className="font-medium">{i + 1}. {r.productName ?? nameOf(r.productId)}</span>{" "}
+              <span className="text-muted-foreground">BOM {r.bom.versionNo ? `v${r.bom.versionNo}` : "없음"}{r.bom.approved ? "" : " (미승인)"} · 1회 {r.bom.subBatchKg ?? "-"}kg{r.bom.massBasis === "basis" ? " · 원물 기준" : ""}</span>
+              {r.processes.map((p) => (
+                <div key={p.processGroupId} className="ml-3">
+                  <span>{p.name}</span>{" "}
+                  <span className="text-muted-foreground">{p.rounds.map((rd) => `${rd.equipmentName ?? "설비 없음"} ${rd.plannedStart ?? "--:--"}${rd.inputKg != null ? ` ${rd.inputKg}kg` : ""}`).join(" · ")}</span>
+                  {/* 운영 기본값 — 설비·공정 설정에서 계산된 값 (현장은 다를 때만 고친다) */}
+                  {(() => {
+                    const r0 = p.rounds.find((rd) => rd.tempC != null || rd.pressureBar != null || rd.heatingMin != null);
+                    if (!r0) return null;
+                    return <p className="text-muted-foreground">기본값: {[r0.tempC != null ? `${r0.tempC}℃` : null, r0.pressureBar != null ? `${r0.pressureBar} bar` : null, r0.heatingMin != null ? `가열 ${r0.heatingMin}분` : null].filter(Boolean).join(" · ")}</p>;
+                  })()}
+                  {p.warnings.map((w, k) => <p key={k} className="text-amber-700">{w}</p>)}
                 </div>
               ))}
-              {timeline.length > 0 && (
-                <details open>
-                  <summary className="text-sm font-medium cursor-pointer select-none py-1">설비별 시간표</summary>
-                  <div className="space-y-1 pt-1">
-                    {timeline.map((t) => (
-                      <div key={t.eq} className="flex gap-2 text-xs items-start">
-                        <span className="w-28 shrink-0 font-medium truncate" title={t.eq}>{t.eq}</span>
-                        <div className="flex flex-wrap gap-1">
-                          {t.slots.map((s, k) => (
-                            <span key={k} className={cn("rounded px-1.5 py-0.5 border", s.saved ? "bg-muted text-muted-foreground" : "bg-blue-50 border-blue-200")}>
-                              {s.start}{s.end ? `–${s.end}` : ""} {s.label}{s.saved ? " (저장됨)" : ""}
-                            </span>
-                          ))}
-                        </div>
-                      </div>
+              {r.warnings.map((w, k) => <p key={k} className="text-amber-700 ml-3">{w}</p>)}
+            </div>
+          ))}
+          {timeline.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-sm font-medium">설비별 시간표</p>
+              {timeline.map((t) => (
+                <div key={t.eq} className="flex gap-2 text-xs items-start">
+                  <span className="w-28 shrink-0 font-medium truncate" title={t.eq}>{t.eq}</span>
+                  <div className="flex flex-wrap gap-1">
+                    {t.slots.map((s, k) => (
+                      <span key={k} className={cn("rounded px-1.5 py-0.5 border", s.saved ? "bg-muted text-muted-foreground" : "bg-blue-50 border-blue-200")}>
+                        {s.start}{s.end ? `–${s.end}` : ""} {s.label}{s.saved ? " (저장됨)" : ""}
+                      </span>
                     ))}
                   </div>
-                </details>
-              )}
+                </div>
+              ))}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </details>
 
-      {!hideBoard && <Card>
-        <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
-          <div>
-            <CardTitle className="text-base">{workDate} 배치</CardTitle>
-            <CardDescription>서버에 저장된 배치만 보입니다.</CardDescription>
-          </div>
-          <Button variant="ghost" size="icon" className="h-11 w-11" aria-label="새로고침" onClick={() => board.refetch()}><RefreshCw className="h-4 w-4" /></Button>
-        </CardHeader>
-        <CardContent>
+      {!hideBoard && (
+        <div className="rounded-md border p-3">
+          <p className="text-sm font-medium mb-1">{workDate} 배치</p>
           {!(board.data ?? []).length ? (
             <p className="text-sm text-muted-foreground">이 날짜에 저장된 배치가 없습니다.</p>
           ) : (
             <div className="divide-y">
               {(board.data as any[]).map((b) => (
                 <div key={b.id} className="flex flex-wrap items-center gap-2 py-2 text-sm">
-                  <span className="text-muted-foreground w-6 text-right">{b.batchOrder ?? ""}</span>
                   <Link href={`/dashboard/batch/${b.id}`} className="font-medium hover:underline">{b.productName ?? "-"}</Link>
                   <span className="text-xs text-muted-foreground">{b.batchCode}</span>
                   <span className="text-xs">{b.plannedKg ?? "-"} kg{b.actualKg != null ? ` → 실적 ${b.actualKg} kg` : ""}</span>
-                  {b.mode && <Badge variant="outline" className="text-xs">{b.mode === "auto" ? "자동" : "수동"}</Badge>}
                   <span className={cn("ml-auto text-xs border rounded px-2 py-1", TONE[b.next.tone])}>{b.next.label}</span>
                 </div>
               ))}
             </div>
           )}
-        </CardContent>
-      </Card>}
+        </div>
+      )}
     </div>
   );
-
   if (embedded) return content;
   return <DashboardLayout>{content}</DashboardLayout>;
 }
