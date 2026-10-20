@@ -26,6 +26,16 @@ async function mfOwned(opts: { ctx: any; getRawInput: () => Promise<unknown>; ne
   return opts.next();
 }
 const mfAdmin = adminProcedure.use(mfOwned as any);
+/** 배합 버전 승인 흐름 — 상태가 맞지 않으면 사람이 읽을 이유로 (2026-10-20) */
+async function approvalStep<T>(fn: () => Promise<T>): Promise<T> {
+  const { MfApprovalStateError } = await import("../../db/production/mfReportApproval");
+  try {
+    return await fn();
+  } catch (e: any) {
+    if (e instanceof MfApprovalStateError) throw new TRPCError({ code: "CONFLICT", message: e.message });
+    throw e;
+  }
+}
 const mfTenant = tenantRequiredProcedure.use(mfOwned as any);
 
 export const mfReportRouter = router({
@@ -228,7 +238,7 @@ export const mfReportRouter = router({
       .input(z.object({ versionId: z.number(), comment: z.string().optional() }))
       .mutation(async ({ input, ctx }) => {
         const { approveMfReportVersion } = await import("../../db/production/mfReportAPI");
-        return await approveMfReportVersion(input.versionId, ctx.user.id, input.comment, ctx.tenantId);
+        return await approvalStep(() => approveMfReportVersion(input.versionId, ctx.user.id, input.comment, ctx.tenantId));
       }),
     
     // 품목제조보고 버전 목록 조회
@@ -381,7 +391,7 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { requestMfReportApproval } = await import("../../db/production/mfReportAPI");
-        return await requestMfReportApproval(input.versionId, ctx.user.id, input.comment, ctx.tenantId);
+        return await approvalStep(() => requestMfReportApproval(input.versionId, ctx.user.id, input.comment, ctx.tenantId));
       }),
     
     // 승인 처리
@@ -394,7 +404,7 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { approveMfReportVersion } = await import("../../db/production/mfReportAPI");
-        return await approveMfReportVersion(input.versionId, ctx.user.id, input.comment, ctx.tenantId);
+        return await approvalStep(() => approveMfReportVersion(input.versionId, ctx.user.id, input.comment, ctx.tenantId));
       }),
     // 반려 처리
     reject: mfAdmin
@@ -406,7 +416,7 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { rejectMfReportVersion } = await import("../../db/production/mfReportAPI");
-        return await rejectMfReportVersion(input.versionId, ctx.user.id, input.reason, ctx.tenantId);
+        return await approvalStep(() => rejectMfReportVersion(input.versionId, ctx.user.id, input.reason, ctx.tenantId));
       }),
     
     // 승인 이력 조회

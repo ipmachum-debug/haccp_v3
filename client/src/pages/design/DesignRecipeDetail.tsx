@@ -19,7 +19,10 @@ import { ROUTES } from "@/lib/routePaths";
 import { cn } from "@/lib/utils";
 import { SignalBadge, EDIT_PATHS, fmtKg } from "@/components/design/DesignBits";
 import { MfReportEditor } from "@/pages/production/MfReportEdit";
-import { ArrowDown, ArrowRight, Loader2, Pencil } from "lucide-react";
+import { ArrowDown, ArrowRight, CheckCircle2, Loader2, Pencil } from "lucide-react";
+import { useAuth } from "@/_core/hooks/useAuth";
+import { Input } from "@/components/ui/input";
+import { toast } from "sonner";
 
 type Stage = "direct" | "late" | null;
 const MODE = (p: any) => (p.mode === "concurrent" ? "동시에" : p.mode === "grouped" && p.batchSize > 1 ? `${p.batchSize}대씩 묶어서` : "한 대씩");
@@ -79,7 +82,7 @@ export default function DesignRecipeDetail() {
                   {(d.versions as any[]).map((v) => (
                     <button key={v.versionId} type="button" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId, { versionId: v.versionId }))}
                       className={cn("min-h-9 rounded-full border px-3", v.versionId === d.versionId ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent")}>
-                      v{v.versionNo} {v.status === "APPROVED" ? "승인" : v.status === "REJECTED" ? "반려" : "초안"}
+                      v{v.versionNo} {v.status === "APPROVED" ? "승인" : v.status === "REJECTED" ? "반려" : v.status === "PENDING" ? "승인 대기" : "초안"}
                     </button>
                   ))}
                 </span>
@@ -93,6 +96,9 @@ export default function DesignRecipeDetail() {
                     <button type="button" className="underline" onClick={() => navigate(EDIT_PATHS.recipeDetail(d.reportId))}>생산에 쓰는 버전 보기</button>
                   </span>
                 )}
+                <VersionApproval versionId={d.versionId} versionNo={d.versionNo}
+                  status={String((d.versions as any[]).find((v) => v.versionId === d.versionId)?.status ?? (d.approved ? "APPROVED" : "DRAFT"))}
+                  onDone={() => q.refetch()} />
                 {(d.issues as any[]).length > 0 && (
                   <ul className="basis-full list-disc pl-5">{(d.issues as any[]).map((i, k) => <li key={k} className={i.level === "red" ? "text-red-700" : "text-amber-800"}>{i.text}</li>)}</ul>
                 )}
@@ -203,5 +209,57 @@ export default function DesignRecipeDetail() {
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+/**
+ * 이 버전 승인 — 배합 상세 안에서 기존 서버 흐름 그대로 (2026-10-20 신규 회사 시험: 저장 뒤 승인할 곳이 없었음).
+ *   관리자(승인 권한): [승인] · [반려(사유)]   — mfReport.approveVersion / reject (서버 adminProcedure)
+ *   그 밖: [승인 요청]                           — mfReport.requestApproval
+ * 상태 확인·이력은 서버가 한 트랜잭션으로. 성공하면 같은 화면을 다시 읽어 버전 상태·신호등을 갱신한다.
+ */
+function VersionApproval({ versionId, versionNo, status, onDone }: { versionId: number; versionNo: number; status: string; onDone: () => void }) {
+  const { user } = useAuth();
+  const isApprover = ["admin", "super_admin"].includes(String((user as any)?.role ?? ""));
+  const utils = trpc.useUtils();
+  const [rejecting, setRejecting] = useState(false);
+  const [reason, setReason] = useState("");
+  const [err, setErr] = useState<string | null>(null);
+  const after = (msg: string) => () => { toast.success(msg); setErr(null); setRejecting(false); setReason(""); utils.productionDesign.invalidate(); onDone(); };
+  const onError = (e: { message: string }) => setErr(e.message);
+  const approve = trpc.mfReport.approveVersion.useMutation({ onSuccess: after(`v${versionNo} 을 승인했습니다 — 이제 생산이 이 배합을 씁니다`), onError });
+  const request = trpc.mfReport.requestApproval.useMutation({ onSuccess: after(`v${versionNo} 승인을 요청했습니다`), onError });
+  const reject = trpc.mfReport.reject.useMutation({ onSuccess: after(`v${versionNo} 을 반려했습니다`), onError });
+  const busy = approve.isPending || request.isPending || reject.isPending;
+  if (status === "APPROVED") {
+    return <span className="basis-full flex items-center gap-1 text-xs text-emerald-700" data-testid="version-approved"><CheckCircle2 className="h-3.5 w-3.5" />v{versionNo} 승인됨</span>;
+  }
+  return (
+    <div className="basis-full flex flex-wrap items-center gap-2 rounded border bg-muted/30 px-2 py-2" data-testid="version-approval">
+      <span className="text-sm">v{versionNo} {status === "PENDING" ? "승인 대기" : status === "REJECTED" ? "반려됨" : "초안"}</span>
+      {isApprover && status !== "REJECTED" && (
+        <Button className="h-11" disabled={busy} onClick={() => approve.mutate({ versionId })} data-testid="approve-version">
+          {approve.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}이 버전 승인
+        </Button>
+      )}
+      {isApprover && status !== "REJECTED" && !rejecting && (
+        <Button className="h-11" variant="outline" disabled={busy} onClick={() => setRejecting(true)}>반려</Button>
+      )}
+      {((!isApprover && status === "DRAFT") || status === "REJECTED") && (
+        <Button className="h-11" disabled={busy} onClick={() => request.mutate({ versionId })} data-testid="request-approval">
+          {request.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}승인 요청
+        </Button>
+      )}
+      {status === "REJECTED" && <span className="text-xs text-muted-foreground">반려된 버전입니다 — 배합을 고친 뒤 다시 승인 요청하세요.</span>}
+      {!isApprover && status === "PENDING" && <span className="text-xs text-muted-foreground">관리자 승인을 기다립니다.</span>}
+      {rejecting && (
+        <span className="flex flex-wrap items-center gap-2">
+          <Input className="h-11 w-64" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="반려 사유" aria-label="반려 사유" />
+          <Button className="h-11" variant="destructive" disabled={busy || !reason.trim()} onClick={() => reject.mutate({ versionId, reason: reason.trim() })}>반려하기</Button>
+          <Button className="h-11" variant="ghost" onClick={() => setRejecting(false)}>취소</Button>
+        </span>
+      )}
+      {err && <p className="basis-full text-sm text-red-700" role="alert" data-testid="approval-error">{err}</p>}
+    </div>
   );
 }

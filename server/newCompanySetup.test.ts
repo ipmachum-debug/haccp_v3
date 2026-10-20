@@ -122,3 +122,20 @@ describe("BOM 신규 저장 — 품목 정체성 번호 하나 (2026-10-20 신�
     expect(c).toMatch(/entryStage: pg != null \? null/);
   });
 });
+
+describe("배합 승인 — 배합 상세에서 기존 서버 흐름으로 (2026-10-20 신규 회사 시험 3차 P1)", () => {
+  it("화면: 관리자 = 이 버전 승인·반려, 그 밖 = 승인 요청, 성공 뒤 같은 화면 다시 읽음", () => {
+    const s = read("client/src/pages/design/DesignRecipeDetail.tsx");
+    expect(s).toMatch(/trpc\.mfReport\.approveVersion\.useMutation/);
+    expect(s).toMatch(/trpc\.mfReport\.requestApproval\.useMutation/);
+    expect(s).toMatch(/trpc\.mfReport\.reject\.useMutation/);
+    expect(s).toMatch(/utils\.productionDesign\.invalidate\(\); onDone\(\)/);
+  });
+  it("서버: 상태 확인 뒤에만 바꾸고(이미 처리된 버전은 그대로), 상태·이력은 한 트랜잭션, 회사 조건", () => {
+    const a = read("server/db/production/mfReportApproval.ts");
+    expect(a).toMatch(/APPROVED: \{ from: \["DRAFT", "PENDING"\]/);
+    expect(a).toMatch(/r\.tenant_id = \$\{tenantId\} FOR UPDATE/);
+    expect(a).toMatch(/AND approval_status = \$\{String\(now\)\}/);
+    expect(read("server/routers/production/mfReport.router.ts")).toMatch(/approvalStep\(\(\) => approveMfReportVersion/);
+  });
+});
