@@ -11,7 +11,9 @@ export const lotManagementRouter = router({
     // 원재료 입고 + LOT 자동 생성 + 매입전표 자동 생성
     createReceivingWithLot: tenantRequiredProcedure
       .input(z.object({
-        materialId: z.number(),
+        // 원료 번호 + 종류 — 입고 탭은 품목 선택창(품목 번호)에서 고른다 (번호 체계 2b, 서버: materialRefOf → FK 로만)
+        itemMasterId: z.number().int().positive().optional(),
+        inventoryMaterialId: z.number().int().positive().optional(),
         materialCode: z.string(),
         quantity: z.number(),
         unit: z.string().default('kg'),
@@ -32,11 +34,13 @@ export const lotManagementRouter = router({
         if (!db) throw new Error("DB 연결 실패");
         const { generateMaterialLotNumber } = await import("../../db/haccp/visualInspection");
         const { receiveDirect } = await import("../../lib/inventory/inbound/inboundService");
+        const { materialRefOf } = await import("../../lib/identity/itemIdentityService");
+        const material = materialRefOf(input);
         const receiptDate = input.receiptDate || todayKST();
         const lotNumber = await generateMaterialLotNumber(db, ctx.tenantId, input.materialCode, receiptDate);
         const r = await receiveDirect({
           tenantId: ctx.tenantId, userId: ctx.user.id, idempotencyKey: input.idempotencyKey ?? null,
-          materialId: input.materialId, quantity: input.quantity, unit: input.unit, unitPrice: input.unitPrice ?? null,
+          material, quantity: input.quantity, unit: input.unit, unitPrice: input.unitPrice ?? null,
           // 거래처는 선택한 id 만 (회사 소속 검증) — 자유 입력 이름은 원문으로 따로 보존, 이름으로 id 추정 안 함 (Codex #560 검증 N4)
           supplierId: input.partnerId ?? null, supplierName: input.partnerId ? null : (input.supplierName ?? null),
           receiptDate, expiryDate: input.expiryDate ?? null,

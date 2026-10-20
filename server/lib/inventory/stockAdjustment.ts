@@ -6,8 +6,8 @@
  * 여기로 모은다. 모든 이동은 applyLotDelta (LOT + 원장 + 집계 재계산, 3 leg 원자) 를 거친다.
  *
  * 규칙
- *   - 자재 id 는 ItemIdentityService 로 h_materials 네임스페이스로 변환한 뒤 LOT 를 찾는다
- *     (item_master id 가 들어와도 안전). 제품은 h_products_v2.id.
+ *   - 원료는 번호 종류를 밝혀 받는다 (MaterialRef — 2026-10-20 번호 체계 2b): 품목 선택창 번호는 FK 로만,
+ *     재고·실사 목록 번호는 이 회사 h_materials 확인 후 그대로. 숫자로 종류를 추측하지 않는다. 제품은 h_products_v2.id.
  *   - 증가: 가장 최근 LOT 1개에 더한다. 활성 LOT 가 없으면 NoActiveLotsError (입고/생산완료로 LOT 먼저).
  *   - 감소: 오래된 LOT 부터 연쇄 차감 ("B 방식", created_at ASC). 가용 합계 부족이면 StockShortageError.
  *   - 원장 'adjustment' 행은 감소분을 음수로 남긴다 (기존 리포트 SUM 규약, applyLotDelta 가 처리).
@@ -16,7 +16,7 @@
 
 import type { InvConn } from "./applyInventoryDelta";
 import { applyLotDelta, receiveNewLot, InventoryShortageError } from "./applyInventoryDelta";
-import { toInventoryMaterialId } from "../identity/itemIdentityService";
+import { inventoryMaterialIdOfRef, type MaterialRef } from "../identity/itemIdentityService";
 
 const EPS = 0.001;
 
@@ -36,8 +36,8 @@ export class StockShortageError extends Error {
 
 export interface AdjustSubject {
   productId?: number | null;
-  /** 어느 네임스페이스든 허용 — 내부에서 h_materials.id 로 변환 */
-  materialId?: number | null;
+  /** 원료 — 번호와 그 종류 (품목 번호면 FK 로 재고 번호로, 재고 번호면 그대로) */
+  material?: MaterialRef | null;
 }
 
 export interface AffectedLot {
@@ -97,14 +97,14 @@ export async function adjustLot(
   return { lotId: lot.id, lotNumber: lot.lot_number, changeQty: p.delta, newAvailable: r.remaining, before };
 }
 
-/** 대상 LOT 조회 (활성, FOR UPDATE) — 자재는 네임스페이스 변환 후 canonical + 원본 id 모두 매칭 (전환기 안전) */
+/** 대상 LOT 조회 (활성, FOR UPDATE) — 원료는 종류에 맞게 재고 번호 하나로 바꾼 뒤 그 번호의 LOT 만 */
 async function loadActiveLots(
   conn: InvConn,
   p: { tenantId: number; subject: AdjustSubject; order: "ASC" | "DESC" },
 ): Promise<{ lots: LotRow[]; before: number; subjectForDelta: { productId?: number; materialId?: number }; canonicalId: number; col: "product_id" | "material_id" }> {
   const hasP = p.subject.productId != null && Number(p.subject.productId) > 0;
-  const hasM = p.subject.materialId != null && Number(p.subject.materialId) > 0;
-  if (hasP === hasM) throw new Error("productId 또는 materialId 중 하나만 지정해야 합니다");
+  const hasM = p.subject.material != null;
+  if (hasP === hasM) throw new Error("제품 또는 원료 중 하나만 지정해야 합니다");
 
   let col: "product_id" | "material_id";
   let ids: number[];
@@ -117,18 +117,11 @@ async function loadActiveLots(
     subjectForDelta = { productId: canonicalId };
   } else {
     col = "material_id";
-    const raw = Number(p.subject.materialId);
-    const resolved = await toInventoryMaterialId(raw, p.tenantId, conn);
-    canonicalId = resolved.id;
-    ids = [resolved.id];
-    // 원본 번호(옛 LOT 이 정체성 번호로 남은 경우)도 함께 보되, 그 숫자가 이 회사의 '다른 재고 원료' 번호이면 넣지 않는다 —
-    //   이전엔 [변환 번호, 원본 번호] 를 모두 매칭해, 정체성 번호가 다른 원료의 재고 번호와 같으면 그 원료 LOT 까지 조정했다 (번호 체계 2단계)
-    if (raw !== resolved.id) {
-      const [hmRows]: any = await conn.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [raw, p.tenantId]);
-      const other = Array.isArray(hmRows) ? hmRows[0] : null;
-      if (!other) ids.push(raw);
-    }
-    subjectForDelta = { materialId: resolved.id };
+    // 이전: 숫자만 받아 h_materials 직접 일치를 먼저 골랐다 — 품목 번호가 다른 원료의 재고 번호와 같으면 그 원료를 조정 (Codex 2b 점검 P1).
+    //   지금: 종류대로 바꾸고, 연결 없음·다른 회사면 LOT 을 잠그기 전에 거부. 원본 숫자로 LOT 을 더 찾지 않는다.
+    canonicalId = await inventoryMaterialIdOfRef(p.subject.material!, p.tenantId, conn);
+    ids = [canonicalId];
+    subjectForDelta = { materialId: canonicalId };
   }
 
   const [rows] = await conn.execute(

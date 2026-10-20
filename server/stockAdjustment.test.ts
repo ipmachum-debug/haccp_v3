@@ -1,8 +1,13 @@
 import { describe, it, expect, vi } from "vitest";
 import { adjustLot, adjustBySubject, applyPhysicalCount, NoActiveLotsError, StockShortageError } from "./lib/inventory/stockAdjustment";
 
+// 번호 체계 2b: 종류를 밝힌 원료 번호만 — 품목 168 → FK 615, 재고 번호는 그대로 (없으면 거부)
 vi.mock("./lib/identity/itemIdentityService", () => ({
-  toInventoryMaterialId: vi.fn(async (id: number) => ({ id: id === 168 ? 615 : id, trusted: true, source: "hm_direct", itemMasterId: null })),
+  inventoryMaterialIdOfRef: vi.fn(async (ref: { kind: "item" | "inventory"; id: number }) => {
+    if (ref.kind === "item") { if (ref.id === 168) return 615; throw new Error("이 품목은 재고 원료와 연결되지 않았습니다"); }
+    if (ref.id === 999) throw new Error("재고 원료를 이 회사에서 찾을 수 없습니다");
+    return ref.id;
+  }),
 }));
 
 /** stockAdjustment + applyLotDelta 내부 SQL 을 모두 받아주는 mock conn */
@@ -109,26 +114,29 @@ describe("adjustBySubject", () => {
     await expect(adjustBySubject(conn, { tenantId: 2, subject: { productId: 82 }, delta: 1, reason: "실사", userId: 9 })).rejects.toBeInstanceOf(NoActiveLotsError);
   });
 
-  it("자재는 ItemIdentityService 로 canonical id 변환 후 원본 id 도 함께 조회 (168 → 615)", async () => {
-    const { conn, calls } = makeConn([L(1, "20.000", { product_id: null, material_id: 615 })]);
-    const r = await adjustBySubject(conn, { tenantId: 2, subject: { materialId: 168 }, delta: -5, reason: "실사", userId: 9 });
+  it("품목 번호는 FK 로 바꾼 재고 번호의 LOT 만 (168 → 615, 원본 숫자로 더 찾지 않음 — 번호 체계 2b)", async () => {
+    const { conn, calls } = makeConn([L(1, "20.000", { product_id: null, material_id: 615 }), L(2, "9.000", { product_id: null, material_id: 168 })]);
+    const r = await adjustBySubject(conn, { tenantId: 2, subject: { material: { kind: "item", id: 168 as any } }, delta: -5, reason: "실사", userId: 9 });
     const sel = calls.find((c) => /material_id IN/.test(c.sql))!;
-    expect(sel.params).toEqual([2, 615, 168]);
+    expect(sel.params).toEqual([2, 615]);
     expect(r.affected[0].changeQty).toBe(-5);
     const agg = calls.find((c) => /COALESCE\(SUM\(available_quantity\)/.test(c.sql))!;
     expect(agg.params[1]).toBe(615); // 집계 재계산은 canonical 로
   });
 
-  it("원본 번호가 이 회사의 다른 재고 원료 번호면 함께 조회하지 않는다 — 다른 원료 LOT 을 조정하지 않음 (번호 체계 2단계)", async () => {
-    const { conn, calls } = makeConn([L(1, "20.000", { product_id: null, material_id: 615 }), L(2, "9.000", { product_id: null, material_id: 168 })], undefined, [168]);
-    await adjustBySubject(conn, { tenantId: 2, subject: { materialId: 168 }, delta: -5, reason: "실사", userId: 9 });
-    const sel = calls.find((c) => /material_id IN/.test(c.sql))!;
-    expect(sel.params).toEqual([2, 615]);
+  it("재고 번호(실사·LOT 목록)는 그대로 — 같은 숫자의 품목으로 바꾸지 않음 / 연결 없음·없는 번호는 LOT 을 잠그기 전에 거부", async () => {
+    const { conn, calls } = makeConn([L(1, "20.000", { product_id: null, material_id: 615 }), L(2, "9.000", { product_id: null, material_id: 168 })]);
+    await adjustBySubject(conn, { tenantId: 2, subject: { material: { kind: "inventory", id: 168 as any } }, delta: -5, reason: "실사", userId: 9 });
+    expect(calls.find((c) => /material_id IN/.test(c.sql))!.params).toEqual([2, 168]);
+    const before = calls.length;
+    await expect(adjustBySubject(conn, { tenantId: 2, subject: { material: { kind: "item", id: 500 as any } }, delta: -1, reason: "x", userId: 9 })).rejects.toThrow(/연결되지 않았습니다/);
+    await expect(adjustBySubject(conn, { tenantId: 2, subject: { material: { kind: "inventory", id: 999 as any } }, delta: -1, reason: "x", userId: 9 })).rejects.toThrow(/찾을 수 없습니다/);
+    expect(calls.length).toBe(before); // LOT 조회·쓰기 없음
   });
 
   it("subject 둘 다 / 둘 다 없음 → throw", async () => {
     const { conn } = makeConn([]);
-    await expect(adjustBySubject(conn, { tenantId: 2, subject: { productId: 1, materialId: 1 }, delta: 1, reason: "x", userId: 9 })).rejects.toThrow("하나만");
+    await expect(adjustBySubject(conn, { tenantId: 2, subject: { productId: 1, material: { kind: "inventory", id: 1 as any } }, delta: 1, reason: "x", userId: 9 })).rejects.toThrow("하나만");
     await expect(adjustBySubject(conn, { tenantId: 2, subject: {}, delta: 1, reason: "x", userId: 9 })).rejects.toThrow("하나만");
   });
 });
@@ -151,7 +159,7 @@ describe("applyPhysicalCount (실사 1품목)", () => {
 
   it("활성 LOT 없음 + 실사 수량 > 0 → 실사 LOT 신규 생성 (adjustment 원장, receipt 아님)", async () => {
     const { conn, calls } = makeConn([]);
-    const r = await applyPhysicalCount(conn, { tenantId: 2, subject: { materialId: 615 }, actualQty: 25.5, reason: "실사", userId: 9, unit: "kg" });
+    const r = await applyPhysicalCount(conn, { tenantId: 2, subject: { material: { kind: "inventory", id: 615 as any } }, actualQty: 25.5, reason: "실사", userId: 9, unit: "kg" });
     expect(r.status).toBe("applied");
     expect(r.createdLotNumber).toMatch(/^COUNT-M615-\d{8}-[A-Z0-9]{4}$/);
     expect(r.affected).toEqual([{ lotId: 777, lotNumber: r.createdLotNumber, changeQty: 25.5, newAvailable: 25.5 }]);

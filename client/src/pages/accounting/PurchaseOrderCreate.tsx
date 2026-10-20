@@ -20,9 +20,11 @@ import { toast } from "@/hooks/use-toast";
 import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
 import { PartnerSearchInput } from "@/components/inventory/PartnerSearchInput";
 import { todayLocal } from "@/lib/dateUtils";
+import { isSuggestionInLines } from "@/lib/poSuggestions";
 
 interface POLine {
   id: string; // temp client id
+  /** 품목 번호 (품목 선택창·추천의 itemMasterId) — 서버에는 itemMasterId 로 보낸다 (번호 체계 2b) */
   materialId: number | null;
   itemName: string;
   itemCode?: string;
@@ -121,7 +123,7 @@ function PurchaseOrderCreateContent() {
   const addSuggestedItem = (s: any) => {
     const newLine: POLine = {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      materialId: s.materialId,
+      materialId: s.itemMasterId ?? null,
       itemName: s.itemName,
       itemCode: s.itemCode || "",
       orderedQty: Math.round(s.avgQty * 10) / 10 || 1, // 평균 수량 반올림
@@ -131,14 +133,11 @@ function PurchaseOrderCreateContent() {
       notes: "",
     };
 
-    // 현재 lines 에 이미 같은 materialId 가 있으면 skip
-    const exists = lines.some(
-      (l) => l.materialId === s.materialId && s.materialId !== null,
-    );
-    if (exists) {
+    // 같은 품목·같은 단위 줄이 이미 있으면 skip (다른 단위 추천은 넣을 수 있다)
+    if (isSuggestionInLines(lines, s)) {
       toast({
         title: "이미 추가된 품목",
-        description: `${s.itemName} 은 이미 라인에 있습니다`,
+        description: `${s.itemName} (${s.unit}) 은 이미 라인에 있습니다`,
       });
       return;
     }
@@ -165,13 +164,10 @@ function PurchaseOrderCreateContent() {
     const top = (suggestions as any[]).slice(0, topN);
     const newLines: POLine[] = [];
     for (const s of top) {
-      const exists =
-        lines.some((l) => l.materialId === s.materialId && s.materialId !== null) ||
-        newLines.some((l) => l.materialId === s.materialId && s.materialId !== null);
-      if (exists) continue;
+      if (isSuggestionInLines(lines, s) || isSuggestionInLines(newLines, s)) continue;
       newLines.push({
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        materialId: s.materialId,
+        materialId: s.itemMasterId ?? null,
         itemName: s.itemName,
         itemCode: s.itemCode || "",
         orderedQty: Math.round(s.avgQty * 10) / 10 || 1,
@@ -236,7 +232,7 @@ function PurchaseOrderCreateContent() {
       deliveryAddress: deliveryAddress || undefined,
       notes: notes || undefined,
       lines: lines.map((l) => ({
-        materialId: l.materialId || undefined,
+        itemMasterId: l.materialId || undefined,
         itemName: l.itemName,
         itemCode: l.itemCode || undefined,
         orderedQty: l.orderedQty,
@@ -377,9 +373,7 @@ function PurchaseOrderCreateContent() {
           <CardContent>
             <div className="flex flex-wrap gap-2">
               {(suggestions as any[]).map((s: any, idx: number) => {
-                const alreadyAdded = lines.some(
-                  (l) => l.materialId === s.materialId && s.materialId !== null,
-                );
+                const alreadyAdded = isSuggestionInLines(lines, s);
                 return (
                   <button
                     key={s.key || idx}
@@ -404,10 +398,13 @@ function PurchaseOrderCreateContent() {
                     </div>
                     <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
                       <span className="font-mono">
-                        {s.avgPrice?.toLocaleString()}원
+                        {s.avgPrice?.toLocaleString()}원/{s.unit}
                       </span>
                       <span>·</span>
                       <span>{s.purchaseCount}회</span>
+                      {s.linked === false && (
+                        <span className="text-amber-700" title={s.materialProblem || undefined}>원료 미연결</span>
+                      )}
                       {s.daysSinceLast < 30 && (
                         <Badge
                           variant="outline"

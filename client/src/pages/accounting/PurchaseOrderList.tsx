@@ -108,7 +108,10 @@ function PurchaseOrderListContent() {
   const [editNotes, setEditNotes] = useState("");
   const [editLines, setEditLines] = useState<Array<{
     id: string;
+    /** 품목 번호 (새로 고른 원료) — 서버에 itemMasterId 로 */
     materialId: number | null;
+    /** 원료를 바꾸지 않은 기존 줄 — 서버가 그 줄의 저장 번호를 그대로 둔다 (옛 줄 번호를 품목 번호로 다시 읽지 않게, 번호 체계 2b) */
+    keepLineId?: number | null;
     itemName: string;
     itemCode?: string;
     orderedQty: number;
@@ -139,6 +142,10 @@ function PurchaseOrderListContent() {
   );
   const convByLine = new Map<number, { factor: number; baseUnit: string } | null>(
     ((receivable ?? []) as any[]).map((r) => [Number(r.poLineId), r.conversion ?? null]),
+  );
+  // 발주 줄의 재고 원료 번호 — 서버가 저장 번호를 안전하게 풀어 준 값 (포장 단위 저장도 이 번호로, 번호 체계 2b)
+  const recvByLine = new Map<number, { inventoryMaterialId: number | null; conversionError: string | null }>(
+    ((receivable ?? []) as any[]).map((r) => [Number(r.poLineId), { inventoryMaterialId: r.inventoryMaterialId ?? null, conversionError: r.conversionError ?? null }]),
   );
   // 회계만 사용하는 회사는 재고 환산이 필요 없다 — 서버 정책과 같게 (Codex #561·562 검증 R7)
   const accountingOnly = ((receivable ?? []) as any[]).some((r) => r.inventoryTracking === false);
@@ -305,7 +312,9 @@ function PurchaseOrderListContent() {
       setEditLines(
         ((detail as any)?.lines || []).map((l: any) => ({
           id: `${l.id}-${Date.now()}`,
-          materialId: l.materialId,
+          // 화면 선택 표시는 품목 번호 (저장 번호를 서버가 안전하게 풀어 준 값), 저장은 기존 줄 그대로
+          materialId: l.itemMasterId ?? null,
+          keepLineId: l.materialId != null ? Number(l.id) : null,
           itemName: l.itemName,
           itemCode: l.itemCode || "",
           orderedQty: Number(l.orderedQty),
@@ -339,7 +348,7 @@ function PurchaseOrderListContent() {
       deliveryAddress: editDeliveryAddress || undefined,
       notes: editNotes || undefined,
       lines: editLines.map((l) => ({
-        materialId: l.materialId || undefined,
+        ...(l.keepLineId ? { sameMaterialAsLineId: l.keepLineId } : { itemMasterId: l.materialId || undefined }),
         itemName: l.itemName,
         itemCode: l.itemCode || undefined,
         orderedQty: l.orderedQty,
@@ -736,12 +745,13 @@ function PurchaseOrderListContent() {
                           onSelect={(m) => {
                             updateEditLine(line.id, {
                               materialId: m.id,
+                              keepLineId: null, // 원료를 새로 골랐다 — 품목 번호로 저장
                               itemName: m.materialName,
                               itemCode: m.materialCode || "",
                               unit: m.unit || line.unit,
                             });
                           }}
-                          onClear={() => updateEditLine(line.id, { materialId: null, itemName: "", itemCode: "" })}
+                          onClear={() => updateEditLine(line.id, { materialId: null, keepLineId: null, itemName: "", itemCode: "" })}
                         />
                       </TableCell>
                       <TableCell>
@@ -896,7 +906,8 @@ function PurchaseOrderListContent() {
                               ? <span className="text-muted-foreground">{qty} {conv.baseUnit}</span>
                               : <span className="font-mono">{qty}{line.unit} → <b>{Math.round(qty * conv.factor * 1000) / 1000}{conv.baseUnit}</b></span>;
                           }
-                          if (!line.materialId) return <span className="text-red-600">원재료 미연결</span>;
+                          const recv = recvByLine.get(Number(line.id));
+                          if (!recv?.inventoryMaterialId) return <span className="text-red-600">{line.materialId ? (recv?.conversionError || "원재료 미연결") : "원재료 미연결"}</span>;
                           return (
                             <div className="space-y-1">
                               <div className="text-red-600">환산 설정 없음 — 입고 불가</div>
@@ -912,7 +923,7 @@ function PurchaseOrderListContent() {
                                 <Button
                                   size="sm" variant="outline" className="h-7 px-2 text-xs"
                                   disabled={!(parseFloat(packInput[line.id] ?? "") > 0) || savePackMutation.isPending}
-                                  onClick={() => savePackMutation.mutate({ materialId: Number(line.materialId), packUnit: line.unit, baseQty: parseFloat(packInput[line.id]) })}
+                                  onClick={() => savePackMutation.mutate({ inventoryMaterialId: recv.inventoryMaterialId!, packUnit: line.unit, baseQty: parseFloat(packInput[line.id]) })}
                                 >저장</Button>
                               </div>
                             </div>

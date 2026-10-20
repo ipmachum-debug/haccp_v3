@@ -1,6 +1,7 @@
 import { eq, and, or, lte, gte, gt, isNull, desc, asc, sql, lt, inArray, sum, like } from "drizzle-orm";
 import { hInventoryLots, hInventory, hInventoryTransactions, hMaterials, hBatchInputs, hMaterialPriceHistory, itemMaster } from "../../../drizzle/schema";
 import { getDb, getRawConnection } from "../connection";
+import type { MaterialRef } from "../../lib/identity/itemIdentityService";
 
 import { toKSTDate, todayKST } from "../../utils/timezone";
 
@@ -129,7 +130,8 @@ export async function getAllInventoryLots(filters?: {
  *   이전: tenant_id 없이 LOT INSERT, 집계 미갱신, 트랜잭션 없음, 공급처명 가짜값("Supplier N").
  */
 export async function createInventoryLot(data: {
-  materialId: number;
+  /** 원료 번호 + 종류 (재고 화면의 품목 선택창 = 품목 번호, 번호 체계 2b) */
+  material: MaterialRef;
   lotNumber: string;
   quantity: string;
   unit: string;
@@ -147,7 +149,7 @@ export async function createInventoryLot(data: {
   // ★ 2026-10-17 (입고 정본화 PR-4): 직접 입고 = 입고 문서 + 입고 확정 (재고 반영 한 곳, 전표는 만들지 않음)
   const { receiveDirect } = await import("../../lib/inventory/inbound/inboundService");
   const r = await receiveDirect({
-    tenantId, userId: data.userId, materialId: data.materialId, quantity: qty, unit: data.unit,
+    tenantId, userId: data.userId, material: data.material, quantity: qty, unit: data.unit,
     unitPrice: data.unitPrice ?? null, idempotencyKey: data.idempotencyKey ?? null,
     supplierId: data.supplierId ?? null, receiptDate: kstYmd(data.receiptDate ?? new Date()),
     expiryDate: data.expiryDate ? kstYmd(data.expiryDate) : null, lotNumber: data.lotNumber,
@@ -181,22 +183,6 @@ function parsePositiveQty(v: string | number): number {
   return q;
 }
 
-/** 입력 자재 id → 이 회사의 h_materials.id. 다른 회사 자재·없는 자재는 거부. */
-async function canonicalMaterialInTenant(
-  conn: any,
-  anyMaterialId: number,
-  tenantId: number,
-  toInventoryMaterialId: (id: number, t: number, c?: any) => Promise<{ id: number }>,
-): Promise<number> {
-  // 이 경로의 화면(생산 건 상세 원료 추가)은 품목 목록(material.list = 정체성 번호)에서 고른다 — FK 로만 변환 (2026-10-20 번호 체계 2단계).
-  //   예전 호출(재고 번호)도 받도록: 정체성 연결이 없을 때만 재고 번호로 확인한다 (같은 숫자 다른 원료로 새지 않게 정체성 우선).
-  const { inventoryMaterialIdOfItem, asItemMasterId } = await import("../../lib/identity/itemIdentityService");
-  const viaFk = await inventoryMaterialIdOfItem(asItemMasterId(anyMaterialId), tenantId, conn);
-  const id = viaFk ?? (await toInventoryMaterialId(anyMaterialId, tenantId, conn)).id;
-  const [rows]: any = await conn.execute(`SELECT id FROM h_materials WHERE id = ? AND tenant_id = ? LIMIT 1`, [id, tenantId]);
-  if (!(rows as any[])[0]) throw new Error(`원재료를 찾을 수 없습니다 (id=${anyMaterialId}) — 품목이 재고 원료와 연결돼 있는지 확인하세요`);
-  return id;
-}
 /**
  * 재고 LOT 조회 (FEFO 원칙 적용 - 유통기한 가까운 순)
  */
@@ -231,7 +217,8 @@ export async function getInventoryLotsByMaterialId(materialId: number, tenantId?
  */
 export async function addMaterialInputToBatch(data: {
   batchId: number;
-  materialId: number;
+  /** 원료 번호 + 종류 (생산 건 상세의 품목 선택창 = 품목 번호 → FK 로만, 번호 체계 2b) */
+  material: MaterialRef;
   lotId: number;
   quantity: string;
   unit: string;
@@ -241,19 +228,22 @@ export async function addMaterialInputToBatch(data: {
   const tenantId = requireTenantId(data.tenantId);
   const qty = parsePositiveQty(data.quantity);
   const { withInventoryTx, applyLotDelta } = await import("../../lib/inventory/applyInventoryDelta");
-  const { toInventoryMaterialId } = await import("../../lib/identity/itemIdentityService");
+  const { inventoryMaterialIdOfRef } = await import("../../lib/identity/itemIdentityService");
+  let materialId = 0;
 
   const remaining = await withInventoryTx(async (conn) => {
     const [bRows]: any = await conn.execute(
       `SELECT id FROM h_batches WHERE id = ? AND tenant_id = ? LIMIT 1 FOR UPDATE`, [data.batchId, tenantId],
     );
     if (!(bRows as any[])[0]) throw new Error("배치를 찾을 수 없습니다");
-    const materialId = await canonicalMaterialInTenant(conn, data.materialId, tenantId, toInventoryMaterialId);
+    // 이전: FK 가 없으면 숫자를 추측 변환 — 지금은 종류대로만, 연결 없음·다른 회사는 차감 전에 거부
+    materialId = await inventoryMaterialIdOfRef(data.material, tenantId, conn);
     const [lRows]: any = await conn.execute(
       `SELECT id, unit, material_id FROM h_inventory_lots WHERE id = ? AND tenant_id = ? LIMIT 1`, [data.lotId, tenantId],
     );
     const lot = (lRows as any[])[0];
     if (!lot) throw new Error("재고 LOT를 찾을 수 없습니다");
+    if (Number(lot.material_id) !== Number(materialId)) throw new Error("고른 LOT 이 이 원료의 LOT 이 아닙니다 — LOT 을 다시 고르세요");
     if (String(lot.unit ?? "").trim() !== String(data.unit ?? "").trim()) {
       throw new Error(`단위가 다릅니다: LOT ${lot.unit}, 투입 ${data.unit} — 같은 단위로 입력하세요`);
     }
@@ -284,7 +274,8 @@ export async function addMaterialInputToBatch(data: {
   return {
     success: true,
     message: "원재료가 투입되었습니다",
-    remainingQuantity: remaining.toFixed(3)
+    remainingQuantity: remaining.toFixed(3),
+    inventoryMaterialId: materialId,
   };
 }
 
@@ -707,7 +698,8 @@ export async function deleteInventoryLot(lotId: number, tenantId?: number) {
  *   이전: tenant_id 없이 LOT INSERT, 집계 생략, created_by=0.
  */
 export async function receiveMaterial(params: {
-  materialId: number;
+  /** 원료 번호 + 종류 (입고 관리 화면의 품목 선택창 = 품목 번호, 번호 체계 2b) */
+  material: MaterialRef;
   quantity: number;
   unit: string;
   receiptDate: string;
@@ -726,7 +718,7 @@ export async function receiveMaterial(params: {
   // ★ 2026-10-17 (입고 정본화 PR-4): 직접 입고 = 입고 문서 + 입고 확정 (전표는 만들지 않음)
   const { receiveDirect } = await import("../../lib/inventory/inbound/inboundService");
   const r = await receiveDirect({
-    tenantId, userId: params.userId ?? 0, materialId: params.materialId, quantity: qty, unit: params.unit,
+    tenantId, userId: params.userId ?? 0, material: params.material, quantity: qty, unit: params.unit,
     unitPrice: params.unitPrice ?? null, idempotencyKey: params.idempotencyKey ?? null,
     receiptDate: String(params.receiptDate).slice(0, 10), expiryDate: params.expiryDate ? String(params.expiryDate).slice(0, 10) : null,
     lotNumber, location: params.location ?? null, createVoucherDraft: false,
@@ -745,15 +737,17 @@ function kstYmd(d: Date | string): string {
  * FEFO 방식 LOT 조회 (유통기한 가까운 순)
  */
 export async function getLotsByMaterialFefo(params: {
-  materialId: number;
+  /** 재고 원료 번호 (h_materials) — 품목 번호는 라우터가 FK 로 바꿔 넘긴다 */
+  inventoryMaterialId: number;
   siteId?: number;
-  tenantId?: number;
+  tenantId: number;
 }) {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
   const conditions = [
-    eq(hInventoryLots.materialId, params.materialId),
+    eq(hInventoryLots.tenantId, requireTenantId(params.tenantId) as any), // 회사 조건 (이전: 받기만 하고 쓰지 않음)
+    eq(hInventoryLots.materialId, params.inventoryMaterialId),
     eq(hInventoryLots.status, "available"),
     gt(hInventoryLots.availableQuantity, "0"),
   ];

@@ -133,7 +133,7 @@ export default function BatchDetail() {
   const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
 
   const { data: lots, refetch: refetchLots } = trpc.inventory.getLotsByMaterialId.useQuery(
-    { materialId: selectedMaterialId! },
+    { itemMasterId: selectedMaterialId! }, // 품목 선택창 번호 — 서버가 FK 로 재고 원료 LOT 을 찾는다 (번호 체계 2b)
     { enabled: !!selectedMaterialId }
   );
 
@@ -346,7 +346,7 @@ export default function BatchDetail() {
 
     addMaterialInputMutation.mutate({
       batchId,
-      materialId: selectedMaterialId,
+      itemMasterId: selectedMaterialId,
       lotId: selectedLotId,
       quantity: inputQuantity,
       unit: selectedLot.unit,

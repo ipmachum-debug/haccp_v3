@@ -125,7 +125,7 @@ export default function InventoryRelease() {
                         lots
                           .filter((lot: any) => parseFloat(lot.availableQuantity) > 0)
                           .map((lot: any) => {
-                            const material = materials?.find((m: any) => m.id === lot.materialId);
+                            const material = materials?.find((m: any) => m.inventoryMaterialId != null && Number(m.inventoryMaterialId) === Number(lot.materialId));
                             return (
                               <SelectItem key={lot.id} value={lot.id.toString()}>
                                 {lot.lotNumber} - {material?.materialName || "알 수 없음"} (가용: {lot.availableQuantity} {lot.unit})
@@ -267,7 +267,7 @@ export default function InventoryRelease() {
                 </TableHeader>
                 <TableBody>
                   {lots.map((lot: any) => {
-                    const material = materials?.find((m: any) => m.id === lot.materialId);
+                    const material = materials?.find((m: any) => m.inventoryMaterialId != null && Number(m.inventoryMaterialId) === Number(lot.materialId));
                     const availableQty = parseFloat(lot.availableQuantity);
                     const totalQty = parseFloat(lot.quantity);
                     const usagePercent = ((totalQty - availableQty) / totalQty) * 100;

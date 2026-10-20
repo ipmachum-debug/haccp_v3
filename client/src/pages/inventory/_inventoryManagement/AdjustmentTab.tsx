@@ -22,6 +22,7 @@ import { Button } from "@/components/ui/button";
 import { SectionTitle } from "@/components/inventory/InventoryHelpers";
 import { ProductCombobox } from "@/components/inventory/ProductCombobox";
 import { MaterialCombobox } from "@/components/inventory/MaterialCombobox";
+import { lotsOfInventoryMaterial, UNLINKED_MATERIAL_NOTICE } from "@/lib/materialLots";
 import type { InventoryLot } from "./types";
 
 export type AdjustmentView = "material" | "product" | "subsidiary" | "external";
@@ -118,10 +119,12 @@ function ProductAdjustment() {
 }
 
 /* ═══════════════════════════════════════════════════
-   원재료/부자재/외주제품 재고 조정 — MaterialCombobox + materialId
+   원재료/부자재/외주제품 재고 조정 — MaterialCombobox(품목 번호) → 서버는 FK 로 재고 원료 번호
+   LOT 목록은 FK 연결값(inventoryMaterialId)으로만 맞춘다 (품목 번호와 LOT 의 재고 번호를 직접 비교하지 않음, 번호 체계 2b)
    ═══════════════════════════════════════════════════ */
 function MaterialLikeAdjustment({ view }: { view: Exclude<AdjustmentView, "product"> }) {
   const [materialId, setMaterialId] = useState<number | null>(null);
+  const [inventoryMaterialId, setInventoryMaterialId] = useState<number | null>(null);
   const [materialName, setMaterialName] = useState<string>("");
   const [adjType, setAdjType] = useState<"increase" | "decrease">("increase");
   const [qty, setQty] = useState("");
@@ -132,14 +135,10 @@ function MaterialLikeAdjustment({ view }: { view: Exclude<AdjustmentView, "produ
   const label = VIEW_LABELS[view];
 
   const { data: allLots } = trpc.inventory.list.useQuery();
-  const itemLots = useMemo(() => {
-    if (!materialId) return [];
-    return ((allLots as InventoryLot[] | undefined) ?? []).filter(
-      (l: any) =>
-        Number(l.materialId) === materialId &&
-        (l.status === "available" || !l.status),
-    );
-  }, [allLots, materialId]);
+  const itemLots = useMemo(
+    () => (materialId ? lotsOfInventoryMaterial(allLots as InventoryLot[] | undefined, inventoryMaterialId) : []),
+    [allLots, materialId, inventoryMaterialId],
+  );
 
   return (
     <AdjustmentFormShell
@@ -151,10 +150,12 @@ function MaterialLikeAdjustment({ view }: { view: Exclude<AdjustmentView, "produ
           selectedName={materialName}
           onSelect={(m) => {
             setMaterialId(m.id);
+            setInventoryMaterialId(m.inventoryMaterialId ?? null);
             setMaterialName(m.materialName);
           }}
           onClear={() => {
             setMaterialId(null);
+            setInventoryMaterialId(null);
             setMaterialName("");
           }}
           placeholder={`${label}명으로 검색...`}
@@ -163,6 +164,7 @@ function MaterialLikeAdjustment({ view }: { view: Exclude<AdjustmentView, "produ
       }
       itemName={materialName}
       lots={itemLots}
+      lotsNotice={materialId && inventoryMaterialId == null ? UNLINKED_MATERIAL_NOTICE : null}
       adjType={adjType}
       setAdjType={setAdjType}
       qty={qty}
@@ -172,7 +174,7 @@ function MaterialLikeAdjustment({ view }: { view: Exclude<AdjustmentView, "produ
       mutateInput={
         materialId
           ? {
-              materialId,
+              itemMasterId: materialId,
               quantityChange:
                 adjType === "increase"
                   ? Math.abs(parseFloat(qty) || 0)
@@ -185,6 +187,7 @@ function MaterialLikeAdjustment({ view }: { view: Exclude<AdjustmentView, "produ
         utils.inventory.list.invalidate();
         utils.inventory.getDashboard.invalidate();
         setMaterialId(null);
+        setInventoryMaterialId(null);
         setMaterialName("");
         setQty("");
         setReason("");
@@ -199,7 +202,7 @@ function MaterialLikeAdjustment({ view }: { view: Exclude<AdjustmentView, "produ
    ═══════════════════════════════════════════════════ */
 type MutInput =
   | { productId: number; quantityChange: number; reason: string }
-  | { materialId: number; quantityChange: number; reason: string };
+  | { itemMasterId: number; quantityChange: number; reason: string };
 
 interface AdjustmentFormShellProps {
   label: string;
@@ -207,6 +210,8 @@ interface AdjustmentFormShellProps {
   picker: React.ReactNode;
   itemName: string;
   lots: InventoryLot[];
+  /** LOT 이 없는 이유가 '연결 없음' 일 때 안내 (없으면 기본 안내) */
+  lotsNotice?: string | null;
   adjType: "increase" | "decrease";
   setAdjType: (v: "increase" | "decrease") => void;
   qty: string;
@@ -225,6 +230,7 @@ function AdjustmentFormShell(props: AdjustmentFormShellProps) {
     picker,
     itemName,
     lots,
+    lotsNotice,
     adjType,
     setAdjType,
     qty,
@@ -275,7 +281,7 @@ function AdjustmentFormShell(props: AdjustmentFormShellProps) {
       return;
     }
     if (lots.length === 0) {
-      alert("활성 LOT 이 없습니다. 생산 완료 또는 수동 입고로 먼저 LOT 을 생성해주세요.");
+      alert(lotsNotice || "활성 LOT 이 없습니다. 생산 완료 또는 수동 입고로 먼저 LOT 을 생성해주세요.");
       return;
     }
     if (adjType === "decrease" && changeAmt > totalAvailable + 0.001) {
@@ -400,7 +406,7 @@ function AdjustmentFormShell(props: AdjustmentFormShellProps) {
               </div>
               {lots.length === 0 && (
                 <div className="text-xs text-amber-700 dark:text-amber-400">
-                  ⚠ 활성 LOT 없음 — 생산 완료 또는 수동 입고로 먼저 LOT 을 생성해주세요.
+                  ⚠ {lotsNotice || "활성 LOT 없음 — 생산 완료 또는 수동 입고로 먼저 LOT 을 생성해주세요."}
                 </div>
               )}
               {lots.length > 0 && (

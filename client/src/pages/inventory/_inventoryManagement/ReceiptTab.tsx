@@ -70,7 +70,7 @@ export function ReceiptTab() {
   const handleSubmit = () => {
     if (!matId || !qty) { alert("원재료와 수량은 필수입니다."); return; }
     createMut.mutate({
-      materialId: matId,
+      itemMasterId: matId, // 품목 선택창 번호 = 품목 번호 (서버가 FK 로 재고 원료로, 번호 체계 2b)
       materialCode: matCode || `M${matId}`,
       quantity: parseFloat(qty),
       unit,

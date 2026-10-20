@@ -21,7 +21,10 @@ const RECENT_MATERIALS_KEY = "haccp:recent-materials";
 const MAX_RECENT = 5;
 
 interface MaterialItem {
+  /** 품목 번호 (item_master) */
   id: number;
+  /** 이 품목의 재고 원료 번호 (FK 연결, 없으면 null) — LOT·재고 목록과 맞출 때만. id 와 숫자 비교 금지 (번호 체계 2b) */
+  inventoryMaterialId?: number | null;
   materialName: string;
   materialCode?: string;
   unit?: string;
@@ -93,6 +96,7 @@ export function MaterialCombobox({
     const items: any[] = (rawList as any)?.items ?? (Array.isArray(rawList) ? rawList : []);
     return items.map((m: any) => ({
       id: m.id,
+      inventoryMaterialId: m.inventoryMaterialId != null ? Number(m.inventoryMaterialId) : null,
       materialName: m.materialName || m.itemName || `M${m.id}`,
       materialCode: m.materialCode || m.itemCode || undefined,
       unit: m.unit || undefined,

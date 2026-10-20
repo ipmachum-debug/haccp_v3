@@ -84,6 +84,9 @@ export const materialRouter = router({
             shelfLifeDays: itemMaster.shelfLifeDays,
             // 만료 알림 일수는 재고 원재료(h_materials) 에만 있다 — legacy 연결로만 읽는다
             expiryWarningDays: hMaterials.expiryWarningDays,
+            // 이 품목의 재고 원료 번호 (FK 연결로만, 없으면 null) — 화면이 LOT·재고 목록(h_materials 번호)과 맞출 때 쓴다.
+            //   id(품목 번호)와 숫자를 직접 비교하지 않는다 (번호 체계 2b)
+            inventoryMaterialId: hMaterials.id,
             createdAt: itemMaster.createdAt,
             updatedAt: itemMaster.updatedAt,
           })
