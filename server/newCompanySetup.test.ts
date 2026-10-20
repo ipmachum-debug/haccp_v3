@@ -139,3 +139,39 @@ describe("배합 승인 — 배합 상세에서 기존 서버 흐름으로 (2026
     expect(read("server/routers/production/mfReport.router.ts")).toMatch(/approvalStep\(\(\) => approveMfReportVersion/);
   });
 });
+
+describe("신규 회사 시험 4차 — 완료 보고서 열기 · BOM 기준량 · 도장 이름 · 인쇄 문구", () => {
+  it("완료 보고서: 저장 주소에서 파일 위치만 꺼내 새 서명 주소 — 서명 쿼리 버림, 다른 회사 경로 거부", async () => {
+    const { reportKeyFromUrl } = await import("./storage");
+    expect(reportKeyFromUrl("https://cdn.example.test/tenant-15/reports/batch-completion-report-30001-20261020-001-1.pdf", 15)).toBe("tenant-15/reports/batch-completion-report-30001-20261020-001-1.pdf");
+    expect(reportKeyFromUrl("https://s3.example.test/bucket/tenant-15/reports/r.pdf?X-Amz-Signature=abc&X-Amz-Expires=3600", 15)).toBe("tenant-15/reports/r.pdf");
+    expect(reportKeyFromUrl("https://s3.example.test/tenant-2/reports/r.pdf", 15)).toBeNull();
+    expect(reportKeyFromUrl("https://s3.example.test/reports/r.pdf", 15)).toBe("reports/r.pdf");
+    expect(reportKeyFromUrl(null, 15)).toBeNull();
+    const d = read("client/src/pages/production/BatchDetail.tsx");
+    expect(d).not.toMatch(/window\.open\(batch\.completionReportUrl/);
+    expect(d).toMatch(/reportLink\.mutate\(\{ batchId \}/);
+  });
+  it("BOM 기준량: 생산 건 기록지 저장값 먼저, 없으면 생산이 쓰는 버전 선택 함수 — 생산 제품 번호와 BOM 번호를 직접 비교하지 않음", () => {
+    const s = read("server/routers/haccp/ccpForm.router.ts");
+    const f = s.slice(s.indexOf("getBomBatchKg:"), s.indexOf("getEquipmentForBatch:"));
+    expect(f).not.toMatch(/WHERE mr\.product_id = \?/);
+    expect(f).toMatch(/bom_batch_kg > 0/);
+    expect(f).toMatch(/selectBomVersion\(input\.productId/);
+    expect(read("client/src/components/ccp/CcpMonitoringForms.tsx")).toMatch(/bomLoading \? "BOM 배치량 조회 중\.\.\. " : "배합\(BOM\) 1배치 기준량이 없습니다/);
+  });
+  it("도장: 긴 이름도 누가 했는지 보이게 (3자 한 줄 · 4~6자 두 줄 · 7자 이상 도장 아래 전체)", async () => {
+    const { stampLines } = await import("../client/src/components/checklist/ApprovalStampBox");
+    expect(stampLines("홍길동")).toEqual({ inStamp: ["홍길동"], below: null });
+    expect(stampLines("시험관리자")).toEqual({ inStamp: ["시험관", "리자"], below: null });
+    expect(stampLines("생산흐름 시험관리자")).toEqual({ inStamp: ["인"], below: "생산흐름 시험관리자" });
+    expect(stampLines("")).toEqual({ inStamp: ["인"], below: null });
+  });
+  it("인쇄 문구(주기·방법·개선조치): 우리 공장 공정 추가·고치기에서 한 번 — 같은 공정 칸에, 같은 저장·이력", () => {
+    const f = read("client/src/pages/design/DesignFactory.tsx");
+    expect(f).toMatch(/function PrintTexts/);
+    expect(f).toMatch(/input\.monitoringMethod = texts\.method/);
+    expect(f).toMatch(/monitoringMethod: texts\.method\.trim\(\) \|\| undefined/);
+    expect(read("server/lib/production/designFactorySave.ts")).toMatch(/col\("monitoring_method", txt\(input\.monitoringMethod\)/);
+  });
+});

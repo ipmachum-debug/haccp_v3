@@ -20,6 +20,7 @@ export async function loadDesignGroups(conn: any, tenantId: number): Promise<Des
   try {
     [gRows] = await conn.execute(
       `SELECT g.id, g.name, g.ccp_type, g.sort_order, g.equip_group_mode, g.equip_batch_size, g.equip_interval_min,
+              g.monitoring_cycle, g.monitoring_method, g.corrective_action,
               (SELECT COUNT(*) FROM ccp_time_profiles tp WHERE tp.tenant_id = g.tenant_id AND tp.ccp_process_group_id = g.id AND tp.is_active = 1) AS profile_count,
               (SELECT MAX(tp.time_minutes) FROM ccp_time_profiles tp WHERE tp.tenant_id = g.tenant_id AND tp.ccp_process_group_id = g.id AND tp.is_active = 1) AS profile_time
          FROM ccp_process_groups g WHERE g.tenant_id = ? AND g.status = 'active' ORDER BY g.sort_order, g.id`,
@@ -56,6 +57,7 @@ export async function loadDesignGroups(conn: any, tenantId: number): Promise<Des
       mode: String(r.equip_group_mode ?? "sequential"), batchSize: Number(r.equip_batch_size ?? 1) || 1,
       intervalMin: r.equip_interval_min != null ? Number(r.equip_interval_min) : 10,
       profileCount, profileTimeMin,
+      monitoringCycle: r.monitoring_cycle ?? null, monitoringMethod: r.monitoring_method ?? null, correctiveAction: r.corrective_action ?? null,
       // 설비 기본값(마스터)과 이 공정에 적용되는 값(계획과 같은 occupancyFor)을 나눠 보여 준다
       equipments: (byGroup.get(Number(r.id)) ?? []).map((e) => {
         const heat = heatingFor(profileCount, profileTimeMin, e.timeMin);

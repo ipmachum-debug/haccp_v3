@@ -564,6 +564,28 @@ export const batchCrudRouter = router({
       }),
 
     /** 배치 상세 조회 (최신 PDF URL 포함) */
+    /**
+     * 배치 완료 보고서 열기 (2026-10-20, 신규 회사 시험 P1: 저장된 주소가 Access Denied).
+     *   저장소는 비공개 그대로 — 저장된 주소(영구 주소 또는 만료된 서명 주소)에서 파일 위치만 꺼내
+     *   누를 때마다 새 서명 주소(1시간)를 발급한다 (건강진단서 다운로드와 같은 방식). 이 회사의 생산 건·이 회사 경로만.
+     */
+    completionReportLink: tenantRequiredProcedure
+      .input(z.object({ batchId: z.number() }))
+      .mutation(async ({ input, ctx }) => {
+        const { getRawConnection } = await import("../../db");
+        const conn: any = await getRawConnection();
+        const [[b]]: any = await conn.execute(
+          `SELECT completion_report_url AS u FROM h_batches WHERE id = ? AND tenant_id = ?`,
+          [input.batchId, ctx.tenantId],
+        );
+        if (!b) throw new TRPCError({ code: "NOT_FOUND", message: "생산 건을 찾을 수 없습니다." });
+        const { reportKeyFromUrl, storageGet } = await import("../../storage");
+        const key = reportKeyFromUrl(b.u ?? null, ctx.tenantId);
+        if (!key) throw new TRPCError({ code: "NOT_FOUND", message: "완료 보고서 파일을 찾을 수 없습니다 — 보고서가 아직 만들어지지 않았습니다." });
+        const { url } = await storageGet(key);
+        return { url };
+      }),
+
     getById: tenantRequiredProcedure
       .input(z.object({ id: z.number() }))
       .query(async ({ input, ctx }) => {

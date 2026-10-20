@@ -180,13 +180,14 @@ function OXCell({ value, onChange }: { value?: string | null; onChange?: (v: str
 // BOM 배치수 계산 섹션
 // ─────────────────────────────────────────────────────────────────────────────
 function BatchCountCalc({
-  productId, plannedQtyKg, batchCount, onBatchCountChange, disabled,
+  productId, batchId, plannedQtyKg, batchCount, onBatchCountChange, disabled,
 }: {
-  productId?: number; plannedQtyKg?: number;
+  productId?: number; batchId?: number; plannedQtyKg?: number;
   batchCount: number; onBatchCountChange: (n: number) => void; disabled?: boolean;
 }) {
-  const { data: bomData } = trpc.ccpForm.getBomBatchKg.useQuery(
-    { productId: productId! },
+  // 이 생산 건 기록지의 저장 기준 → 없으면 생산이 쓰는 배합 버전 (보여 주기만, 저장하지 않음)
+  const { data: bomData, isLoading: bomLoading } = trpc.ccpForm.getBomBatchKg.useQuery(
+    { productId: productId!, batchId },
     { enabled: !!productId }
   );
   const bomBatchKg = bomData?.bomBatchKg;
@@ -204,7 +205,7 @@ function BatchCountCalc({
         <div className="text-xs text-blue-600 mt-0.5">
           {bomBatchKg
             ? `계획 ${plannedQtyKg ?? "?"}kg ÷ BOM 배치량 ${bomBatchKg}kg (올림) → `
-            : "BOM 배치량 조회 중... "}
+            : bomLoading ? "BOM 배치량 조회 중... " : "배합(BOM) 1배치 기준량이 없습니다 — 제품 배합에서 1배치 총 생산량을 넣으세요 "}
           <span className="font-bold text-blue-800">
             {autoBatchCount ? `${autoBatchCount}배치` : "-"}
           </span>
@@ -892,6 +893,7 @@ function CcpFormPanel({
           {!is4P && (
           <BatchCountCalc
             productId={productId}
+            batchId={batchId}
             plannedQtyKg={plannedQtyKg}
             batchCount={batchCount}
             onBatchCountChange={handleBatchCountChange}

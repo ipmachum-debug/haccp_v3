@@ -38,11 +38,15 @@ export interface SaveProcessInput {
   intervalMin?: number;
   /** 연결 설비 (순서대로). undefined = 그대로 */
   equipmentIds?: number[];
+  /** 기록지·인쇄에 나가는 문구 (모니터링 주기·방법·개선조치) — 공장 설정에서 한 번 (2026-10-20). undefined = 그대로, '' = 비움 */
+  monitoringCycle?: string | null;
+  monitoringMethod?: string | null;
+  correctiveAction?: string | null;
 }
 
 export async function saveProcess(conn: any, tenantId: number, input: SaveProcessInput) {
   const [[g]]: any = await conn.execute(
-    `SELECT id, name, ccp_type, equip_group_mode, equip_batch_size, equip_interval_min FROM ccp_process_groups WHERE id = ? AND tenant_id = ?`,
+    `SELECT id, name, ccp_type, equip_group_mode, equip_batch_size, equip_interval_min, monitoring_cycle, monitoring_method, corrective_action FROM ccp_process_groups WHERE id = ? AND tenant_id = ?`,
     [input.groupId, tenantId],
   );
   if (!g) throw new Error("이 회사의 공정이 아닙니다.");
@@ -80,12 +84,16 @@ export async function saveProcess(conn: any, tenantId: number, input: SaveProces
   const sets: string[] = [];
   const vals: unknown[] = [];
   const col = (c: string, v: unknown, before: unknown) => {
-    if (v === undefined || String(v) === String(before ?? "")) return;
+    if (v === undefined || String(v ?? "") === String(before ?? "")) return;
     sets.push(`${c} = ?`); vals.push(v); changes[c] = { before: before ?? null, after: v };
   };
   col("equip_group_mode", input.mode, g.equip_group_mode);
   col("equip_batch_size", input.batchSize, g.equip_batch_size);
   col("equip_interval_min", input.intervalMin, g.equip_interval_min);
+  const txt = (v: string | null | undefined) => (v === undefined ? undefined : (String(v ?? "").trim() || null));
+  col("monitoring_cycle", txt(input.monitoringCycle), g.monitoring_cycle);
+  col("monitoring_method", txt(input.monitoringMethod), g.monitoring_method);
+  col("corrective_action", txt(input.correctiveAction), g.corrective_action);
   if (sets.length) await conn.execute(`UPDATE ccp_process_groups SET ${sets.join(", ")} WHERE id = ? AND tenant_id = ?`, [...vals, input.groupId, tenantId]);
 
   // 3) 연결 설비 — 이 회사 설비만
