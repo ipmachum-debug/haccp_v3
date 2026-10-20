@@ -17,15 +17,22 @@ let skipReason: string | null = null;
 beforeAll(async () => {
   try {
     const esbuild = await import("esbuild");
+    const stub = path.resolve(__dirname, "__fixtures__/navTrpcStub.ts");
     const out = await esbuild.build({
       entryPoints: [path.resolve(__dirname, "__fixtures__/navHarness.tsx")],
-      bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic",
-      alias: { "@": path.resolve(__dirname, "../client/src") },
-      define: { "process.env.NODE_ENV": '"development"' },
+      bundle: true, write: false, format: "esm", platform: "browser", jsx: "automatic", outdir: "nav-out",
+      alias: { "@": path.resolve(__dirname, "../client/src"), "@shared": path.resolve(__dirname, "../shared") },
+      define: { "process.env.NODE_ENV": '"development"', "import.meta.env": JSON.stringify({ MODE: "test", DEV: true, PROD: false }) },
+      loader: { ".svg": "dataurl", ".png": "dataurl", ".jpg": "dataurl", ".webp": "dataurl", ".css": "empty" },
+      // 실제 DashboardLayout 을 서버 없이 — 서버 연결(lib/trpc)만 대역으로 바꾼다. 화면 틀·메뉴·즐겨찾기·검색 코드는 운영 그대로
+      plugins: [{ name: "trpc-stub", setup(b) { b.onResolve({ filter: /(^|\/)lib\/trpc$/ }, () => ({ path: stub })); } }],
       logLevel: "silent",
     });
-    const js = out.outputFiles[0].text;
-    const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div><script type="module" src="/app.js"></script></body></html>`;
+    const js = out.outputFiles.find((f) => f.path.endsWith(".js"))!.text;
+    // 즐겨찾기 한 개 — 실제 메뉴에 있는 경로 (통합 대시보드)
+    const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div>`
+      + `<script>window.__NAV_FAVORITES__=[{id:1,menuPath:"/dashboard",sortOrder:0}]</script>`
+      + `<script type="module" src="/app.js"></script></body></html>`;
     server = http.createServer((req, res) => {
       if ((req.url ?? "").startsWith("/app.js")) { res.writeHead(200, { "content-type": "text/javascript" }); res.end(js); return; }
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" }); res.end(html); // 모든 경로 = 같은 앱 (직접 링크·새로고침)
@@ -178,4 +185,81 @@ describe("작업 위치 보존 — 실제 브라우저", () => {
     expect(await text(p2, "tab")).toBe("c");
     await p2.close();
   });
+
+  it("실제 DashboardLayout 버튼 — 사이드 메뉴·즐겨찾기·로고·전역 검색: 바뀐 게 없으면 바로 이동, 바뀌면 묻고 머묾/한 번만 이동, 같은 화면 탭은 묻지 않음", async () => {
+    if (skipReason) return;
+    const start = "/app/edit/1?tab=flow";
+    const page = await browser.newPage();
+    const dialogs: string[] = [];
+    let answer = false;
+    page.on("dialog", async (d: any) => { dialogs.push(d.message()); answer ? await d.accept() : await d.dismiss(); });
+    const openLayout = async () => { await page.goto(base + start); await page.getByTestId("sidebar-logo-home").waitFor(); };
+    const sidebar = (name: string) => page.getByRole("button", { name, exact: true }).first();
+    const favorite = () => page.getByRole("button", { name: "통합 대시보드", exact: true }).last(); // 즐겨찾기 목록은 허브 메뉴 아래
+    const viaSearch = async () => {
+      await page.getByTestId("header-search").click();
+      await page.getByPlaceholder("검색").fill("승인 관리");
+      await page.keyboard.press("Enter");
+    };
+    const stillHere = async () => {
+      expect(urlOf(page)).toBe(start);
+      expect(await page.getByTestId("field").inputValue()).toBe("changed");
+      expect(await text(page, "layout-tab")).toBe("flow");
+    };
+
+    // 바뀐 게 없음 → 어떤 버튼이든 묻지 않고 이동
+    await openLayout();
+    await sidebar("알림 관리").click();
+    await page.waitForFunction(() => !location.pathname.startsWith("/app/edit"));
+    expect(dialogs).toEqual([]);
+
+    // 바뀜 → 네 가지 실제 버튼 모두 묻고, 취소하면 주소·입력·탭 그대로
+    await openLayout();
+    await page.getByTestId("field").fill("changed");
+    const len0 = await page.evaluate(() => history.length);
+    const routes: Array<[string, () => Promise<void>]> = [
+      ["사이드 메뉴", () => sidebar("승인 관리").click()],
+      ["즐겨찾기", () => favorite().click()],
+      ["로고(홈)", () => page.getByTestId("sidebar-logo-home").click()],
+      ["전역 검색", viaSearch],
+    ];
+    for (const [label, go] of routes) {
+      const before = dialogs.length;
+      await go();
+      await page.waitForTimeout(100);
+      expect(dialogs.length, label).toBe(before + 1);
+      await stillHere();
+    }
+    expect(await page.evaluate(() => history.length)).toBe(len0); // 머문 이동은 방문 이력도 남기지 않음
+
+    // 같은 화면의 탭 전환(쿼리만 바꿈) → 묻지 않음, 입력 그대로
+    const n = dialogs.length;
+    await page.getByTestId("layout-tab-table").click();
+    expect(await text(page, "layout-tab")).toBe("table");
+    await page.getByTestId("layout-tab-flow").click();
+    expect(dialogs.length).toBe(n);
+    await stillHere();
+
+    // 화면의 뒤로 버튼(confirmLeave) — 나가기로 하면 한 번만 묻고 한 번만 이동
+    answer = true;
+    await page.getByTestId("back").click();
+    await page.getByTestId("page").or(page.getByTestId("tab")).first().waitFor();
+    expect(dialogs.length).toBe(n + 1);
+    expect(await page.evaluate(() => history.length)).toBe(len0 + 1);
+
+    // 사이드 메뉴에서 나가기로 하면 → 한 번 묻고, 그 메뉴로 한 번만 이동
+    await openLayout();
+    await page.getByTestId("field").fill("changed");
+    const len1 = await page.evaluate(() => history.length);
+    const m = dialogs.length;
+    await sidebar("승인 관리").click();
+    await page.waitForFunction(() => !location.pathname.startsWith("/app/edit"));
+    expect(dialogs.length).toBe(m + 1);
+    expect(await page.evaluate(() => history.length)).toBe(len1 + 1);
+    // 떠난 뒤엔 더 묻지 않음 (보호는 화면과 함께 사라짐)
+    await page.evaluate(() => history.pushState(null, "", "/somewhere-else"));
+    expect(urlOf(page)).toBe("/somewhere-else");
+    expect(dialogs.length).toBe(m + 1);
+    await page.close();
+  }, 60000);
 });
