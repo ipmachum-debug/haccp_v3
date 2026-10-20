@@ -57,3 +57,40 @@ export async function assertMfIdsOwned(conn: any, tenantId: number, raw: any): P
     if (n !== list.length) throw new MfOwnershipError(`이 회사의 ${label}이(가) 아닌 번호가 있습니다 — 저장하지 않았습니다.`);
   }
 }
+
+/**
+ * BOM 품목 종류 검증 (2026-10-20, 신규 회사 시험: 화면이 생산 제품 번호(h_products_v2)를 BOM 제품 칸에 보냄).
+ *   BOM 은 정체성 세계(item_master)에 있다 (11-identity-policy-v3). 같은 회사 소유만으로는 부족하다 —
+ *   다른 번호 체계의 숫자가 우연히 같은 회사의 다른 item_master 행과 같을 수 있다.
+ *   그래서 칸마다 종류를 본다: 제품 칸 = own_product, 원료 칸 = raw_material·subsidiary.
+ *   맞지 않으면 아무것도 하지 않고 거부한다 (이름·번호 추측으로 바꾸지 않음).
+ */
+export const BOM_PRODUCT_TYPES = ["own_product"];
+export const BOM_MATERIAL_TYPES = ["raw_material", "subsidiary"];
+
+export function collectMfKinds(raw: any): { products: number[]; materials: number[] } {
+  const r = raw && typeof raw === "object" ? raw : {};
+  const ings: any[] = Array.isArray(r.ingredients) ? r.ingredients : [];
+  const adjs: any[] = Array.isArray(r.adjustments) ? r.adjustments : [];
+  const uniq = (a: number[]) => Array.from(new Set(a));
+  return {
+    products: uniq(ids(r.productId)),
+    materials: uniq([...ids(r.materialId), ...ings.flatMap((i) => ids(i?.materialId)), ...adjs.flatMap((a) => ids(a?.yieldMaterialId))]),
+  };
+}
+
+export async function assertMfItemKinds(conn: any, tenantId: number, raw: any): Promise<void> {
+  const k = collectMfKinds(raw);
+  const check = async (list: number[], types: string[], label: string) => {
+    if (!list.length) return;
+    const [rows]: any = await conn.query(
+      `SELECT COUNT(DISTINCT id) AS n FROM item_master WHERE tenant_id = ? AND id IN (?) AND item_type IN (?)`,
+      [tenantId, list, types],
+    );
+    if (Number((rows as any[])[0]?.n ?? 0) !== list.length) {
+      throw new MfOwnershipError(`${label} 칸에 맞지 않는 품목이 있습니다 — 품목 목록에서 다시 고르세요. 저장하지 않았습니다.`);
+    }
+  };
+  await check(k.products, BOM_PRODUCT_TYPES, "제품");
+  await check(k.materials, BOM_MATERIAL_TYPES, "원료");
+}

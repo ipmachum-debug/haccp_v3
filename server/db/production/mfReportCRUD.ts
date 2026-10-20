@@ -183,19 +183,27 @@ export async function getMfReportDetail(mfReportId: number, tenantId?: number) {
  * 품목제조보고 생성 (버전 자동 생성 + 부재료/원재료 구성 저장)
  */
 export async function createMfReport(data: {
+  /** BOM 제품 = item_master.id (자사 제품). 생산 제품 번호(h_products_v2)를 넣지 않는다 — 11-identity-policy-v3 */
   productId: number;
   reportNo: string;
   reportDate: string;
   flavorId?: number;
+  reportType?: "BASIC" | "MIXED";
   ingredients?: Array<{
+    /** 원료 = item_master.id (원료) */
     materialId?: number;
     intermediateId?: number;
+    childSkuId?: number;
+    pieceCount?: number;
+    pieceWeightG?: number;
     quantity: number;
     unit: string;
     isDeductible: number;
-    materialType: "RAW" | "MIXED" | "FLAVOR_SPECIFIC";
+    materialType: "RAW" | "MIXED" | "FLAVOR_SPECIFIC" | "CHILD_SKU";
     flavorName?: string;
-    processGroupId?: number;
+    processGroupId?: number | null;
+    /** 공정 없이 들어가는 곳 — direct(성형에 바로)·late(나중에 넣음). 공정이 있으면 비움 (편집기와 같은 규칙) */
+    entryStage?: "direct" | "late" | null;
     adjustedWeightKg?: number;
     isAdditional?: number;
   }>;
@@ -207,65 +215,76 @@ export async function createMfReport(data: {
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  // 1. 품목제조보고 마스터 생성
-  const [reportResult] = await db.insert(hMfReports).values({
-    productId: data.productId,
-    reportNo: data.reportNo,
-    reportDate: new Date(data.reportDate),
-    status: "ACTIVE",
-    tenantId: tenantId
-  } as any);
-  
-  const mfReportId = reportResult.insertId;
-  
-  // 2. 버전 1.0 자동 생성
-  const [versionResult] = await db.insert(hMfReportVersions).values({
-    mfReportId,
-    versionNo: 1,
-    effectiveFrom: new Date(data.reportDate),
-    changeReason: "초기 버전",
-    compositionTotalRule: "100%",
-    createdBy: data.createdBy,
-    approvalStatus: "DRAFT",
-    yieldBasis: data.yieldBasis || "PER_BATCH_KG",
-    unitWeightG: data.unitWeightG || null,
-    batchTargetKg: data.batchTargetKg || null,
-    tenantId: tenantId
-  } as any);
-  
-  const versionId = versionResult.insertId;
-  
-  // 3. 부재료(Flavor) 저장
-  if (data.flavorId) {
-    await db.insert(hMfFlavors).values({
-      mfReportVersionId: versionId,
-      flavorCode: `FLAVOR-${versionId}`,
-      flavorName: "부재료",
-      appliesToSku: null
-    });
-  }
-  
-  // 4. 원재료 구성(Ingredients) 저장
-  if (data.ingredients && data.ingredients.length > 0) {
-    await db.insert(hMfIngredients).values(
-      data.ingredients.map((ing, index) => ({
+  // 보고서 머리·버전·원료 줄을 한 트랜잭션으로 (2026-10-20): 중간에 실패하면 원료 없는 BOM 이 남지 않게
+  return db.transaction(async (tx: any) => {
+    // 1. 품목제조보고 마스터 생성
+    const [reportResult] = await tx.insert(hMfReports).values({
+      productId: data.productId,
+      reportNo: data.reportNo,
+      reportDate: new Date(data.reportDate),
+      status: "ACTIVE",
+      reportType: data.reportType ?? "BASIC",
+      tenantId: tenantId
+    } as any);
+
+    const mfReportId = reportResult.insertId;
+
+    // 2. 버전 1.0 자동 생성
+    const [versionResult] = await tx.insert(hMfReportVersions).values({
+      mfReportId,
+      versionNo: 1,
+      effectiveFrom: new Date(data.reportDate),
+      changeReason: "초기 버전",
+      compositionTotalRule: "100%",
+      createdBy: data.createdBy,
+      approvalStatus: "DRAFT",
+      yieldBasis: data.yieldBasis || "PER_BATCH_KG",
+      unitWeightG: data.unitWeightG || null,
+      batchTargetKg: data.batchTargetKg || null,
+      tenantId: tenantId
+    } as any);
+
+    const versionId = versionResult.insertId;
+
+    // 3. 부재료(Flavor) 저장
+    if (data.flavorId) {
+      await tx.insert(hMfFlavors).values({
         mfReportVersionId: versionId,
-        lineNo: index + 1,
-        materialId: ing.materialId || null,
-        intermediateId: ing.intermediateId || null,
-        quantity: ing.quantity.toString(),
-        unit: ing.unit,
-        isDeductible: ing.isDeductible,
-        materialType: ing.materialType,
-        flavorName: ing.flavorName || null,
-        processGroupId: ing.processGroupId || null,
-        adjustedWeightKg: ing.adjustedWeightKg ? ing.adjustedWeightKg.toString() : null,
-        isAdditional: ing.isAdditional || 0
-      }))
-    );
-  }
-  
-  return mfReportId;
+        flavorCode: `FLAVOR-${versionId}`,
+        flavorName: "부재료",
+        appliesToSku: null
+      });
+    }
+
+    // 4. 원재료 구성(Ingredients) 저장 — 공정·들어가는 곳까지 처음 입력에서 (따로 다시 편집하지 않게)
+    if (data.ingredients && data.ingredients.length > 0) {
+      await tx.insert(hMfIngredients).values(
+        data.ingredients.map((ing, index) => {
+          const pg = ing.processGroupId != null && ing.processGroupId > 0 ? ing.processGroupId : null;
+          return {
+            mfReportVersionId: versionId,
+            lineNo: index + 1,
+            materialId: ing.materialId || null,
+            intermediateId: ing.intermediateId || null,
+            childSkuId: ing.childSkuId || null,
+            pieceCount: ing.pieceCount ?? null,
+            pieceWeightG: ing.pieceWeightG != null ? ing.pieceWeightG.toString() : null,
+            quantity: ing.quantity.toString(),
+            unit: ing.unit,
+            isDeductible: ing.isDeductible,
+            materialType: ing.materialType,
+            flavorName: ing.flavorName || null,
+            processGroupId: pg,
+            entryStage: pg != null ? null : (ing.entryStage === "direct" || ing.entryStage === "late" ? ing.entryStage : null),
+            adjustedWeightKg: ing.adjustedWeightKg ? ing.adjustedWeightKg.toString() : null,
+            isAdditional: ing.isAdditional || 0
+          };
+        }) as any
+      );
+    }
+
+    return mfReportId;
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════

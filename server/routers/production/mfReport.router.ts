@@ -12,9 +12,13 @@ async function mfOwned(opts: { ctx: any; getRawInput: () => Promise<unknown>; ne
   const tenantId = opts.ctx?.tenantId;
   if (!tenantId) throw new TRPCError({ code: "FORBIDDEN", message: "회사 정보가 없습니다." });
   const { getRawConnection } = await import("../../db");
-  const { assertMfIdsOwned, MfOwnershipError } = await import("../../lib/production/mfReportOwnership");
+  const { assertMfIdsOwned, assertMfItemKinds, MfOwnershipError } = await import("../../lib/production/mfReportOwnership");
   try {
-    await assertMfIdsOwned(await getRawConnection(), Number(tenantId), await opts.getRawInput());
+    const conn = await getRawConnection();
+    const raw = await opts.getRawInput();
+    await assertMfIdsOwned(conn, Number(tenantId), raw);
+    // 칸마다 품목 종류까지 — 제품 칸 = 자사 제품, 원료 칸 = 원료 (다른 번호 체계의 숫자가 우연히 맞아도 막힘, 2026-10-20)
+    await assertMfItemKinds(conn, Number(tenantId), raw);
   } catch (e: any) {
     if (e instanceof MfOwnershipError) throw new TRPCError({ code: "NOT_FOUND", message: e.message });
     throw e;
@@ -69,7 +73,9 @@ export const mfReportRouter = router({
               isDeductible: z.number(),
               materialType: z.enum(["RAW", "MIXED", "FLAVOR_SPECIFIC", "CHILD_SKU"]),
               flavorName: z.string().optional(),
-              processGroupId: z.number().optional(),
+              processGroupId: z.number().nullable().optional(),
+              /** 공정 없이 들어가는 곳 (편집기와 같은 값) — 처음 입력에서 정한다 (2026-10-20) */
+              entryStage: z.enum(["direct", "late"]).nullable().optional(),
               adjustedWeightKg: z.number().optional(),
               isAdditional: z.number().optional()
             })
@@ -83,7 +89,9 @@ export const mfReportRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { createMfReport } = await import("../../db/production/mfReportAPI");
-        const result = await createMfReport(input, ctx.tenantId);
+        // createMfReport 는 보고서 번호(숫자)를 돌려준다 — 이전엔 result.mfReportId 로 읽어 혼합(MIXED) 동기화가 번호 없이 돌았다
+        const mfReportId = Number(await createMfReport(input, ctx.tenantId));
+        const result = { mfReportId };
 
         // ★ 2026-05-10 (PR #299): MIXED type 이면 sku_bundles 자동 동기화
         if (input.reportType === "MIXED") {

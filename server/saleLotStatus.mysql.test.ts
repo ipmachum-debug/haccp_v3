@@ -3754,4 +3754,52 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(Number(g.tlo)).toBe(90); expect(g.thi).toBeNull(); expect(Number(g.hlo)).toBe(10);
     });
   });
+
+  describe("BOM 신규 저장 — 품목 정체성 번호(item_master)만, 칸마다 종류 확인, 한 번에 저장 (2026-10-20 신규 회사 시험 P1)", () => {
+    const PV2 = 8350, IM_P = 8352, MAT = 8726, IM_M = 8351;
+    let mf: any;
+    beforeAll(async () => {
+      await q(`DELETE i FROM h_mf_ingredients i JOIN h_mf_report_versions v ON v.id = i.mf_report_version_id JOIN h_mf_reports r ON r.id = v.mf_report_id WHERE r.report_no LIKE 'QA-MFR-%'`);
+      await q(`DELETE v FROM h_mf_report_versions v JOIN h_mf_reports r ON r.id = v.mf_report_id WHERE r.report_no LIKE 'QA-MFR-%'`);
+      await q(`DELETE FROM h_mf_reports WHERE report_no LIKE 'QA-MFR-%'`);
+      await q(`CREATE TABLE IF NOT EXISTS ccp_process_groups (id int NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, name varchar(100) NOT NULL, ccp_type varchar(20) NULL, status varchar(20) NOT NULL DEFAULT 'active', sort_order int NOT NULL DEFAULT 0)`);
+      await q(`DELETE FROM ccp_process_groups WHERE id = 8701`);
+      await q(`INSERT INTO ccp_process_groups (id, tenant_id, name, ccp_type) VALUES (8701, ?, '시험 교반 공정', 'CCP-1B')`, [T]);
+      const { mfReportRouter } = await import("./routers/production/mfReport.router");
+      mf = mfReportRouter.createCaller({ user: { id: 4, role: "admin", tenantId: T, email: "t@t" }, tenantId: T } as any);
+    });
+    beforeEach(async () => {
+      // 바깥 beforeEach 가 item_master 를 비운다 — 매번 다시 (신규 회사처럼: 생산 제품 8350 ↔ 정체성 8352, 재고 원료 8726 ↔ 정체성 8351, FK 연결)
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES (?, ?, '30001', '시험용 찹쌀떡', 'own_product', ?, 1)`, [IM_P, T, PV2]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES (?, ?, 'MAT-001', '시험용 찹쌀', 'raw_material', 'kg', 1, ?)`, [IM_M, T, MAT]);
+      // 숫자 우연 일치: 생산 제품 번호 8350 과 같은 정체성 번호가 '원료' 로 같은 회사에 있음
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active) VALUES (?, ?, 'X-COINCIDE', '우연히 같은 번호의 원료', 'raw_material', 'kg', 1)`, [PV2, T]);
+    });
+    const base = (over: any = {}) => ({ productId: IM_P, reportNo: `QA-MFR-${Math.random().toString(36).slice(2, 8)}`, reportDate: "2026-10-20", reportType: "BASIC", yieldBasis: "BATCH", batchTargetKg: 10,
+      ingredients: [{ materialId: IM_M, quantity: 100, unit: "%", isDeductible: 1, materialType: "RAW", processGroupId: 8701 }], ...over });
+
+    it("정체성 번호로 저장 — 머리·버전·원료 줄, 들어가는 공정까지 한 번에", async () => {
+      const r = await mf.create(base());
+      expect(r.mfReportId).toBeGreaterThan(0);
+      const rep = (await q(`SELECT product_id, report_type FROM h_mf_reports WHERE id = ?`, [r.mfReportId]))[0];
+      expect(Number(rep.product_id)).toBe(IM_P);
+      const ing = (await q(`SELECT i.material_id, i.process_group_id, i.entry_stage, v.batch_target_kg + 0 AS b FROM h_mf_ingredients i JOIN h_mf_report_versions v ON v.id = i.mf_report_version_id WHERE v.mf_report_id = ?`, [r.mfReportId]));
+      expect(ing.map((x: any) => [Number(x.material_id), Number(x.process_group_id), x.entry_stage])).toEqual([[IM_M, 8701, null]]);
+      expect(Number(ing[0].b)).toBe(10);
+    });
+    it("공정 없이 '성형에 바로' 도 처음 입력에서", async () => {
+      const r = await mf.create(base({ ingredients: [{ materialId: IM_M, quantity: 100, unit: "%", isDeductible: 1, materialType: "RAW", processGroupId: null, entryStage: "direct" }] }));
+      const ing = (await q(`SELECT i.process_group_id, i.entry_stage FROM h_mf_ingredients i JOIN h_mf_report_versions v ON v.id = i.mf_report_version_id WHERE v.mf_report_id = ?`, [r.mfReportId]))[0];
+      expect(ing.process_group_id).toBeNull(); expect(ing.entry_stage).toBe("direct");
+    });
+    it("생산 제품 번호(h_products_v2)를 제품 칸에 → 거부 (같은 회사 원료와 숫자가 우연히 같아도), 아무것도 안 남음", async () => {
+      const before = (await q(`SELECT COUNT(*) AS n FROM h_mf_reports WHERE report_no LIKE 'QA-MFR-%'`))[0].n;
+      await expect(mf.create(base({ productId: PV2 }))).rejects.toThrow(/제품 칸에 맞지 않는 품목/);
+      // 재고 원료 번호(h_materials)를 원료 칸에 → 정체성 목록에 없음 → 거부
+      await expect(mf.create(base({ ingredients: [{ materialId: MAT, quantity: 100, unit: "%", isDeductible: 1, materialType: "RAW" }] }))).rejects.toThrow(/이 회사의 품목/);
+      // 원료 칸에 제품
+      await expect(mf.create(base({ ingredients: [{ materialId: IM_P, quantity: 100, unit: "%", isDeductible: 1, materialType: "RAW" }] }))).rejects.toThrow(/원료 칸에 맞지 않는 품목/);
+      expect((await q(`SELECT COUNT(*) AS n FROM h_mf_reports WHERE report_no LIKE 'QA-MFR-%'`))[0].n).toBe(before);
+    });
+  });
 });
