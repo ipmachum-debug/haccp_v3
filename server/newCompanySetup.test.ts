@@ -101,3 +101,24 @@ describe("그 밖", () => {
     expect(a.match(/ctx\.user\.role !== "super_admin"/g)?.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("BOM 신규 저장 — 품목 정체성 번호 하나 (2026-10-20 신규 회사 시험 2차 P1)", () => {
+  it("등록 화면: 제품은 정체성 목록(자사 제품)에서, 제품명은 고르면 채움, 들어가는 곳을 처음 입력에서, 실패는 화면에", () => {
+    const s = read("client/src/pages/production/MfReportCreate.tsx");
+    expect(s).toMatch(/trpc\.itemMaster\.list\.useQuery\(\{ itemType: "own_product"/);
+    expect(s).not.toMatch(/trpc\.product\.list\.useQuery/);
+    expect(s).toMatch(/if \(p && !nameTouched\) setProductName\(p\.itemName\)/);
+    expect(s).toMatch(/new-stage/);
+    expect(s).toMatch(/processGroupId: ing\.processGroupId \?\? null/);
+    expect(s).toMatch(/mf-save-error/);
+    expect(read("client/src/pages/design/DesignRecipes.tsx")).toMatch(/첫 배합 등록/);
+  });
+  it("서버: 회사 소유 + 칸마다 종류(제품 = 자사 제품, 원료 = 원료), 머리·버전·원료 줄 한 트랜잭션", () => {
+    expect(read("server/routers/production/mfReport.router.ts")).toMatch(/await assertMfIdsOwned\(conn[\s\S]*await assertMfItemKinds\(conn/);
+    const o = read("server/lib/production/mfReportOwnership.ts");
+    expect(o).toMatch(/BOM_PRODUCT_TYPES = \["own_product"\]/);
+    const c = read("server/db/production/mfReportCRUD.ts");
+    expect(c).toMatch(/return db\.transaction\(async \(tx: any\) =>/);
+    expect(c).toMatch(/entryStage: pg != null \? null/);
+  });
+});

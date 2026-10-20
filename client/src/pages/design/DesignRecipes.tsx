@@ -29,7 +29,9 @@ export default function DesignRecipes() {
   return (
     <DashboardLayout>
       <div className="space-y-4">
-        <PageHeader title="제품 배합" description="1배치 총 생산량 기준으로 공정마다 몇 kg 이 들어가는지 — 실제 생산 계획과 같은 계산입니다. 제품을 누르면 배합표와 공정 흐름도." />
+        {/* 배합 추가 — 같은 자료(품목제조보고)의 첫 입력 화면으로. 다른 메뉴를 찾지 않게 (2026-10-20 신규 회사 시험) */}
+        <PageHeader title="제품 배합" description="1배치 총 생산량 기준으로 공정마다 몇 kg 이 들어가는지 — 실제 생산 계획과 같은 계산입니다. 제품을 누르면 배합표와 공정 흐름도."
+          primary={{ label: "＋ 배합 추가", onClick: () => navigate("/dashboard/mf-report/create") }} />
         <div className="flex flex-wrap items-center gap-2">
           {(["all", "red", "yellow", "green"] as const).map((s) => (
             <Button key={s} variant={signal === s ? "default" : "outline"} className="h-11" onClick={() => setSignal(s)}>
@@ -63,7 +65,13 @@ export default function DesignRecipes() {
               </CardContent>
             </Card>
           ))}
-          {!q.isLoading && !shown.length && <p className="text-sm text-muted-foreground">조건에 맞는 제품이 없습니다.</p>}
+          {!q.isLoading && !rows.length && !q.isError && (
+            <Card data-testid="recipe-first"><CardContent className="py-8 text-center space-y-3">
+              <p className="text-sm text-muted-foreground">아직 배합이 없습니다. 제품 하나를 골라 원료와 들어가는 공정을 넣으면, 생산 계획이 이 배합으로 회차·투입량을 계산합니다.</p>
+              <Button className="h-11" onClick={() => navigate("/dashboard/mf-report/create")}>첫 배합 등록</Button>
+            </CardContent></Card>
+          )}
+          {!q.isLoading && rows.length > 0 && !shown.length && <p className="text-sm text-muted-foreground">조건에 맞는 제품이 없습니다.</p>}
         </div>
       </div>
     </DashboardLayout>

@@ -45,12 +45,24 @@ interface IngredientRow {
   isDeductible: boolean;
   materialType: "RAW" | "MIXED" | "FLAVOR_SPECIFIC" | "CHILD_SKU";
   flavorName?: string; // 부재료의 경우 맛 이름
+  /** 들어가는 곳 — 공정 번호, 또는 공정 없이 direct(성형에 바로)·late(나중에 넣음). 편집기와 같은 값 */
+  processGroupId?: number | null;
+  entryStage?: "direct" | "late" | null;
 }
+
+/** 들어가는 곳 한 칸 — 편집기(MfReportEdit)와 같은 표현: 공정 번호 · s:direct · s:late · none */
+const stageValueOf = (r: { processGroupId?: number | null; entryStage?: string | null }) =>
+  r.processGroupId != null && r.processGroupId > 0 ? String(r.processGroupId) : r.entryStage === "direct" || r.entryStage === "late" ? `s:${r.entryStage}` : "none";
+const stageFrom = (v: string): { processGroupId: number | null; entryStage: "direct" | "late" | null } =>
+  v === "s:direct" ? { processGroupId: null, entryStage: "direct" } : v === "s:late" ? { processGroupId: null, entryStage: "late" } : v === "none" ? { processGroupId: null, entryStage: null } : { processGroupId: Number(v), entryStage: null };
 
 export default function MfReportCreate() {
   const L = useIndustryLabel();
   const [, setLocation] = useLocation();
-  const [selectedProductId, setSelectedProductId] = useState<string>("");
+  // 제품 = 품목 정체성 번호(item_master, 자사 제품) — BOM 은 이 번호로 저장한다 (11-identity-policy-v3, 2026-10-20 신규 회사 시험:
+  //   생산 제품 목록(h_products_v2) 번호를 보내 '다른 회사 품목' 으로 거절됨). 원료 목록(material.list)도 item_master 번호.
+  const [selectedProductId, setSelectedProductId] = useState<string>(() => new URLSearchParams(window.location.search).get("itemId") ?? "");
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [reportCode, setReportCode] = useState("");
   const [productName, setProductName] = useState("");
   const [version, setVersion] = useState("1.0");
@@ -75,8 +87,11 @@ export default function MfReportCreate() {
 
   // 페이지 로드 시 바로 데이터를 fetch
   const { data: _rawProducts, isLoading: productsLoading } =
-    trpc.product.list.useQuery({ limit: 9999 });
-  const products = (_rawProducts as any)?.items ?? (Array.isArray(_rawProducts) ? _rawProducts : []);
+    trpc.itemMaster.list.useQuery({ itemType: "own_product", isActive: 1, limit: 5000 });
+  const products = ((_rawProducts as any)?.items ?? []) as Array<{ id: number; itemName: string; itemCode: string }>;
+  // 들어가는 곳 고르기 — 우리 공장의 공정 (금속검출 제외, 원료는 가열·굽기 공정에 들어간다)
+  const { data: _groups } = trpc.ccpMonitoring.getProcessGroups.useQuery();
+  const stageGroups = (Array.isArray(_groups) ? _groups : []).filter((g: any) => g.ccp_type !== "CCP-4P");
   const { data: _rawMaterials, isLoading: materialsLoading } =
     trpc.material.list.useQuery({ limit: 9999 });
   const materials = (_rawMaterials as any)?.items ?? (Array.isArray(_rawMaterials) ? _rawMaterials : []);
@@ -91,10 +106,17 @@ export default function MfReportCreate() {
 
   // 검색용 옵션 목록 생성
   const productOptions: SearchableSelectOption[] = useMemo(() =>
-    (products || []).map((p: any) => ({
+    (products || []).map((p) => ({
       value: p.id.toString(),
-      label: `${p.productName} (${p.productCode})`,
+      label: `${p.itemName} (${p.itemCode})`,
     })), [products]);
+  // 제품을 고르면 제품명은 그 이름으로 (다시 입력하지 않게) — 직접 고친 이름은 덮지 않는다
+  const [nameTouched, setNameTouched] = useState(false);
+  const pickProduct = (v: string) => {
+    setSelectedProductId(v);
+    const p = products.find((x) => String(x.id) === v);
+    if (p && !nameTouched) setProductName(p.itemName);
+  };
 
   const materialOptions: SearchableSelectOption[] = useMemo(() =>
     (materials || []).map((m: any) => ({
@@ -116,12 +138,15 @@ export default function MfReportCreate() {
     })), [skus]);
 
   const createMutation = trpc.mfReport.create.useMutation({
-    onSuccess: () => {
-      toast.success("품목제조보고가 생성되었습니다");
-      setLocation("/dashboard/manufacturing-standards");
+    onSuccess: (r: any) => {
+      toast.success("배합을 저장했습니다 — 배합표·흐름도에서 확인하고 승인하세요");
+      // 저장한 배합으로 바로 (생산 설계 > 제품 배합 상세: 배합표 · 흐름도 · 승인)
+      setLocation(r?.mfReportId ? `/design/recipes/${r.mfReportId}` : "/design/recipes");
     },
     onError: (error: { message: string }) => {
-      toast.error(`생성 실패: ${error.message}`);
+      // 이유는 이 화면에 남기고, 넣은 값은 그대로 (같은 값을 다시 넣지 않게)
+      setSaveError(error.message);
+      toast.error(`저장하지 못했습니다: ${error.message}`);
     },
   });
 
@@ -153,6 +178,9 @@ export default function MfReportCreate() {
       unit: "%",
       isDeductible: true,
       materialType: reportType === "MIXED" ? "CHILD_SKU" : "RAW",
+      // 들어가는 곳은 앞 줄 것을 이어서 (같은 공정에 여러 원료를 넣는 경우가 많다)
+      processGroupId: newIngredient.processGroupId ?? null,
+      entryStage: newIngredient.entryStage ?? null,
     });
   };
 
@@ -171,8 +199,9 @@ export default function MfReportCreate() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!selectedProductId || !reportCode || !productName || !version) {
-      toast.error("모든 필수 항목을 입력하세요");
+    setSaveError(null);
+    if (!selectedProductId || !reportCode) {
+      toast.error("제품과 보고서 코드를 넣으세요");
       return;
     }
 
@@ -206,6 +235,7 @@ export default function MfReportCreate() {
         isDeductible: ing.isDeductible ? 1 : 0,
         materialType: ing.materialType,
         flavorName: ing.flavorName,
+        ...(ing.materialType === "CHILD_SKU" ? {} : { processGroupId: ing.processGroupId ?? null, entryStage: ing.processGroupId ? null : ing.entryStage ?? null }),
       })),
     });
   };
@@ -244,10 +274,10 @@ export default function MfReportCreate() {
                   id="product"
                   options={productOptions}
                   value={selectedProductId}
-                  onValueChange={setSelectedProductId}
+                  onValueChange={pickProduct}
                   placeholder="제품 검색..."
                   searchPlaceholder="제품명 또는 코드 검색..."
-                  emptyMessage="검색 결과가 없습니다"
+                  emptyMessage={products.length ? "검색 결과가 없습니다" : "등록된 자사 제품이 없습니다 — 제품을 먼저 등록하세요"}
                   isLoading={productsLoading}
                 />
               </div>
@@ -263,17 +293,17 @@ export default function MfReportCreate() {
               </div>
 
               <div>
-                <Label htmlFor="productName">제품명 *</Label>
+                <Label htmlFor="productName">제품명 (고른 제품 이름)</Label>
                 <Input
                   id="productName"
                   value={productName}
-                  onChange={(e) => setProductName(e.target.value)}
-                  placeholder="예: 팥앙금 떡"
+                  onChange={(e) => { setNameTouched(true); setProductName(e.target.value); }}
+                  placeholder="제품을 고르면 채워집니다"
                 />
               </div>
 
               <div>
-                <Label htmlFor="version">버전 *</Label>
+                <Label htmlFor="version">버전</Label>
                 <Input
                   id="version"
                   value={version}
@@ -594,6 +624,21 @@ export default function MfReportCreate() {
                 />
               </div>
 
+              {newIngredient.materialType !== "CHILD_SKU" && (
+                <div>
+                  <Label htmlFor="stage">들어가는 곳</Label>
+                  <Select value={stageValueOf(newIngredient)} onValueChange={(v) => setNewIngredient({ ...newIngredient, ...stageFrom(v) })}>
+                    <SelectTrigger id="stage" data-testid="new-stage"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {stageGroups.map((g: any) => <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>)}
+                      <SelectItem value="s:direct">성형에 바로 (가열 안 함)</SelectItem>
+                      <SelectItem value="s:late">나중에 넣음 (가열 안 함)</SelectItem>
+                      <SelectItem value="none">아직 모름</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+
               <div className="flex items-center space-x-2">
                 <Checkbox
                   id="isDeductible"
@@ -620,6 +665,7 @@ export default function MfReportCreate() {
                     <TableHead>재료 타입</TableHead>
                     <TableHead>재료명</TableHead>
                     <TableHead>맛 이름</TableHead>
+                    <TableHead>들어가는 곳</TableHead>
                     <TableHead>수량</TableHead>
                     <TableHead>단위</TableHead>
                     <TableHead>재고 차감</TableHead>
@@ -660,6 +706,19 @@ export default function MfReportCreate() {
                         )}
                       </TableCell>
                       <TableCell>{ing.flavorName || "-"}</TableCell>
+                      <TableCell>
+                        {ing.materialType === "CHILD_SKU" ? "-" : (
+                          <Select value={stageValueOf(ing)} onValueChange={(v) => setIngredients(ingredients.map((x, i) => (i === originalIndex ? { ...x, ...stageFrom(v) } : x)))}>
+                            <SelectTrigger className={`h-8 text-sm ${stageValueOf(ing) === "none" ? "text-amber-700" : ""}`} data-testid="row-stage"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              {stageGroups.map((g: any) => <SelectItem key={g.id} value={String(g.id)}>{g.name}</SelectItem>)}
+                              <SelectItem value="s:direct">성형에 바로 (가열 안 함)</SelectItem>
+                              <SelectItem value="s:late">나중에 넣음 (가열 안 함)</SelectItem>
+                              <SelectItem value="none">아직 모름</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </TableCell>
                       <TableCell>{ing.quantity}</TableCell>
                       <TableCell>{ing.unit}</TableCell>
                       <TableCell>{ing.isDeductible ? "예" : "아니오"}</TableCell>
@@ -710,6 +769,11 @@ export default function MfReportCreate() {
           </CardContent>
         </Card>
 
+        {saveError && (
+          <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-500/10 dark:text-red-300" role="alert" data-testid="mf-save-error">
+            저장하지 못했습니다 — {saveError} (넣은 값은 그대로 있습니다)
+          </p>
+        )}
         <div className="flex justify-end gap-4">
           <Button type="button" variant="outline" onClick={() => setLocation("/dashboard/mf-reports")}>
             <ArrowLeft className="w-4 h-4 mr-2" />
