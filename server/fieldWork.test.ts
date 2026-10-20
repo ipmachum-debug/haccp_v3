@@ -110,7 +110,7 @@ describe("금속검출 제출 검사 — 수량·시간 순서 (#611 추가 검�
 
 describe("#612 추가 검토 — 재전송·동기화·실행 단계", () => {
   it("재전송은 처음 요청 그대로(행 버전 포함) — 화면이 새 버전을 받아도 올려 붙이지 않음", () => {
-    const ui = readFileSync(join(__dirname, "../client/src/pages/production/FieldWork.tsx"), "utf-8");
+    const ui = readFileSync(join(__dirname, "../client/src/components/production/FieldRowsPanel.tsx"), "utf-8");
     expect(ui).toMatch(/const expectedRowVersion = retry \? retry\.expectedRowVersion : row\.rowVersion;/);
     expect(ui).toMatch(/await write\.mutateAsync\(\{ rowId: row\.rowId, action: action as any, expectedRowVersion, values, requestId \}\);/);
   });

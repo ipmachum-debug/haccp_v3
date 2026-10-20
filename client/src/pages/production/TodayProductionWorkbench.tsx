@@ -154,9 +154,14 @@ const TONE: Record<string, string> = {
   stop: "bg-red-50 text-red-700 border-red-200",
 };
 
-export default function TodayProductionWorkbench({ embedded = false }: { embedded?: boolean; [key: string]: any }) {
+/**
+ * 생산 화면 안에 넣을 때 (2026-10-20, 생산 화면 하나로): 작업일은 생산 화면의 날짜(workDate), 아래 '배치 목록'은 생산 화면 목록이 대신(hideBoard),
+ *   만들면 onCreated 로 목록을 다시 읽는다. 미리보기는 입력이 바뀌면 자동 — [생성] 한 번으로 끝난다 (미리보기 버튼을 따로 누르지 않음).
+ */
+export default function TodayProductionWorkbench({ embedded = false, workDate: workDateProp, onCreated, hideBoard = false }: { embedded?: boolean; workDate?: string; onCreated?: () => void; hideBoard?: boolean; [key: string]: any }) {
   const { user } = useAuth();
-  const [workDate, setWorkDate] = useState(todayLocal());
+  const [workDateState, setWorkDate] = useState(workDateProp ?? todayLocal());
+  const workDate = workDateProp ?? workDateState;
   // 여러 날 (같은 입력표를 날마다) — 1·7·14일, 뺄 날은 날짜를 눌러 끈다
   const [days, setDays] = useState<1 | 7 | 14>(1);
   const [offDates, setOffDates] = useState<string[]>([]);
@@ -225,6 +230,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
       });
       if (!failed) { setRequestKey(newRequestKey()); setPreview(null); }
       board.refetch();
+      onCreated?.();
     },
     onError: (e: { message: string }) => {
       // 응답을 못 받았으면 서버 저장 여부를 모른다 — 같은 요청 키로 다시 보내면 이미 만든 줄은 다시 만들지 않는다
@@ -286,9 +292,18 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
     }
     setMultiBusy(false);
     board.refetch();
+    onCreated?.();
     if (allOk) { toast.success(`${dates.length}일 생성을 마쳤습니다.`); setRequestKey(newRequestKey()); setPreview(null); setLines([emptyLine(defaultMode)]); }
     else toast.error("일부 날짜가 저장되지 않았습니다 — 같은 내용으로 다시 누르면 남은 것만 만듭니다.");
   };
+
+  // 입력이 바뀌면 잠시 뒤 자동 미리보기 (읽기만) — [미리보기] 를 따로 누르지 않아도 [생성] 이 바로 열린다
+  useEffect(() => {
+    if (!filled.length || !dates.length || dupLineIds.size) return;
+    const t = setTimeout(() => { if (!previewMut.isPending) runPreview(); }, 700);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inputKey]);
 
   // AI 입력 — 같은 의미(하루 총생산량). 같은 제품은 수량을 더해 한 줄로 (원래 일괄 생성 화면과 같게)
   const onAI = (items: Array<{ productId: number; quantityKg: number; skuOutputs?: Record<number, string> }>) => {
@@ -327,8 +342,8 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-2xl font-bold">오늘 생산</h1>
-          <p className="text-sm text-muted-foreground">제품별 하루 총생산량을 입력하면 증숙·교반·굽기 회차와 설비·시각을 자동으로 계산합니다. 미리보기로 확인한 뒤 생성합니다.</p>
+          {!embedded && <h1 className="text-2xl font-bold">오늘 생산</h1>}
+          <p className="text-sm text-muted-foreground">제품별 하루 총생산량을 입력하면 증숙·교반·굽기 회차와 설비·시각을 자동으로 계산합니다. 계산 결과를 확인하고 [생성].</p>
         </div>
         <Button variant={showAI ? "default" : "outline"} onClick={() => setShowAI((v) => !v)}>
           <Sparkles className="h-4 w-4 mr-1.5" />AI로 입력표 채우기
@@ -343,7 +358,9 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="space-y-1"><Label>작업일</Label><Input type="date" className="h-11" value={workDate} onChange={(e) => setWorkDate(e.target.value)} />
+            <div className="space-y-1"><Label>작업일</Label>{workDateProp
+                ? <div className="h-11 flex items-center px-3 rounded-md border bg-muted/40 text-sm" data-testid="work-date-fixed">{workDate}</div>
+                : <Input type="date" className="h-11" value={workDate} onChange={(e) => setWorkDate(e.target.value)} />}
               {/* 미래 날짜 = 예정 (현장 1) — 서버가 같은 기준(오늘 KST)으로 판단한다 */}
               {workDate >= todayLocal() && <p className="text-xs text-blue-800" data-testid="plan-only-note">예정으로 만듭니다 — 원료는 현장에서 처음 확인할 때 (금속검출만 하는 제품은 통과 시작 때) 한 번 출고</p>}
             </div>
@@ -492,8 +509,8 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
               })}
             </div>
           )}
-          {!preview && <p className="text-sm text-muted-foreground">입력표를 채운 뒤 '미리보기'를 누르면 생산 건별 회차·설비·시각·투입량을 보여 줍니다. 생성은 미리보기 뒤에 할 수 있습니다.</p>}
-          {previewStale && <p className="text-sm text-amber-700 flex items-center gap-1"><RefreshCw className="h-4 w-4" />입력이 바뀌었습니다 — 미리보기를 다시 하세요.</p>}
+          {!preview && <p className="text-sm text-muted-foreground">입력표를 채우면 생산 건별 회차·설비·시각·투입량을 자동으로 보여 줍니다. 확인한 뒤 [생성].</p>}
+          {previewStale && <p className="text-sm text-amber-700 flex items-center gap-1"><RefreshCw className="h-4 w-4" />입력이 바뀌어 다시 계산하는 중입니다…</p>}
           {preview && !previewStale && blockedCount > 0 && (
             <p className="text-sm text-red-700 flex items-center gap-1"><AlertTriangle className="h-4 w-4" />{blockedCount}개 생산 건은 이대로 생성되지 않습니다 (아래 사유). 나머지는 생성됩니다.</p>
           )}
@@ -552,7 +569,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
         </CardContent>
       </Card>
 
-      <Card>
+      {!hideBoard && <Card>
         <CardHeader className="pb-3 flex-row items-center justify-between space-y-0">
           <div>
             <CardTitle className="text-base">{workDate} 배치</CardTitle>
@@ -578,7 +595,7 @@ export default function TodayProductionWorkbench({ embedded = false }: { embedde
             </div>
           )}
         </CardContent>
-      </Card>
+      </Card>}
     </div>
   );
 

@@ -7,7 +7,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { trpc } from "@/lib/trpc";
 import {
   AlertCircle, AlertTriangle, ArrowRight, ArrowUpRight, ArrowDownRight,
-  BarChart3, Box, CalendarCheck, CheckCircle2, ChevronRight, Clock,
+  Box, CalendarCheck, CheckCircle2, ChevronRight, Clock,
   ClipboardCheck, DollarSign, Factory, FileWarning, FlaskConical,
   Bell, Layers, Package, ShieldAlert, ShieldCheck, ThermometerSun,
   TrendingUp, Truck, Users, Warehouse, Zap
@@ -280,16 +280,11 @@ export default function Dashboard() {
             </p>
           </div>
           <div className="flex gap-2 w-full md:w-auto">
-            <Button variant="outline" size="sm" className="h-9" asChild>
-              <Link href="/dashboard/pipeline">
-                <BarChart3 className="mr-1.5 h-3.5 w-3.5" />
-                생산 파이프라인
-              </Link>
-            </Button>
+            {/* 생산 화면 하나 (2026-10-20) — 진행 보기·생산 추가가 같은 화면 */}
             <Button size="sm" className="h-9" asChild>
-              <Link href="/dashboard/batch-management?tab=create">
+              <Link href="/dashboard/production/today">
                 <Package className="mr-1.5 h-3.5 w-3.5" />
-                새 {L("batch")} 생성
+                생산
               </Link>
             </Button>
           </div>
@@ -311,7 +306,7 @@ export default function Dashboard() {
             icon={Zap}
             color="blue"
             sub="실시간 생산 현황"
-            href="/dashboard/pipeline"
+            href="/dashboard/production/today"
           />
           {/* ★ Phase Plugin-7: HACCP 경고 KPI 는 식품 HACCP 전용 (CCP 이탈/점검) */}
           {showHaccpKpis && (
@@ -430,7 +425,7 @@ export default function Dashboard() {
                   <Factory className="h-4.5 w-4.5 text-emerald-600" />
                   <CardTitle className="text-[15px]">오늘의 생산 진행률</CardTitle>
                 </div>
-                <Link href="/dashboard/pipeline">
+                <Link href="/dashboard/production/today">
                   <Button variant="ghost" size="sm" className="text-xs gap-1">
                     파이프라인 보기 <ArrowRight className="h-3 w-3" />
                   </Button>

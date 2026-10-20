@@ -200,10 +200,10 @@ describe("2-b-4 모바일 하단바 — 레지스트리 기반 역할별", () =>
     }
   });
 
-  it("역할별 결과 고정 — worker 는 오늘 생산·CCP·재고, 회계 화면 없음", async () => {
+  it("역할별 결과 고정 — worker 는 생산(하나의 생산 화면)·CCP·재고, 회계 화면 없음", async () => {
     const { mobileNavFor } = await import("../shared/navigation/menuRegistry");
     const labels = (role: string) => mobileNavFor(role, visibleFor(role), () => "x").map((n) => n.label);
-    expect(labels("worker")).toEqual(["오늘 생산", "CCP", "재고", "알림", "메뉴"]);
+    expect(labels("worker")).toEqual(["생산", "CCP", "재고", "알림", "메뉴"]);
     expect(labels("admin")).toEqual(["대시보드", "생산", "매출", "알림", "메뉴"]);
     expect(labels("inspector")).toEqual(["오늘", "CCP", "체크리스트", "알림", "메뉴"]);
     // monitor 는 메뉴에서 Today 를 볼 수 없다 (기존 권한) → 승인부터

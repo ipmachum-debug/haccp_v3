@@ -31,8 +31,6 @@ const Dashboard = lazy(() => import("./pages/system/Dashboard"));
 const SuperAdminDashboard = lazy(() => import("./pages/system/SuperAdminDashboard"));
 const SupportManagePage = lazy(() => import("./pages/system/SupportManagePage"));
 const BatchListPage = lazy(() => import("./pages/production/BatchListPage"));
-// 단건·일괄 배치 생성 → 오늘 생산 작업대 하나로 (PR-B, 2026-10-18)
-const TodayProductionWorkbench = lazy(() => import("./pages/production/TodayProductionWorkbench"));
 const BatchDetail = lazy(() => import("./pages/production/BatchDetail"));
 const CcpInspection = lazy(() => import("./pages/haccp/CcpInspection"));
 const CcpRecords = lazy(() => import("./pages/haccp/CcpRecords"));
@@ -104,7 +102,6 @@ const HaccpVerification = lazy(() => import("./pages/haccp/HaccpVerification"));
 const ProductionOperations = lazy(() => import("./pages/production/ProductionOperations"));
 const ProductionManagement = lazy(() => import("./pages/production/ProductionManagement"));
 const TodayProduction = lazy(() => import("./pages/production/TodayProduction"));
-const FieldWork = lazy(() => import("./pages/production/FieldWork"));
 const SupplierPerformance = lazy(() => import("./pages/master/SupplierPerformance"));
 // 2-b-3: NotificationHistory 는 라우트가 중복으로 가려져 도달 불가였다 — 라우트 제거, 화면 파일은 4단계 폐기 판단까지 보존
 const ApprovalManagement = lazy(() => import("./pages/system/ApprovalManagement"));
@@ -228,7 +225,6 @@ const InventoryRelease = lazy(() => import("./pages/production/InventoryRelease"
 const ProductionDailyReport = lazy(() => import("./pages/production/ProductionDailyReport"));
 const BatchProductionDashboard = lazy(() => import("./pages/production/BatchProductionDashboard"));
 const InventoryManagementIntegrated = lazy(() => import("./pages/inventory/InventoryManagementIntegrated"));
-const PipelineDashboard = lazy(() => import("./pages/production/PipelineDashboard"));
 const FAQPage = lazy(() => import("./pages/FAQPage"));
 const SupportPage = lazy(() => import("./pages/system/SupportPage"));
 const LegalPage = lazy(() => import("./pages/LegalPage"));
@@ -367,7 +363,6 @@ function Router() {
           <Route path="/dashboard/haccp" component={ProductionOperations} />
           <Route path="/dashboard/production-management" component={ProductionManagement} />
           <Route path={ROUTES.PRODUCTION_TODAY} component={TodayProduction} />
-          <Route path={ROUTES.FIELD_WORK} component={FieldWork} />
       <Route path="/dashboard/cost-saving-ai" component={CostSavingAI} />
       <Route path="/dashboard/batch-cost-analysis" component={BatchCostAnalysisDashboard} />
       <Route path="/dashboard/material-receipt" component={MaterialReceiptManagement} />
@@ -376,7 +371,6 @@ function Router() {
       <Route path="/dashboard/inventory-trend" component={InventoryTrend} />
       <Route path="/dashboard/purchase-proposal-history" component={PurchaseProposalHistory} />
       <Route path="/dashboard/integrated" component={IntegratedDashboard} />
-      <Route path="/dashboard/pipeline" component={PipelineDashboard} />
       <Route path="/dashboard/master-data" component={MasterDataManagement} />
       <Route path="/dashboard/item-master" component={lazy(() => import("@/pages/master/ItemMasterManagement"))} />
       <Route path="/dashboard/upload-history" component={UploadHistory} />
@@ -411,8 +405,9 @@ function Router() {
       <Route path="/quality/statistics" component={ChecklistStatistics} />
       <Route path="/quality/notification-settings" component={ChecklistNotificationSettings} />
       <Route path="/dashboard/batch" component={BatchListPage} />
-      <Route path="/dashboard/batch/new" component={TodayProductionWorkbench} />
-      <Route path="/dashboard/batch/bulk" component={TodayProductionWorkbench} />
+      {/* 배치 생성 = 생산 화면 '생산 추가' (2026-10-20) — /dashboard/batch/:id 보다 먼저 */}
+      <Route path="/dashboard/batch/new">{() => <LegacyRedirect to="/dashboard/production/today?add=1&view=all" />}</Route>
+      <Route path="/dashboard/batch/bulk">{() => <LegacyRedirect to="/dashboard/production/today?add=1&view=all" />}</Route>
       <Route path="/dashboard/batch/:id" component={BatchDetail} />
       <Route path="/inventory/receipt" component={InventoryReceipt} />
       <Route path="/inventory/release" component={InventoryRelease} />

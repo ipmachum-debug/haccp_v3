@@ -209,6 +209,24 @@ export async function checkBatchCompletionReadiness(batchId: number, tenantId?: 
     }
   }
 
+  // ★ 2026-10-20 (생산 화면 하나로): 현장 확인 기록지(field_mode = 1)가 있는 생산 건은 예전 점검 기록(h_ccp_records)이 생기지 않는다.
+  //   그 기록지를 제출 확인과 같은 판정(isConfirmed — 확인 뒤 바뀌지 않음, 또는 승인)으로 센다. 예전 생산 건은 위 기존 판정 그대로.
+  //   (이전: 현장 확인·제출을 다 해도 '0/2 미완료' 로 완료 버튼이 꺼졌다)
+  try {
+    const conn: any = await getRawConnection();
+    const [fr]: any = await conn.execute(
+      `SELECT status, rows_version, confirmed_at, confirmed_rows_version FROM h_ccp_form_records
+        WHERE tenant_id = ? AND batch_id = ? AND ccp_type <> 'CCP-4P' AND field_mode = 1 AND voided_at IS NULL`,
+      [batch.tenantId, batchId],
+    );
+    if ((fr as any[]).length) {
+      const { isConfirmed } = await import("../../lib/haccp/ccpSheetConfirm");
+      ccpTotalCount = (fr as any[]).length;
+      ccpCompletedCount = (fr as any[]).filter((f) => f.status === "approved" || isConfirmed({ confirmedAt: f.confirmed_at, confirmedRowsVersion: f.confirmed_rows_version, rowsVersion: f.rows_version })).length;
+    }
+  } catch (e: any) {
+    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e; // 현장 확인 칸 생성 전 DB — 기존 판정
+  }
   const ccpCompleted = ccpTotalCount === 0 || ccpCompletedCount === ccpTotalCount;
 
   // 체크리스트 결과

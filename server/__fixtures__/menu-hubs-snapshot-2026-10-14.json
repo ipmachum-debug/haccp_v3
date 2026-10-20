@@ -25,9 +25,8 @@
     "/dashboard/item-master | 품목 마스터"
   ],
   "production": [
-    "/dashboard/production/today | 오늘의 생산",
-    "/dashboard/field | 현장 확인",
-    "/dashboard/production-management | 생산관리",
+    "/dashboard/production/today | 생산",
+    "/dashboard/production-management | 생산 기록·원가",
     "/dashboard/production-operations | 생산운영",
     "/dashboard/manufacturing-standards | 제조기준관리"
   ],
