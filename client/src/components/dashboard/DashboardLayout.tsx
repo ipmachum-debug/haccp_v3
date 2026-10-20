@@ -1284,22 +1284,23 @@ function DashboardLayoutContent({
           </div>
         )}
         {!isMobile && (
-          <div className="flex border-b border-border h-[72px] items-center justify-between bg-white dark:bg-card backdrop-blur-xl px-6 sticky top-0 z-40">
-            <div className="flex items-center gap-3">
-              <span className="text-[15px] font-semibold text-foreground tracking-tight">
+          <div className="flex border-b border-border h-[72px] items-center justify-between gap-3 bg-white dark:bg-card backdrop-blur-xl px-4 lg:px-6 sticky top-0 z-40">
+            {/* 좁아질 때 줄이는 순서 (2026-10-20, #612 검토 잔여 2): 제목(말줄임) → 검색 폭 → 도구 글자(짧은 이름) — 도구 버튼은 줄바꿈 없이 */}
+            <div className="flex min-w-0 flex-1 items-center gap-3">
+              <span className="truncate text-[15px] font-semibold text-foreground tracking-tight">
                 {activeMenuItem?.label ?? ""}
               </span>
             </div>
             {/* 헤더 우측 (2026-10-20 대표 요청 정리): [검색] · [업무 도구: AI 비서 하나 · 출퇴근(낮은 강조)] | [알림 · 내 계정] — 묶음은 간격·구분선으로 */}
-            <div className="flex items-center">
-              {hubMode && <GlobalMenuSearch sections={hubSections} onNavigate={(p) => setLocation(p)} />}
-              <div className="ml-5 flex items-center gap-1.5" data-testid="header-work-tools">
+            <div className="flex min-w-0 items-center">
+              {hubMode && <div className="min-w-0 shrink"><GlobalMenuSearch sections={hubSections} onNavigate={(p) => setLocation(p)} /></div>}
+              <div className="ml-3 lg:ml-5 flex shrink-0 items-center gap-1.5" data-testid="header-work-tools">
                 {/* AI 비서 하나 — 저절로 띄우지 않고 이름 보이는 버튼 + 오늘 확인할 것 숫자 */}
                 <AIBriefingButton />
                 {user && (ATTENDANCE_ROLES as readonly string[]).includes(user.role) && <HeaderAttendance />}
               </div>
-              <span aria-hidden className="mx-4 h-6 w-px bg-border" />
-              <div className="flex items-center gap-1.5" data-testid="header-account">
+              <span aria-hidden className="mx-2.5 lg:mx-4 h-6 w-px shrink-0 bg-border" />
+              <div className="flex shrink-0 items-center gap-1.5" data-testid="header-account">
                 <NotificationDropdown />
                 {user && <HeaderProfileMenu name={user.name} email={user.email} role={user.role} onLogout={logout} />}
               </div>

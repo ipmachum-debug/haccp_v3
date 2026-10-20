@@ -55,7 +55,9 @@ describe("연결", () => {
   it("서버: 생성·미리보기 모두 같은 규칙 (같은 요청 중복 거부, 같은 업무일 기존 생산 건은 그 줄 실패)", () => {
     const c = read("server/routers/production/batch.crud.router.ts");
     expect(c).toMatch(/duplicateLineProblems\(input\.items\)/);
-    expect(c).toMatch(/existingSameDayRuns\(conn, ctx\.tenantId, input\.workDate, .*, dayBatchGroup\)/);
+    // 이 요청이 만든 생산 건만 뺀다 — 같은 일일 그룹 전체를 빼지 않는다 (2026-10-20, 생산계획 생애주기 검토 1)
+    expect(c).toMatch(/const ownBatchIds = useKeys \? await reqKeys\.batchesOfRequest\(conn, ctx\.tenantId, input\.requestKey!\) : \[\];/);
+    expect(c).toMatch(/existingSameDayRuns\(conn, ctx\.tenantId, input\.workDate, .*, ownBatchIds\)/);
     expect(c).toMatch(/if \(already && !item\.separateRun\)/);
     const p = read("server/routers/production/batch.plan.router.ts");
     expect(p).toMatch(/duplicateLineProblems\(input\.items/);

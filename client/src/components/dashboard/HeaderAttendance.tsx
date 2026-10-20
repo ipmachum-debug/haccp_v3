@@ -80,14 +80,18 @@ export default function HeaderAttendance({ compact = false }: { compact?: boolea
 
   // 헤더 정리 (2026-10-20 대표 요청): 출퇴근은 업무 도구 중 하나 — 한 줄·작은 크기·낮은 강조 (타일·두 줄·그림자 없음)
   const shell = cn(
-    "h-8 inline-flex items-center gap-1.5 rounded-full px-2.5 text-[12px] text-muted-foreground",
+    "h-8 shrink-0 whitespace-nowrap inline-flex items-center gap-1.5 rounded-full px-2.5 text-[12px] text-muted-foreground",
     "transition-colors hover:bg-muted hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40",
   );
   const short = state === "before" ? "출근하기" : state === "working" ? `근무 ${fmtDuration(elapsed)}` : `퇴근 · ${workHours.toFixed(1)}시간`;
+  // 중간 폭(lg 미만)에서는 더 짧게 — 줄바꿈 대신 글자를 줄인다 (2026-10-20, #612 검토 잔여 2)
+  const shorter = state === "before" ? "출근" : state === "working" ? `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}` : `${workHours.toFixed(1)}h`;
   const body = (
     <>
-      <Icon className={cn("h-3.5 w-3.5", tone.icon)} />
-      <span className={cn("tabular-nums", state === "before" ? "font-medium text-foreground/80" : "")}>{short}</span>
+      <Icon className={cn("h-3.5 w-3.5 shrink-0", tone.icon)} />
+      <span className={cn("tabular-nums", state === "before" ? "font-medium text-foreground/80" : "")}>
+        <span className="hidden lg:inline">{short}</span><span className="lg:hidden">{shorter}</span>
+      </span>
       <StatusDot state={state} />
     </>
   );

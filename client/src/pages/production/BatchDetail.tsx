@@ -336,7 +336,7 @@ export default function BatchDetail() {
     });
   };
 
-  const handleStatusChange = (newStatus: "planned" | "in_progress" | "completed" | "shipped") => {
+  const handleStatusChange = (newStatus: "planned" | "in_progress" | "shipped") => {
     updateStatusMutation.mutate({ id: batchId, status: newStatus });
   };
 
@@ -521,16 +521,12 @@ export default function BatchDetail() {
                   >
                     진행 중
                   </Button>
+                  {/* 완료는 [완료] 창으로만 (실제 생산량·재고 정산·관리자) — 진행 중일 때만 (2026-10-20, 생산계획 생애주기 검토 2) */}
                   <Button
                     variant={batch.status === "completed" ? "default" : "outline"}
-                    onClick={() => {
-                      if (batch.status === "in_progress") {
-                        setShowCompletionDialog(true);
-                      } else {
-                        handleStatusChange("completed");
-                      }
-                    }}
-                    disabled={updateStatusMutation.isPending || batch.status === "completed"}
+                    onClick={() => setShowCompletionDialog(true)}
+                    disabled={updateStatusMutation.isPending || batch.status !== "in_progress"}
+                    title={batch.status === "in_progress" ? undefined : "진행 중인 생산 건만 완료할 수 있습니다"}
                   >
                     {batch.status === "completed" ? "완료됨" : "완료"}
                   </Button>

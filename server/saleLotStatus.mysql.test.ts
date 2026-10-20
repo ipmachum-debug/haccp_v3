@@ -1001,10 +1001,13 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     beforeEach(async () => {
       for (const t of ["h_mf_reports", "h_mf_report_versions", "h_mf_ingredients", "h_batch_mass_basis", "h_batches", "h_batch_inputs", "item_master", "h_materials", "tenant_feature_settings"]) await q(`DELETE FROM ${t}`);
       await q(`INSERT INTO tenant_feature_settings (tenant_id, feature_code, enabled) VALUES (?, 'PRODUCTION_MASS_BASIS', 1)`, [T]); // 회사 선택
-      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active) VALUES
-        (168, ?, 'M168', '멥쌀(국내산)', 'raw_material', 'kg', 1), (191, ?, 'M191', '정제수', 'raw_material', 'kg', 1),
-        (177, ?, 'M177', '설탕', 'raw_material', 'kg', 1), (188, ?, 'M188', '우유(국내산)', 'raw_material', 'kg', 1),
-        (199, ?, 'M199', '천일염', 'raw_material', 'kg', 1)`, [T, T, T, T, T]);
+      // 원료 정체성은 정본 연결(legacy_material_id)로만 (2026-10-20, 생산계획 생애주기 검토 5) — 시험 자료도 명시적으로 연결
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES
+        (168, ?, 'M168', '멥쌀(국내산)'), (191, ?, 'M191', '정제수'), (177, ?, 'M177', '설탕'), (188, ?, 'M188', '우유(국내산)'), (199, ?, 'M199', '천일염')`, [T, T, T, T, T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES
+        (168, ?, 'M168', '멥쌀(국내산)', 'raw_material', 'kg', 1, 168), (191, ?, 'M191', '정제수', 'raw_material', 'kg', 1, 191),
+        (177, ?, 'M177', '설탕', 'raw_material', 'kg', 1, 177), (188, ?, 'M188', '우유(국내산)', 'raw_material', 'kg', 1, 188),
+        (199, ?, 'M199', '천일염', 'raw_material', 'kg', 1, 199)`, [T, T, T, T, T]);
       await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status, report_type) VALUES (373, ?, 38, 'R373', '2026-03-31', 'ACTIVE', 'BASIC')`, [T]);
       await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg, reference_finished_kg, mass_basis_enabled)
         VALUES (472, ?, 373, 2, '2026-05-08', 'APPROVED', 5, 12.5, 1)`, [T]);
@@ -2789,13 +2792,13 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await updateBatchStatus(1994, "in_progress", T);
       expect((await startOf(1994)).s).not.toBeNull();
     });
-    it("같은 업무일 같은 제품 생산 건 — 취소 제외, 같은 요청(일일 그룹) 재시도는 제외", async () => {
+    it("같은 업무일 같은 제품 생산 건 — 취소 제외, 이 요청이 만든 생산 건만 제외 (같은 일일 그룹 전체를 빼지 않음)", async () => {
       const { getRawConnection } = await import("./db/connection");
       const conn = await getRawConnection();
-      const all = await guard.existingSameDayRuns(conn, T, "2026-10-15", [91, 92], null);
+      const all = await guard.existingSameDayRuns(conn, T, "2026-10-15", [91, 92], []);
       expect(all.get(91)).toEqual(["FP1991", "FP1994"]);
       expect(all.has(92)).toBe(false);
-      const retry = await guard.existingSameDayRuns(conn, T, "2026-10-15", [91], "DAY-20261015-001");
+      const retry = await guard.existingSameDayRuns(conn, T, "2026-10-15", [91], [1991]);
       expect(retry.get(91)).toEqual(["FP1994"]);
     });
   });
@@ -2879,6 +2882,10 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, legacy_product_id, is_active) VALUES
         (89101, ?, 'P891', '왕찹쌀떡', 'own_product', 891, 1), (89102, ?, 'P892', '카스테라앙금인절미', 'own_product', 892, 1),
         (89111, ?, 'R1', '찹쌀', 'raw_material', NULL, 1), (89112, ?, 'R2', '통팥앙금', 'raw_material', NULL, 1), (89113, ?, 'R3', '옥수수전분', 'raw_material', NULL, 1)`, [T, T, T, T, T]);
+      // 원료는 정본 연결(legacy_material_id)로 (2026-10-20, 생산계획 생애주기 검토 5)
+      await q(`DELETE FROM h_materials WHERE id IN (89211, 89212, 89213)`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (89211, ?, 'R1', '찹쌀'), (89212, ?, 'R2', '통팥앙금'), (89213, ?, 'R3', '옥수수전분')`, [T, T, T]);
+      await q(`UPDATE item_master SET legacy_material_id = id + 100 WHERE id IN (89111, 89112, 89113)`);
       await q(`INSERT INTO ccp_process_groups (id, tenant_id, name, ccp_type) VALUES (8921, ?, '교반-가열공정', 'CCP-1B'), (8922, ?, '증숙(설기류)공정', 'CCP-1B'), (8925, ?, '금속검출공정', 'CCP-4P')`, [T, T, T]);
       await q(`INSERT INTO equipments (id, tenant_id, name, default_temperature, default_time, batch_operation_time) VALUES (8931, ?, '교반기1호기', 99, 10, 70), (8935, ?, '금속검출기', NULL, NULL, NULL)`, [T, T]);
       await q(`INSERT INTO ccp_process_group_equipments (tenant_id, process_group_id, equipment_id) VALUES (?, 8921, 8931), (?, 8925, 8935)`, [T, T]);

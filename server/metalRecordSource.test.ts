@@ -28,18 +28,21 @@ describe("통과량 = 생산량, 단위 저장·표기", () => {
     expect(print).not.toMatch(/통과량\(개\)/);
   });
   it("두 생성 경로가 SKU 실적 저장 뒤 다시 동기화", () => {
-    expect(read("server/routers/production/batch.crud.router.ts")).toMatch(/SKU 반영 재동기화/);
-    expect(read("server/services/batchOrchestrator.ts")).toMatch(/SKU 반영 재동기화/);
+    // 생성 경로는 하나 (단건도 createSingleBatch) — 필수 준비에서 SKU 구성 저장 뒤에 기록 행 동기화 (2026-10-20)
+    expect(read("server/routers/production/batch.crud.router.ts")).toMatch(/const \{ createSingleBatch \} = await import\("\.\.\/\.\.\/services\/batchOrchestrator"\);\s*const r = await createSingleBatch\(\{/);
+    const o = read("server/services/batchOrchestrator.ts");
+    expect(o.indexOf("INSERT INTO production_sku_output")).toBeLessThan(o.indexOf("// 기록 행 — SKU 구성 뒤에"));
   });
 });
 
 describe("기록지 생성", () => {
   it("1B/2B 는 배치 × 공정 별 — 공정 두 개인 배치의 두 번째 기록지 누락 방지", () => {
     expect(read("server/db/haccp/ccpFormRecordsCRUD.ts")).toMatch(/eq\(hCcpFormRecords\.processGroupId, params\.processGroupId\)/);
-    expect(read("server/routers/production/batch.crud.router.ts")).toMatch(/batch_id=\? AND ccp_type=\? AND process_group_id=\? AND tenant_id=\?/);
+    // 단건·일괄 모두 createSingleBatch → completeBatchSetup → getOrCreateCcpFormRecord(공정그룹별)
+    expect(read("server/services/batchOrchestrator.ts")).toMatch(/processGroupId: group\.id, processGroupName: group\.name/);
   });
   it("단건 생성도 금속검출 감도 기준을 회사 설비에서 (DB 기본값 2.0/3.0/130 안 씀), 4P 인쇄 문구는 공정그룹", () => {
-    expect(read("server/routers/production/batch.crud.router.ts")).toMatch(/cl_product_temp_lo, cl_fe_mm, cl_sus_mm, cl_metal_sensitivity/);
+    expect(read("server/db/haccp/ccpFormRecordsCRUD.ts")).toMatch(/SELECT fe_sensitivity, sts_sensitivity FROM equipments WHERE tenant_id = \? AND ccp_type = 'CCP-4P'/);
     const print = read("client/src/components/print/CcpRenderers.tsx");
     expect(print).not.toMatch(/벨트 중간 테스트피스|이물검출→작업중지/);
   });

@@ -42,419 +42,53 @@ export const batchCrudRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { createBatch, createAuditLog, getProductById, getDb } = await import("../../db");
-        const { autoCreateCcpInstancesForBatch } = await import("../../services/ccp-batch");
-
+        // 단건 생성도 일괄 생성과 같은 생성 계약 (2026-10-20, 생산계획 생애주기 검토 4) — 머리글+원료 계획 한 트랜잭션,
+        //   필수 준비(CCP·기록지·행·SKU) 확인 뒤에만 완료, 오늘·미래는 예정. 이전의 별도 10단계 파이프라인(오류를 로그만 남김)은 쓰지 않는다.
         const tenantId = ctx.tenantId;
         const workDate = formatLocalDate(input.plannedStartDate);
-
-        // ★ PR #263: CCP 공정그룹 매핑 사전 검증 (fail-fast)
-        // 매핑이 없으면 배치 생성 자체를 차단하고 사용자에게 친절한 안내 메시지를 띄움.
-        // 4월 17일 batch 580 (흑임자인절미) 0건 CCP form record 사고 재발 방지.
-        const productMeta = await getProductById(input.productId, tenantId);
-        const productNameLabel = (productMeta as any)?.productName || `제품 #${input.productId}`;
-        const { validateProductCcpMapping } = await import("../../services/validateProductCcpMapping");
-        const ccpValidation = await validateProductCcpMapping({
-          productId: input.productId,
-          productName: productNameLabel,
-          tenantId,
+        const { createSingleBatch } = await import("../../services/batchOrchestrator");
+        const r = await createSingleBatch({
+          tenantId, siteId: input.siteId, workDate, startTime: input.batchStartTime ?? "09:00",
+          productId: input.productId, plannedQuantityKg: input.plannedQuantity, batchCode: input.batchNumber, mode: input.mode,
+          skuOutputs: input.skuOutputs?.map((x) => ({ skuId: x.skuId, plannedQty: x.plannedQty, actualQty: x.actualQty, defectiveQty: x.defectiveQty, note: x.notes })),
+          userId: ctx.user.id, userEmail: ctx.user.email, userRole: ctx.user.role,
         });
-        if (!ccpValidation.valid) {
-          const { TRPCError } = await import("@trpc/server");
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: ccpValidation.message,
-            cause: {
-              guidance: ccpValidation.guidance,
-              bomMappingCount: ccpValidation.bomMappingCount,
-              manualMappingCount: ccpValidation.manualMappingCount,
-              hasApprovedBom: ccpValidation.hasApprovedBom,
-              hasMetalDetection: ccpValidation.hasMetalDetection,
-            },
-          });
+        if (r.setupMissing.length) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: `생산 건 #${r.batchId} 준비가 끝나지 않았습니다 (${r.setupMissing.slice(0, 3).join(", ")}) — 생산 계획 화면에서 같은 내용으로 다시 생성하세요.` });
         }
-
-        // STEP 1. 배치 헤더 생성 (h_products_v2.id를 직접 사용)
-        const batchId = await createBatch({
-          tenantId,
-          siteId: input.siteId,
-          productId: input.productId,
-          batchCode: input.batchNumber,
-          plannedQuantity: input.plannedQuantity.toString(),
-          plannedDate: input.plannedStartDate,
-          createdBy: ctx.user.id,
-          mode: input.mode,
-          batchStartTime: input.batchStartTime,
-        });
-
-        // STEP 2. 제품 정보 조회
-        const product = await getProductById(input.productId, tenantId);
-        const productName = product?.productName || "";
-
-        // STEP 3. BOM -> 공정그룹 -> CCP 인스턴스 + 기본 행 자동 생성
-        let ccpCreated = false;
-        let ccpCount = 0;
-        let ccpGroups: any[] = [];
-        let ccpSubBatchKg: number | null = null;
-        try {
-          const result = await autoCreateCcpInstancesForBatch({
-            siteId: input.siteId,
-            workDate,
-            batchId,
-            productId: input.productId,
-            productName,
-            createdBy: ctx.user.id,
-            tenantId,
-            plannedQuantity: input.plannedQuantity,
-          });
-          ccpCreated = result.instanceIds.length > 0;
-          ccpCount = result.instanceIds.length;
-          ccpGroups = result.groups || [];
-          ccpSubBatchKg = result.subBatchKg;
-        } catch (err) {
-          console.error("[파이프라인] CCP 자동 생성 실패 (배치 생성 유지):", err);
-        }
-
-        // STEP 3-B + STEP 4: 제품명 확보 → CCP 기록지 자동생성 → 승인요청 등록
-        // ※ getRawConnection()은 Pool 싱글턴 → .end() 절대 호출 금지, Pool을 그대로 사용
-        let approvalRequestId: number | null = null;
-        // 제품명 보완: h_products_v2 조회 (STEP 3-B, 4 공통 사용)
-        let finalProductName = productName;
-        try {
-          if (!finalProductName && input.productId) {
-            const { getRawConnection: _rcProd } = await import("../../db");
-            const _poolProd = await _rcProd();
-            const [_pRows] = await _poolProd.execute(
-              `SELECT p.product_name
-               FROM h_products_v2 p
-               WHERE p.id = ? AND p.tenant_id = ?`,
-              [input.productId, tenantId]
-            );
-            finalProductName = (_pRows as any[])[0]?.product_name || "";
-          }
-        } catch (_pe) { /* ignore */ }
-
-        // STEP 3-B. CCP 기록지(h_ccp_form_records) 자동 생성
-        // ★ FIX: bom_batch_kg와 batch_count를 초기 생성 시 계산하여 포함
-        //    이전에는 이 값이 누락되어 batch_count=1로 기본 생성 → 나중에 getOrCreate 호출 시 재계산 → 지연 발생
-        if (ccpCreated && ccpGroups.length > 0) {
-          try {
-            const { getRawConnection: _rc3 } = await import("../../db");
-            const _pool3 = await _rc3(); // Pool 싱글턴 (end() 호출 금지)
-
-            // 1회차 기준 중량 = CCP 계획과 같은 BOM 버전 (결함 #11 — 이전: '최신 승인' 버전을 따로 조회)
-            const bomBatchKg: number | null = ccpSubBatchKg;
-
-            // batch_count 계산: 총생산량 / BOM 1배치 기준 중량
-            let batchCount = 1;
-            if (bomBatchKg && bomBatchKg > 0 && input.plannedQuantity > 0) {
-              batchCount = Math.ceil(input.plannedQuantity / bomBatchKg);
-              if (batchCount < 1) batchCount = 1;
-            }
-            for (const grp of ccpGroups) {
-              // CCP-4P는 날짜별 1건 통합 → batch_id가 아닌 work_date로 중복 체크
-              // 1B/2B 는 배치 × 공정 별 기록지 (2026-10-18: 공정 두 개인 배치의 두 번째 기록지 누락 수정)
-              const existQuery = grp.ccp_type === 'CCP-4P'
-                ? 'SELECT id FROM h_ccp_form_records WHERE ccp_type=? AND work_date=? AND tenant_id=? LIMIT 1'
-                : 'SELECT id FROM h_ccp_form_records WHERE batch_id=? AND ccp_type=? AND process_group_id=? AND tenant_id=? LIMIT 1';
-              const existParams = grp.ccp_type === 'CCP-4P'
-                ? [grp.ccp_type, workDate, tenantId]
-                : [batchId, grp.ccp_type, grp.id, tenantId];
-              const [existFR] = await _pool3.execute(existQuery, existParams);
-              if ((existFR as any[]).length > 0) continue;
-              const clHeatTimeMinLo = grp.time_min ?? null;
-              const clHeatTimeMinHi = grp.time_max ?? null;
-              const clHeatTempLo    = grp.temperature_min ?? null;
-              const clPressureMpaLo = grp.pressure_min ?? null;
-              // 공정그룹에서 배치 운영 설정 가져오기 (Single Source of Truth)
-              const equipGroupMode   = grp.equip_group_mode ?? 'sequential';
-              const equipIntervalMin = grp.equip_interval_min ?? 10;
-              // CCP-4P: 일일 통합 기록지 (product_id=NULL, product_name='금속검출 통합')
-              const frProductId = grp.ccp_type === 'CCP-4P' ? null : input.productId;
-              const frProductName = grp.ccp_type === 'CCP-4P' ? '금속검출 통합' : (finalProductName || productName || null);
-              // 금속검출 감도 기준은 이 회사 금속검출기 설정 — 쓰지 않으면 DB 기본값(2.0/3.0/130)이 들어갔다 (2026-10-18)
-              let clFe: string | null = null, clSus: string | null = null;
-              if (grp.ccp_type === 'CCP-4P') {
-                const [eqm]: any = await _pool3.execute(
-                  `SELECT fe_sensitivity, sts_sensitivity FROM equipments WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND status = 'active' ORDER BY id LIMIT 1`,
-                  [tenantId],
-                );
-                const e0 = (eqm as any[])[0];
-                if (e0) { clFe = e0.fe_sensitivity != null ? String(e0.fe_sensitivity) : null; clSus = e0.sts_sensitivity != null ? String(e0.sts_sensitivity) : null; }
-              }
-              // 1B 품온 기준 = 공정 온도 하한 (getOrCreate 와 같게)
-              const clProductTempLo = grp.ccp_type === 'CCP-1B' ? clHeatTempLo : null;
-              const [frIns]: any = await _pool3.execute(
-                `INSERT INTO h_ccp_form_records
-                   (tenant_id, site_id, batch_id, ccp_type, work_date,
-                    product_id, product_name, process_group_id, process_group_name,
-                    planned_qty_kg, writer_id, status,
-                    cl_heat_time_min_lo, cl_heat_time_min_hi, cl_heat_temp_lo, cl_pressure_mpa_lo,
-                    cl_product_temp_lo, cl_fe_mm, cl_sus_mm, cl_metal_sensitivity,
-                    equip_group_mode, equip_interval_min,
-                    bom_batch_kg, batch_count)
-                 VALUES (?,?,?,?,?, ?,?,?,?, ?,?,'draft', ?,?,?,?, ?,?,?,NULL, ?,?, ?,?)`,
-                [
-                  tenantId, input.siteId || ctx.user.siteId || ctx.tenantId, batchId, grp.ccp_type, workDate,
-                  frProductId, frProductName, grp.id, grp.name,
-                  input.plannedQuantity, ctx.user.id,
-                  clHeatTimeMinLo, clHeatTimeMinHi, clHeatTempLo, clPressureMpaLo,
-                  clProductTempLo, clFe, clSus,
-                  equipGroupMode, equipIntervalMin,
-                  bomBatchKg, batchCount,
-                ]
-              );
-              // 새 기록지 = 현장 확인 기록지 (2026-10-19 하루 생산 흐름)
-              const { markFieldMode } = await import("../../db/haccp/ccpFormRecordsCRUD");
-              await markFieldMode(Number(frIns.insertId), tenantId, _pool3);
-            }
-          } catch (frErr) {
-            console.error('[파이프라인] CCP 기록지 자동 생성 실패 (계속):', frErr);
-          }
-        }
-
-        // STEP 3-C. h_ccp_rows → h_ccp_form_rows 동기화 (설비 기준값 → 인쇄용 기록지 행)
-        if (ccpCreated) {
-          try {
-            const { syncCcpRowsToFormRows } = await import("../../db/haccp/ccpFormRecords");
-            const syncResult = await syncCcpRowsToFormRows({ batchId, tenantId });
-          } catch (syncErr) {
-            console.error("[파이프라인] CCP form rows 동기화 실패 (계속):", syncErr);
-          }
-        }
-
-
-        // STEP 4. 승인 요청 큐 자동 등록 (pending_review)
-        // ★ 2026-04-15 수정:
-        //   - 제목: "[CCP 기록지]" prefix 로 생산일지와 구분 (중복 표시 오해 방지)
-        //   - 중복 방지: 동일 batchId 에 batch_production AR 이 이미 있으면 skip
-        if (ccpCreated) {
-          try {
-            const { getRawConnection: _rc4 } = await import("../../db");
-            const _pool4 = await _rc4(); // Pool 싱글턴
-            // 중복 생성 방지 체크
-            const [existingBp] = await _pool4.execute<any[]>(
-              `SELECT id FROM h_approval_requests
-               WHERE tenant_id = ? AND request_type = 'batch_production'
-                 AND reference_type = 'batch' AND reference_id = ?
-               LIMIT 1`,
-              [tenantId, batchId]
-            );
-            if ((existingBp as any[]).length > 0) {
-              approvalRequestId = Number((existingBp as any[])[0].id);
-              console.log(`[파이프라인] 배치 #${batchId} batch_production AR 이미 존재 → skip (id=${approvalRequestId})`);
-            } else {
-              const ccpGroupNames = ccpGroups.map((g: any) => `${g.name}(${g.ccp_type})`).join(", ");
-              const modeLabel = input.mode === "auto" ? "[자동]" : "[수동]";
-              const [insResult] = await _pool4.execute(
-                `INSERT INTO h_approval_requests
-                   (site_id, tenant_id, request_type, reference_type, reference_id,
-                    title, description, status, priority, requested_by)
-                 VALUES (?, ?, 'batch_production', 'batch', ?, ?, ?, 'pending_review', 'high', ?)`,
-                [
-                  (input.siteId || ctx.user.siteId || ctx.tenantId),
-                  tenantId,
-                  batchId,
-                  `[CCP 기록지]${modeLabel} ${input.batchNumber} (${finalProductName || ""})`,
-                  `제품: ${finalProductName || ""}\n계획일: ${workDate}\nCCP ${ccpCount}건 자동 생성 완료\n배치코드: ${input.batchNumber}\nCCP 공정: ${ccpGroupNames}\n[작성자 자동승인 → 검토자 대기]`,
-                  ctx.user.id,
-                ]
-              );
-              approvalRequestId = Number((insResult as any).insertId ?? 0);
-              console.log(`[파이프라인] 배치 #${batchId} batch_production AR 등록 (pending_review, id=${approvalRequestId})`);
-            }
-          } catch (appErr) {
-            console.error("[파이프라인] 승인 요청 생성 실패 (배치 생성 유지):", appErr);
-          }
-        }
-
-        // STEP 4-B. CCP-4P 금속검출 통합 승인요청 자동 생성
-        if (ccpCreated && ccpGroups.some((g: any) => g.ccp_type === "CCP-4P")) {
-          try {
-            const { getRawConnection: _rc4p } = await import("../../db");
-            const _pool4p = await _rc4p();
-            const [ccp4pRecs] = await _pool4p.execute<any[]>(
-              `SELECT id, status, approval_request_id
-               FROM h_ccp_form_records
-               WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?
-               ORDER BY id ASC LIMIT 1`,
-              [tenantId, workDate],
-            );
-            if ((ccp4pRecs as any[]).length > 0) {
-              const ccp4pRec = (ccp4pRecs as any[])[0];
-              if (!ccp4pRec.approval_request_id) {
-                await _pool4p.execute(
-                  `UPDATE h_ccp_form_records SET status='submitted', submitted_at=NOW(), writer_id=? WHERE id=? AND tenant_id=?`,
-                  [ctx.user.id, ccp4pRec.id, tenantId],
-                );
-                const title4p = `[CCP-CCP-4P] ${workDate} 금속검출 통합`;
-                const desc4p = `금속검출공정 CCP 기록지 (일일 통합)\n작업일: ${workDate}\n제품: ${finalProductName || ""}\n배치코드: ${input.batchNumber}`;
-                const [ar4p] = await _pool4p.execute(
-                  `INSERT INTO h_approval_requests
-                    (site_id, tenant_id, request_type, reference_type, reference_id,
-                     title, description, status, priority, requested_by, created_at)
-                   VALUES (?, ?, 'ccp_form', 'ccp_form_record', ?, ?, ?, 'pending_review', 'high', ?, NOW())`,
-                  [input.siteId || ctx.user.siteId || ctx.tenantId, tenantId, ccp4pRec.id, title4p, desc4p, ctx.user.id],
-                );
-                const approvalId4p = (ar4p as any).insertId;
-                await _pool4p.execute(
-                  `UPDATE h_ccp_form_records SET approval_request_id=? WHERE id=? AND tenant_id=?`,
-                  [approvalId4p, ccp4pRec.id, tenantId],
-                );
-                console.log(`[파이프라인] CCP-4P 금속검출 통합 승인요청 생성: approvalId=${approvalId4p}`);
-                const { syncCcpInstanceStatusFromForm } = await import("../../db/haccp/ccpStatusSync");
-                await syncCcpInstanceStatusFromForm(ccp4pRec.id, tenantId);
-              }
-            }
-          } catch (ccp4pErr) {
-            console.error("[파이프라인] CCP-4P 승인요청 생성 실패:", ccp4pErr);
-          }
-        }
-
-        // STEP 5. 일정 자동 생성
-        let scheduleCreated = false;
-        try {
-          const { createBatchSchedule } = await import("../../db/production/batchSchedules");
-          await createBatchSchedule({
-            tenantId,
-            batchId,
-            scheduledDate: input.plannedStartDate,
-            status: "scheduled",
-            notes: `${input.mode === "auto" ? "[자동]" : "[수동]"} 배치: ${input.batchNumber}`,
-          });
-          scheduleCreated = true;
-        } catch (err) {
-          console.error("[파이프라인] 일정 생성 실패:", err);
-        }
-
-        // STEP 6. SKU 생산 실적 저장 (선택 입력)
-        if (input.skuOutputs && input.skuOutputs.length > 0) {
-          try {
-            const db = await getDb();
-            if (!db) throw new Error("DB unavailable");
-            const { productionSkuOutput, productSkus: pSkus } = await import(
-              "../../../drizzle/schema/schema_dual_unit.js"
-            );
-            const { eq: eqOp } = await import("drizzle-orm");
-            // ★ 2026-05-09 (PR #281): SKU 번들 자동 매칭 — child SKU 가 어떤 parent 에 속하는지 룩업
-            const { resolveBundleSkuIdsBulk } = await import(
-              "../../lib/production/resolveBundleSkuId.js"
-            );
-            const childSkuIds = input.skuOutputs
-              .map((o: any) => o.skuId)
-              .filter((id: number) => Number.isFinite(id));
-            const bundleMap = await resolveBundleSkuIdsBulk(db, tenantId, childSkuIds);
-
-            for (const skuOut of input.skuOutputs) {
-              const qty = skuOut.actualQty ?? skuOut.plannedQty;
-              if (!qty || qty <= 0) continue;
-              const [skuRow] = await db.select().from(pSkus).where(eqOp(pSkus.id, skuOut.skuId));
-              const kgPerUnit = skuRow ? Number((skuRow as any).kgPerSalesUnit ?? 1) : 1;
-              const totalKg = (qty * kgPerUnit).toFixed(3);
-              await db.insert(productionSkuOutput).values({
-                tenantId,
-                batchId,
-                skuId: skuOut.skuId,
-                bundleSkuId: bundleMap.get(skuOut.skuId) ?? null,
-                quantity: qty,
-                defectiveQty: skuOut.defectiveQty ?? 0,
-                totalKg,
-                notes: skuOut.notes ?? null,
-              } as any);
-            }
-          } catch (skuErr) {
-            console.error("[파이프라인] SKU 저장 실패 (배치 생성 유지):", skuErr);
-          }
-          // SKU 실적이 CCP 동기화 뒤에 저장되므로 한 번 더 동기화 — 금속검출 통과량 = 생산량(SKU 판매단위) (2026-10-18)
-          try {
-            const { syncCcpRowsToFormRows } = await import("../../db/haccp/ccpFormSettings");
-            await syncCcpRowsToFormRows({ batchId, tenantId });
-          } catch (resyncErr) {
-            console.error("[파이프라인] SKU 반영 재동기화 실패 (계속):", resyncErr);
-          }
-        }
-
-        // STEP 7. 감사 로그
-        await createAuditLog({
-          action: "batch.create",
-          entityType: "batch",
-          entityId: batchId,
-          userId: ctx.user.id,
-          userEmail: ctx.user.email,
-          userRole: ctx.user.role,
-          description: `배치 생성: ${input.batchNumber} (${input.mode === "auto" ? "자동" : "수동"}모드)` +
-            (ccpCreated ? ` CCP ${ccpCount}건` : "") +
-            (approvalRequestId ? ` 승인요청 자동등록` : ""),
-          changes: { created: { batchId, mode: input.mode, productId: input.productId } },
-        });
-
-        // STEP 8. 일일일지 자동 생성 (배치 생성 시 당일 최초 1회만)
-        // 설계: 배치 완료가 아닌 배치 생성(planned) 시점에 생성 → 승인관리에서 즉시 확인 가능
-        // 당일 동일 site_id+tenant_id 조합의 일일일지가 이미 있으면 배치 목록만 업데이트
-        let dailyLogResult: any = null;
-        try {
-          const { autoGenerateDailyReport } = await import('../../lib/production/autoDailyReport');
-          dailyLogResult = await autoGenerateDailyReport(batchId, ctx.user.id, workDate);
-        } catch (dlErr: any) {
-          console.error('[파이프라인 STEP8] 일일일지 생성 실패 (배치 생성 유지):', dlErr?.message || dlErr);
-        }
-
-        // STEP 8.5. 주간/월간/연간 일지 자동 생성 (auto 모드만)
-        let periodicLogsResult: any = null;
-        try {
-          const { autoGenerateAllPeriodicLogs } = await import('../../lib/production/autoPeriodicLogs');
-          periodicLogsResult = await autoGenerateAllPeriodicLogs(
-            input.mode,
-            ctx.tenantId,
-            input.siteId,
-            workDate,
-            ctx.user.id,
-            { batchId, productName: product?.productName || "", plannedQty: input.plannedQuantity },
-          );
-          if (periodicLogsResult) {
-            const newLogs = [periodicLogsResult.weekly, periodicLogsResult.monthly, periodicLogsResult.yearly]
-              .filter((r: any) => r?.isNew);
-          }
-        } catch (plErr) {
-          console.error('[파이프라인 STEP8.5] 기간별 일지 생성 실패:', plErr);
-        }
-
-        // STEP 9. 생산일지(production_daily) 자동 생성/갱신
-        try {
-          const { autoRegenerateProductionDaily } = await import('../../lib/production/autoProductionDaily');
-          await autoRegenerateProductionDaily(tenantId, workDate);
-        } catch (pdErr) {
-          console.error('[파이프라인 STEP9] 생산일지 갱신 실패:', pdErr);
-        }
-
-        // STEP 10. 체크리스트 자동 생성 (frequency=batch_create 템플릿)
+        const planOnly = workDate >= todayKST();
         let checklistResult: any = null;
-        try {
-          const { autoCreateChecklistsForBatch } = await import('../../lib/production/autoChecklistFromBatch');
-          checklistResult = await autoCreateChecklistsForBatch(tenantId, batchId, ctx.user.id, workDate);
-          if (checklistResult?.skippedReason) {
-            console.warn('[파이프라인 STEP10]', checklistResult.skippedReason);
+        if (!planOnly) {
+          // 지난 날짜(즉시 실행)만 — 생산일지·체크리스트 (오늘·미래는 그날 첫 확인 때)
+          try {
+            const { autoRegenerateProductionDaily } = await import('../../lib/production/autoProductionDaily');
+            await autoRegenerateProductionDaily(tenantId, workDate);
+          } catch (pdErr) {
+            console.error('[batch.create] 생산일지 갱신 실패 (선택 단계):', pdErr);
           }
-        } catch (clErr: any) {
-          console.error('[파이프라인 STEP10] 체크리스트 자동생성 실패 (배치 생성 유지):', clErr?.message || clErr);
+          try {
+            const { autoCreateChecklistsForBatch } = await import('../../lib/production/autoChecklistFromBatch');
+            checklistResult = await autoCreateChecklistsForBatch(tenantId, r.batchId, ctx.user.id, workDate);
+          } catch (clErr: any) {
+            console.error('[batch.create] 체크리스트 자동생성 실패 (선택 단계):', clErr?.message || clErr);
+          }
         }
-
         return {
           success: true,
-          batchId,
-          ccpCreated,
-          ccpCount,
-          scheduleCreated,
-          approvalRequestId,
-          dailyLogResult,
-          periodicLogsResult,
+          batchId: r.batchId,
+          ccpCreated: r.ccpCreated,
+          ccpCount: r.ccpCount,
+          scheduleCreated: r.scheduleCreated,
+          approvalRequestId: r.approvalRequestId,
+          dailyLogResult: r.dailyReportCreated,
+          periodicLogsResult: r.periodicLogsResult,
           checklistResult,
           mode: input.mode,
-          autoNavigateToApproval: input.mode === "auto" && ccpCreated,
-          message: ccpCreated
-            ? `배치 및 CCP ${ccpCount}건이 생성되었습니다.` +
-              (input.mode === "auto" ? " 승인관리에서 확인하세요." : " CCP 기록지를 확인 후 승인하세요.")
-            : `배치가 생성되었습니다. BOM -> 공정그룹 매핑을 확인해주세요.`,
+          planOnly,
+          autoNavigateToApproval: !planOnly && input.mode === "auto" && r.ccpCreated,
+          message: planOnly
+            ? `예정 생산 건과 CCP ${r.ccpCount}건을 만들었습니다 — 원료는 현장에서 처음 확인할 때 출고됩니다.`
+            : `배치 및 CCP ${r.ccpCount}건이 생성되었습니다.` + (input.mode === "auto" ? " 승인관리에서 확인하세요." : " CCP 기록지를 확인 후 승인하세요."),
         };
       }),
 
@@ -531,7 +165,9 @@ export const batchCrudRouter = router({
         if (dupLines.size) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `같은 제품이 여러 줄입니다 — ${Array.from(dupLines.entries()).map(([i, m]) => `${i + 1}번 줄: ${m}`).join(" / ")}` });
         }
-        const sameDay = await guard.existingSameDayRuns(conn, ctx.tenantId, input.workDate, input.items.map((i) => i.productId), dayBatchGroup);
+        // 이 요청이 이미 만든 생산 건만 중복 검사에서 뺀다 (재시도 때 자기 자신) — 그룹 전체를 빼지 않는다
+        const ownBatchIds = useKeys ? await reqKeys.batchesOfRequest(conn, ctx.tenantId, input.requestKey!) : [];
+        const sameDay = await guard.existingSameDayRuns(conn, ctx.tenantId, input.workDate, input.items.map((i) => i.productId), ownBatchIds);
 
         const results: any[] = [];
 
@@ -548,22 +184,41 @@ export const batchCrudRouter = router({
             });
             continue;
           }
+          // 생성 계약 (2026-10-20, 생산계획 생애주기 검토 1·4): 요청 줄 ↔ 생산 건 연결로 재시도는 이어서, 다른 내용이면 충돌
+          let requestRowId: number | null = null;
+          let resumeBatchId: number | null = null;
           if (useKeys) {
-            const claim = await reqKeys.claimRow(conn, ctx.tenantId, input.requestKey!, rowKey, dayBatchGroup);
-            if (claim.state === "done") {
+            const fp = reqKeys.rowFingerprint({
+              workDate: input.workDate, siteId: input.siteId, productId: item.productId, plannedQuantityKg: item.plannedQuantityKg, batchCount: item.batchCount,
+              mode: item.mode ?? input.defaultMode, startTime: item.startTime ?? input.dayStartTime, startTimeOverride: item.startTimeOverride, separateRun: item.separateRun,
+              skuOutputs: [...(item.skuOutputs ?? [])].sort((x, y) => x.skuId - y.skuId), excluded: [...(input.excludedEquipmentIds ?? [])].sort((x, y) => x - y),
+            });
+            const claim = await reqKeys.claimRow(conn, ctx.tenantId, input.requestKey!, rowKey, dayBatchGroup, fp);
+            requestRowId = claim.requestRowId ?? null;
+            if (claim.state === "conflict") {
+              results.push({ rowKey, status: "failed", conflict: true, batchId: claim.batchId ?? 0, batchCode: "", productId: item.productId, productName: "",
+                error: "같은 요청 키로 다른 내용(작업일·제품·수량 등)이 왔습니다 — 처리하지 않았습니다. 화면을 새로 고친 뒤 다시 생성하세요." });
+              continue;
+            }
+            const linked = requestRowId != null ? await reqKeys.linkedBatch(conn, ctx.tenantId, requestRowId) : null;
+            if (claim.state === "done" && (!linked || !linked.setupPending)) {
               // 이미 만든 줄 — 다시 만들지 않고 그 배치를 알려 준다
+              const bid = linked?.id ?? claim.batchId ?? 0;
               const [bRows] = await conn.execute<any[]>(
                 `SELECT b.batch_code, p.product_name FROM h_batches b LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id WHERE b.id = ? AND b.tenant_id = ?`,
-                [claim.batchId, ctx.tenantId],
+                [bid, ctx.tenantId],
               );
-              results.push({ rowKey, status: "reused", reused: true, batchId: claim.batchId ?? 0, batchCode: (bRows as any[])[0]?.batch_code ?? "", productId: item.productId, productName: (bRows as any[])[0]?.product_name ?? "" });
+              results.push({ rowKey, status: "reused", reused: true, batchId: bid, batchCode: (bRows as any[])[0]?.batch_code ?? "", productId: item.productId, productName: (bRows as any[])[0]?.product_name ?? "" });
               continue;
             }
             if (claim.state === "processing") {
-              results.push({ rowKey, status: "in_progress", batchId: 0, batchCode: "", productId: item.productId, productName: "", error: "같은 요청이 아직 처리 중입니다 — 잠시 뒤 다시 확인하세요." });
+              results.push({ rowKey, status: "in_progress", batchId: linked?.id ?? 0, batchCode: "", productId: item.productId, productName: "", error: "같은 요청이 아직 처리 중입니다 — 잠시 뒤 다시 확인하세요." });
               continue;
             }
+            // new·retry(이전 실패·멈춤) — 이 요청 줄로 이미 만든 생산 건이 있으면 그것을 이어서 완성 (새로 만들지 않음)
+            if (linked) resumeBatchId = linked.id;
           }
+          let madeBatchId: number | null = resumeBatchId;
           try {
             const mode = item.mode ?? input.defaultMode;
             // 배치 수 → kg (미리보기와 같은 계산). 계산할 수 없으면 이 줄은 실패
@@ -594,15 +249,27 @@ export const batchCrudRouter = router({
               skipGroupActions: true,
               startTimeOverride: item.startTimeOverride ?? null,
               excludedEquipmentIds: input.excludedEquipmentIds,
+              createRequestId: requestRowId,
+              resumeBatchId,
             });
+            madeBatchId = result.batchId;
+            if (result.setupMissing.length) {
+              // 생산 건은 남기되(요청 줄에 연결) 생성 완료로 보지 않는다 — 같은 요청으로 다시 보내면 이 생산 건을 이어서 준비
+              const why = `생산 건 준비가 끝나지 않았습니다 (${result.setupMissing.slice(0, 3).join(", ")}) — 같은 내용으로 다시 생성하면 이어서 준비합니다.`;
+              if (useKeys) await reqKeys.failRow(conn, ctx.tenantId, input.requestKey!, rowKey, why, result.batchId).catch(() => {});
+              results.push({ ...result, rowKey, status: "failed", incomplete: true, error: why });
+              continue;
+            }
             if (useKeys) await reqKeys.finishRow(conn, ctx.tenantId, input.requestKey!, rowKey, result.batchId);
-            results.push({ ...result, rowKey, status: "created" });
+            // 이어서 완성한 줄도 이번에 완료됐으니 그룹 후속 처리 대상 (completedNow)
+            results.push({ ...result, rowKey, status: result.resumed ? "reused" : "created", reused: result.resumed, completedNow: true });
           } catch (err: any) {
             console.error(`[bulkCreateForDay] 품목 ${item.productId} 실패:`, err);
-            if (useKeys) await reqKeys.failRow(conn, ctx.tenantId, input.requestKey!, rowKey, err?.message || "생성 실패").catch(() => {});
+            // 이미 만든 생산 건이 있으면 그 번호를 남긴다 (생산 건 쪽 요청 줄 연결이 정본 — 재시도가 이어서 완성)
+            if (useKeys) await reqKeys.failRow(conn, ctx.tenantId, input.requestKey!, rowKey, err?.message || "생성 실패", madeBatchId).catch(() => {});
             results.push({
               rowKey, status: "failed",
-              batchId: 0, batchCode: "", productId: item.productId, productName: "",
+              batchId: madeBatchId ?? 0, batchCode: "", productId: item.productId, productName: "",
               ccpCreated: false, ccpCount: 0, ccpGroups: [], approvalRequestId: null,
               scheduleCreated: false, dailyReportCreated: false,
               error: err.message || "생성 실패",
@@ -610,8 +277,8 @@ export const batchCrudRouter = router({
           }
         }
 
-        // 이번에 새로 만든 줄만 그룹 후속 처리 (이미 만든 줄은 그때 처리됨)
-        const successResults = results.filter((r: any) => r.batchId > 0 && !r.reused);
+        // 이번에 준비까지 완료된 줄만 그룹 후속 처리 (이미 완료된 줄은 그때 처리됨, 준비 미완·실패 줄은 제외 — 생산 건 번호가 있어도)
+        const successResults = results.filter((r: any) => r.batchId > 0 && r.completedNow);
 
         // ★ 2026-04-15: 하위 단계 실패를 수집하여 프론트엔드에 리턴
         //   이전: 각 try/catch 가 console.error 만 하고 끝 → 사용자는 성공/실패 구분 못 함
@@ -834,7 +501,7 @@ export const batchCrudRouter = router({
           subFailures.push({ step: "autoRegenerateProductionDaily", error: pdErr?.message || String(pdErr) });
         }
 
-        const failedResults = results.filter((r: any) => !(r.batchId > 0));
+        const failedResults = results.filter((r: any) => r.status === "failed" || r.status === "in_progress");
         if (failedResults.length > 0) {
           console.error(`[bulkCreateForDay] ${failedResults.length}건 실패:`,
             failedResults.map((r: any) => `productId=${r.productId}: ${r.error}`).join("; "));
@@ -847,7 +514,7 @@ export const batchCrudRouter = router({
         return {
           success: successResults.length > 0 || results.some((r: any) => r.reused),
           dayBatchGroup,
-          createdCount: successResults.length,
+          createdCount: results.filter((r: any) => r.status === "created").length,
           reusedCount: results.filter((r: any) => r.reused).length,
           totalRequested: input.items.length,
           batchIds: results.filter((r: any) => r.batchId > 0).map((r: any) => r.batchId),
@@ -917,6 +584,10 @@ export const batchCrudRouter = router({
       }),
 
     /** 배치 일정 변경 (드래그 앤 드롭) */
+    /**
+     * 일정 변경 (달력 끌어 옮기기) — 손 안 댄 예정 생산 건만, 재계획으로 (2026-10-20, 생산계획 생애주기 검토 3)
+     *   날짜·시작시각이 바뀌면 원료 계획·CCP 회차·설비 배정·예정 시각·금속검출 연결을 같은 계획 함수로 다시 맞춘다.
+     */
     updateSchedule: workerProcedure
       .input(
         z.object({
@@ -927,30 +598,25 @@ export const batchCrudRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const tenantId = ctx.tenantId;
-        const { updateBatchSchedule, createAuditLog } = await import("../../db");
-        await updateBatchSchedule(input.id, {
-          plannedDate: input.plannedDate,
-          startTime: input.startTime,
-          endTime: input.endTime
-        }, tenantId ?? undefined);
-        
-        // 감사 로그 기록
-        await createAuditLog({
-          action: "batch.updateSchedule",
-          entityType: "batch",
-          entityId: input.id,
-          userId: ctx.user.id,
-          userEmail: ctx.user.email,
-          userRole: ctx.user.role,
-          description: `배치 일정 변경: ID ${input.id}`,
-          changes: { updated: input }
-        });
-        
-        return { success: true };
+        const kst = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+        const hm = (d: Date) => new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Seoul", hour: "2-digit", minute: "2-digit", hour12: false }).format(d);
+        const workDate = input.startTime ? kst(input.startTime) : input.plannedDate ? kst(input.plannedDate) : null;
+        const startTime = input.startTime ? hm(input.startTime) : null;
+        const { replanBatch, ReplanRejectedError } = await import("../../services/batchReplan");
+        try {
+          const r = await replanBatch({ tenantId: ctx.tenantId, userId: ctx.user.id, batchId: input.id, workDate, startTime });
+          return { success: true, setupMissing: r.setupMissing, changed: r.changed };
+        } catch (e: any) {
+          if (e instanceof ReplanRejectedError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+          throw e;
+        }
       }),
 
-    /** 배치 수정 (완료된 배치 수정 불가) */
+    /**
+     * 배치 수정 — 코드·수량·날짜 (2026-10-20, 생산계획 생애주기 검토 2·3)
+     *   상태는 여기서 바꾸지 않는다 (생산 단계 버튼·완료 창·승인 관리). 승인·완료·출하·보관·취소·무효 생산 건은 수정하지 않는다.
+     *   수량·날짜는 손 안 댄 예정 생산 건만 — 재계획(원료·CCP·금속검출 함께)으로.
+     */
     update: workerProcedure
       .input(
         z.object({
@@ -963,33 +629,34 @@ export const batchCrudRouter = router({
         })
       )
       .mutation(async ({ input, ctx }) => {
-        const { getBatchById, updateBatch, createAuditLog } = await import("../../db");
-        
-        // 락 체크: 완료된 배치 수정 금지
+        const { getBatchById, createAuditLog } = await import("../../db");
         const batch = await getBatchById(input.id, ctx.tenantId);
         if (!batch) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "배치를 찾을 수 없습니다."
-          });
+          throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
         }
-        
-        if (batch.status === 'completed') {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "완료된 배치는 수정할 수 없습니다."
-          });
+        if (input.status !== undefined) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: "상태는 여기서 바꾸지 않습니다 — 생산 단계 버튼·[완료] 창·승인 관리에서 바꿉니다." });
         }
-        
-        await updateBatch(input.id, {
-          batchNumber: input.batchNumber,
-          plannedQuantity: input.plannedQuantity,
-          plannedStartDate: input.plannedStartDate,
-          plannedEndDate: input.plannedEndDate,
-          status: input.status
-        });
-        
-        // 감사 로그 기록
+        const conn: any = await getRawConnection();
+        const [[meta]]: any = await conn.execute(`SELECT status, voided_at FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.id, ctx.tenantId]);
+        if (meta?.voided_at || ["completed", "approved", "shipped", "archived", "cancelled", "under_review"].includes(String(meta?.status))) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "완료·승인·출하·보관·취소·무효 생산 건은 수정할 수 없습니다 (정정은 이력 보존 경로로)." });
+        }
+        let replan: any = null;
+        if (input.plannedQuantity !== undefined || input.plannedStartDate !== undefined) {
+          const kst = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+          const { replanBatch, ReplanRejectedError } = await import("../../services/batchReplan");
+          try {
+            replan = await replanBatch({ tenantId: ctx.tenantId, userId: ctx.user.id, batchId: input.id,
+              plannedQuantityKg: input.plannedQuantity ?? null, workDate: input.plannedStartDate ? kst(input.plannedStartDate) : null });
+          } catch (e: any) {
+            if (e instanceof ReplanRejectedError) throw new TRPCError({ code: "PRECONDITION_FAILED", message: e.message });
+            throw e;
+          }
+        }
+        if (input.batchNumber !== undefined && input.batchNumber.trim()) {
+          await conn.execute(`UPDATE h_batches SET batch_code = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ?`, [input.batchNumber.trim(), input.id, ctx.tenantId]);
+        }
         await createAuditLog({
           action: "batch.update",
           entityType: "batch",
@@ -998,47 +665,72 @@ export const batchCrudRouter = router({
           userEmail: ctx.user.email,
           userRole: ctx.user.role,
           description: `배치 수정: ${input.batchNumber || input.id}`,
-          changes: { updated: input }
+          changes: { updated: { ...input, status: undefined }, replan: replan?.changed ?? null },
         });
-        
         return {
           success: true,
-          message: "배치가 수정되었습니다."
+          setupMissing: replan?.setupMissing ?? [],
+          message: replan?.setupMissing?.length ? `수정했지만 준비가 끝나지 않았습니다 (${replan.setupMissing.slice(0, 3).join(", ")}) — 같은 수정을 다시 저장하면 이어서 준비합니다.` : "배치가 수정되었습니다.",
         };
       }),
     
-    /** 배치 상태 변경 (in_progress 시 원료 자동 출고 트리거) */
+    /**
+     * 배치 상태 변경 — 생산 단계 버튼 (2026-10-20, 생산계획 생애주기 검토 2: 전이 규칙)
+     *   계획 → 진행 중: 시작 경로(예정이면 첫 확인과 같은 실행·원료 출고)
+     *   진행 중 → 계획: 아무 일도 없었을 때만 (원료 출고·확인·결재 흔적이 있으면 거부)
+     *   완료: [완료] 창(batch.complete — 실제 생산량·재고 정산·관리자) 으로만. 승인: 승인 관리(결재 관문) 로만.
+     *   출하됨: 관리자, 완료·승인된 생산 건만.
+     *   승인·보관·취소·무효 생산 건은 이 버튼으로 바꾸지 않는다.
+     */
     updateStatus: workerProcedure
       .input(
         z.object({
           id: z.number(),
-          status: z.string()
+          status: z.enum(["planned", "in_progress", "completed", "shipped", "approved", "cancelled", "archived", "pending"]),
         })
       )
       .mutation(async ({ input, ctx }) => {
         const { getBatchById, updateBatchStatus } = await import("../../db");
-        // 예정 생산 건(미래 날짜로 만든 것)은 그날 시작·완료할 때 먼저 실행 단계를 한 번 (예정일 전이면 거부) — 현장 1
-        if (input.status === "in_progress" || input.status === "completed") {
+        const batch = await getBatchById(input.id, ctx.tenantId);
+        if (!batch) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
+        }
+        const conn: any = await getRawConnection();
+        const [[meta]]: any = await conn.execute(`SELECT status, voided_at, setup_pending FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.id, ctx.tenantId]);
+        const cur = String(meta?.status ?? batch.status);
+        if (meta?.voided_at) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "무효 처리된 생산 건은 상태를 바꿀 수 없습니다." });
+        if (cur === input.status) return { success: true, message: "이미 그 상태입니다.", autoIssueResult: null };
+        if (["approved", "archived", "cancelled"].includes(cur)) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "승인·보관·취소된 생산 건은 상태를 바꿀 수 없습니다 (반려·정정은 승인 관리·이력 보존 경로로)." });
+        }
+        if (input.status === "completed") {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "완료는 [완료] 창에서 실제 생산량과 함께 처리합니다 (재고 정산·원가·CCP 관문)." });
+        }
+        if (input.status === "approved") {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "승인은 승인 관리에서만 합니다 (CCP 기록지·원료 출고 관문)." });
+        }
+        if (["cancelled", "archived", "pending"].includes(input.status)) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "이 상태는 여기서 바꿀 수 없습니다 — 취소는 삭제(손 안 댄 계획) 또는 무효 처리(이력 보존)로 합니다." });
+        }
+        if (input.status === "shipped") {
+          if (ctx.user.role !== "admin" && ctx.user.role !== "super_admin") throw new TRPCError({ code: "FORBIDDEN", message: "출하 상태는 관리자만 바꿉니다." });
+          if (!["completed"].includes(cur)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "완료된 생산 건만 출하로 바꿀 수 있습니다." });
+        }
+        if (input.status === "planned") {
+          const { batchHistoryReasons } = await import("../../lib/production/batchTouchGuard");
+          const why = (await batchHistoryReasons(conn, input.id, ctx.tenantId)).filter((x) => !x.startsWith("상태가"));
+          if (cur !== "in_progress" || why.length) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: `계획으로 되돌릴 수 없습니다 — ${why.length ? why.join(", ") : `지금 상태 '${cur}'`} (실행된 생산 건은 이력 보존 경로로).` });
+          }
+        }
+        if (input.status === "in_progress") {
+          if (cur !== "planned") throw new TRPCError({ code: "PRECONDITION_FAILED", message: `'${cur}' 에서 진행 중으로 바꿀 수 없습니다.` });
+          if (Number(meta?.setup_pending ?? 0) === 1) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "생산 건 준비(원료 계획·CCP 기록지)가 끝나지 않았습니다 — 같은 내용으로 다시 생성하면 이어서 준비합니다." });
+          // 예정 생산 건(오늘·미래로 만든 것)은 시작할 때 먼저 실행 단계를 한 번 (예정일 전이면 거부) — 현장 1
           const { ensureBatchActivated } = await import("../../services/batchOrchestrator");
           try { await ensureBatchActivated(input.id, ctx.tenantId, ctx.user.id); } catch (e: any) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message ?? "예정 생산 건을 시작하지 못했습니다." }); }
         }
-        
-        // 락 체크: 완료된 배치 수정 금지
-        const batch = await getBatchById(input.id, ctx.tenantId);
-        if (!batch) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "배치를 찾을 수 없습니다."
-          });
-        }
-        
-        if (batch.status === 'completed') {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "완료된 배치는 수정할 수 없습니다."
-          });
-        }
-        
+
         await updateBatchStatus(input.id, input.status, ctx.tenantId);
 
         // === 파이프라인 자동화: 배치 시작 시 원료 자동 출고 ===
@@ -1086,16 +778,12 @@ export const batchCrudRouter = router({
           throw new TRPCError({ code: "NOT_FOUND", message: "배치를 찾을 수 없습니다." });
         }
 
-        // 락 체크: 완료된 배치는 admin만 삭제 가능
-        const isAdmin = ctx.user?.role === 'admin' || ctx.user?.role === 'super_admin';
-        if (batch.status === 'completed' && !isAdmin) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: "완료된 배치는 삭제할 수 없습니다."
-          });
+        // 손 안 댄 계획만 지운다 — 실행 흔적(출고·확인·결재·LOT)이 있으면 이력 보존 경로로 (2026-10-20, 생산계획 생애주기 검토 6)
+        try {
+          await deleteBatch(input.id, ctx.tenantId);
+        } catch (e: any) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message ?? "생산 건을 지우지 못했습니다." });
         }
-        
-        await deleteBatch(input.id, ctx.tenantId);
 
         // 일일일지 form_data에서 삭제된 배치 제거
         // 배치가 당일 최초였다면: 일일일지 자체를 draft 상태로 유지 (다음 배치가 추가될 수 있음)
@@ -1160,7 +848,12 @@ export const batchCrudRouter = router({
           throw new TRPCError({ code: "FORBIDDEN", message: "관리자만 일괄 삭제할 수 있습니다." });
         }
         const { deleteBatchesByDate } = await import("../../db/production/batchFunctions");
-        const result = await deleteBatchesByDate(input.plannedDate, ctx.tenantId);
+        let result: { deletedCount: number };
+        try {
+          result = await deleteBatchesByDate(input.plannedDate, ctx.tenantId);
+        } catch (e: any) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message ?? "일괄 삭제하지 못했습니다." });
+        }
         return { success: true, ...result, message: `${input.plannedDate} 배치 ${result.deletedCount}건 삭제 완료` };
       }),
 

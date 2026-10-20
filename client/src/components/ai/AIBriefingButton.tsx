@@ -74,12 +74,12 @@ export default function AIBriefingButton({ compact = false }: { compact?: boolea
           data-testid="ai-briefing-button"
           aria-label={showBadge ? `AI 비서 하나 — 오늘 확인할 것 ${count}건` : "AI 비서 하나 — 오늘의 브리핑"}
           title={showBadge ? `오늘 확인할 것 ${count}건` : "오늘의 브리핑"}
-          className={`group inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/70 shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-all hover:border-emerald-300 hover:shadow-[0_2px_6px_rgba(16,185,129,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40 dark:border-emerald-800/60 dark:from-slate-900 dark:to-emerald-950/40 ${compact ? "h-9 pl-0.5 pr-2" : "h-9 pl-1 pr-3"}`}
+          className={`group shrink-0 inline-flex items-center gap-1.5 rounded-full border border-emerald-200/70 bg-gradient-to-b from-white to-emerald-50/70 shadow-[0_1px_2px_rgba(16,24,40,0.05)] transition-all hover:border-emerald-300 hover:shadow-[0_2px_6px_rgba(16,185,129,0.12)] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/40 dark:border-emerald-800/60 dark:from-slate-900 dark:to-emerald-950/40 ${compact ? "h-9 pl-0.5 pr-2" : "h-9 pl-1 pr-3"}`}
         >
           <img src="/ai-hana-character.png" alt="" className="h-7 w-7 rounded-full object-cover object-top ring-1 ring-emerald-100 dark:ring-emerald-900" />
           {/* 이름이 보이게 — 프로필 사진으로 오해하지 않도록 (2026-10-20 대표 요청) */}
           <span className="text-[12.5px] font-semibold tracking-tight text-emerald-900 dark:text-emerald-200 whitespace-nowrap">
-            {compact ? "AI 하나" : "AI 비서 하나"}
+            {compact ? "AI 하나" : <><span className="hidden lg:inline">AI 비서 하나</span><span className="lg:hidden">AI 하나</span></>}
           </span>
           {showBadge && (
             <span

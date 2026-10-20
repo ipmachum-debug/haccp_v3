@@ -47,6 +47,10 @@ export interface SingleBatchInput {
   startTimeOverride?: string | null;
   /** 오늘만 쓰지 않는 설비 (PR-B) */
   excludedEquipmentIds?: number[];
+  /** 생성 요청 줄 번호 — 생산 건 INSERT 에 같이 남겨 재시도가 찾는다 (2026-10-20) */
+  createRequestId?: number | null;
+  /** 이미 만든 생산 건(같은 요청 줄에 연결됨)의 남은 준비만 이어서 — 새 생산 건을 만들지 않는다 */
+  resumeBatchId?: number | null;
 }
 
 export interface SingleBatchResult {
@@ -61,6 +65,10 @@ export interface SingleBatchResult {
   scheduleCreated: boolean;
   dailyReportCreated: boolean;
   periodicLogsResult: any;
+  /** 필수 준비 중 빠진 것 — 비어 있어야 생성 완료. 남으면 생산 건은 '준비 미완' 으로 남고 같은 요청 재시도가 이어서 */
+  setupMissing: string[];
+  /** 이미 있던 생산 건을 이어서 완성했는가 */
+  resumed: boolean;
 }
 
 /**
@@ -77,265 +85,136 @@ export async function resolveToHProductId(
 }
 
 /**
- * 단일 배치 생성 파이프라인
- * batch.create 라우터의 핵심 로직을 서비스로 추출
+ * 단일 배치 생성 파이프라인 (2026-10-20, 생산계획 생애주기 검토 1·4 — 생성 계약)
+ *
+ *   1) 생산 건 머리글 + 원료 투입 계획 = 한 트랜잭션 (createBatch). 요청 줄 번호·예정 표시·준비 미완(setup_pending=1)을 같은 INSERT 에.
+ *   2) 필수 준비 (completeBatchSetup — 몇 번 다시 해도 같은 결과): CCP 공정·회차 → 기록지 → 기록 행 → 요청한 SKU 구성.
+ *   3) 확인 (verifyBatchSetup): 실제로 저장된 것을 읽어 빠진 것이 없을 때만 준비 완료(setup_pending=0).
+ *      빠진 것이 있으면 생성 완료로 보지 않는다 — 생산 건은 남기고(요청 줄에 연결), 같은 요청 재시도가 그 생산 건을 이어서 완성한다.
+ *      준비 미완 생산 건은 현장 첫 확인·승인이 막는다.
+ *   4) 지난 날짜(즉시 실행)만 실행 단계 — 준비가 끝난 뒤 activation_pending 1→0 을 잡아 한 번.
+ *   선택 단계(일정 표·감사 기록)는 실패해도 생성은 완료 (로그).
  */
 export async function createSingleBatch(
   input: SingleBatchInput,
 ): Promise<SingleBatchResult> {
   const { createBatch, getProductById, createAuditLog } = await import("../db");
-  const { autoCreateCcpInstancesForBatch } = await import("./ccp-batch");
+  const conn = await getRawConnection();
+  const planOnly = input.workDate >= todayKST();
 
-  // ★ PR #263: CCP 공정그룹 매핑 사전 검증 (fail-fast).
-  // 4월 17일 batch 580 흑임자인절미 0건 CCP form record 사고 재발 방지.
-  const productMetaForValidation = await getProductById(input.productId, input.tenantId);
-  const productNameForValidation = (productMetaForValidation as any)?.productName || `제품 #${input.productId}`;
-  const { validateProductCcpMapping } = await import("./validateProductCcpMapping");
-  const ccpValidation = await validateProductCcpMapping({
-    productId: input.productId,
-    productName: productNameForValidation,
-    tenantId: input.tenantId,
-  });
-  if (!ccpValidation.valid) {
-    const { TRPCError } = await import("@trpc/server");
-    throw new TRPCError({
-      code: "PRECONDITION_FAILED",
-      message: ccpValidation.message,
-      cause: {
-        guidance: ccpValidation.guidance,
-        bomMappingCount: ccpValidation.bomMappingCount,
-        manualMappingCount: ccpValidation.manualMappingCount,
-        hasApprovedBom: ccpValidation.hasApprovedBom,
-        hasMetalDetection: ccpValidation.hasMetalDetection,
-      },
+  let batchId: number;
+  let batchCodeFinal: string;
+  const resumed = !!input.resumeBatchId;
+  if (input.resumeBatchId) {
+    const [[b]]: any = await conn.execute(`SELECT id, batch_code, voided_at FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.resumeBatchId, input.tenantId]);
+    if (!b) throw new Error(`이어서 준비할 생산 건 #${input.resumeBatchId} 을 찾을 수 없습니다.`);
+    if (b.voided_at) throw new Error(`생산 건 #${input.resumeBatchId} 은 무효 처리되어 이어서 준비하지 않습니다.`);
+    batchId = Number(b.id);
+    batchCodeFinal = String(b.batch_code);
+  } else {
+    // ★ PR #263: CCP 공정그룹 매핑 사전 검증 (fail-fast).
+    // 4월 17일 batch 580 흑임자인절미 0건 CCP form record 사고 재발 방지.
+    const productMetaForValidation = await getProductById(input.productId, input.tenantId);
+    const productNameForValidation = (productMetaForValidation as any)?.productName || `제품 #${input.productId}`;
+    const { validateProductCcpMapping } = await import("./validateProductCcpMapping");
+    const ccpValidation = await validateProductCcpMapping({
+      productId: input.productId,
+      productName: productNameForValidation,
+      tenantId: input.tenantId,
+    });
+    if (!ccpValidation.valid) {
+      const { TRPCError } = await import("@trpc/server");
+      throw new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: ccpValidation.message,
+        cause: {
+          guidance: ccpValidation.guidance,
+          bomMappingCount: ccpValidation.bomMappingCount,
+          manualMappingCount: ccpValidation.manualMappingCount,
+          hasApprovedBom: ccpValidation.hasApprovedBom,
+          hasMetalDetection: ccpValidation.hasMetalDetection,
+        },
+      });
+    }
+    // === 1. 배치 생성 (머리글 + 원료 투입 계획 한 트랜잭션) ===
+    // KST 날짜를 UTC 변환 없이 정확히 유지하기 위해 noon(12:00)으로 설정
+    const plannedDate = new Date(`${input.workDate}T12:00:00`);
+    batchCodeFinal = input.batchCode || await generateBatchCode(input.tenantId, input.productId, input.workDate);
+    batchId = await createBatch({
+      tenantId: input.tenantId,
+      siteId: input.siteId,
+      productId: input.productId,
+      batchCode: batchCodeFinal,
+      dayBatchGroup: input.dayBatchGroup,
+      batchOrder: input.batchOrder,
+      plannedQuantity: input.plannedQuantityKg.toString(),
+      plannedDate,
+      batchStartTime: input.startTime,
+      // 행별 처리 방식 저장 — 빠지면 createBatch 가 auto 로 저장해 수동 행이 자동이 됐다 (지티 QA B02)
+      mode: input.mode,
+      createdBy: input.userId,
+      createRequestId: input.createRequestId ?? null,
+      // ★ 2026-10-19 (현장 1·하루 생산 흐름): 오늘·미래는 '예정' — 원료는 현장 첫 확인에서. 지난 날짜만 바로 실행.
+      planOnly,
+      activationPending: !planOnly,
     });
   }
 
-  // === 1. 배치 생성 ===
-  // KST 날짜를 UTC 변환 없이 정확히 유지하기 위해 noon(12:00)으로 설정
-  // T00:00:00 KST → T15:00:00Z(전날) 문제 방지
-  const plannedDate = new Date(`${input.workDate}T12:00:00`);
-  const batchCodeFinal = input.batchCode || await generateBatchCode(
-    input.tenantId, input.productId, input.workDate
-  );
-
-  const batchId = await createBatch({
-    tenantId: input.tenantId,
-    siteId: input.siteId,
-    productId: input.productId,
-    batchCode: batchCodeFinal,
-    dayBatchGroup: input.dayBatchGroup,
-    batchOrder: input.batchOrder,
-    plannedQuantity: input.plannedQuantityKg.toString(),
-    plannedDate,
-    batchStartTime: input.startTime,
-    // 행별 처리 방식 저장 — 빠지면 createBatch 가 auto 로 저장해 수동 행이 자동이 됐다 (지티 QA B02)
-    mode: input.mode,
-    createdBy: input.userId,
-  });
-
-  // === 2. 제품 정보 조회 (테넌트 격리) ===
+  // === 2. 필수 준비 (CCP·기록지·행·SKU) — 다시 해도 같은 결과 ===
   const product = await getProductById(input.productId, input.tenantId);
   const productName = product?.productName || "";
+  const setup = await completeBatchSetup({ ...input, batchId, productName });
+  const ccpGroups = setup.ccpGroups;
+  const ccpCreated = ccpGroups.length > 0;
+  const ccpCount = ccpGroups.length;
 
-  // === 3. CCP 자동 생성 ===
-  let ccpCreated = false;
-  let ccpCount = 0;
-  let ccpGroups: Array<{ id: number; name: string; ccp_type: string }> = [];
-  let ccpGroupNames: string[] = [];
-
-  // 회차 기준량은 ccp-batch 가 배치가 쓰는 BOM 버전에서 읽는다 (결함 #11 — 이전: 여기서 '최신 승인' 버전을 따로 읽어 넘김)
-  let bomBatchKg: number | undefined = undefined;
-
-  try {
-    const result = await autoCreateCcpInstancesForBatch({
-      siteId: input.siteId,
-      workDate: input.workDate,
-      batchId,
-      productId: input.productId,
-      productName,
-      createdBy: input.userId,
-      tenantId: input.tenantId,
-      plannedQuantity: input.plannedQuantityKg,
-      startTimeOverride: input.startTimeOverride ?? null,
-      excludedEquipmentIds: input.excludedEquipmentIds,
-    });
-    // ★ 2026-04-15: ccpCreated 판정 기준을 "그룹 존재 여부" 로 변경
-    //   이전 버그: instanceIds.length > 0 로만 판정하면, 이미 인스턴스가 존재하는
-    //   배치(복구/재시도)는 instanceIds=[] 반환 → form_record 생성 스킵
-    //   수정: result.groups 에 신규 + 기존 그룹 전부 포함되므로 groups 기준 판정
-    bomBatchKg = result.subBatchKg ?? undefined; // 기록지 1행 기준량 = 계획과 같은 BOM 버전
-    ccpCreated = (result.groups || []).length > 0;
-    ccpCount = result.groups?.length || 0;
-    ccpGroups = (result.groups || []).map((g: any) => ({
-      id: g.id, name: g.name, ccp_type: g.ccp_type,
-    }));
-    ccpGroupNames = ccpGroups.map(g => g.name);
-    console.log(`[batchOrchestrator] CCP 자동생성 결과: batchId=${batchId}, newInstanceIds=${result.instanceIds}, totalGroups=${JSON.stringify(ccpGroups.map(g => g.ccp_type))}, created=${ccpCreated}`);
-
-    // 3.1. CCP form records 자동 생성 (인쇄용 양식)
-    //   ★ 기존 + 신규 그룹 모두 대상 → 누락 없이 form_record 보장
-    if (ccpCreated && result.groups.length > 0) {
-      const { getOrCreateCcpFormRecord } = await import("../db/haccp/ccpFormRecords");
-      let formSuccessCount = 0;
-      let formFailCount = 0;
-      for (const group of result.groups) {
-        try {
-          await getOrCreateCcpFormRecord({
-            tenantId: input.tenantId,
-            siteId: input.siteId,
-            batchId,
-            ccpType: group.ccp_type,
-            workDate: input.workDate,
-            productId: input.productId,
-            productName,
-            processGroupId: group.id,
-            processGroupName: group.name,
-            bomBatchKg,
-            plannedQtyKg: input.plannedQuantityKg,
-            writerId: input.userId,
-            clHeatTimeMinLo: group.time_min ?? undefined,
-            clHeatTimeMinHi: group.time_max ?? undefined,
-            clHeatTempLo: group.temperature_min ?? undefined,
-            clPressureMpaLo: group.pressure_min ?? undefined,
-            clProductTempLo: group.temperature_min ?? undefined,
-          });
-          formSuccessCount++;
-        } catch (formErr: any) {
-          formFailCount++;
-          console.error(
-            `[batchOrchestrator] CCP form_record 생성 실패 (${group.ccp_type}/${group.name}):`,
-            formErr?.message || formErr,
-          );
-        }
-      }
-      console.log(
-        `[batchOrchestrator] CCP form records 생성: ${formSuccessCount}/${result.groups.length} 성공, ${formFailCount}건 실패 ` +
-        `(bomBatchKg=${bomBatchKg ?? "N/A"}, groups=${result.groups.map((g:any) => g.ccp_type).join(',')})`,
-      );
-
-      // 3.2. h_ccp_rows → h_ccp_form_rows 동기화 (설비 기준값 → 인쇄용 기록지)
-      try {
-        const { syncCcpRowsToFormRows } = await import("../db/haccp/ccpFormRecords");
-        const syncResult = await syncCcpRowsToFormRows({
-          batchId,
-          tenantId: input.tenantId,
-        });
-        console.log(`[batchOrchestrator] CCP form rows 동기화 완료: ${syncResult.synced}건`);
-      } catch (syncErr) {
-        console.error("[batchOrchestrator] CCP form rows 동기화 실패:", syncErr);
-      }
-    }
-  } catch (error) {
-    console.error("[batchOrchestrator] CCP 자동 생성 실패:", error);
-  }
-
-  // === 4. SKU 생산수량 기록 ===
-  if (input.skuOutputs && input.skuOutputs.length > 0) {
-    try {
-      const conn = await getRawConnection();
-      // ★ 2026-05-09 (PR #281): SKU 번들 자동 매칭 — child SKU → parent bundle 룩업
-      const childIds = input.skuOutputs
-        .map((o: any) => o.skuId)
-        .filter((id: number) => Number.isFinite(id));
-      const bundleMap = new Map<number, number>();
-      if (childIds.length > 0) {
-        const ph = childIds.map(() => "?").join(",");
-        try {
-          const [bRows] = await conn.execute<any[]>(
-            `SELECT child_sku_id, parent_sku_id FROM sku_bundles
-             WHERE tenant_id = ? AND child_sku_id IN (${ph})
-             ORDER BY sort_order, id`,
-            [input.tenantId, ...childIds],
-          );
-          for (const r of bRows as any[]) {
-            if (!bundleMap.has(Number(r.child_sku_id))) {
-              bundleMap.set(Number(r.child_sku_id), Number(r.parent_sku_id));
-            }
-          }
-        } catch (_e) {
-          // sku_bundles 테이블 미생성 환경 (마이그레이션 전) — 조용히 패스
-        }
-      }
-
-      for (const skuOut of input.skuOutputs) {
-        if (!skuOut.plannedQty && !skuOut.actualQty) continue;
-        const [skuRows] = await conn.execute<any[]>(
-          "SELECT kg_per_sales_unit FROM product_skus WHERE id=? AND tenant_id=?",
-          [skuOut.skuId, input.tenantId],
-        );
-        const kgPerUnit = (skuRows as any[])[0]?.kg_per_sales_unit
-          ? parseFloat((skuRows as any[])[0].kg_per_sales_unit)
-          : 1;
-        const qty = skuOut.actualQty ?? skuOut.plannedQty;
-        const totalKg = (qty * kgPerUnit).toFixed(3);
-        const bundleSkuId = bundleMap.get(skuOut.skuId) ?? null;
-        await conn.execute(
-          `INSERT INTO production_sku_output (tenant_id, batch_id, sku_id, bundle_sku_id, quantity, defective_qty, total_kg, notes)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE bundle_sku_id=VALUES(bundle_sku_id), quantity=VALUES(quantity), defective_qty=VALUES(defective_qty), total_kg=VALUES(total_kg)`,
-          [input.tenantId, batchId, skuOut.skuId, bundleSkuId, qty, skuOut.defectiveQty || 0, totalKg, skuOut.note || null],
-        );
-      }
-    } catch (skuErr) {
-      console.error("[batchOrchestrator] SKU 기록 실패:", skuErr);
-    }
-    // SKU 실적이 CCP 동기화 뒤에 저장되므로 한 번 더 동기화 — 금속검출 통과량 = 생산량(SKU 판매단위) (2026-10-18)
-    try {
-      const { syncCcpRowsToFormRows: resync } = await import("../db/haccp/ccpFormRecords");
-      await resync({ batchId, tenantId: input.tenantId });
-    } catch (resyncErr) {
-      console.error("[batchOrchestrator] SKU 반영 재동기화 실패 (계속):", resyncErr);
-    }
-  }
-
-  // === 5. 배치 스케줄 생성 ===
-  let scheduleCreated = false;
-  try {
-    const { createBatchSchedule } = await import("../db/production/batchSchedules");
-    await createBatchSchedule({
-      tenantId: input.tenantId,
-      batchId,
-      scheduledDate: plannedDate,
-      status: "scheduled",
-      notes: `배치: ${batchCodeFinal}, 시작: ${input.startTime}${input.endTime ? `, 종료: ${input.endTime}` : ""}`,
-    });
-    scheduleCreated = true;
-  } catch (error) {
-    console.error("[batchOrchestrator] 스케줄 생성 실패:", error);
-  }
-
-  // === 5.5 ~ 7.5 실행 단계 (생산 시작·원료 출고·기록지 제출·승인요청·일지) ===
-  // ★ 2026-10-19 (현장 1): 미래 날짜 생산 건은 '예정' 으로만 만든다 — 원료 차감·진행 중·기록지 자동 제출·승인요청·일지를
-  //   미리 만들지 않는다 (CEO: 미래 계획의 원료는 그날 확인 버튼을 누를 때). 그날 확인 때 activatePlannedBatch 가 같은 단계를 한 번 실행.
-  //   ★ 2026-10-19 (하루 생산 흐름): 오늘 날짜도 예정으로 — 원료는 현장 첫 확인(가열 행 확인, 금속검출만 하는 제품은 통과 시작)에서 한 번.
-  //   지난 날짜(뒤늦은 입력 — 이미 한 생산)만 지금처럼 바로 실행한다.
-  const planOnly = input.workDate >= todayKST();
+  // === 3. 실제로 저장된 것 확인 — 빠진 것이 없을 때만 준비 완료 ===
+  const setupMissing = await verifyBatchSetup(batchId, input.tenantId, { skuIds: (input.skuOutputs ?? []).filter((x) => x.plannedQty || x.actualQty).map((x) => x.skuId) });
   let approvalRequestId: number | null = null;
   let dailyReportCreated = false;
   let periodicLogsResult: any = null;
-  if (planOnly) {
-    await (await getRawConnection()).execute(`UPDATE h_batches SET plan_only = 1 WHERE id = ? AND tenant_id = ?`, [batchId, input.tenantId]);
-  } else {
-    ({ approvalRequestId, dailyReportCreated, periodicLogsResult } = await runExecutionSteps({
-      input, batchId, batchCodeFinal, productName, ccpCreated, ccpCount, ccpGroups,
-    }));
+  if (!setupMissing.length) {
+    await conn.execute(`UPDATE h_batches SET setup_pending = 0 WHERE id = ? AND tenant_id = ?`, [batchId, input.tenantId]);
+    // === 4. 지난 날짜(뒤늦은 입력 — 이미 한 생산)만 실행 단계 — 한 번 (activation_pending 1→0 을 먼저 잡음) ===
+    if (!planOnly) {
+      if (input.skipGroupActions) {
+        // 일괄 생성: 그룹 단계(승인요청·일지)는 호출자가 그룹으로 — 시작·출고·기록지 제출 전환만 (실행권·남음 계약 그대로)
+        const [claim]: any = await conn.execute(
+          `UPDATE h_batches SET activation_claimed_at = NOW() WHERE id = ? AND tenant_id = ? AND activation_pending = 1 AND (activation_claimed_at IS NULL OR activation_claimed_at < NOW() - INTERVAL 5 MINUTE)`,
+          [batchId, input.tenantId]);
+        if (Number(claim?.affectedRows ?? 0) === 1) {
+          const r = await runExecutionSteps({ input, batchId, batchCodeFinal, productName, ccpCreated, ccpCount, ccpGroups });
+          ({ approvalRequestId, dailyReportCreated, periodicLogsResult } = r);
+          await conn.execute(r.failures.length ? `UPDATE h_batches SET activation_claimed_at = NULL WHERE id = ? AND tenant_id = ?`
+            : `UPDATE h_batches SET activation_pending = 0, activation_claimed_at = NULL WHERE id = ? AND tenant_id = ?`, [batchId, input.tenantId]);
+        }
+      } else {
+        const [[b]]: any = await conn.execute(`SELECT site_id FROM h_batches WHERE id = ? AND tenant_id = ?`, [batchId, input.tenantId]);
+        const r = await finishBatchActivation({
+          batchId, tenantId: input.tenantId, userId: input.userId, siteId: Number(b?.site_id ?? input.siteId), workDate: input.workDate, mode: input.mode,
+          plannedQuantityKg: input.plannedQuantityKg, batchCode: batchCodeFinal, productName, ccpGroups,
+        }, { startDone: false });
+        ({ approvalRequestId, dailyReportCreated, periodicLogsResult } = r);
+      }
+    }
   }
 
-  // === 8. 감사로그 ===
-  try {
-    await createAuditLog({
-      action: "batch.create",
-      entityType: "batch",
-      entityId: batchId,
-      userId: input.userId,
-      userEmail: input.userEmail || "",
-      userRole: input.userRole || "",
-      description: `배치 생성: ${batchCodeFinal} (${productName}) ${ccpCreated ? `CCP ${ccpCount}건` : ""}`,
-      changes: { mode: input.mode, workDate: input.workDate },
-    });
-  } catch {
-    // audit log 실패는 무시
+  // === 선택: 감사로그 (처음 만들 때) ===
+  if (!resumed) {
+    try {
+      await createAuditLog({
+        action: "batch.create",
+        entityType: "batch",
+        entityId: batchId,
+        userId: input.userId,
+        userEmail: input.userEmail || "",
+        userRole: input.userRole || "",
+        description: `배치 생성: ${batchCodeFinal} (${productName}) ${ccpCreated ? `CCP ${ccpCount}건` : ""}`,
+        changes: { mode: input.mode, workDate: input.workDate, setupMissing },
+      });
+    } catch {
+      // audit log 실패는 무시
+    }
   }
 
   return {
@@ -347,10 +226,162 @@ export async function createSingleBatch(
     ccpCount,
     ccpGroups,
     approvalRequestId,
-    scheduleCreated,
+    scheduleCreated: setup.scheduleCreated,
     dailyReportCreated,
     periodicLogsResult,
+    setupMissing,
+    resumed,
   };
+}
+
+/**
+ * 생산 건 필수 준비 — CCP 공정·회차 → 기록지 → 기록 행 → 요청 SKU 구성 (+ 선택: 일정 표). 몇 번 다시 해도 같은 결과.
+ *   오류는 여기서 숨기지 않고 로그로 남긴 뒤 계속 — 무엇이 빠졌는지는 verifyBatchSetup 이 실제 저장 상태로 판단한다.
+ */
+export async function completeBatchSetup(a: SingleBatchInput & { batchId: number; productName: string }): Promise<{ ccpGroups: Array<{ id: number; name: string; ccp_type: string }>; scheduleCreated: boolean }> {
+  const { autoCreateCcpInstancesForBatch } = await import("./ccp-batch");
+  const conn = await getRawConnection();
+  const { batchId } = a;
+  let ccpGroups: Array<{ id: number; name: string; ccp_type: string }> = [];
+  try {
+    // 회차 기준량은 ccp-batch 가 배치가 쓰는 BOM 버전에서 읽는다 (결함 #11). 이미 만든 공정은 다시 만들지 않는다.
+    const result = await autoCreateCcpInstancesForBatch({
+      siteId: a.siteId, workDate: a.workDate, batchId, productId: a.productId, productName: a.productName, createdBy: a.userId,
+      tenantId: a.tenantId, plannedQuantity: a.plannedQuantityKg, startTimeOverride: a.startTimeOverride ?? null, excludedEquipmentIds: a.excludedEquipmentIds,
+    });
+    const bomBatchKg = result.subBatchKg ?? undefined;
+    ccpGroups = (result.groups || []).map((g: any) => ({ id: g.id, name: g.name, ccp_type: g.ccp_type }));
+    if ((result.groups || []).length) {
+      const { getOrCreateCcpFormRecord } = await import("../db/haccp/ccpFormRecords");
+      for (const group of result.groups as any[]) {
+        try {
+          await getOrCreateCcpFormRecord({
+            tenantId: a.tenantId, siteId: a.siteId, batchId, ccpType: group.ccp_type, workDate: a.workDate, productId: a.productId, productName: a.productName,
+            processGroupId: group.id, processGroupName: group.name, bomBatchKg, plannedQtyKg: a.plannedQuantityKg, writerId: a.userId,
+            clHeatTimeMinLo: group.time_min ?? undefined, clHeatTimeMinHi: group.time_max ?? undefined, clHeatTempLo: group.temperature_min ?? undefined,
+            clPressureMpaLo: group.pressure_min ?? undefined, clProductTempLo: group.temperature_min ?? undefined,
+          });
+        } catch (formErr: any) {
+          console.error(`[batchSetup] 기록지 준비 실패 (${group.ccp_type}/${group.name}) batch=${batchId}:`, formErr?.message || formErr);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`[batchSetup] CCP 공정 준비 실패 batch=${batchId}:`, error);
+  }
+
+  // SKU 구성 — 같은 SKU 는 덮어씀 (ON DUPLICATE KEY)
+  if (a.skuOutputs && a.skuOutputs.length > 0) {
+    try {
+      // ★ 2026-05-09 (PR #281): SKU 번들 자동 매칭 — child SKU → parent bundle 룩업
+      const childIds = a.skuOutputs.map((o: any) => o.skuId).filter((id: number) => Number.isFinite(id));
+      const bundleMap = new Map<number, number>();
+      if (childIds.length > 0) {
+        try {
+          const [bRows]: any = await conn.query(
+            `SELECT child_sku_id, parent_sku_id FROM sku_bundles WHERE tenant_id = ? AND child_sku_id IN (?) ORDER BY sort_order, id`,
+            [a.tenantId, childIds],
+          );
+          for (const r of bRows as any[]) if (!bundleMap.has(Number(r.child_sku_id))) bundleMap.set(Number(r.child_sku_id), Number(r.parent_sku_id));
+        } catch (e: any) {
+          if (e?.code !== "ER_NO_SUCH_TABLE") throw e; // sku_bundles 표 생성 전 DB 만 넘어감
+        }
+      }
+      for (const skuOut of a.skuOutputs) {
+        if (!skuOut.plannedQty && !skuOut.actualQty) continue;
+        const [skuRows]: any = await conn.execute("SELECT kg_per_sales_unit FROM product_skus WHERE id=? AND tenant_id=?", [skuOut.skuId, a.tenantId]);
+        if (!(skuRows as any[]).length) throw new Error(`SKU #${skuOut.skuId} 는 이 회사의 SKU 가 아닙니다.`);
+        const kgPerUnit = (skuRows as any[])[0]?.kg_per_sales_unit ? parseFloat((skuRows as any[])[0].kg_per_sales_unit) : 1;
+        const qty = skuOut.actualQty ?? skuOut.plannedQty;
+        await conn.execute(
+          `INSERT INTO production_sku_output (tenant_id, batch_id, sku_id, bundle_sku_id, quantity, defective_qty, total_kg, notes)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON DUPLICATE KEY UPDATE bundle_sku_id=VALUES(bundle_sku_id), quantity=VALUES(quantity), defective_qty=VALUES(defective_qty), total_kg=VALUES(total_kg)`,
+          [a.tenantId, batchId, skuOut.skuId, bundleMap.get(skuOut.skuId) ?? null, qty, skuOut.defectiveQty || 0, (qty * kgPerUnit).toFixed(3), skuOut.note || null],
+        );
+      }
+    } catch (skuErr) {
+      console.error(`[batchSetup] SKU 구성 저장 실패 batch=${batchId}:`, skuErr);
+    }
+  }
+
+  // 기록 행 — SKU 구성 뒤에 (금속검출 통과량 = SKU 판매단위 수량)
+  if (ccpGroups.length) {
+    try {
+      const { syncCcpRowsToFormRows } = await import("../db/haccp/ccpFormRecords");
+      await syncCcpRowsToFormRows({ batchId, tenantId: a.tenantId });
+    } catch (syncErr) {
+      console.error(`[batchSetup] 기록 행 준비 실패 batch=${batchId}:`, syncErr);
+    }
+  }
+
+  // 선택: 일정 표 — 이미 있으면 다시 만들지 않는다
+  let scheduleCreated = false;
+  try {
+    const [ex]: any = await conn.execute(`SELECT id FROM h_batch_schedules WHERE batch_id = ? AND tenant_id = ? LIMIT 1`, [batchId, a.tenantId]);
+    if ((ex as any[]).length) scheduleCreated = true;
+    else {
+      const { createBatchSchedule } = await import("../db/production/batchSchedules");
+      await createBatchSchedule({ tenantId: a.tenantId, batchId, scheduledDate: new Date(`${a.workDate}T12:00:00`), status: "scheduled",
+        notes: `시작: ${a.startTime}${a.endTime ? `, 종료: ${a.endTime}` : ""}` });
+      scheduleCreated = true;
+    }
+  } catch (error) {
+    console.error(`[batchSetup] 일정 표 생성 실패 (선택 단계) batch=${batchId}:`, error);
+  }
+  return { ccpGroups, scheduleCreated };
+}
+
+/**
+ * 생산 건 필수 준비가 실제로 저장됐는지 — 빠진 것 목록 (빈 목록 = 준비 완료).
+ *   원료 투입 계획(BOM 의 차감 원료 줄 수) · CCP 공정 · 공정마다 기록지와 기록 행 · 금속검출 하루 기록지(현장 기록지면 이 생산 건 통과 행) · 요청 SKU.
+ */
+export async function verifyBatchSetup(batchId: number, tenantId: number, opts: { skuIds?: number[] } = {}): Promise<string[]> {
+  const conn: any = await getRawConnection();
+  const missing: string[] = [];
+  const [[b]]: any = await conn.execute(`SELECT id, product_id, DATE_FORMAT(planned_date, '%Y-%m-%d') AS wd FROM h_batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
+  if (!b) return ["생산 건이 없습니다"];
+  // 원료 투입 계획
+  const { selectBomVersion } = await import("../lib/identity/itemIdentityService");
+  const picked = await selectBomVersion(Number(b.product_id), tenantId, conn);
+  if (picked) {
+    const [[e]]: any = await conn.execute(
+      `SELECT COUNT(*) AS n FROM h_mf_ingredients WHERE mf_report_version_id = ? AND material_id IS NOT NULL AND (is_deductible IS NULL OR is_deductible <> 0)`, [picked.versionId]);
+    const [[h]]: any = await conn.execute(`SELECT COUNT(*) AS n FROM h_batch_inputs WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+    if (Number(h.n) < Number(e.n)) missing.push(`원료 투입 계획 ${h.n}/${e.n}줄`);
+  }
+  // CCP 공정 → 기록지 → 기록 행
+  const [inst]: any = await conn.execute(`SELECT DISTINCT process_group_id, ccp_type FROM h_ccp_instances WHERE batch_id = ? AND tenant_id = ?`, [batchId, tenantId]);
+  if (!(inst as any[]).length) missing.push("CCP 공정이 없습니다");
+  for (const i of inst as any[]) {
+    if (String(i.ccp_type) === "CCP-4P") {
+      const [[fr]]: any = await conn.execute(
+        `SELECT id, field_mode FROM h_ccp_form_records WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ? ORDER BY id LIMIT 1`, [tenantId, b.wd]);
+      if (!fr) { missing.push("금속검출 하루 기록지가 없습니다"); continue; }
+      if (Number(fr.field_mode ?? 0) === 1) {
+        const [[pr]]: any = await conn.execute(
+          `SELECT COUNT(*) AS n FROM h_ccp_form_rows WHERE form_record_id = ? AND tenant_id = ? AND equipment_type = 'passage' AND batch_id = ?`, [fr.id, tenantId, batchId]);
+        if (Number(pr.n) === 0) missing.push("금속검출 통과 행이 없습니다");
+      }
+      continue;
+    }
+    const [[fr]]: any = await conn.execute(
+      `SELECT f.id, (SELECT COUNT(*) FROM h_ccp_form_rows r WHERE r.form_record_id = f.id AND r.tenant_id = f.tenant_id) AS n_rows
+         FROM h_ccp_form_records f WHERE f.tenant_id = ? AND f.batch_id = ? AND f.ccp_type = ?${i.process_group_id != null ? " AND f.process_group_id = ?" : ""} ORDER BY f.id LIMIT 1`,
+      i.process_group_id != null ? [tenantId, batchId, i.ccp_type, i.process_group_id] : [tenantId, batchId, i.ccp_type],
+    );
+    if (!fr) missing.push(`${i.ccp_type} 기록지가 없습니다 (공정 #${i.process_group_id ?? "-"})`);
+    else if (Number(fr.n_rows) === 0) missing.push(`${i.ccp_type} 기록 행이 없습니다 (공정 #${i.process_group_id ?? "-"})`);
+  }
+  // 요청 SKU
+  const want = Array.from(new Set((opts.skuIds ?? []).map(Number)));
+  if (want.length) {
+    const [have]: any = await conn.query(`SELECT sku_id FROM production_sku_output WHERE batch_id = ? AND tenant_id = ? AND sku_id IN (?)`, [batchId, tenantId, want]);
+    const got = new Set((have as any[]).map((r) => Number(r.sku_id)));
+    const lack = want.filter((x) => !got.has(x));
+    if (lack.length) missing.push(`SKU 구성 ${want.length - lack.length}/${want.length}`);
+  }
+  return missing;
 }
 
 interface ExecutionCtx {
@@ -367,9 +398,11 @@ interface ExecutionCtx {
  * 생산 건 실행 단계 — 생산 시작(진행 중)·원료 자동 출고(auto)·승인요청·기록지 제출·일지.
  * 오늘(또는 지난) 날짜 생산 건은 만들 때 바로, 미래 날짜 예정 생산 건은 그날 확인할 때(activatePlannedBatch) 한 번.
  */
-async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean } = {}): Promise<{ approvalRequestId: number | null; dailyReportCreated: boolean; periodicLogsResult: any }> {
+async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean } = {}): Promise<{ approvalRequestId: number | null; dailyReportCreated: boolean; periodicLogsResult: any; failures: string[] }> {
   const { input, batchId, batchCodeFinal, productName, ccpCreated, ccpCount, ccpGroups } = ctx;
   void ccpCount;
+  // 필수 단계 실패 목록 (2026-10-20, #612 추가 검토 3) — 비어 있어야 '실행 단계 끝' (activation_pending 0). 선택 단계(기간별 일지)는 넣지 않는다
+  const failures: string[] = [];
   // === 5.5. 배치 상태 → in_progress 전환 + 원료 자동 출고 (auto 모드) ===
   // ★ auto 모드이거나 endTime 이 지정되어 있으면 즉시 시작 상태로 전환하고
   //    h_batch_inputs 기준 원료 차감 + material_ledger_daily 반영
@@ -389,8 +422,9 @@ async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean 
           `[batchOrchestrator] 배치 #${batchId} 원료 자동 출고 완료: ${issueResult.issuedMaterials?.length || 0}건`,
         );
       }
-    } catch (issueErr) {
+    } catch (issueErr: any) {
       console.error(`[batchOrchestrator] 배치 #${batchId} 원료 자동 출고 실패:`, issueErr);
+      failures.push(`시작·원료 출고: ${issueErr?.message ?? issueErr}`);
     }
   }
 
@@ -404,9 +438,12 @@ async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean 
       );
       if (approvalResult.success) {
         approvalRequestId = approvalResult.approvalRequestId;
+      } else {
+        failures.push(`승인요청: ${(approvalResult as any).message ?? "실패"}`);
       }
-    } catch (approvalErr) {
+    } catch (approvalErr: any) {
       console.error("[batchOrchestrator] 승인요청 생성 실패:", approvalErr);
+      failures.push(`승인요청: ${approvalErr?.message ?? approvalErr}`);
     }
 
     // === 6.1. CCP-4P 금속검출 통합 승인요청 (단일 배치 모드) ===
@@ -486,7 +523,8 @@ async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean 
             await syncCcpInstanceStatusFromForm(ccp4pRec.id, input.tenantId);
           }
         }
-      } catch (ccp4pErr) {
+      } catch (ccp4pErr: any) {
+        failures.push(`금속검출 승인요청: ${ccp4pErr?.message ?? ccp4pErr}`);
         console.error("[batchOrchestrator] CCP-4P 승인요청 생성 실패:", ccp4pErr);
       }
     }
@@ -514,7 +552,8 @@ async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean 
         const { syncCcpInstanceStatusForBatch } = await import("../db/haccp/ccpStatusSync");
         await syncCcpInstanceStatusForBatch(batchId, input.tenantId);
       }
-    } catch (ccp1b2bErr) {
+    } catch (ccp1b2bErr: any) {
+      failures.push(`기록지 제출 전환: ${ccp1b2bErr?.message ?? ccp1b2bErr}`);
       console.error("[batchOrchestrator] CCP-1B/2B form_record status 전환 실패:", ccp1b2bErr);
     }
   }
@@ -611,7 +650,8 @@ async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean 
           }
         }
       }
-    } catch (bpErr) {
+    } catch (bpErr: any) {
+      failures.push(`생산 승인요청: ${bpErr?.message ?? bpErr}`);
       console.error(`[batchOrchestrator] 배치 #${batchId} batch_production 승인요청 생성 실패:`, bpErr);
     }
   }
@@ -623,7 +663,8 @@ async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean 
       const { autoGenerateDailyReport } = await import("../lib/production/autoDailyReport");
       const dailyResult = await autoGenerateDailyReport(batchId, input.userId, input.workDate);
       dailyReportCreated = dailyResult.success;
-    } catch (dailyErr) {
+    } catch (dailyErr: any) {
+      failures.push(`일일일지: ${dailyErr?.message ?? dailyErr}`);
       console.error("[batchOrchestrator] 일일일지 생성 실패:", dailyErr);
     }
   }
@@ -653,7 +694,7 @@ async function runExecutionSteps(ctx: ExecutionCtx, opts: { startDone?: boolean 
     }
   }
 
-  return { approvalRequestId, dailyReportCreated, periodicLogsResult };
+  return { approvalRequestId, dailyReportCreated, periodicLogsResult, failures };
 }
 
 /** 예정 생산 건 실행 — 트랜잭션 안 부분의 결과. 커밋 뒤 finishBatchActivation 에 넘긴다 */
@@ -681,7 +722,7 @@ export async function activateBatchInTx(conn: any, batchId: number, tenantId: nu
   try {
     [[row]] = await conn.execute(
       `SELECT b.id, b.plan_only, b.status, b.site_id, b.mode, b.planned_quantity, b.batch_code, DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS work_date,
-              COALESCE(p.product_name, '') AS product_name
+              COALESCE(p.product_name, '') AS product_name, b.setup_pending
          FROM h_batches b LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
         WHERE b.id = ? AND b.tenant_id = ? FOR UPDATE`,
       [batchId, tenantId],
@@ -692,6 +733,10 @@ export async function activateBatchInTx(conn: any, batchId: number, tenantId: nu
   }
   // 생산 건 행을 잠갔으니 같은 생산 건의 다른 첫 확인은 여기서 기다렸다가 plan_only = 0 을 보고 지나간다 (한 번만)
   if (!row || Number(row.plan_only) !== 1) return null;
+  // 필수 준비(원료 계획·CCP·기록지·행·SKU)가 끝나지 않은 생산 건은 시작하지 않는다 (생산계획 생애주기 검토 4)
+  if (Number(row.setup_pending ?? 0) === 1) {
+    throw new Error(`생산 건 ${row.batch_code} 의 준비(원료 계획·CCP 기록지)가 끝나지 않았습니다 — 생산 계획 화면에서 같은 내용으로 다시 생성하면 이어서 준비합니다.`);
+  }
   if (String(row.work_date) > todayKST()) {
     throw new Error(`예정 생산 건입니다 — ${row.work_date} 에 확인하면 시작되고 원료가 출고됩니다.`);
   }
@@ -724,20 +769,42 @@ export async function activateBatchInTx(conn: any, batchId: number, tenantId: nu
 }
 
 /**
- * 커밋 뒤 실행 단계(결재 요청·일지 등, 각 단계 오류는 안에서 잡음) + 감사 기록 — activation_pending 1→0 을 먼저 잡아 한 번만.
+ * 커밋 뒤 실행 단계(결재 요청·기록지 제출 전환·일지) — 실행권과 '끝남' 을 분리 (2026-10-20, #612 추가 검토 3).
+ *   실행권: activation_claimed_at 을 잡는다 (비어 있거나 5분 넘게 묵은 경우만 — 잡은 뒤 멈춰도 5분 뒤 다른 요청이 이어서).
+ *   끝남: 필수 단계가 모두 성공했을 때만 activation_pending 1→0. 하나라도 실패하면 남음 1 그대로 — 다음 확인·재시도가 이어서
+ *   (각 단계는 이미 만든 것을 다시 만들지 않는다: 승인요청·문서·일지는 있으면 재사용, 제출 전환은 작성중일 때만).
  */
-export async function finishBatchActivation(a: BatchActivation): Promise<void> {
+export async function finishBatchActivation(a: BatchActivation, opts: { startDone?: boolean } = {}): Promise<{ ran: boolean; ok: boolean; failures: string[]; approvalRequestId: number | null; dailyReportCreated: boolean; periodicLogsResult: any }> {
   const conn = await getRawConnection();
-  const [claim]: any = await conn.execute(`UPDATE h_batches SET activation_pending = 0 WHERE id = ? AND tenant_id = ? AND activation_pending = 1`, [a.batchId, a.tenantId]);
-  if (Number(claim?.affectedRows ?? 0) !== 1) return; // 다른 요청이 이미 처리
-  await runExecutionSteps({
-    input: { tenantId: a.tenantId, userId: a.userId, siteId: a.siteId, workDate: a.workDate, mode: a.mode, endTime: undefined, plannedQuantityKg: a.plannedQuantityKg, skipGroupActions: false },
-    batchId: a.batchId, batchCodeFinal: a.batchCode, productName: a.productName, ccpCreated: a.ccpGroups.length > 0, ccpCount: a.ccpGroups.length, ccpGroups: a.ccpGroups,
-  }, { startDone: true });
+  const [claim]: any = await conn.execute(
+    `UPDATE h_batches SET activation_claimed_at = NOW() WHERE id = ? AND tenant_id = ? AND activation_pending = 1
+        AND (activation_claimed_at IS NULL OR activation_claimed_at < NOW() - INTERVAL 5 MINUTE)`,
+    [a.batchId, a.tenantId],
+  );
+  if (Number(claim?.affectedRows ?? 0) !== 1) return { ran: false, ok: false, failures: [], approvalRequestId: null, dailyReportCreated: false, periodicLogsResult: null }; // 끝났거나 다른 요청이 하는 중
+  let r: Awaited<ReturnType<typeof runExecutionSteps>>;
   try {
-    const { createAuditLog } = await import("../db");
-    await createAuditLog({ action: "batch.plan_activate", entityType: "batch", entityId: a.batchId, userId: a.userId, userEmail: "", userRole: "", description: `예정 생산 건 실행 (${a.batchCode}) — 그날 첫 확인`, changes: { workDate: a.workDate } } as any, a.tenantId);
-  } catch { /* 감사 기록 실패는 기존 방식대로 무시 */ }
+    r = await runExecutionSteps({
+      input: { tenantId: a.tenantId, userId: a.userId, siteId: a.siteId, workDate: a.workDate, mode: a.mode, endTime: undefined, plannedQuantityKg: a.plannedQuantityKg, skipGroupActions: false },
+      batchId: a.batchId, batchCodeFinal: a.batchCode, productName: a.productName, ccpCreated: a.ccpGroups.length > 0, ccpCount: a.ccpGroups.length, ccpGroups: a.ccpGroups,
+    }, { startDone: opts.startDone ?? true }); // 첫 확인은 출고를 끝냈으니 시작 부분 건너뜀 (지난 날짜가 멈춘 경우만 시작부터)
+  } catch (e: any) {
+    r = { approvalRequestId: null, dailyReportCreated: false, periodicLogsResult: null, failures: [`실행 단계: ${e?.message ?? e}`] };
+  }
+  const ok = r.failures.length === 0;
+  await conn.execute(
+    ok ? `UPDATE h_batches SET activation_pending = 0, activation_claimed_at = NULL WHERE id = ? AND tenant_id = ?`
+       : `UPDATE h_batches SET activation_claimed_at = NULL WHERE id = ? AND tenant_id = ?`,
+    [a.batchId, a.tenantId],
+  );
+  if (!ok) console.warn(`[finishBatchActivation] 배치 #${a.batchId} 실행 단계 남음 — 다음에 이어서: ${r.failures.join(" / ")}`);
+  if (ok) {
+    try {
+      const { createAuditLog } = await import("../db");
+      await createAuditLog({ action: "batch.plan_activate", entityType: "batch", entityId: a.batchId, userId: a.userId, userEmail: "", userRole: "", description: `생산 건 실행 단계 완료 (${a.batchCode})`, changes: { workDate: a.workDate } } as any, a.tenantId);
+    } catch { /* 감사 기록 실패는 기존 방식대로 무시 */ }
+  }
+  return { ran: true, ok, ...r };
 }
 
 /**
@@ -748,7 +815,7 @@ export async function resumeBatchActivation(batchId: number, tenantId: number, u
   let row: any;
   try {
     [[row]] = await conn.execute(
-      `SELECT b.id, b.activation_pending, b.site_id, b.mode, b.planned_quantity, b.batch_code, DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS work_date,
+      `SELECT b.id, b.activation_pending, b.setup_pending, b.status, b.site_id, b.mode, b.planned_quantity, b.batch_code, DATE_FORMAT(b.planned_date, '%Y-%m-%d') AS work_date,
               COALESCE(p.product_name, '') AS product_name
          FROM h_batches b LEFT JOIN h_products_v2 p ON p.id = b.product_id AND p.tenant_id = b.tenant_id
         WHERE b.id = ? AND b.tenant_id = ?`,
@@ -759,17 +826,18 @@ export async function resumeBatchActivation(batchId: number, tenantId: number, u
     throw e;
   }
   if (!row || Number(row.activation_pending) !== 1) return false;
+  if (Number(row.setup_pending ?? 0) === 1) return false; // 준비가 끝나야 실행 단계
   const [gRows]: any = await conn.execute(
     `SELECT DISTINCT g.id, g.name, i.ccp_type FROM h_ccp_instances i LEFT JOIN ccp_process_groups g ON g.id = i.process_group_id AND g.tenant_id = i.tenant_id
       WHERE i.batch_id = ? AND i.tenant_id = ?`,
     [batchId, tenantId],
   );
-  await finishBatchActivation({
+  const r = await finishBatchActivation({
     batchId, tenantId, userId, siteId: Number(row.site_id), workDate: String(row.work_date), mode: row.mode === "manual" ? "manual" : "auto",
     plannedQuantityKg: Number(row.planned_quantity), batchCode: String(row.batch_code), productName: String(row.product_name),
     ccpGroups: (gRows as any[]).map((g) => ({ id: Number(g.id), name: String(g.name ?? ""), ccp_type: String(g.ccp_type) })),
-  });
-  return true;
+  }, { startDone: String(row.status) !== "planned" });
+  return r.ran; // 다른 요청이 실행권을 잡고 있으면 false (겹쳐 실행하지 않음)
 }
 
 /**

@@ -40,7 +40,8 @@ describe("화면·서버 계약", () => {
   });
   it("일괄 생성: 이미 만든 줄은 재사용, 실패 줄만 다시, 새로 만든 줄만 그룹 후속 처리", () => {
     expect(crud).toMatch(/claim\.state === "done"/);
-    expect(crud).toMatch(/r\.batchId > 0 && !r\.reused/);
+    // 이번에 준비까지 끝난 줄만 그룹 후속 처리 — 준비 미완·실패 줄은 생산 건 번호가 있어도 제외 (생산계획 생애주기 검토 4)
+    expect(crud).toMatch(/results\.filter\(\(r: any\) => r\.batchId > 0 && r\.completedNow\)/);
     expect(crud).toMatch(/excludedEquipmentIds: input\.excludedEquipmentIds/);
   });
 });

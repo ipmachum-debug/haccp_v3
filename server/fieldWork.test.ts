@@ -107,3 +107,24 @@ describe("금속검출 제출 검사 — 수량·시간 순서 (#611 추가 검�
     expect(validateSheetForConfirm(r4, [pass({ detectedQty: -1 })], NOW).join()).toMatch(/검출 수.*음수/);
   });
 });
+
+describe("#612 추가 검토 — 재전송·동기화·실행 단계", () => {
+  it("재전송은 처음 요청 그대로(행 버전 포함) — 화면이 새 버전을 받아도 올려 붙이지 않음", () => {
+    const ui = readFileSync(join(__dirname, "../client/src/pages/production/FieldWork.tsx"), "utf-8");
+    expect(ui).toMatch(/const expectedRowVersion = retry \? retry\.expectedRowVersion : row\.rowVersion;/);
+    expect(ui).toMatch(/await write\.mutateAsync\(\{ rowId: row\.rowId, action: action as any, expectedRowVersion, values, requestId \}\);/);
+  });
+  it("금속검출 동기화: 쓰는 순간에도 손 안 댄 행만 (읽은 버전·사람 흔적 없음 조건), 같은 기록지 동기화는 하나씩, 승인된 기록지 그대로", () => {
+    const f = read("lib/haccp/fieldMetalRows.ts");
+    expect(f.match(/AND \$\{UNTOUCHED_AT\}`/g)?.length).toBe(3);
+    expect(f).toMatch(/GET_LOCK\(\?, 15\)/);
+    expect(f).toMatch(/if \(!rec \|\| String\(rec\.status\) === "approved"\) return 0;/);
+  });
+  it("실행 단계: 실행권과 끝남을 분리 — 필수 단계가 다 성공해야 남음 0, 같은 요청 키 재시도도 남은 단계를 이어서", () => {
+    const o = read("services/batchOrchestrator.ts");
+    expect(o).toMatch(/SET activation_claimed_at = NOW\(\) WHERE id = \? AND tenant_id = \? AND activation_pending = 1/);
+    expect(o).toMatch(/ok \? `UPDATE h_batches SET activation_pending = 0, activation_claimed_at = NULL/);
+    const fw = read("services/fieldWork.ts");
+    expect(fw.match(/await resumeForRow\(p, Number\(/g)?.length).toBe(3);
+  });
+});

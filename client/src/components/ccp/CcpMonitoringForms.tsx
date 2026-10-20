@@ -189,11 +189,8 @@ function BatchCountCalc({
   const autoBatchCount = bomBatchKg && plannedQtyKg
     ? Math.ceil(plannedQtyKg / bomBatchKg) : null;
 
-  useEffect(() => {
-    if (autoBatchCount && autoBatchCount !== batchCount) {
-      onBatchCountChange(autoBatchCount);
-    }
-  }, [autoBatchCount]);
+  // 화면을 열 때 계산값을 저장하지 않는다 (2026-10-20, #612 검토 잔여 1) — 계산값은 보여 주기만, 바꾸려면 [자동적용]·직접 입력.
+  //   이전: 열자마자 현재 BOM 으로 계산한 배치수를 저장해 과거 기록지의 회차가 조용히 바뀔 수 있었다.
 
   return (
     <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
@@ -910,7 +907,12 @@ function CcpFormPanel({
             {Array.from({ length: batchCount }, (_, i) => {
               const seq = i + 1;
               const existingRow = getRowForBatch(seq);
-              const equip = getEquipForBatch(seq);
+              // 설비: 저장된 행이 있으면 그 행의 실제 설비 — 순서 배정은 아직 입력하지 않은 회차의 제안일 뿐 (2026-10-20, #612 검토 잔여 3)
+              const suggested = getEquipForBatch(seq);
+              const savedEquipName = existingRow?.equipmentName ?? null;
+              const equip: { equipment_name: string; equipment_type?: string } | null = existingRow
+                ? (savedEquipName ? { equipment_name: savedEquipName, equipment_type: (existingRow as any).equipmentType ?? undefined } : null)
+                : suggested;
               const timeOffset = equipGroupMode === "sequential" ? (i * equipIntervalMin) : 0;
 
               return (
@@ -919,8 +921,9 @@ function CcpFormPanel({
                     <div className="flex items-center gap-2 text-sm">
                       <span className="font-bold text-blue-700">배치 {seq}</span>
                       {equip && (
-                        <span className="text-xs text-orange-700 bg-orange-50 px-2 py-0.5 rounded">
-                          {equip.equipment_type === "시루" ? "시루" : "설비"}: {equip.equipment_name}
+                        <span className={cn("text-xs px-2 py-0.5 rounded", existingRow ? "text-orange-700 bg-orange-50" : "text-slate-600 bg-slate-100")}
+                          data-testid="batch-equipment" title={existingRow ? "저장된 실제 설비" : "아직 입력 전 — 순서 배정 제안"}>
+                          {equip.equipment_type === "시루" ? "시루" : "설비"}: {equip.equipment_name}{existingRow ? "" : " (제안)"}
                         </span>
                       )}
                       {timeOffset > 0 && (

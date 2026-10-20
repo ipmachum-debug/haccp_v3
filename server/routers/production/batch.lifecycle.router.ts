@@ -174,6 +174,14 @@ export const batchLifecycleRouter = router({
           });
         }
         
+        // 승인·보관·취소·출하·무효·준비 미완 생산 건은 검토 요청으로 되돌리지 않는다 (2026-10-20, 생산계획 생애주기 검토 2)
+        {
+          const { getRawConnection } = await import("../../db");
+          const [[m]]: any = await (await getRawConnection()).execute(`SELECT status, voided_at, setup_pending FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.batchId, ctx.tenantId]);
+          if (m?.voided_at || Number(m?.setup_pending ?? 0) === 1 || ["approved", "archived", "cancelled", "shipped"].includes(String(m?.status))) {
+            throw new TRPCError({ code: "PRECONDITION_FAILED", message: "이 생산 건은 검토 요청으로 바꿀 수 없습니다 (승인·보관·취소·출하·무효·준비 미완)." });
+          }
+        }
         // 배치 상태를 under_review로 변경
         await updateBatchStatus(input.batchId, "under_review", ctx.tenantId);
 

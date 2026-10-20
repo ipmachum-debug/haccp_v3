@@ -10,7 +10,7 @@ import { join } from "node:path";
 describe("batch mode 계약", () => {
   it("createSingleBatch 가 createBatch 에 mode 를 넘긴다", () => {
     const src = readFileSync(join(__dirname, "services/batchOrchestrator.ts"), "utf-8");
-    const call = src.slice(src.indexOf("const batchId = await createBatch({"), src.indexOf("});", src.indexOf("const batchId = await createBatch({")));
+    const call = src.slice(src.indexOf("batchId = await createBatch({"), src.indexOf("});", src.indexOf("batchId = await createBatch({")));
     expect(call).toMatch(/mode: input\.mode/);
   });
   it("일괄 생성은 행별 mode 를 createSingleBatch 에 넘긴다", () => {

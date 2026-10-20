@@ -694,6 +694,8 @@ async function ensureMassBasisSchema(conn: any) {
   await addCol("h_batches", "plan_only", "`plan_only` tinyint NOT NULL DEFAULT 0");
   // 예정 생산 건 실행의 커밋 뒤 단계(결재 요청·일지 등)가 남았는지 (2026-10-20, #611 검토 P1) — 1 이면 다음 확인·조회 때 이어서 처리. 기존 행은 0
   await addCol("h_batches", "activation_pending", "`activation_pending` tinyint NOT NULL DEFAULT 0");
+  // 실행 단계 실행권(잠깐 잡는 표시) — '남음(activation_pending)' 과 분리 (2026-10-20, #612 추가 검토 3): 필수 단계가 다 성공해야 남음 0
+  await addCol("h_batches", "activation_claimed_at", "`activation_claimed_at` datetime NULL");
   // 이력 보존형 복구 (2026-10-19, 같은 날 같은 제품 중복 생산 건): 지우지 않고 '무효' 표시 + 대체 생산 건 연결.
   //   상태는 기존 'cancelled' 를 쓰고(집계 제외), 무효 여부·사유·대체 관계는 아래 칸으로 구분한다. 기존 행은 NULL.
   await addCol("h_batches", "voided_at", "`voided_at` datetime NULL");
@@ -1127,6 +1129,14 @@ async function ensureInboundDocumentSchema(conn: any) {
   } catch (err: any) {
     console.warn("[Migration] h_batch_create_requests failed:", err.message);
   }
+  // 생성 계약 (2026-10-20, 생산계획 생애주기 검토 1·4) — 기존 행은 NULL/0
+  //   요청 줄 ↔ 생산 건: 생산 건을 만드는 같은 INSERT 에 요청 줄 번호를 남겨, 완료 표시가 실패하거나 프로세스가 멈춰도 재시도가 그 생산 건을 찾는다
+  //   준비 미완(setup_pending=1): 필수 계획(원료·CCP·기록지·행·SKU)이 다 저장될 때까지 — 현장 확인·승인이 막고, 같은 요청 재시도가 이어서 완성
+  //   요청 줄 지문: 같은 요청 키·줄 키로 다른 내용(작업일·제품·수량)을 보내면 충돌
+  await addCol("h_batches", "create_request_id", "`create_request_id` bigint NULL");
+  await addCol("h_batches", "setup_pending", "`setup_pending` tinyint NOT NULL DEFAULT 0");
+  await addIndex("h_batches", "uq_batch_tenant_create_req", "UNIQUE KEY uq_batch_tenant_create_req (tenant_id, create_request_id)");
+  await addCol("h_batch_create_requests", "row_fingerprint", "`row_fingerprint` char(64) NULL");
   // 일일일지 회사별 설정·버전 (docs/architecture/17 B2) — 표 추가만, 기존 행 변경 없음
   try {
     const { DAILY_LOG_SETTINGS_DDL } = await import("../lib/production/dailyLogSettingsStore");
@@ -1183,6 +1193,10 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_mf_ingredients", column: "entry_stage", why: "원료 들어가는 곳 (생산 설계 2a)" },
   { table: "h_batches", column: "plan_only", why: "미래 날짜 예정 생산 건 (현장 1)" },
   { table: "h_batches", column: "activation_pending", why: "예정 생산 건 실행 — 커밋 뒤 단계 남음 (#611 검토)" },
+  { table: "h_batches", column: "activation_claimed_at", why: "실행 단계 실행권 (남음과 분리)" },
+  { table: "h_batches", column: "create_request_id", why: "생성 요청 줄 ↔ 생산 건 (재시도 중복 생성 방지)" },
+  { table: "h_batches", column: "setup_pending", why: "필수 계획 준비 미완 표시" },
+  { table: "h_batch_create_requests", column: "row_fingerprint", why: "같은 요청 키에 다른 내용 충돌" },
   { table: "h_batches", column: "voided_at", why: "이력 보존형 복구 — 무효 생산 건" },
   { table: "h_batches", column: "superseded_by_batch_id", why: "이력 보존형 복구 — 대체 생산 건" },
   { table: "h_ccp_form_records", column: "voided_at", why: "이력 보존형 복구 — 무효 기록지" },
@@ -1279,6 +1293,7 @@ export const REQUIRED_UNIQUE_INDEXES: Array<{ table: string; index: string; colu
   { table: "h_ledger_event_links", index: "uq_lel_tenant_dup", columns: ["tenant_id", "duplicate_tx_id"], why: "중복 거래당 정리 하나" },
   { table: "h_batch_line_issue_decisions", index: "uq_blid_tenant_tx", columns: ["tenant_id", "tx_id"], why: "옛 출고 하나는 한 줄에만 인정" },
   { table: "h_ccp_row_events", index: "uq_cre_tenant_request", columns: ["tenant_id", "request_id"], why: "같은 요청(중복 클릭·재시도)은 한 번만" },
+  { table: "h_batches", index: "uq_batch_tenant_create_req", columns: ["tenant_id", "create_request_id"], why: "요청 줄 하나에 생산 건 하나" },
 ];
 
 export async function ensureRequiredSchema(conn: any, opts: { allowDdl: boolean }): Promise<{ ok: boolean; missing: string[]; warnings: string[] }> {
