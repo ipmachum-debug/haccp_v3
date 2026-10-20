@@ -428,7 +428,8 @@ export async function completeBatch(params: {
   let pdfGenerated = false;
   try {
     const { generateBatchCompletionReport } = await import("../../reports/batchCompletionReport");
-    pdfUrl = await generateBatchCompletionReport(batchId);
+    // 회사 폴더(tenant-N/reports/…)에 저장 — 다른 회사 파일과 같은 경로 규칙 (2026-10-20: 회사 없이 reports/… 에 저장돼 읽기 거부)
+    pdfUrl = await generateBatchCompletionReport(batchId, tenantId);
     pdfGenerated = true;
     console.log(`[Batch Completion] PDF report generated: ${pdfUrl}`);
 

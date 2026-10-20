@@ -44,15 +44,16 @@ export function StampCellContent({ name, done, date }: { name?: string | null; d
   const d = shortStampDate(date);
   const lines = stampLines(name);
   return done ? (
-    <div className="flex flex-col items-center gap-0.5" title={name ?? undefined}>
+    <div className="flex flex-col items-center gap-0.5 overflow-hidden" title={name ?? undefined}>
       <span className="flex h-9 w-9 flex-col items-center justify-center rounded-full border-[1.5px] border-red-500 font-bold leading-[1.05] text-red-600 print:border-red-600" data-testid="stamp-circle">
         {lines.inStamp.map((l, i) => <span key={i} className={lines.inStamp.length > 1 ? "text-[8px]" : "text-[10px]"}>{l}</span>)}
       </span>
-      {lines.below && <span className="max-w-[52px] break-all text-center text-[8px] leading-tight text-red-700" data-testid="stamp-fullname">{lines.below}</span>}
+      {/* 표 칸 전체에 걸린 '줄바꿈 금지'(index.css table td nowrap)를 여기서 풀어 이름이 옆 결재 칸으로 넘치지 않게 — 칸 폭 안에서 줄바꿈 */}
+      {lines.below && <span className="block w-full max-w-[44px] whitespace-normal break-all text-center text-[8px] leading-tight text-red-700" style={{ overflowWrap: "anywhere" }} data-testid="stamp-fullname">{lines.below}</span>}
       {d && <span className="text-[9px] tabular-nums text-gray-500">{d}</span>}
     </div>
   ) : (
-    <span className="text-[10px] text-gray-400 break-all">{name || "—"}</span>
+    <span className="block max-w-[44px] whitespace-normal break-all text-[10px] text-gray-400" style={{ overflowWrap: "anywhere" }}>{name || "—"}</span>
   );
 }
 

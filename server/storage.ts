@@ -403,3 +403,27 @@ export function reportKeyFromUrl(stored: string | null, tenantId: number): strin
   if (m[2] != null && Number(m[2]) !== Number(tenantId)) return null;
   return m[1];
 }
+
+
+/**
+ * 발급한 주소로 실제로 읽히는지 1바이트만 받아 확인 (2026-10-20, 건강진단서 다운로드와 같은 방식 — HEAD 는 서명이 달라 쓰지 않음).
+ *   ok      : 읽힘
+ *   denied  : 403 — 파일이 없거나(목록 권한 없는 계정은 없는 파일도 403) 서버 계정에 읽기 권한이 없음
+ *   missing : 404 — 파일 없음
+ *   unknown : 5xx·시간 초과·네트워크 — 판단 보류 (열기는 막지 않음)
+ */
+export async function probeStorageUrl(url: string, timeoutMs = 5000): Promise<{ result: "ok" | "denied" | "missing" | "unknown"; status?: number }> {
+  try {
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(url, { method: "GET", headers: { Range: "bytes=0-0" }, signal: controller.signal });
+    clearTimeout(t);
+    try { await res.arrayBuffer(); } catch { /* 연결 정리만 */ }
+    if (res.ok || res.status === 206) return { result: "ok", status: res.status };
+    if (res.status === 403) return { result: "denied", status: 403 };
+    if (res.status === 404) return { result: "missing", status: 404 };
+    return { result: "unknown", status: res.status };
+  } catch {
+    return { result: "unknown" };
+  }
+}
