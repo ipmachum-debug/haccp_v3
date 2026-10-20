@@ -1,5 +1,7 @@
-import { useState, useEffect, useMemo, type ReactNode } from "react";
-import { useParams, useLocation } from "wouter";
+import { useState, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { returnToFromSearch } from "@/lib/urlState";
+import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
+import { useParams, useLocation, useSearch } from "wouter";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -33,11 +35,12 @@ const stageValue = (ing: { processGroupId?: number | null; entryStage?: string |
 /**
  * 품목제조보고(배합) 편집 — 제조기준관리에서도, 생산 설계 > 제품 배합 안에서도 같은 편집기 (embedded: 바깥 화면 틀 없이)
  */
-export function MfReportEditor({ reportId, embedded = false, onCancel }: { reportId: number; embedded?: boolean; onCancel?: () => void }) {
+export function MfReportEditor({ reportId, embedded = false, onCancel, onDirtyChange }: { reportId: number; embedded?: boolean; onCancel?: () => void; onDirtyChange?: (dirty: boolean) => void }) {
   const L = useIndustryLabel();
   const [, setLocation] = useLocation();
   const Frame = embedded ? EmbeddedFrame : DashboardLayout;
-  const goBack = () => (onCancel ? onCancel() : setLocation("/dashboard/mf-reports"));
+  // 돌아갈 곳 = 들어온 목록(탭·조건 그대로), 직접 링크·새 창이면 제조기준관리의 품목제조보고 탭 (2026-10-21)
+  const backTo = returnToFromSearch(useSearch(), "/dashboard/manufacturing-standards?tab=mf-reports");
 
   // === 데이터 로드 ===
   const { data: reportDetail, isLoading: isLoadingReport } = trpc.mfReport.getById.useQuery({ id: reportId });
@@ -54,6 +57,7 @@ export function MfReportEditor({ reportId, embedded = false, onCancel }: { repor
   }, [processGroupsData]);
 
   // === 폼 상태 ===
+  const [loadTick, setLoadTick] = useState(0);
   const [productId, setProductId] = useState<number>(0);
   const [productName, setProductName] = useState<string>("");
   const [reportNo, setReportNo] = useState("");
@@ -180,8 +184,21 @@ export function MfReportEditor({ reportId, embedded = false, onCancel }: { repor
         setIngredients([]);
         setAdditionalIngredients([]);
       }
+      setLoadTick((t) => t + 1); // 불러온 값이 화면에 들어간 뒤 기준으로
     }
   }, [reportDetail, latestVersion]);
+
+  // === 저장하지 않은 변경 (2026-10-21) — 불러온 값과 다를 때만 나가기(취소·뒤로·메뉴·새로고침) 전에 묻는다. 자동 저장 없음 ===
+  const snapshot = JSON.stringify([productName, reportNo, reportDate, reportType, yieldBasis, unitWeightG, batchTargetKg, batchProductionKg,
+    referenceFinishedKg, referenceRawTotalKg, massBasisEnabled, ingredients, additionalIngredients]);
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const [baseline, setBaseline] = useState<string | null>(null);
+  useEffect(() => { if (loadTick) setBaseline(snapshotRef.current); }, [loadTick]);
+  const dirty = baseline != null && snapshot !== baseline;
+  const { confirmLeave } = useUnsavedChangesGuard(dirty);
+  useEffect(() => { onDirtyChange?.(dirty); }, [dirty]); // eslint-disable-line react-hooks/exhaustive-deps — 바깥 화면(제품 배합)이 버전·목록 이동 전에 묻게
+  const goBack = () => { if (!confirmLeave()) return; if (onCancel) onCancel(); else setLocation(backTo); };
 
   // === 원재료 CRUD ===
   const removeIngredient = (index: number) => {
@@ -264,6 +281,7 @@ export function MfReportEditor({ reportId, embedded = false, onCancel }: { repor
   const updateMutation = trpc.mfReport.update.useMutation({
     onSuccess: () => {
       toast.success("품목제조보고가 저장되었습니다");
+      setBaseline(snapshotRef.current); // 저장됨 — 더 묻지 않는다
       utils.mfReport.getById.invalidate({ id: reportId });
       utils.mfReport.getVersions.invalidate({ mfReportId: reportId });
       // 생산 설계(현황·배합표·흐름도·확인 필요)도 서버 판정으로 새로 읽는다 (Codex #605 P2 — 저장했는데 예전 상태가 보이던 문제)

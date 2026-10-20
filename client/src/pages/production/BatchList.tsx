@@ -30,7 +30,8 @@ import { Link } from "wouter";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { useState, useEffect, useMemo } from "react";
 import { EmptyState } from "@/components/EmptyState";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import { pickAllowed, pickPage, replaceQuery, withReturnTo } from "@/lib/urlState";
 import { toast } from "sonner";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 import { AlertTriangle } from "lucide-react";
@@ -95,13 +96,29 @@ function warningsOf(b: any, ds: string, todayStr: string): string[] {
 export default function BatchList() {
   const L = useIndustryLabel();
   const [, setLocation] = useLocation();
-  const [page, setPage] = useState(1);
+  // 보기(달력·목록)·달력 월·고른 날짜·목록 페이지는 URL — 생산 상세에 갔다 와도·새로고침해도 같은 자리 (2026-10-21 작업 위치 보존)
+  //   ?view=table · ?month=YYYY-MM · ?day=YYYY-MM-DD · ?page=N (기본값이면 쿼리에서 뺀다, 잘못된 값은 기본으로)
+  const sp = new URLSearchParams(useSearch());
+  const page = pickPage(sp.get("page"));
+  const setPage = (next: number | ((p: number) => number)) => {
+    const n = typeof next === "function" ? next(page) : next;
+    replaceQuery({ page: n > 1 ? n : null });
+  };
   const [limit] = useState(200);
-  const [viewMode, setViewMode] = useState<ViewMode>("calendar");
-  const [calMonth, setCalMonth] = useState(() => {
+  const viewMode = pickAllowed(sp.get("view"), "calendar", ["calendar", "table"]) as ViewMode;
+  const setViewMode = (v: ViewMode) => replaceQuery({ view: v === "calendar" ? null : v });
+  const calMonth = useMemo(() => {
+    const m = /^(\d{4})-(\d{2})$/.exec(sp.get("month") ?? "");
+    const mm = m ? Number(m[2]) - 1 : -1;
+    if (m && mm >= 0 && mm <= 11) return { year: Number(m[1]), month: mm };
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
-  });
+  }, [sp.get("month")]); // eslint-disable-line react-hooks/exhaustive-deps
+  const setCalMonth = (v: { year: number; month: number }) => {
+    const now = new Date();
+    const isNow = v.year === now.getFullYear() && v.month === now.getMonth();
+    replaceQuery({ month: isNow ? null : `${v.year}-${String(v.month + 1).padStart(2, "0")}` });
+  };
 
   // 캘린더 뷰일 때는 표시 중인 월의 planned_date 범위로 조회 (페이지네이션 우회)
   // - 표시 셀에는 이전/다음 달의 일부도 포함되므로 앞뒤 7일 여유를 둔다
@@ -136,7 +153,9 @@ export default function BatchList() {
   const [batchCostRatios, setBatchCostRatios] = useState<Record<number, number | null>>({});
 
   // 달력 날짜 상세 다이얼로그
-  const [dayDetailDate, setDayDetailDate] = useState<string | null>(null);
+  const dayParam = sp.get("day");
+  const dayDetailDate = dayParam && /^\d{4}-\d{2}-\d{2}$/.test(dayParam) ? dayParam : null;
+  const setDayDetailDate = (v: string | null) => replaceQuery({ day: v });
 
   // 삭제 확인 다이얼로그
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; batchCode: string } | null>(null);
@@ -420,7 +439,7 @@ export default function BatchList() {
                           <TableCell>
                             {getStatusBadge(batch)}
                             {batch.voidedAt && batch.supersededByBatchId && (
-                              <Link href={`/dashboard/batch/${batch.supersededByBatchId}`} className="block text-[10px] text-muted-foreground hover:underline mt-0.5">
+                              <Link href={withReturnTo(`/dashboard/batch/${batch.supersededByBatchId}`)} className="block text-[10px] text-muted-foreground hover:underline mt-0.5">
                                 → 대체 {codeOf.get(batch.supersededByBatchId) ?? `#${batch.supersededByBatchId}`}
                               </Link>
                             )}
@@ -467,7 +486,7 @@ export default function BatchList() {
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              <Link href={`/dashboard/batch/${batch.id}`}>
+                              <Link href={withReturnTo(`/dashboard/batch/${batch.id}`)}>
                                 <Button variant="outline" size="sm">상세 보기</Button>
                               </Link>
                               {(isWorker || isAdmin) && (
@@ -494,7 +513,7 @@ export default function BatchList() {
                     <Card key={batch.id} className="hover:bg-accent/50 transition-colors">
                       <CardContent className="p-4">
                         <div className="flex items-start justify-between gap-4">
-                          <Link href={`/dashboard/batch/${batch.id}`} className="flex-1">
+                          <Link href={withReturnTo(`/dashboard/batch/${batch.id}`)} className="flex-1">
                             <div className="space-y-3">
                               <div className="flex items-center gap-2">
                                 <Package className="h-5 w-5 text-muted-foreground flex-shrink-0" />
@@ -604,7 +623,7 @@ export default function BatchList() {
                       {g.items.map((b: any) => {
                         const w = warningsOf(b, dayDetailDate, todayStr);
                         return (
-                          <Link key={b.id} href={`/dashboard/batch/${b.id}`}>
+                          <Link key={b.id} href={withReturnTo(`/dashboard/batch/${b.id}`)}>
                             <div className="flex items-center gap-2 px-3 py-2 hover:bg-accent/50 cursor-pointer" data-testid="day-batch">
                               <div className="flex-1 min-w-0">
                                 <div className="text-xs font-medium">{b.batchCode}{b.dayBatchGroup ? <span className="text-muted-foreground font-normal"> · {b.dayBatchGroup} #{b.batchOrder ?? ""}</span> : null}</div>
@@ -631,10 +650,10 @@ export default function BatchList() {
                 <div className="mt-1 space-y-1">
                   {voidByDate[dayDetailDate].map((b: any) => (
                     <div key={b.id} className="flex flex-wrap items-center gap-1">
-                      <Link href={`/dashboard/batch/${b.id}`} className="hover:underline">{b.productName || "-"} · {b.batchCode}</Link>
+                      <Link href={withReturnTo(`/dashboard/batch/${b.id}`)} className="hover:underline">{b.productName || "-"} · {b.batchCode}</Link>
                       <span>— {batchStatusLabel(b)}</span>
                       {b.supersededByBatchId && (
-                        <Link href={`/dashboard/batch/${b.supersededByBatchId}`} className="text-blue-600 hover:underline">
+                        <Link href={withReturnTo(`/dashboard/batch/${b.supersededByBatchId}`)} className="text-blue-600 hover:underline">
                           → 대체 {codeOf.get(b.supersededByBatchId) ?? `#${b.supersededByBatchId}`}
                         </Link>
                       )}

@@ -1,5 +1,7 @@
-import { useState, useEffect, useMemo } from "react";
-import { useParams, useLocation } from "wouter";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useParams, useLocation, useSearch } from "wouter";
+import { returnToFromSearch } from "@/lib/urlState";
+import { useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,6 +34,8 @@ export default function MfReportModify() {
   const { id } = useParams<{ id: string }>();
   const [, setLocation] = useLocation();
   const reportId = parseInt(id || "0");
+  // 돌아갈 곳 = 들어온 목록(탭·검색 조건 그대로). 직접 링크·새 창이면 제조기준관리의 품목제조보고 탭 (2026-10-21)
+  const backTo = returnToFromSearch(useSearch(), "/dashboard/manufacturing-standards?tab=mf-reports");
 
   // === 데이터 로드 ===
   const { data: reportDetail, isLoading: isLoadingReport } = trpc.mfReport.getById.useQuery({ id: reportId });
@@ -47,6 +51,8 @@ export default function MfReportModify() {
   const [yieldBasis, setYieldBasis] = useState<"UNIT" | "BATCH">("UNIT");
   const [unitWeightG, setUnitWeightG] = useState("");
   const [batchTargetKg, setBatchTargetKg] = useState("");
+
+  const [loadTick, setLoadTick] = useState(0);
 
   // === 원재료 구성 ===
   const [ingredients, setIngredients] = useState<IngredientRow[]>([]);
@@ -65,6 +71,7 @@ export default function MfReportModify() {
   const updateMutation = trpc.mfReport.update.useMutation({
     onSuccess: () => {
       toast.success("품목제조보고가 수정되었습니다");
+      setBaseline(snapshotRef.current); // 저장됨 — 더 묻지 않는다
       utils.mfReport.getById.invalidate({ id: reportId });
       utils.mfReport.getVersions.invalidate({ mfReportId: reportId });
       // 생산 설계(현황·배합표·흐름도·확인 필요)도 서버 판정으로 새로 읽는다 (Codex #605 P2 — 저장했는데 예전 상태가 보이던 문제)
@@ -121,8 +128,19 @@ export default function MfReportModify() {
             })),
         );
       }
+      setLoadTick((t) => t + 1); // 불러온 값이 화면에 들어간 뒤 기준으로 잡는다
     }
   }, [reportDetail, latestVersion]);
+
+  // === 저장하지 않은 변경 (2026-10-21) — 불러온 값과 지금 입력이 다를 때만 나가기 전에 묻는다 ===
+  //   입력값은 어디에도 자동 저장하지 않는다. 서버에서 다시 읽으면(저장 후 포함) 그 값이 새 기준
+  const snapshot = JSON.stringify([reportNo, reportDate, productName, yieldBasis, unitWeightG, batchTargetKg, ingredients]);
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const [baseline, setBaseline] = useState<string | null>(null);
+  useEffect(() => { if (loadTick) setBaseline(snapshotRef.current); }, [loadTick]);
+  const { confirmLeave } = useUnsavedChangesGuard(baseline != null && snapshot !== baseline);
+  const goBack = () => { if (confirmLeave()) setLocation(backTo); };
 
   // === 100% 검증 ===
   const totalPercentage = useMemo(() => {
@@ -243,7 +261,7 @@ export default function MfReportModify() {
       <DashboardLayout>
         <div className="space-y-6">
           <p className="text-muted-foreground">보고서를 찾을 수 없습니다.</p>
-          <Button variant="outline" onClick={() => setLocation("/dashboard/manufacturing-standards")}>
+          <Button variant="outline" onClick={goBack}>
             <ArrowLeft className="w-4 h-4 mr-2" /> 목록으로
           </Button>
         </div>
@@ -257,7 +275,7 @@ export default function MfReportModify() {
         {/* 헤더 */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => setLocation("/dashboard/manufacturing-standards")}>
+            <Button variant="ghost" size="sm" onClick={goBack}>
               <ArrowLeft className="w-4 h-4" />
             </Button>
             <div>
@@ -488,7 +506,7 @@ export default function MfReportModify() {
 
           {/* 저장/취소 버튼 */}
           <div className="flex justify-end gap-3">
-            <Button type="button" variant="outline" onClick={() => setLocation("/dashboard/manufacturing-standards")}>
+            <Button type="button" variant="outline" onClick={goBack}>
               <ArrowLeft className="w-4 h-4 mr-2" /> 취소
             </Button>
             <Button type="submit" disabled={updateMutation.isPending || !isValid100Percent}>

@@ -298,3 +298,40 @@ describe("예정 생산 건 준비 재시도 — 날짜가 지나도 예정 (202
     expect(r).not.toMatch(/const planOnly = workDate >= todayKST\(\);/);
   });
 });
+
+describe("작업 위치 보존 — 우선 3흐름 (2026-10-21 Codex 조사)", () => {
+  it("제조기준관리 탭·품목제조보고 조건은 URL, 수정·고치기·만들기는 돌아올 곳을 넘기고 받는다, 미저장 보호", () => {
+    expect(read("client/src/pages/production/ManufacturingStandards.tsx")).toMatch(/useTabWithUrl\("tab", "material-ledger", \["material-ledger", "usage-reports", "mf-reports"\]\)/);
+    const l = read("client/src/pages/production/MfReportList.tsx");
+    expect(l).toMatch(/useUrlFilters\(\{ mfQ: "", mfStatus: "ACTIVE", mfFrom: "", mfTo: "" \}\)/);
+    expect(l).toMatch(/withReturnTo\(`\/dashboard\/mf-report\/modify\/\$\{reportId\}`\)/);
+    for (const f of ["client/src/pages/production/MfReportModify.tsx", "client/src/pages/production/MfReportEdit.tsx"]) {
+      const s = read(f);
+      expect(s).toMatch(/returnToFromSearch\(useSearch\(\), "\/dashboard\/manufacturing-standards\?tab=mf-reports"\)/);
+      expect(s).toMatch(/useUnsavedChangesGuard\(/);
+      expect(s).not.toMatch(/setLocation\("\/dashboard\/manufacturing-standards"\)/);
+    }
+  });
+  it("제품 배합: 보기(?tab=)·목록 조건은 URL, 고치기는 탭을 바꿔도 내려놓지 않음, 버전·목록 이동 전 미저장 확인", () => {
+    const d = read("client/src/pages/design/DesignRecipeDetail.tsx");
+    expect(d).toMatch(/pickAllowed\(search\.get\("tab"\), search\.get\("focus"\) === "unknown" \? "edit" : "table", \["table", "flow", "edit"\]\)/);
+    expect(d).toMatch(/TabsContent value="edit" forceMount/);
+    expect(d).toMatch(/onDirtyChange=\{setEditDirty\}/);
+    expect(d).toMatch(/returnToFromSearch\(useSearch\(\), ROUTES\.DESIGN_RECIPES\)/);
+    const r = read("client/src/pages/design/DesignRecipes.tsx");
+    expect(r).toMatch(/useUrlFilters\(\{ signal: "all", q: "" \}\)/);
+    expect(r).toMatch(/navigate\(withReturnTo\(EDIT_PATHS\.recipeDetail\(r\.reportId\)\)\)/);
+  });
+  it("생산 기록: 탭·보기·월·고른 날짜·페이지는 URL, 상세 링크는 돌아올 곳을 넘기고 상세의 뒤로는 그곳으로", () => {
+    expect(read("client/src/pages/production/ProductionManagement.tsx")).toMatch(/useTabWithUrl\("tab", "list", \[/);
+    const b = read("client/src/pages/production/BatchList.tsx");
+    for (const k of ['sp.get("page")', 'sp.get("view")', 'sp.get("month")', 'sp.get("day")']) expect(b).toContain(k);
+    expect(b).not.toMatch(/href=\{`\/dashboard\/batch\//);
+    const dt = read("client/src/pages/production/BatchDetail.tsx");
+    expect(dt).toMatch(/safeReturnTo\(cameFrom, `\/dashboard\/production\/today/);
+  });
+  it("뒤로/앞으로 보호는 앱을 그리기 전에 설치 (라우터보다 먼저)", () => {
+    expect(read("client/src/main.tsx")).toMatch(/installUnsavedChangesGuard\(\);/);
+    expect(read("client/src/hooks/useTabWithUrl.ts")).not.toMatch(/replaceState\(\{\}/);
+  });
+});

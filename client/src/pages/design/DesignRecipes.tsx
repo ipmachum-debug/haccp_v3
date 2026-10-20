@@ -4,8 +4,10 @@
  *   공정별 1배치 투입량 (실제 계획과 같은 계산 — 원물·공정 환산 제품은 전처리 후 kg: 교반 ○kg, 성형에 바로 ○kg, 아직 모름 ○kg).
  * 제품을 누르면 배합표 | 공정 흐름도 (2a). 시험 계산·버전 잠금은 다음 단계.
  */
-import { useMemo, useState } from "react";
-import { useLocation, useSearch } from "wouter";
+import { useMemo } from "react";
+import { useLocation } from "wouter";
+import { useUrlFilters } from "@/components/common/FilterBar";
+import { pickAllowed, withReturnTo } from "@/lib/urlState";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,9 +20,12 @@ import { Loader2 } from "lucide-react";
 
 export default function DesignRecipes() {
   const [, navigate] = useLocation();
-  const initial = new URLSearchParams(useSearch()).get("signal") as Signal | null;
-  const [signal, setSignal] = useState<Signal | "all">(initial && ["red", "yellow", "green"].includes(initial) ? initial : "all");
-  const [term, setTerm] = useState("");
+  // 신호등·검색어는 URL — 상세에 갔다 와도·새로고침해도 같은 목록 (2026-10-21 작업 위치 보존). 모르는 신호등 값은 전체
+  const [f, setF] = useUrlFilters({ signal: "all", q: "" });
+  const signal = pickAllowed(f.signal, "all", ["all", "red", "yellow", "green"]) as Signal | "all";
+  const setSignal = (v: Signal | "all") => setF({ signal: v });
+  const term = f.q;
+  const setTerm = (v: string) => setF({ q: v });
   const q = trpc.productionDesign.recipes.useQuery(undefined, { retry: 1 });
   const rows: any[] = (q.data as any[]) ?? [];
   const shown = useMemo(() => rows.filter((r) => (signal === "all" || r.signal === signal) && (!term.trim() || String(r.productName).includes(term.trim()))), [rows, signal, term]);
@@ -31,7 +36,7 @@ export default function DesignRecipes() {
       <div className="space-y-4">
         {/* 배합 추가 — 같은 자료(품목제조보고)의 첫 입력 화면으로. 다른 메뉴를 찾지 않게 (2026-10-20 신규 회사 시험) */}
         <PageHeader title="제품 배합" description="1배치 총 생산량 기준으로 공정마다 몇 kg 이 들어가는지 — 실제 생산 계획과 같은 계산입니다. 제품을 누르면 배합표와 공정 흐름도."
-          primary={{ label: "＋ 배합 추가", onClick: () => navigate("/dashboard/mf-report/create") }} />
+          primary={{ label: "＋ 배합 추가", onClick: () => navigate(withReturnTo("/dashboard/mf-report/create")) }} />
         <div className="flex flex-wrap items-center gap-2">
           {(["all", "red", "yellow", "green"] as const).map((s) => (
             <Button key={s} variant={signal === s ? "default" : "outline"} className="h-11" onClick={() => setSignal(s)}>
@@ -48,11 +53,11 @@ export default function DesignRecipes() {
               <CardContent className="py-3 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <SignalBadge signal={r.signal} />
-                  <button type="button" className="font-medium hover:underline text-left" onClick={() => navigate(EDIT_PATHS.recipeDetail(r.reportId))}>{r.productName}</button>
+                  <button type="button" className="font-medium hover:underline text-left" onClick={() => navigate(withReturnTo(EDIT_PATHS.recipeDetail(r.reportId)))}>{r.productName}</button>
                   <span className="text-xs text-muted-foreground">배합 v{r.versionNo}{r.approved ? " · 승인" : " · 초안"}{r.massBasis ? " · 원물·공정 환산" : ""}</span>
                   <span className="text-sm">1배치 {fmtKg(r.batchTargetKg)}</span>
                   {r.newerDraft && <span className="rounded border border-blue-200 bg-blue-50 px-1.5 text-xs text-blue-800">수정안 v{r.newerDraft.versionNo} 승인 전</span>}
-                  <Button variant="outline" className="h-11 ml-auto" onClick={() => navigate(EDIT_PATHS.recipeDetail(r.reportId, (r.issues as any[]).some((i) => i.code === "unassigned") ? { focus: "unknown" } : undefined))}>배합표 · 흐름도</Button>
+                  <Button variant="outline" className="h-11 ml-auto" onClick={() => navigate(withReturnTo(EDIT_PATHS.recipeDetail(r.reportId, (r.issues as any[]).some((i) => i.code === "unassigned") ? { focus: "unknown" } : undefined)))}>배합표 · 흐름도</Button>
                 </div>
                 <div className="flex flex-wrap gap-1.5 text-xs">
                   {(r.loads as any[]).map((l) => (
