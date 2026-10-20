@@ -1,5 +1,5 @@
 {
- "generatedFrom": "client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지) | 2-b-3: childRoutes /dashboard/document-output/daily-log 제거 (라우트 없음) | 2026-10-14 매입·매출 허브: 발주·구매→발주서, 매입 입력·매출 입력 메뉴 복귀 | 2-c: 업종 품질 8종 경로 → /quality/{기능} (업종은 항목 industry 로 격리) | 2026-10-14: 식품 부적합제품관리 → /quality/nonconforming, 회수 시뮬레이션 메뉴 추가 | 2026-10-19 생산 설계 허브: 설계 현황·우리 공장·제품 배합·변경·적용 이력 4항목 추가 (관리자)",
+ "generatedFrom": "2026-10-20 생산 화면 하나: 오늘의 생산·현장 확인 → '생산' 하나, 생산관리 → 생산 기록·원가 | client/src/components/dashboard/DashboardLayout.tsx @ main 16b934d7 (2026-10-14, 2-a 이전); 2-b-2 (2026-10-14) 의도한 차이: 매입 등록·매출 등록·Deviation 트렌드 메뉴 항목 제거 (버튼·링크로 통합, 경로 유지) | 2-b-3: childRoutes /dashboard/document-output/daily-log 제거 (라우트 없음) | 2026-10-14 매입·매출 허브: 발주·구매→발주서, 매입 입력·매출 입력 메뉴 복귀 | 2-c: 업종 품질 8종 경로 → /quality/{기능} (업종은 항목 industry 로 격리) | 2026-10-14: 식품 부적합제품관리 → /quality/nonconforming, 회수 시뮬레이션 메뉴 추가 | 2026-10-19 생산 설계 허브: 설계 현황·우리 공장·제품 배합·변경·적용 이력 4항목 추가 (관리자)",
  "haccpLegacy": {
   "base": [
    {
@@ -43,8 +43,8 @@
     "group": "대시보드"
    },
    {
-    "icon": "Clock",
-    "label": "오늘의 생산",
+    "icon": "ClipboardCheck",
+    "label": "생산",
     "path": "/dashboard/production/today",
     "roles": [
      "super_admin",
@@ -58,22 +58,8 @@
     "highlight": true
    },
    {
-    "icon": "ClipboardCheck",
-    "label": "현장 확인",
-    "path": "/dashboard/field",
-    "roles": [
-     "super_admin",
-     "admin",
-     "worker",
-     "inspector"
-    ],
-    "group": "생산",
-    "requireModule": "haccp",
-    "highlight": true
-   },
-   {
     "icon": "Package",
-    "label": "생산관리",
+    "label": "생산 기록·원가",
     "path": "/dashboard/production-management",
     "roles": [
      "super_admin",
@@ -1014,8 +1000,8 @@
     "group": "대시보드"
    },
    {
-    "icon": "Clock",
-    "label": "오늘의 생산",
+    "icon": "ClipboardCheck",
+    "label": "생산",
     "path": "/dashboard/production/today",
     "roles": [
      "super_admin",
@@ -1029,22 +1015,8 @@
     "highlight": true
    },
    {
-    "icon": "ClipboardCheck",
-    "label": "현장 확인",
-    "path": "/dashboard/field",
-    "roles": [
-     "super_admin",
-     "admin",
-     "worker",
-     "inspector"
-    ],
-    "group": "생산",
-    "requireModule": "haccp",
-    "highlight": true
-   },
-   {
     "icon": "Package",
-    "label": "생산관리",
+    "label": "생산 기록·원가",
     "path": "/dashboard/production-management",
     "roles": [
      "super_admin",

@@ -101,8 +101,8 @@ function ProductionCards() {
   const d = s.data;
   return (
     <>
-      <Metric label="진행 중 배치" value={d?.inProgressBatches} href="/dashboard/production/today" loading={s.isLoading} sub="오늘의 생산에서 단계별 확인" />
-      <Metric label="오늘 완료" value={d?.completedToday} tone="good" href="/dashboard/production-management" loading={s.isLoading} sub={d ? `이번 주 ${d.completedWeek ?? 0} · 이번 달 ${d.completedMonth ?? 0}` : undefined} />
+      <Metric label="진행 중 배치" value={d?.inProgressBatches} href="/dashboard/production/today" loading={s.isLoading} sub="생산 화면에서 줄마다 진행·막힌 것" />
+      <Metric label="오늘 완료" value={d?.completedToday} tone="good" href="/dashboard/production/today" loading={s.isLoading} sub={d ? `이번 주 ${d.completedWeek ?? 0} · 이번 달 ${d.completedMonth ?? 0}` : undefined} />
       <Metric label="오늘 미제출 CCP 기록지" value={d?.todayCcpDraftCount} tone={toneFor(d?.todayCcpDraftCount, "danger")} href="/quality/ccp-monitoring" loading={s.isLoading} />
     </>
   );

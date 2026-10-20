@@ -68,7 +68,7 @@ export const foodPlugin: IndustryPlugin = {
         name: "생산",
         order: 20,
         items: [
-          { icon: "Package", label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"] },
+          { icon: "Package", label: "생산 기록·원가", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"] },
           { icon: "Calendar", label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"] },
           { icon: "FileCode", label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"] },
         ],

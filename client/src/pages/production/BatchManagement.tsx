@@ -1,10 +1,9 @@
 import { useState, useEffect } from "react";
-import { useLocation } from "wouter";
+import { Redirect, useLocation } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
 import BatchList from "./BatchList";
-import TodayProductionWorkbench from "./TodayProductionWorkbench";
 import BatchProfitabilityDashboard from "./BatchProfitabilityDashboard";
 import CostAnalysis from "./CostAnalysis";
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
@@ -53,7 +52,8 @@ export default function BatchManagement() {
           </TabsContent>
 
           <TabsContent value="create" className="space-y-4">
-            <TodayProductionWorkbench embedded />
+            {/* 생산 추가는 생산 화면에서 (2026-10-20) — 진행·현장 확인과 같은 자리 */}
+            {activeTab === "create" && <Redirect to="/dashboard/production/today?add=1&view=all" />}
           </TabsContent>
 
           <TabsContent value="profitability" className="space-y-4">

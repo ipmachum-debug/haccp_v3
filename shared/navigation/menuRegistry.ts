@@ -65,11 +65,11 @@ export function industryKeyOfCategory(category: string | null | undefined): Indu
  * 관리자용 (기준을 정하는 곳). 1단계는 읽기 전용, 수정은 기존 화면으로 안내.
  */
 /**
- * 현장 확인 (2026-10-19 하루 생산 흐름) — 업종 무관. 기본 메뉴와 업종 플러그인 공통 그룹이 같은 정의를 쓴다
- *   (#610 운영 확인: 식품 플러그인 회사의 메뉴·허브 사이드바에 진입점이 없었다)
+ * 생산 (2026-10-20, CEO: 오늘의 생산·생산 파이프라인·제품 생산관리·현장 확인을 하나의 생산 작업 화면으로) — 업종 무관.
+ *   기본 메뉴와 업종 플러그인 공통 그룹이 같은 정의를 쓴다. 태블릿 현장 확인은 같은 화면의 '내 설비' 보기 (/dashboard/field → 이리로).
  */
 export const FIELD_PLACEMENTS: readonly MenuPlacement[] = [
-  { tab: "haccp", icon: "ClipboardCheck", label: "현장 확인", path: "/dashboard/field", roles: ["super_admin", "admin", "worker", "inspector"], highlight: true },
+  { tab: "haccp", icon: "ClipboardCheck", label: "생산", path: "/dashboard/production/today", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], highlight: true },
 ];
 
 export const DESIGN_PLACEMENTS: readonly MenuPlacement[] = [
@@ -85,9 +85,8 @@ export const MENU_PLACEMENTS: readonly MenuPlacement[] = [
   { tab: "haccp", icon: "UserCheck", label: "사용자 승인", path: "/dashboard/user-approval", roles: ["super_admin"], category: "work" },
   { tab: "haccp", icon: "Building", label: "테넌트 관리", path: "/dashboard/tenants", roles: ["super_admin"], category: "work" },
   { tab: "haccp", icon: "LayoutDashboard", label: "통합 대시보드", path: "/dashboard", roles: ["admin", "accountant", "monitor", "inspector", "worker"], group: "대시보드" },
-  { tab: "haccp", icon: "Clock", label: "오늘의 생산", path: "/dashboard/production/today", roles: ["super_admin", "admin", "worker", "inspector", "monitor"], group: "생산", requireModule: "haccp", highlight: true },
   ...FIELD_PLACEMENTS.map((p) => ({ ...p, group: "생산", requireModule: "haccp" })),
-  { tab: "haccp", icon: "Package", label: "생산관리", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
+  { tab: "haccp", icon: "Package", label: "생산 기록·원가", path: "/dashboard/production-management", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
   { tab: "haccp", icon: "Calendar", label: "생산운영", path: "/dashboard/production-operations", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
   { tab: "haccp", icon: "FileCode", label: "제조기준관리", path: "/dashboard/manufacturing-standards", roles: ["super_admin", "admin", "worker"], group: "생산", requireModule: "haccp" },
   // 생산 설계 허브 (2026-10-19, 설계 18 §13) — 관리자용. 업종 플러그인 회사는 PLUGIN_COMMON_GROUPS 의 같은 항목으로 보인다
@@ -447,23 +446,22 @@ export const MOBILE_NAV_SLOTS = 3;
 
 /** 하단바에서 쓰는 짧은 이름 (5글자 안팎) */
 export const MOBILE_NAV_LABELS: Readonly<Record<string, string>> = {
-  "/dashboard/production/today": "오늘 생산",
-  "/dashboard/field": "현장 확인",
+  "/dashboard/production/today": "생산",
   "/dashboard/today": "오늘",
   "/dashboard": "대시보드",
   "/quality/ccp-monitoring": "CCP",
   "/quality/checklists": "체크리스트",
   "/dashboard/inspections": "검사",
   "/inventory-management": "재고",
-  "/dashboard/production-management": "생산",
+  "/dashboard/production-management": "생산 기록",
   "/dashboard/approval": "승인",
   "/dashboard/accounting/sales/list": "매출",
   "/dashboard/accounting": "회계",
 };
 
 export const MOBILE_NAV_CANDIDATES: Readonly<Record<string, readonly string[]>> = {
-  super_admin: ["/dashboard", "/dashboard/production-management", "/dashboard/accounting/sales/list", "/inventory-management"],
-  admin: ["/dashboard", "/dashboard/production-management", "/dashboard/accounting/sales/list", "/inventory-management", "/quality/ccp-monitoring"],
+  super_admin: ["/dashboard", "/dashboard/production/today", "/dashboard/accounting/sales/list", "/inventory-management"],
+  admin: ["/dashboard", "/dashboard/production/today", "/dashboard/accounting/sales/list", "/inventory-management", "/quality/ccp-monitoring"],
   worker: ["/dashboard/production/today", "/quality/ccp-monitoring", "/inventory-management", "/dashboard/today"],
   inspector: ["/dashboard/today", "/quality/ccp-monitoring", "/quality/checklists", "/dashboard/inspections"],
   monitor: ["/dashboard/today", "/dashboard/approval", "/quality/ccp-monitoring", "/quality/checklists"],
@@ -839,7 +837,11 @@ export function routeHubOf(path: string): { hub: HubId | "public"; via: RouteHub
  * 2-c 에서 업종 품질 경로를 공통 경로로 옮길 때 여기에 추가한다.
  */
 export const LEGACY_REDIRECTS: ReadonlyArray<{ from: string; to: string; note: string }> = [
-  { from: "/batch/new", to: "/dashboard/batch-management?tab=create", note: "구 배치 생성 경로 (기존 리다이렉트 이전)" },
+  { from: "/batch/new", to: "/dashboard/production/today?add=1&view=all", note: "구 배치 생성 경로 → 생산 화면의 '생산 추가'" },
+  // 생산 화면 하나 (2026-10-20): 현장 확인 = 생산 화면 '내 설비' 보기, 배치 생성 = 생산 화면 '생산 추가'
+  { from: "/dashboard/field", to: "/dashboard/production/today?view=mine", note: "현장 확인 → 생산 화면 '내 설비' 보기 (같은 자료)" },
+  { from: "/dashboard/pipeline", to: "/dashboard/production/today?view=all", note: "생산 파이프라인 → 생산 화면의 하루 현황·줄마다 진행 표시" },
+  // /dashboard/batch/new·bulk 는 /dashboard/batch/:id 보다 앞에 둬야 해서 App.tsx 에 직접 (생산 화면 '생산 추가' 로)
   { from: "/dashboard/excel-import", to: "/dashboard/data-import", note: "엑셀 가져오기 → 데이터 가져오기 통합 (기존 리다이렉트 이전)" },
   { from: "/dashboard/simplified-import", to: "/dashboard/data-import", note: "간편 가져오기 → 데이터 가져오기 통합 (기존 리다이렉트 이전)" },
   // 끊긴 API 정리 (2026-10-14): 서버 연결이 없어 동작하지 않던 구형 중복 화면 → 같은 기능의 현행 메뉴 화면

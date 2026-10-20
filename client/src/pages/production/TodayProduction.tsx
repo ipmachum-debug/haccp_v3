@@ -1,599 +1,302 @@
 /**
- * 작업자 "오늘의 생산" — P-1 읽기 전용 (2026-10-14, UI/UX 개편 첫 파일럿)
+ * 생산 — 하루 생산을 한 화면에서 (2026-10-20, CEO: "오늘의 생산·생산 파이프라인·제품 생산관리는 하나의 생산 작업 화면")
  *
- * 한 화면, 위에서 아래로 6단계 (14-ui-ux-restructure-spec.md §7-2):
- *  ① 생산지시 선택 → ② 배합·BOM → ③ 재고·LOT 확인 → ④ 생산 시작 → ⑤ 투입 결과·HACCP 기록 → ⑥ 생산완료
- *
- * 이 화면은 **표시만** 한다. 시작·투입·완료 버튼은 기존 배치 상세로 이동한다 (자동출고는 여기서 실행되지 않는다).
- * 쓰기 연결은 P-2 — 시작 시점 서버 재검증·중복 실행 방지·기존 음수 정책 준수 (§7-3) 를 갖춘 뒤.
- * 모든 데이터는 기존 엔드포인트: dashboard.getStats(업무일자) · batch.list · inventory.getBatchInputs ·
- * inventory.getMaterialInventorySnapshot · inventory.getLotsByMaterialFefo · batch.getApprovalOverview · dailyLog.getByDate
+ * 합격 기준은 새 화면이 아니라 입력·클릭·이동·판단이 줄었는가:
+ *   - 계획을 넣은 자리(위 '생산 추가')에 생산 목록이 이어진다. 입력하면 미리보기가 자동 — [생성] 한 번.
+ *   - 파이프라인은 따로 가는 화면이 아니라 맨 위 하루 현황(눌러서 거르기)과 줄마다 진행 표시.
+ *   - BOM·재고 확인은 매번 거치는 단계가 아니라 자동 검사 결과(준비 미완·원료 출고 확인·원료 부족·확인 남음)로 줄에 붙는다.
+ *   - 줄을 누르면 그 자리에서 펼쳐 현장 확인·원료 출고 결정·기록지 제출·생산 완료를 한다 (상세 화면으로 이동하지 않음).
+ *   - '생산 시작' 버튼은 없다 — 확정한 현장 확인 흐름 그대로 첫 확인에서 시작·원료 출고 (서버가 정함).
+ *   - 태블릿은 같은 자료를 '내 설비' 보기로 (예전 현장 확인 화면).
+ * 쓰기는 모두 기존 서버 경로(field.write · ccpForm.submit · batch.resolveLineIssue/issueLine · batch.complete · bulkCreateForDay) — 새 쓰기 없음.
  */
-import { useMemo, useState } from "react";
-import { useAuth } from "@/_core/hooks/useAuth";
-import { notify } from "@/lib/notify";
-import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "wouter";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { useTenantModules } from "@/hooks/useTenantModules";
-import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
-import { findMissingMeasurements } from "@shared/dailyLogMeasurements";
-import { checkStock, summarizeIssue, summarizeForms, computeSteps, num, type StepState } from "@/lib/todayProduction";
-import {
-  CheckCircle2, Circle, AlertTriangle, Package, FlaskConical, Boxes, Play, ClipboardCheck, Flag,
-  ChevronDown, ChevronRight, ExternalLink, Lock,
-} from "lucide-react";
-import { format } from "date-fns";
-import { ko } from "date-fns/locale";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { toast } from "sonner";
+import { todayLocal } from "@/lib/dateUtils";
+import FieldRowsPanel, { FieldWriteProvider, useFieldWriteState } from "@/components/production/FieldRowsPanel";
+import LineIssueExceptions from "@/components/production/LineIssueExceptions";
+import { BatchCompletionDialog } from "@/components/batch/BatchCompletionDialog";
+import TodayProductionWorkbench from "./TodayProductionWorkbench";
+import { AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, ExternalLink, Plus, RefreshCw } from "lucide-react";
 
-type BatchRow = {
-  id: number;
-  batchCode: string;
-  productName?: string | null;
-  plannedQuantity?: string | number | null;
-  actualQuantity?: string | number | null;
-  status: string;
-  dayBatchGroup?: string | null;
+type Board = {
+  id: number; batchCode: string; productName: string | null; status: string; mode: string | null;
+  plannedKg: number | null; actualKg: number | null; approvalStatus: string | null; planOnly: boolean;
+  ccpForms: { total: number; unconfirmed: number; approved: number };
+  voidedSupersededBy: number | null;
+  check: { setupPending: boolean; rows: { total: number; confirmed: number }; issueLines: number; shortLines: number; shortMaterials: string[] };
+  next: { label: string; tone: "todo" | "wait" | "done" | "stop" };
 };
 
-type InputRow = {
-  id: number;
-  materialId: number | null;
-  materialName: string | null;
-  materialCode?: string | null;
-  plannedQuantity: string | number | null;
-  actualQuantity: string | number | null;
-  unit: string | null;
-  lots: Array<{ lotId: number | null; lotNumber: string | null; quantity: number; negative: boolean }>;
+const TONE: Record<Board["next"]["tone"], string> = {
+  todo: "bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-500/10 dark:text-blue-300 dark:border-blue-500/30",
+  wait: "bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-500/10 dark:text-slate-300 dark:border-slate-500/30",
+  done: "bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-300 dark:border-emerald-500/30",
+  stop: "bg-red-50 text-red-800 border-red-200 dark:bg-red-500/10 dark:text-red-300 dark:border-red-500/30",
 };
 
-type StockRow = { materialId: number; materialName: string; unit: string; currentAvailable: number; lotCount: number };
+const addDays = (d: string, n: number) => { const t = new Date(`${d}T00:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+const DONE = ["completed", "shipped", "archived"];
 
-type FormView = {
-  id: number;
-  ccpType: string;
-  status: "draft" | "submitted" | "approved" | "rejected";
-  rowCount: number;
-  deviationCount: number;
-  isDaily: boolean;
-  approvalStatus: string | null;
-};
-
-const BATCH_STATUS: Record<string, { label: string; cls: string }> = {
-  planned: { label: "계획", cls: "bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300" },
-  in_progress: { label: "진행 중", cls: "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300" },
-  paused: { label: "일시정지", cls: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" },
-  completed: { label: "완료", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" },
-  shipped: { label: "출하", cls: "bg-violet-100 text-violet-800 dark:bg-violet-500/15 dark:text-violet-300" },
-  failed: { label: "실패", cls: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" },
-  cancelled: { label: "취소", cls: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" },
-};
-
-const FORM_STATUS: Record<FormView["status"], { label: string; cls: string }> = {
-  draft: { label: "작성 중", cls: "bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300" },
-  submitted: { label: "제출됨", cls: "bg-blue-100 text-blue-800 dark:bg-blue-500/15 dark:text-blue-300" },
-  approved: { label: "승인 완료", cls: "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300" },
-  rejected: { label: "반려", cls: "bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300" },
-};
-
-const STEP_META = [
-  { n: "①", title: "오늘의 생산", sub: "생산지시 선택", icon: Package },
-  { n: "②", title: "배합·BOM 확인", sub: "필요 원재료 계산", icon: FlaskConical },
-  { n: "③", title: "재고·LOT 확인", sub: "가용재고 · 부족 · 유통기한", icon: Boxes },
-  { n: "④", title: "생산 시작", sub: "자동출고 1회 실행", icon: Play },
-  { n: "⑤", title: "투입 결과 · HACCP 기록", sub: "실제 수불 · 공식 기록지", icon: ClipboardCheck },
-  { n: "⑥", title: "생산완료", sub: "완제품 LOT · 재고 반영", icon: Flag },
-] as const;
-
-function StepIcon({ state }: { state: StepState }) {
-  if (state === "done") return <CheckCircle2 className="h-5 w-5 text-emerald-600" />;
-  if (state === "blocked") return <AlertTriangle className="h-5 w-5 text-amber-600" />;
-  if (state === "active") return <Circle className="h-5 w-5 text-violet-600 fill-violet-600/20" />;
-  return <Circle className="h-5 w-5 text-muted-foreground/40" />;
+/** 진행 표시 — 계획 · 현장 확인 · 기록지 · 완료 · 승인 (파이프라인 대신 줄마다) */
+export function progressOf(b: Pick<Board, "status" | "planOnly" | "approvalStatus" | "ccpForms" | "check">): Array<{ label: string; state: "done" | "now" | "todo" }> {
+  const started = !b.planOnly && b.status !== "planned";
+  const rowsDone = b.check.rows.total > 0 && b.check.rows.confirmed >= b.check.rows.total;
+  const formsDone = b.ccpForms.total > 0 ? b.ccpForms.unconfirmed === 0 : rowsDone;
+  const finished = DONE.includes(b.status);
+  const approved = b.approvalStatus === "approved" || b.status === "approved";
+  const steps = [
+    { label: "계획", done: true },
+    { label: b.check.rows.total ? `현장 확인 ${b.check.rows.confirmed}/${b.check.rows.total}` : "현장 확인", done: started && (rowsDone || finished) },
+    { label: "기록지 제출", done: formsDone && (rowsDone || finished) },
+    { label: "완료", done: finished },
+    { label: "승인", done: approved },
+  ];
+  const firstOpen = steps.findIndex((s) => !s.done);
+  return steps.map((s, i) => ({ label: s.label, state: s.done ? "done" : i === firstOpen ? "now" : "todo" }));
 }
 
-const fmt = (v: string | number | null | undefined, d = 2) => {
-  const n = num(v);
-  return n.toLocaleString(undefined, { maximumFractionDigits: d });
+type Filter = "all" | "plan" | "work" | "rows" | "stop" | "done";
+const filterOf = (b: Board): Exclude<Filter, "all">[] => {
+  const out: Exclude<Filter, "all">[] = [];
+  if (b.voidedSupersededBy != null || b.status === "cancelled") return out;
+  if (b.next.tone === "stop" || b.check.shortLines > 0) out.push("stop");
+  if (DONE.includes(b.status)) out.push("done");
+  else if (b.planOnly || b.status === "planned") out.push("plan");
+  else out.push("work");
+  if (b.check.rows.total - b.check.rows.confirmed > 0 && !DONE.includes(b.status)) out.push("rows");
+  return out;
 };
 
 export default function TodayProduction() {
-  const { hasHACCP } = useTenantModules();
-  const L = useIndustryLabel();
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [openLots, setOpenLots] = useState<Record<number, boolean>>({});
-
-  const { data: stats } = trpc.dashboard.getStats.useQuery(undefined, { staleTime: 60_000 });
-  const businessDate: string | undefined = stats?.businessDate;
-
-  const { data: batchesData, isLoading: batchesLoading } = trpc.batch.list.useQuery(
-    { fromDate: businessDate!, toDate: businessDate!, limit: 200 },
-    { enabled: !!businessDate },
-  );
-  const batches = (batchesData?.items ?? []) as BatchRow[];
-  const selected = batches.find((b) => b.id === selectedId) ?? null;
-
-  const { data: inputsData, isLoading: inputsLoading } = trpc.inventory.getBatchInputs.useQuery(
-    { batchId: selectedId! },
-    { enabled: !!selectedId },
-  );
-  const inputs = (inputsData ?? []) as InputRow[];
-
-  const { data: snapshot } = trpc.inventory.getMaterialInventorySnapshot.useQuery(undefined, {
-    enabled: !!selectedId,
-    staleTime: 30_000,
-  });
-  const stock = (snapshot ?? []) as StockRow[];
-
-  const { data: overview } = trpc.batch.getApprovalOverview.useQuery(
-    { batchId: selectedId! },
-    { enabled: !!selectedId && hasHACCP, retry: 1 },
-  );
-  const forms = ((overview?.forms ?? []) as FormView[]);
-
-  const { data: dailyLog } = trpc.dailyLog.getByDate.useQuery(
-    { logDate: businessDate! },
-    { enabled: !!businessDate && hasHACCP && !!selectedId },
-  );
-  const dailyMissing = useMemo(
-    () => (dailyLog ? findMissingMeasurements((dailyLog as { formData?: unknown }).formData).length : 0),
-    [dailyLog],
-  );
-
-  const stockCheck = useMemo(() => checkStock(inputs, stock), [inputs, stock]);
-  const issue = useMemo(() => summarizeIssue(inputs), [inputs]);
-  const formSummary = useMemo(() => summarizeForms(forms), [forms]);
-  const steps = computeSteps({
-    batchStatus: selected?.status ?? null,
-    hasInputs: inputs.length > 0,
-    stockAllOk: stockCheck.allOk,
-    issueAllIssued: issue.allIssued,
-    formsAllWritten: hasHACCP ? formSummary.allWritten : true,
-    dailyMissing: hasHACCP ? dailyMissing : 0,
-  });
-
-  const dateObj = businessDate ? new Date(`${businessDate}T00:00:00`) : new Date();
-  const started = !!selected && ["in_progress", "paused", "completed", "shipped"].includes(selected.status);
-  const finished = !!selected && ["completed", "shipped"].includes(selected.status);
-  const detailHref = selected ? `/dashboard/batch/${selected.id}` : "/dashboard/production-management";
-
-  // ── P-2 (2026-10-14): 쓰기 — ④ 시작(서버 재검증·중복 방지) / ⑥ 완료(관리자, 처리 키) ──
   const { user } = useAuth();
-  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
-  // 쓰기 스위치 (서버 env TODAY_PRODUCTION_WRITE[_TENANTS], 기본 꺼짐) — 테스트 환경 검증 전에는 표시만 하고 기존 화면으로 안내
-  const { data: writeFlag } = trpc.todayProduction.writeEnabled.useQuery(undefined, { staleTime: 60_000 });
-  const writeOn = writeFlag?.enabled === true;
-  const startable = !!selected && ["planned", "paused"].includes(selected.status);
+  const isAdmin = ["admin", "super_admin"].includes(String((user as any)?.role ?? ""));
+  const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+  const [date, setDate] = useState(params.get("date") || todayLocal());
+  // 보기 — 전체(사무실) / 내 설비(태블릿, 예전 현장 확인 화면). 기기마다 기억
+  const [view, setView] = useState<"all" | "mine">(() => {
+    const p = params.get("view");
+    if (p === "mine" || p === "all") return p;
+    if (params.get("add") === "1") return "all"; // 생산 추가로 들어오면 전체 보기 (추가 입력은 전체 보기에만)
+    try { return (localStorage.getItem("production-view") as "all" | "mine") || "all"; } catch { return "all"; }
+  });
+  const [filter, setFilter] = useState<Filter>("all");
+  // ?batch=ID — 다른 화면에서 이 생산 건을 가리키고 왔으면 그 줄을 펼친 채로 (날짜·선택 생산 건 맥락 유지)
+  const [open, setOpen] = useState<Record<number, boolean>>(() => { const b = Number(params.get("batch")); return b > 0 ? { [b]: true } : {}; });
+  const [adding, setAdding] = useState(params.get("add") === "1");
+
+  useEffect(() => {
+    try { localStorage.setItem("production-view", view); } catch { /* 저장 못 해도 화면은 그대로 */ }
+    const q = new URLSearchParams(window.location.search);
+    q.set("date", date); q.set("view", view); q.delete("add");
+    window.history.replaceState(null, "", `${window.location.pathname}?${q.toString()}`);
+  }, [date, view]);
+
   const utils = trpc.useUtils();
-  const refreshAll = () => Promise.all([
-    utils.batch.list.invalidate(), utils.inventory.getBatchInputs.invalidate(),
-    utils.inventory.getMaterialInventorySnapshot.invalidate(), utils.todayProduction.checkStart.invalidate(),
-    utils.batch.getApprovalOverview.invalidate(),
-  ]);
-  // ③ 서버 기준 재검증 결과 (시작 버튼과 같은 계산)
-  const { data: serverCheck } = trpc.todayProduction.checkStart.useQuery(
-    { batchId: selectedId! }, { enabled: !!selectedId && (startable || selected?.status === "in_progress"), retry: 1 },
-  );
-  // 시작 후 자동출고가 실패·부분 성공해 남은 줄 (진행 중 배치) — '누락 출고 다시 실행' 으로 복구
-  const unissued = selected?.status === "in_progress" ? (serverCheck?.unissuedLines ?? 0) : 0;
-  const [confirm, setConfirm] = useState<null | { shortages: Array<{ materialName: string; unit: string; required: number; available: number; shortage: number }>; message: string }>(null);
-  const startMut = trpc.todayProduction.start.useMutation({
-    onSuccess: async (r: any) => {
-      if (r.status === "needs_confirmation") { setConfirm({ shortages: r.shortages, message: r.message }); return; }
-      setConfirm(null);
-      if (r.status === "already_started") (r.unissuedLines > 0 ? notify.warn : notify.info)(r.message);
-      else {
-        (r.unissuedLines > 0 ? notify.warn : notify.success)(r.message);
-        const w = [...(r.autoIssue?.errors ?? []), ...(r.autoIssue?.warnings ?? [])];
-        if (w.length) notify.warn("자동출고 확인 필요", w.slice(0, 3).join(" / ") + (w.length > 3 ? ` 외 ${w.length - 3}건` : ""));
-      }
-      await refreshAll();
-    },
-    onError: (e: unknown) => notify.error("생산 시작 실패", e),
+  const board = trpc.batch.todayBoard.useQuery({ workDate: date }, { refetchInterval: 60_000 });
+  const work = trpc.field.work.useQuery({ workDate: date, scope: view === "all" ? "all" : "mine" }, { refetchInterval: 60_000 });
+  const eq = trpc.field.equipments.useQuery(undefined, { enabled: view === "mine" });
+  const setMine = trpc.field.setMyEquipments.useMutation({
+    onSuccess: () => { utils.field.equipments.invalidate(); utils.field.work.invalidate(); },
+    onError: (e: { message: string }) => toast.error(e.message),
   });
-  const retryMut = trpc.todayProduction.retryIssue.useMutation({
-    onSuccess: async (r: any) => {
-      if (r.status === "reissued" && r.unissuedLines === 0) notify.success(r.message);
-      else if (r.status === "nothing_to_issue") notify.info(r.message);
-      else notify.warn(r.message, (r.autoIssue?.errors ?? []).slice(0, 3).join(" / ") || undefined);
-      await refreshAll();
-    },
-    onError: (e: unknown) => notify.error("다시 출고 실패", e),
-  });
-  const [completeOpen, setCompleteOpen] = useState(false);
-  const [actualQty, setActualQty] = useState("");
-  const [completeKey, setCompleteKey] = useState("");
-  const completeMut = trpc.batch.complete.useMutation({
-    onSuccess: async () => { setCompleteOpen(false); notify.success("생산을 완료했습니다. 완제품 LOT 와 승인 요청이 만들어졌습니다."); await refreshAll(); },
-    onError: (e: unknown) => notify.error("생산 완료 실패", e),
-  });
-  const openComplete = () => {
-    setActualQty(String(num(selected?.plannedQuantity) || ""));
-    // 같은 창에서 두 번 눌러도 한 번만 처리되도록 창을 열 때 처리 키를 고정한다 (서버 idempotency)
-    setCompleteKey(`today-${selected?.id}-${Date.now()}`);
-    setCompleteOpen(true);
-  };
+  const refresh = () => { utils.batch.todayBoard.invalidate(); utils.field.work.invalidate(); utils.batch.lineIssueExceptions.invalidate(); };
 
-  return (
-    <DashboardLayout>
-      <div className="space-y-5 max-w-5xl">
-        <div className="flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <h1 className="text-2xl md:text-3xl font-bold">오늘의 생산</h1>
-            <p className="text-muted-foreground text-sm mt-1">
-              {format(dateObj, "yyyy년 M월 d일 EEEE", { locale: ko })} · 업무일자 {businessDate ?? "…"} · 오늘 무엇을 만들고, 지금 어느 단계이고, 막힌 게 무엇인지
-            </p>
-          </div>
-          <div className="flex items-center gap-1.5 text-xs text-muted-foreground border rounded-full px-3 py-1">
-            <Lock className="h-3 w-3" /> 읽기 전용 · 시작·투입·완료는 {L("batch")} 상세에서
-          </div>
+  const rows = (board.data ?? []) as Board[];
+  const live = rows.filter((b) => b.voidedSupersededBy == null && b.status !== "cancelled");
+  const voided = rows.filter((b) => !live.includes(b));
+  const counts = useMemo(() => {
+    const c: Record<Exclude<Filter, "all">, number> = { plan: 0, work: 0, rows: 0, stop: 0, done: 0 };
+    for (const b of live) for (const k of filterOf(b)) c[k]++;
+    return c;
+  }, [live]);
+  const shown = filter === "all" ? live : live.filter((b) => filterOf(b).includes(filter));
+  const heat = ((work.data as any)?.heat ?? []) as any[];
+  const metal = (work.data as any)?.metal ?? null;
+  const sheets = ((work.data as any)?.sheets ?? []) as any[];
+  const mine: number[] = (eq.data as any)?.mine ?? [];
+  const showAdd = adding || (view === "all" && !board.isLoading && live.length === 0);
+
+  const FILTERS: Array<{ k: Filter; label: string; n: number; cls?: string }> = [
+    { k: "all", label: "전체", n: live.length },
+    { k: "plan", label: "예정", n: counts.plan },
+    { k: "work", label: "작업 중", n: counts.work },
+    { k: "rows", label: "확인 남음", n: counts.rows },
+    { k: "stop", label: "막힘", n: counts.stop, cls: counts.stop ? "text-red-700 dark:text-red-300" : "" },
+    { k: "done", label: "완료", n: counts.done },
+  ];
+
+  const content = (
+    <div className="space-y-4 max-w-6xl" data-testid="production-work">
+      {/* 날짜 · 보기 · 하루 현황 — 한 줄 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <h1 className="text-2xl font-bold mr-2">생산</h1>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="icon" className="h-10 w-10" aria-label="전날" onClick={() => setDate((d) => addDays(d, -1))}><ChevronLeft className="h-4 w-4" /></Button>
+          <Input type="date" className="h-10 w-40" value={date} onChange={(e) => e.target.value && setDate(e.target.value)} data-testid="work-date" />
+          <Button variant="outline" size="icon" className="h-10 w-10" aria-label="다음날" onClick={() => setDate((d) => addDays(d, 1))}><ChevronRight className="h-4 w-4" /></Button>
+          {date !== todayLocal() && <Button variant="ghost" className="h-10" onClick={() => setDate(todayLocal())}>오늘</Button>}
         </div>
-
-        {/* 단계 표시 */}
-        <ol className="grid grid-cols-3 md:grid-cols-6 gap-2">
-          {STEP_META.map((m, i) => {
-            const st = steps[i];
-            const tone = st === "done" ? "border-emerald-300 bg-emerald-50/60 dark:bg-emerald-500/10 dark:border-emerald-500/30"
-              : st === "active" ? "border-violet-400 bg-violet-50/70 dark:bg-violet-500/10 dark:border-violet-500/40 shadow-sm"
-              : st === "blocked" ? "border-amber-300 bg-amber-50/60 dark:bg-amber-500/10 dark:border-amber-500/30"
-              : "border-border bg-muted/30";
-            return (
-              <li key={m.n} className={`rounded-lg border p-2.5 ${tone}`}>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-muted-foreground">{m.n}</span>
-                  <StepIcon state={st} />
-                </div>
-                <div className="text-sm font-semibold mt-1 leading-tight">{m.title}</div>
-                <div className="text-[11px] text-muted-foreground mt-0.5">{m.sub}</div>
-              </li>
-            );
-          })}
-        </ol>
-
-        {/* ① 생산지시 선택 */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base flex items-center gap-2"><Package className="h-4 w-4 text-violet-600" />① 오늘의 생산 — 생산지시 선택</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {batchesLoading || !businessDate ? (
-              <p className="text-sm text-muted-foreground py-4">불러오는 중...</p>
-            ) : batches.length === 0 ? (
-              <div className="text-center py-6">
-                <p className="text-sm text-muted-foreground mb-3">오늘 업무일자의 {L("batch")}가 없습니다</p>
-                <Button asChild variant="outline" size="sm"><Link href="/dashboard/batch-management?tab=create">생산지시 추가</Link></Button>
-              </div>
-            ) : (
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-                {batches.map((b) => {
-                  const st = BATCH_STATUS[b.status] ?? { label: b.status, cls: "bg-muted text-foreground" };
-                  const active = b.id === selectedId;
-                  return (
-                    <button
-                      key={b.id}
-                      onClick={() => setSelectedId(b.id)}
-                      className={`text-left rounded-lg border p-3 transition-colors ${active ? "border-violet-500 ring-2 ring-violet-500/30 bg-violet-50/40 dark:bg-violet-500/10" : "hover:bg-accent/50"}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="font-semibold truncate">{b.productName ?? "제품"}</span>
-                        <span className={`text-[11px] px-1.5 py-0.5 rounded whitespace-nowrap ${st.cls}`}>{st.label}</span>
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1 font-mono">{b.batchCode}</div>
-                      <div className="text-xs mt-1">계획 <b>{fmt(b.plannedQuantity, 1)}</b>{b.actualQuantity != null ? <> · 실적 <b>{fmt(b.actualQuantity, 1)}</b></> : null}</div>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {selected && (
-          <>
-            {/* ② 배합·BOM + ③ 재고·LOT */}
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2 flex-wrap">
-                  <FlaskConical className="h-4 w-4 text-violet-600" />② 배합·BOM 확인
-                  <span className="text-muted-foreground font-normal text-sm">→</span>
-                  <Boxes className="h-4 w-4 text-violet-600" />③ 재고·LOT 확인
-                  {inputs.length > 0 && (
-                    stockCheck.allOk
-                      ? <Badge className="ml-auto bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300">가용 재고 충분</Badge>
-                      : <Badge className="ml-auto bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">부족 {stockCheck.shortCount}건 · 입고 대기</Badge>
-                  )}
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {inputsLoading ? (
-                  <p className="text-sm text-muted-foreground py-3">불러오는 중...</p>
-                ) : inputs.length === 0 ? (
-                  <div className="text-sm text-amber-700 dark:text-amber-300 flex items-center gap-2 py-2">
-                    <AlertTriangle className="h-4 w-4" /> 투입 계획(BOM)이 없습니다. 제조기준관리에서 배합을 확인하세요.
-                  </div>
-                ) : (
-                  <div className="overflow-x-auto -mx-2">
-                    <table className="w-full text-sm min-w-[560px]">
-                      <thead>
-                        <tr className="text-xs text-muted-foreground border-b">
-                          <th className="text-left py-1.5 px-2">원재료</th>
-                          <th className="text-right py-1.5 px-2">필요량</th>
-                          <th className="text-right py-1.5 px-2">가용 재고</th>
-                          <th className="text-right py-1.5 px-2">부족</th>
-                          <th className="text-left py-1.5 px-2">LOT</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {inputs.map((inp, i) => {
-                          const row = stockCheck.rows[i];
-                          const open = !!openLots[inp.id];
-                          return (
-                            <InputRowView
-                              key={inp.id}
-                              inp={inp}
-                              required={row.required}
-                              available={row.available}
-                              shortage={row.shortage}
-                              known={row.known}
-                              open={open}
-                              onToggle={() => setOpenLots((s) => ({ ...s, [inp.id]: !s[inp.id] }))}
-                              started={started}
-                            />
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                {startable && serverCheck && (
-                  <div className={`text-xs rounded-md px-2.5 py-1.5 ${serverCheck.shortages.length ? "bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" : "bg-emerald-50 text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-300"}`}>
-                    서버 확인(시작 버튼과 같은 계산): {serverCheck.shortages.length ? `부족 ${serverCheck.shortages.length}종 — ${serverCheck.shortages.slice(0, 3).map((x: { materialName: string; shortage: number; unit: string }) => `${x.materialName} ${x.shortage}${x.unit}`).join(", ")}${serverCheck.shortages.length > 3 ? " 외" : ""}` : "부족 없음"}
-                    {serverCheck.issuedLines > 0 && ` · 이미 출고된 투입 ${serverCheck.issuedLines}줄 제외`}
-                  </div>
-                )}
-                {!stockCheck.allOk && inputs.length > 0 && !started && (
-                  <p className="text-[11px] text-muted-foreground">
-                    "입고 대기" 는 표시입니다. 재고 부족 시 출고 허용 여부와 승인은 기존 재고 정책이 정합니다. 시작 시점에 서버가 재고·LOT 를 다시 확인합니다.
-                  </p>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* ④ 생산 시작 */}
-            <Card className={steps[3] === "active" ? "border-violet-400" : ""}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2"><Play className="h-4 w-4 text-violet-600" />④ 생산 시작 — 자동출고 1회</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-wrap items-center justify-between gap-3">
-                <div className="text-sm">
-                  {started ? (
-                    <span className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4" /> 시작됨 · 원재료 {issue.issued}/{issue.total}건 출고{issue.negative > 0 ? ` (음수 차감 ${issue.negative}건)` : ""}</span>
-                  ) : (
-                    <span className="text-muted-foreground">아직 시작 전입니다. 시작하면 투입 계획대로 원재료가 한 번 자동 출고됩니다.</span>
-                  )}
-                </div>
-                {writeOn && unissued > 0 && (
-                  <div className="w-full flex flex-wrap items-center justify-between gap-2 text-xs rounded-md px-2.5 py-1.5 bg-amber-50 text-amber-800 dark:bg-amber-500/10 dark:text-amber-300" data-testid="today-unissued">
-                    <span>아직 출고되지 않은 원료 {unissued}줄 — 시작 때 자동출고가 실패했거나 일부만 처리됐습니다. 이미 출고된 줄은 다시 나가지 않습니다.</span>
-                    <Button size="sm" variant="outline" onClick={() => retryMut.mutate({ batchId: selected!.id })} disabled={retryMut.isPending} data-testid="today-retry-issue">
-                      {retryMut.isPending ? "출고 중…" : "누락 출고 다시 실행"}
-                    </Button>
-                  </div>
-                )}
-                {startable && !writeOn && (
-                  <Button asChild size="sm" variant="outline" data-testid="today-start-legacy">
-                    <Link href={detailHref}>기존 화면에서 시작 <ExternalLink className="h-3.5 w-3.5 ml-1" /></Link>
-                  </Button>
-                )}
-                {startable && writeOn && (
-                  <Button size="sm" onClick={() => startMut.mutate({ batchId: selected!.id })} disabled={startMut.isPending} data-testid="today-start">
-                    <Play className="h-3.5 w-3.5 mr-1" />{startMut.isPending ? "확인 중…" : "생산 시작"}
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* ⑤ 투입 결과 · HACCP 기록 */}
-            <Card className={steps[4] === "active" ? "border-violet-400" : ""}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2"><ClipboardCheck className="h-4 w-4 text-violet-600" />⑤ 투입 결과 · HACCP 기록</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-semibold text-muted-foreground mb-1.5">투입 결과 (실제 수불)</div>
-                  {!started ? (
-                    <p className="text-sm text-muted-foreground">시작 후 출고된 LOT·수량이 여기에 보입니다.</p>
-                  ) : (
-                    <ul className="text-sm space-y-1">
-                      {inputs.map((inp) => (
-                        <li key={inp.id} className="flex justify-between gap-2">
-                          <span className="truncate">{inp.materialName}</span>
-                          <span className="font-mono text-xs whitespace-nowrap">
-                            {inp.lots.length === 0 ? <span className="text-amber-600">미출고</span> : inp.lots.map((l) => `${l.lotNumber ?? "-"}${l.negative ? "(−)" : ""} ${fmt(l.quantity, 3)}`).join(", ")}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-                <div className="rounded-lg border p-3">
-                  <div className="text-xs font-semibold text-muted-foreground mb-1.5">HACCP 기록 (공식 기록지)</div>
-                  {!hasHACCP ? (
-                    <p className="text-sm text-muted-foreground">HACCP 모듈 없음</p>
-                  ) : (
-                    <ul className="text-sm space-y-1">
-                      {forms.length === 0 && <li className="text-muted-foreground">기록지 없음</li>}
-                      {forms.map((f) => {
-                        const st = FORM_STATUS[f.status] ?? FORM_STATUS.draft;
-                        return (
-                          <li key={f.id} className="flex items-center justify-between gap-2">
-                            <span className="font-mono text-xs">{f.ccpType}{f.isDaily ? " (일일 통합)" : ""}</span>
-                            <span className="flex items-center gap-1">
-                              {f.deviationCount > 0 && <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300">이탈 {f.deviationCount}</span>}
-                              <span className={`text-[11px] px-1.5 py-0.5 rounded ${st.cls}`}>{st.label}</span>
-                            </span>
-                          </li>
-                        );
-                      })}
-                      <li className="flex items-center justify-between gap-2 pt-1 border-t mt-1">
-                        <span className="text-xs">일일일지 온·습도</span>
-                        {dailyLog ? (
-                          dailyMissing === 0
-                            ? <span className="text-[11px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300">측정 완료</span>
-                            : <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-300">미측정 {dailyMissing}</span>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">오늘 일지 없음</span>
-                        )}
-                      </li>
-                    </ul>
-                  )}
-                  <Button asChild size="sm" variant="ghost" className="mt-2 h-7 text-xs px-2">
-                    <Link href={detailHref}>기록지 열기 <ChevronRight className="h-3 w-3 ml-0.5" /></Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* ⑥ 생산완료 */}
-            <Card className={steps[5] === "done" ? "border-emerald-300" : ""}>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2"><Flag className="h-4 w-4 text-violet-600" />⑥ 생산완료 — 완제품 LOT · 재고 반영</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-wrap items-center justify-between gap-3 text-sm">
-                {finished ? (
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300"><CheckCircle2 className="h-4 w-4" /> 완료 · 실적 {fmt(selected.actualQuantity, 1)}</div>
-                    {overview && (
-                      <div className="text-xs text-muted-foreground">
-                        승인: {overview.decision === "approved" ? "승인 완료" : overview.decision === "rejected" ? "반려" : overview.decision === "pending" ? "승인 대기" : "요청 없음"}
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <span className="text-muted-foreground">{started ? "실적 수량을 입력하고 완료하면 완제품 LOT 이 생기고 승인 요청이 자동으로 올라갑니다." : "시작 후 진행합니다."}</span>
-                )}
-                {selected?.status === "in_progress" && !writeOn ? (
-                  <Button asChild size="sm" variant="outline">
-                    <Link href={detailHref}>기존 화면에서 완료 <ExternalLink className="h-3.5 w-3.5 ml-1" /></Link>
-                  </Button>
-                ) : selected?.status === "in_progress" && isAdmin ? (
-                  <Button size="sm" onClick={openComplete} data-testid="today-complete"><Flag className="h-3.5 w-3.5 mr-1" />생산 완료</Button>
-                ) : selected?.status === "in_progress" ? (
-                  <span className="text-xs text-muted-foreground">완료는 관리자가 처리합니다</span>
-                ) : (
-                  <Button asChild size="sm" variant="ghost">
-                    <Link href={detailHref}>상세 보기 <ExternalLink className="h-3.5 w-3.5 ml-1" /></Link>
-                  </Button>
-                )}
-              </CardContent>
-            </Card>
-          </>
-        )}
+        <div className="flex rounded-md border overflow-hidden" role="tablist">
+          {(["all", "mine"] as const).map((v) => (
+            <button key={v} type="button" onClick={() => setView(v)} data-testid={`view-${v}`}
+              className={cn("h-10 px-3 text-sm", view === v ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent")}>
+              {v === "all" ? "전체" : "내 설비"}
+            </button>
+          ))}
+        </div>
+        <Button variant="ghost" size="icon" className="h-10 w-10 ml-auto" aria-label="새로고침" onClick={refresh}><RefreshCw className="h-4 w-4" /></Button>
       </div>
 
-      {/* ④ 재고 부족 확인 — 기존 음수 재고 정책을 설명하고, 확인한 사람·시각·부족 목록은 배치 메모에 남는다 */}
-      <Dialog open={!!confirm} onOpenChange={(v) => !v && setConfirm(null)}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>재고가 부족한 원료가 있습니다</DialogTitle></DialogHeader>
-          <p className="text-sm text-muted-foreground">{confirm?.message}</p>
-          <ul className="text-sm divide-y rounded-lg border">
-            {confirm?.shortages.map((x) => (
-              <li key={x.materialName} className="flex justify-between gap-2 px-3 py-1.5">
-                <span className="truncate">{x.materialName}</span>
-                <span className="font-mono text-xs whitespace-nowrap">필요 {x.required} · 가용 {x.available} · <b className="text-amber-700">부족 {x.shortage}{x.unit}</b></span>
-              </li>
+      {view === "mine" ? (
+        <>
+          <div className="flex flex-wrap gap-2" data-testid="my-equipments">
+            <span className="text-xs text-muted-foreground self-center">내 설비 (이 계정에 기억, 안 고르면 전부):</span>
+            {((eq.data as any)?.all ?? []).map((e: any) => (
+              <button key={e.id} type="button" data-testid="my-equipment"
+                onClick={() => setMine.mutate({ equipmentIds: mine.includes(e.id) ? mine.filter((x) => x !== e.id) : [...mine, e.id] })}
+                className={cn("min-h-11 px-3 rounded-md border text-sm", mine.includes(e.id) ? "bg-blue-600 text-white border-blue-600" : "bg-background")}>
+                {e.name}{e.metal ? " (금속검출)" : ""}
+              </button>
             ))}
-          </ul>
-          <p className="text-[11px] text-muted-foreground">시작하면 확인한 사람·시각·부족 목록이 {L("batch")} 메모에 기록됩니다. 실사·입고로 맞춰 주세요.</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirm(null)}>취소</Button>
-            <Button onClick={() => startMut.mutate({ batchId: selected!.id, acknowledgeShortage: true })} disabled={startMut.isPending} data-testid="today-start-confirm">
-              {startMut.isPending ? "시작 중…" : "확인하고 시작"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+          {work.isError && <p className="text-sm text-red-700">불러오지 못했습니다 — 새로고침을 누르세요.</p>}
+          {!heat.length && !metal && <p className="text-sm text-muted-foreground">이 날 내 설비의 일이 없습니다.</p>}
+          <FieldRowsPanel heat={heat} metal={metal} sheets={sheets} onChanged={() => utils.batch.todayBoard.invalidate()} />
+        </>
+      ) : (
+        <>
+          <div className="flex flex-wrap gap-1.5" data-testid="day-status">
+            {FILTERS.map((f) => (
+              <button key={f.k} type="button" onClick={() => setFilter(f.k)} data-testid={`filter-${f.k}`}
+                className={cn("h-9 px-3 rounded-full border text-sm", filter === f.k ? "bg-foreground text-background" : "bg-background hover:bg-accent", filter !== f.k && f.cls)}>
+                {f.label} <b>{f.n}</b>
+              </button>
+            ))}
+          </div>
 
-      {/* ⑥ 생산 완료 — 기존 batch.complete (관리자 · 처리 키) */}
-      <Dialog open={completeOpen} onOpenChange={setCompleteOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>생산 완료 — {selected?.batchCode}</DialogTitle></DialogHeader>
-          <label className="text-sm font-medium">실제 생산량</label>
-          <Input type="number" min={0} step="0.001" value={actualQty} onChange={(e) => setActualQty(e.target.value)} />
-          <p className="text-[11px] text-muted-foreground">계획 {fmt(selected?.plannedQuantity, 1)} · 완료하면 완제품 LOT 이 생기고 승인 요청이 자동으로 올라갑니다. 이미 출고된 원료는 다시 차감하지 않습니다.</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setCompleteOpen(false)}>취소</Button>
-            <Button
-              disabled={completeMut.isPending || !(Number(actualQty) >= 0) || actualQty === ""}
-              onClick={() => completeMut.mutate({ batchId: selected!.id, actualQuantity: Number(actualQty), idempotencyKey: completeKey })}
-              data-testid="today-complete-confirm"
-            >
-              {completeMut.isPending ? "완료 중…" : "완료"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </DashboardLayout>
+          {/* 생산 추가 — 같은 날짜, 같은 화면 */}
+          <div className="rounded-lg border" data-testid="add-production">
+            <button type="button" className="w-full flex items-center gap-2 px-3 py-2.5 text-sm font-medium" onClick={() => setAdding((v) => !v)}>
+              <Plus className="h-4 w-4" />생산 추가 <span className="text-muted-foreground font-normal">— 제품과 하루 총생산량만 넣으면 회차·설비·시각 자동</span>
+              {showAdd ? <ChevronUp className="h-4 w-4 ml-auto" /> : <ChevronDown className="h-4 w-4 ml-auto" />}
+            </button>
+            {showAdd && (
+              <div className="border-t p-3">
+                <TodayProductionWorkbench embedded workDate={date} hideBoard onCreated={() => { refresh(); }} />
+              </div>
+            )}
+          </div>
+
+          {/* 금속검출 — 하루 공용 기록 */}
+          {metal && (metal.rows ?? []).length > 0 && (
+            <details className="rounded-lg border" data-testid="day-metal">
+              <summary className="px-3 py-2.5 text-sm font-medium cursor-pointer select-none">
+                금속검출 (하루) — {(metal.rows as any[]).filter((r) => r.confirmed).length}/{metal.rows.length} 확인
+              </summary>
+              <div className="border-t p-3">
+                <FieldRowsPanel heat={[]} metal={metal} sheets={sheets.filter((s) => s.ccpType === "CCP-4P")} onChanged={() => utils.batch.todayBoard.invalidate()} />
+              </div>
+            </details>
+          )}
+
+          {board.isLoading && <p className="text-sm text-muted-foreground">불러오는 중…</p>}
+          {!board.isLoading && !live.length && <p className="text-sm text-muted-foreground">이 날 생산이 없습니다 — 위 '생산 추가' 에 입력하세요.</p>}
+          <div className="space-y-2" data-testid="work-list">
+            {shown.map((b) => (
+              <BatchLine key={b.id} b={b} open={!!open[b.id]} onToggle={() => setOpen((o) => ({ ...o, [b.id]: !o[b.id] }))} isAdmin={isAdmin}
+                heat={heat.filter((r) => r.batchId === b.id)} sheets={sheets.filter((s) => s.batchId === b.id && s.ccpType !== "CCP-4P")} onChanged={refresh} />
+            ))}
+          </div>
+          {voided.length > 0 && (
+            <details className="text-sm text-muted-foreground">
+              <summary className="cursor-pointer select-none">무효·취소 {voided.length}건 (원본 보존)</summary>
+              <div className="mt-1 space-y-1">{voided.map((b) => <p key={b.id}>{b.productName} · {b.batchCode} — {b.next.label}</p>)}</div>
+            </details>
+          )}
+        </>
+      )}
+    </div>
   );
+  // 행 쓰기 상태(저장 안 됨·확인 거부·고치던 값)는 화면 전체에서 하나 — 줄을 접거나 보기를 바꿔도 남는다
+  return <DashboardLayout><FieldWriteProvider>{content}</FieldWriteProvider></DashboardLayout>;
 }
 
-function InputRowView(props: {
-  inp: InputRow; required: number; available: number; shortage: number; known: boolean;
-  open: boolean; onToggle: () => void; started: boolean;
+function BatchLine({ b, open, onToggle, isAdmin, heat, sheets, onChanged }: {
+  b: Board; open: boolean; onToggle: () => void; isAdmin: boolean; heat: any[]; sheets: any[]; onChanged: () => void;
 }) {
-  const { inp, required, available, shortage, known, open, onToggle, started } = props;
-  const { data: lots } = trpc.inventory.getLotsByMaterialFefo.useQuery(
-    { materialId: inp.materialId! },
-    { enabled: open && inp.materialId != null && !started },
-  );
-  const short = shortage > 0.001;
+  const steps = progressOf(b);
+  const ws = useFieldWriteState();
+  const unsaved = heat.filter((r) => ["failed", "rejected"].includes(ws?.pending[r.rowId]?.state ?? "")).length;
+  // 생산 완료 = 기존 완료 창 그대로 (완료 전 준비 점검·불량 수량·원료 미출고 시 '재고·원가 보류' 경고·처리 키) — 화면마다 다른 완료 판정을 만들지 않는다
+  const [completeOpen, setCompleteOpen] = useState(false);
+  const canComplete = isAdmin && ["in_progress", "paused"].includes(b.status) && !b.planOnly;
   return (
-    <>
-      <tr className={`border-b last:border-0 ${short && !started ? "bg-amber-50/40 dark:bg-amber-500/5" : ""}`}>
-        <td className="py-1.5 px-2">
-          <div className="font-medium">{inp.materialName}</div>
-          {inp.materialCode && <div className="text-[11px] text-muted-foreground font-mono">{inp.materialCode}</div>}
-        </td>
-        <td className="py-1.5 px-2 text-right tabular-nums">{fmt(required, 3)} {inp.unit ?? ""}</td>
-        <td className="py-1.5 px-2 text-right tabular-nums">{known ? fmt(available, 3) : <span className="text-muted-foreground">-</span>}</td>
-        <td className={`py-1.5 px-2 text-right tabular-nums ${short ? "text-amber-700 dark:text-amber-300 font-semibold" : "text-emerald-700 dark:text-emerald-300"}`}>
-          {short ? `−${fmt(shortage, 3)}` : "충분"}
-        </td>
-        <td className="py-1.5 px-2">
-          {started ? (
-            <span className="font-mono text-xs">{inp.lots.length === 0 ? "-" : inp.lots.map((l) => l.lotNumber ?? "-").join(", ")}</span>
-          ) : (
-            <button onClick={onToggle} className="text-xs text-violet-700 dark:text-violet-300 hover:underline flex items-center gap-0.5">
-              {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />} FEFO 순 보기
-            </button>
+    <div className={cn("rounded-lg border bg-card", b.next.tone === "stop" && "border-red-300 dark:border-red-500/40")} data-testid="batch-line">
+      <button type="button" onClick={onToggle} className="w-full text-left px-3 py-2.5 space-y-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold">{b.productName ?? "-"}</span>
+          <span className="text-xs text-muted-foreground font-mono">{b.batchCode}</span>
+          <span className="text-sm">{b.plannedKg ?? "-"} kg{b.actualKg != null ? ` → 실적 ${b.actualKg} kg` : ""}</span>
+          {b.mode === "manual" && <Badge variant="outline" className="text-xs">수동</Badge>}
+          <span className={cn("ml-auto text-xs border rounded px-2 py-1", TONE[b.next.tone])} data-testid="next">{b.next.label}</span>
+          {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </div>
+        <div className="flex flex-wrap items-center gap-1" data-testid="progress">
+          {steps.map((s, i) => (
+            <span key={i} className={cn("text-[11px] px-1.5 py-0.5 rounded",
+              s.state === "done" ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-300"
+                : s.state === "now" ? "bg-blue-100 text-blue-800 font-semibold dark:bg-blue-500/15 dark:text-blue-300" : "bg-muted text-muted-foreground")}>
+              {s.label}
+            </span>
+          ))}
+          {unsaved > 0 && (
+            <span className="text-[11px] px-1.5 py-0.5 rounded bg-red-100 text-red-800 dark:bg-red-500/15 dark:text-red-300 flex items-center gap-1" data-testid="unsaved">
+              <AlertTriangle className="h-3 w-3" />저장 안 됨·확인 안 됨 {unsaved} — 펼쳐서 다시 보내기·고치기
+            </span>
           )}
-        </td>
-      </tr>
-      {open && !started && (
-        <tr className="bg-muted/30">
-          <td colSpan={5} className="px-3 py-2">
-            {!lots ? (
-              <span className="text-xs text-muted-foreground">불러오는 중...</span>
-            ) : (lots as any[]).length === 0 ? (
-              <span className="text-xs text-amber-700 dark:text-amber-300">가용 LOT 없음 — 입고 대기</span>
-            ) : (
-              <ul className="text-xs grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
-                {(lots as any[]).slice(0, 9).map((l) => (
-                  <li key={l.id} className="flex justify-between gap-2 font-mono">
-                    <span className="truncate">{l.lotNumber}</span>
-                    <span className="whitespace-nowrap">{fmt(l.availableQuantity, 3)}{l.expiryDate ? ` · ~${String(l.expiryDate).slice(0, 10)}` : ""}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </td>
-        </tr>
+          {b.check.shortLines > 0 && (
+            <span className="text-[11px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 dark:bg-amber-500/15 dark:text-amber-300 flex items-center gap-1" data-testid="short">
+              <AlertTriangle className="h-3 w-3" />원료 부족 {b.check.shortMaterials.slice(0, 2).join(", ")}{b.check.shortMaterials.length > 2 ? ` 외 ${b.check.shortMaterials.length - 2}` : ""}
+            </span>
+          )}
+        </div>
+      </button>
+      {open && (
+        <div className="border-t px-3 py-3 space-y-3" data-testid="batch-open">
+          {b.check.setupPending && (
+            <p className="text-sm text-red-700 dark:text-red-300">준비가 끝나지 않은 생산 건입니다 — 수량·날짜를 같은 값으로 다시 저장하면 남은 준비를 이어서 합니다 (현장 확인·승인은 그때까지 막힘).</p>
+          )}
+          {b.check.issueLines > 0 && <LineIssueExceptions batchId={b.id} canResolve={isAdmin} />}
+          {b.check.shortLines > 0 && (
+            <p className="text-sm text-amber-800 dark:text-amber-300">
+              그날 필요한 양이 남은 LOT 보다 많습니다: {b.check.shortMaterials.join(", ")} — 입고하면 자동으로 사라집니다 (부족해도 회사 음수 정책대로 진행).
+            </p>
+          )}
+          {heat.length > 0 || sheets.length > 0
+            ? <FieldRowsPanel heat={heat} sheets={sheets} bare onChanged={onChanged} />
+            : <p className="text-sm text-muted-foreground">{b.planOnly ? "예정 생산 건 — 그날 이 자리에서 현장 확인을 하면 시작합니다." : "현장 확인할 가열 기록이 없습니다."}</p>}
+          {canComplete && (
+            <div className="flex flex-wrap items-center gap-2" data-testid="inline-complete">
+              <Button className="h-11" onClick={() => setCompleteOpen(true)}>생산 완료 입력</Button>
+              <span className="text-xs text-muted-foreground">실제 생산량 입력 — 완제품 LOT·재고·원가·승인 요청이 함께 (원료 미출고면 재고·원가는 보류로 알림)</span>
+              <BatchCompletionDialog batchId={b.id} batchCode={b.batchCode} plannedQuantity={Number(b.plannedKg ?? 0)}
+                open={completeOpen} onOpenChange={setCompleteOpen} onSuccess={onChanged} />
+            </div>
+          )}
+          <Link href={`/dashboard/batch/${b.id}`} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline">
+            <ExternalLink className="h-3 w-3" />전체 상세 (수정·삭제·인쇄)
+          </Link>
+        </div>
       )}
-    </>
+    </div>
   );
 }

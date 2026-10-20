@@ -57,7 +57,7 @@ describe("그날 첫 확인에서 한 번", () => {
   });
   it("오늘 생산 목록: 예정 생산 건은 '예정' 으로 (확인 제출 할 일로 보이지 않음)", () => {
     expect(nextBatchAction({ status: "planned", approvalStatus: null, ccpForms: { total: 1, unconfirmed: 1, approved: 0 }, planOnly: true }))
-      .toEqual({ label: "예정 — 그날 확인하면 시작 (원료는 그때 출고)", tone: "wait" });
+      .toEqual({ label: "예정 — 그날 첫 확인에서 시작 (원료는 그때 출고)", tone: "wait" });
     expect(nextBatchAction({ status: "planned", approvalStatus: null, ccpForms: { total: 1, unconfirmed: 1, approved: 0 } }).label).toMatch(/CCP 기록지 확인 제출/);
   });
 });

@@ -51,11 +51,12 @@ export const fieldRouter = router({
       return { mine: await setMyEquipments(ctx.tenantId, ctx.user.id, input.equipmentIds) };
     })),
 
-  /** 오늘 일 — 내 설비(고른 것이 없으면 전부) */
+  /** 오늘 일 — 내 설비(고른 것이 없으면 전부). scope 'all' = 생산 화면 전체 보기 (같은 자료, 설비로 거르지 않음) */
   work: workerProcedure
-    .input(z.object({ workDate: DATE }))
+    .input(z.object({ workDate: DATE, scope: z.enum(["mine", "all"]).optional() }))
     .query(async ({ input, ctx }) => {
       const { listFieldWork, getMyEquipments } = await import("../../services/fieldWork");
+      if (input.scope === "all") return listFieldWork(ctx.tenantId, input.workDate, null);
       const mine = await getMyEquipments(ctx.tenantId, ctx.user.id);
       return listFieldWork(ctx.tenantId, input.workDate, mine.length ? mine : null);
     }),

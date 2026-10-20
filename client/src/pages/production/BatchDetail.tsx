@@ -402,7 +402,11 @@ export default function BatchDetail() {
         {/* 헤더 */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" onClick={() => setLocation("/dashboard/batch-management")}>
+            {/* 돌아가기 = 생산 화면의 그 날짜, 이 생산 건 줄을 펼친 채로 (2026-10-20 생산 화면 하나로) */}
+            <Button variant="outline" size="icon" aria-label="생산 화면으로" onClick={() => {
+              const d = batch.plannedDate ? new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul" }).format(new Date(batch.plannedDate as any)) : "";
+              setLocation(`/dashboard/production/today?view=all${d ? `&date=${d}` : ""}&batch=${batchId}`);
+            }}>
               <ArrowLeft className="h-4 w-4" />
             </Button>
             <div>

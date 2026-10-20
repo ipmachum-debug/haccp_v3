@@ -148,16 +148,11 @@ export const batchPlanRouter = router({
       const conn = await getRawConnection();
       const [[b]]: any = await conn.execute(`SELECT id, plan_only, mode, status, voided_at FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.batchId, ctx.tenantId]);
       if (!b || b.voided_at) return [];
-      const started = Number(b.plan_only ?? 0) !== 1 && String(b.status) !== "cancelled" && !(b.mode === "manual" && ["planned", "in_progress"].includes(String(b.status)));
-      const { classifyBatchLines, isRepresented } = await import("../../lib/production/issuedBatchLines");
+      const { classifyBatchLines } = await import("../../lib/production/issuedBatchLines");
+      const { lineExceptionKind, issueStarted } = await import("../../lib/production/dayChecks");
+      const started = issueStarted(b);
       const m = await classifyBatchLines(input.batchId, ctx.tenantId, conn);
-      const kindOf = (i: any): "ambiguous" | "unissued" | "pending" | null => {
-        if (i.inventoryDeducted || !(i.quantity > 0) || isRepresented(i.state)) return null;
-        if (i.state === "ambiguous") return "ambiguous";
-        if (i.decision === "issue_new") return "pending";
-        if (i.issueHold || started) return "unissued";
-        return null;
-      };
+      const kindOf = (i: any) => lineExceptionKind(i, started); // 생산 화면 자동 검사와 같은 판정
       const list = Array.from(m.values()).map((i) => ({ i, kind: kindOf(i) })).filter((x) => x.kind != null);
       if (!list.length) return [];
       const [names]: any = await conn.query(
@@ -231,7 +226,7 @@ export const batchPlanRouter = router({
       const conn = await getRawConnection();
       const [bRows]: any = await conn.execute(
         `SELECT b.id, b.batch_code, b.day_batch_group, b.batch_order, b.status, b.mode,
-                b.planned_quantity, b.actual_quantity, p.product_name, b.plan_only, b.superseded_by_batch_id, b.voided_at,
+                b.planned_quantity, b.actual_quantity, p.product_name, b.plan_only, b.superseded_by_batch_id, b.voided_at, b.setup_pending,
                 (SELECT ar.status FROM h_approval_requests ar
                   WHERE ar.tenant_id = b.tenant_id AND ar.reference_type = 'batch' AND ar.reference_id = b.id
                   ORDER BY ar.id DESC LIMIT 1) AS approval_status
@@ -268,6 +263,9 @@ export const batchPlanRouter = router({
           forms.set(k, cur);
         }
       }
+      // 자동 검사 — 준비 미완·현장 확인 남은 행·출고 확인 줄·그날 원료 부족 (생산 화면 줄마다, 읽기만)
+      const { loadDayChecks } = await import("../../lib/production/dayChecks");
+      const checks = await loadDayChecks(conn, ctx.tenantId, bRows as any[]);
       return (bRows as any[]).map((r) => {
         const f = forms.get(Number(r.id)) ?? { total: 0, unconfirmed: 0, approved: 0 };
         const row = {
@@ -277,7 +275,8 @@ export const batchPlanRouter = router({
           approvalStatus: r.approval_status ?? null, ccpForms: f, planOnly: Number(r.plan_only ?? 0) === 1,
           voidedSupersededBy: r.voided_at ? (r.superseded_by_batch_id != null ? Number(r.superseded_by_batch_id) : 0) : null,
         };
-        return { ...row, next: nextBatchAction(row) };
+        const check = checks.get(Number(r.id))!;
+        return { ...row, check, next: nextBatchAction({ ...row, check }) };
       });
     }),
 });

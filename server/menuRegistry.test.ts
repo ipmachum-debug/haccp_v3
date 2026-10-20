@@ -76,11 +76,12 @@ describe("2-a 메뉴 레지스트리 — 정합성", () => {
     ]);
   });
 
-  it("현장 확인은 기본 메뉴와 업종 플러그인 공통 그룹(허브 사이드바) 양쪽에 있다 — 같은 정의 하나", () => {
-    expect(MENU_PLACEMENTS.some((p) => p.path === ROUTES.FIELD_WORK)).toBe(true);
-    const g = PLUGIN_COMMON_GROUPS.find((x) => x.items.some((i) => i.path === ROUTES.FIELD_WORK));
+  it("생산 화면 하나는 기본 메뉴와 업종 플러그인 공통 그룹(허브 사이드바) 양쪽에 있다 — 같은 정의 하나, 현장 확인 메뉴는 따로 없음 (2026-10-20)", () => {
+    expect(MENU_PLACEMENTS.filter((p) => p.path === ROUTES.PRODUCTION_TODAY)).toHaveLength(1);
+    expect(MENU_PLACEMENTS.some((p) => p.path === ROUTES.FIELD_WORK)).toBe(false);
+    const g = PLUGIN_COMMON_GROUPS.find((x) => x.items.some((i) => i.path === ROUTES.PRODUCTION_TODAY));
     expect(g?.name).toBe("생산 현장");
-    expect(g?.items.find((i) => i.path === ROUTES.FIELD_WORK)?.roles).toEqual(expect.arrayContaining(["worker", "admin"]));
+    expect(g?.items.find((i) => i.path === ROUTES.PRODUCTION_TODAY)?.roles).toEqual(expect.arrayContaining(["worker", "admin", "inspector"]));
   });
 
   it("ROUTES 상수로 등록된 경로는 레지스트리에도 같은 문자열로 있다 (drift 차단)", () => {
