@@ -283,6 +283,9 @@ async function startServer() {
   //   PR-AE 진단으로 서버측 GET 은 200 OK 확인됨 (PDF 정상).
   const healthCertDownloadProxyRouter = (await import("../routers/checklist/healthCertDownloadProxy.router")).default;
   app.use("/api/health-cert", healthCertDownloadProxyRouter);
+  // 배치 완료 보고서 — 같은 방식(서버가 받아서 넘김). 브라우저 직접 열기는 AccessDenied (2026-10-20)
+  const batchReportDownloadRouter = (await import("../routers/production/batchReportDownload.router")).default;
+  app.use("/api/batch-report", batchReportDownloadRouter);
   // 업로드 파일 정적 서빙
   app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 

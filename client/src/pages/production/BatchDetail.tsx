@@ -92,15 +92,16 @@ export default function BatchDetail() {
 
   const { user: currentUser } = useAuth();
   const { data: batch, isLoading } = trpc.batch.getById.useQuery({ id: batchId });
-  const reportLink = trpc.batch.completionReportLink.useMutation();
   const reportRegen = trpc.batch.regenerateCompletionReport.useMutation();
-  // 저장된 보고서를 열 수 없을 때(파일 없음·읽기 거부) 그 자리에서 [다시 만들기] — 이유는 이 칸에 (2026-10-20)
+  // 보고서 열기 = 서버 경유 주소 (브라우저가 저장소에 직접 가면 AccessDenied — 건강진단서와 같은 방식, 2026-10-20).
+  //   실패하면 그 창에 한국어 이유가 나오고, 관리자는 이 화면의 [보고서 다시 만들기]를 늘 쓸 수 있다.
   const [reportProblem, setReportProblem] = useState<string | null>(null);
+  const reportPath = `/api/batch-report/download/${batchId}`;
   const openReport = (fresh: boolean) => {
+    if (!fresh) { window.open(reportPath, "_blank", "noopener"); return; }
     const w = window.open("", "_blank"); // 팝업 차단 피하려고 클릭 순간에 창을 먼저 연다
-    const m = fresh ? reportRegen : reportLink;
-    m.mutate({ batchId }, {
-      onSuccess: (r: { url: string }) => { setReportProblem(null); if (w) w.location.href = r.url; else window.location.href = r.url; utils.batch.getById.invalidate({ id: batchId }); },
+    reportRegen.mutate({ batchId }, {
+      onSuccess: (r: { openPath: string }) => { setReportProblem(null); if (w) w.location.href = r.openPath; else window.location.href = r.openPath; utils.batch.getById.invalidate({ id: batchId }); },
       onError: (e: { message: string }) => { w?.close(); setReportProblem(e.message); },
     });
   };
@@ -937,14 +938,21 @@ export default function BatchDetail() {
                   <Button
                     // 저장된 주소를 그대로 열지 않는다 — 누를 때마다 서버가 새 서명 주소를 발급하고 실제로 읽히는지 확인 (비공개 저장소 그대로)
                     onClick={() => openReport(false)}
-                    disabled={reportLink.isPending || reportRegen.isPending}
+                    disabled={reportRegen.isPending}
                     size="sm"
                     variant="default"
                   >
                     <FileDown className="mr-2 h-4 w-4" />
                     배치 완료 보고서
                   </Button>
-                ) : batch.status === "completed" ? (
+                ) : null}
+                {/* 관리자는 늘 [다시 만들기] — 열린 창의 실패를 이 화면이 알 수 없어도 복구할 수 있게 (Codex 재검증 A) */}
+                {batch.status === "completed" && batch.completionReportUrl && ["admin", "super_admin"].includes(String((currentUser as any)?.role ?? "")) ? (
+                  <Button size="sm" variant="outline" disabled={reportRegen.isPending} onClick={() => openReport(true)} data-testid="report-regenerate">
+                    {reportRegen.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}보고서 다시 만들기
+                  </Button>
+                ) : null}
+                {batch.status === "completed" && batch.completionReportUrl ? null : batch.status === "completed" ? (
                   // 완료됐는데 보고서 위치가 없음 = 완료 때 만들기가 실패한 것 (기다려도 생기지 않음) — 관리자는 그 자리에서 다시 만들기
                   ["admin", "super_admin"].includes(String((currentUser as any)?.role ?? "")) ? (
                     <Button size="sm" variant="outline" disabled={reportRegen.isPending} onClick={() => openReport(true)} data-testid="report-make">
@@ -967,11 +975,6 @@ export default function BatchDetail() {
                 {reportProblem && (
                   <span className="basis-full flex flex-wrap items-center justify-end gap-2 text-sm text-red-700" role="alert" data-testid="report-problem">
                     {reportProblem}
-                    {["admin", "super_admin"].includes(String((currentUser as any)?.role ?? "")) && (
-                      <Button size="sm" variant="outline" disabled={reportRegen.isPending} onClick={() => openReport(true)} data-testid="report-regenerate">
-                        {reportRegen.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}보고서 다시 만들기
-                      </Button>
-                    )}
                   </span>
                 )}
               </div>}

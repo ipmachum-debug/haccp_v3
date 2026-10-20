@@ -150,7 +150,9 @@ describe("신규 회사 시험 4차 — 완료 보고서 열기 · BOM 기준량
     expect(reportKeyFromUrl(null, 15)).toBeNull();
     const d = read("client/src/pages/production/BatchDetail.tsx");
     expect(d).not.toMatch(/window\.open\(batch\.completionReportUrl/);
-    expect(d).toMatch(/const m = fresh \? reportRegen : reportLink;/);
+    // 브라우저는 저장소 주소로 가지 않는다 — 같은 사이트 주소로 서버가 받아 내려준다 (#622 재검증: 서버 200 · 브라우저 거부)
+    expect(d).toMatch(/const reportPath = `\/api\/batch-report\/download\/\$\{batchId\}`;/);
+    expect(d).not.toMatch(/completionReportLink/);
   });
   it("BOM 기준량: 생산 건 기록지 저장값 먼저, 없으면 생산이 쓰는 버전 선택 함수 — 생산 제품 번호와 BOM 번호를 직접 비교하지 않음", () => {
     const s = read("server/routers/haccp/ccpForm.router.ts");
@@ -181,9 +183,17 @@ describe("신규 회사 시험 5차 — 완료 보고서 실제 읽힘 확인·�
   it("완료 처리 때 보고서를 회사 폴더에 저장, 열기 전 1바이트 확인, 못 읽으면 그 자리에서 다시 만들기(관리자)", () => {
     expect(read("server/db/production/batchLifecycle.ts")).toMatch(/generateBatchCompletionReport\(batchId, tenantId\)/);
     const r = read("server/routers/production/batch.crud.router.ts");
-    expect(r).toMatch(/const probe = await probeStorageUrl\(url\)/);
     expect(r).toMatch(/regenerateCompletionReport: tenantRequiredProcedure/);
-    expect(r).toMatch(/UPDATE h_batches SET completion_report_url = \? WHERE id = \? AND tenant_id = \?/);
+    // 새 파일을 서버가 읽을 수 있을 때만, 그 사이 바뀌지 않았을 때만 위치 교체 (기존 위치 먼저 지우지 않음)
+    const g = r.slice(r.indexOf("regenerateCompletionReport:"), r.indexOf("getById:"));
+    expect(g.indexOf("probeStorageUrl(")).toBeGreaterThan(0);
+    expect(g.indexOf("probeStorageUrl(")).toBeLessThan(g.indexOf("UPDATE h_batches SET completion_report_url"));
+    expect(g).toMatch(/UPDATE h_batches SET completion_report_url = \? WHERE id = \? AND tenant_id = \? AND \(completion_report_url <=> \?\)/);
+    expect(g).toMatch(/batch\.completion_report\.regenerate_failed/);
+    expect(r).not.toMatch(/completionReportLink:/);
+    const idx = read("server/_core/index.ts");
+    expect(idx).toMatch(/app\.use\("\/api\/batch-report", batchReportDownloadRouter\)/);
+    expect(read("server/routers/production/batchReportDownload.router.ts")).toMatch(/requireTenantAuth/);
     const d = read("client/src/pages/production/BatchDetail.tsx");
     expect(d).toMatch(/report-regenerate/);
     expect(d).toMatch(/report-make/);

@@ -3861,40 +3861,6 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await expect(other.getBomBatchKg({ productId: PV2, batchId: 88901 })).rejects.toThrow(/생산 건을 찾을 수 없습니다/);
     });
 
-    it("완료 보고서 열기 — 저장 주소(영구·만료 서명)에서 파일 위치만 꺼내 새 서명 주소, 이 회사 생산 건·경로만", async () => {
-      // 서명은 로컬 계산 (네트워크·실제 자격 없음) — 시험용 버킷 이름·가짜 키
-      const keep = { b: process.env.AWS_S3_BUCKET, a: process.env.AWS_ACCESS_KEY_ID, s: process.env.AWS_SECRET_ACCESS_KEY };
-      process.env.AWS_S3_BUCKET = "qa-test-bucket"; process.env.AWS_ACCESS_KEY_ID = "AKIAQATESTONLY"; process.env.AWS_SECRET_ACCESS_KEY = "qa-test-secret";
-      try {
-        await q(`DELETE FROM h_batches WHERE id IN (88902, 88903)`);
-        await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, created_by, completion_report_url) VALUES
-          (88902, ?, 1, 'QA-RPT-1', ?, 20, '2026-10-20', 'completed', 4, 'https://cdn.example.test/tenant-2/reports/batch-completion-report-QA-RPT-1-1.pdf'),
-          (88903, ?, 1, 'QA-RPT-2', ?, 20, '2026-10-20', 'completed', 4, 'https://cdn.example.test/tenant-9/reports/x.pdf')`, [T, PV2, T, PV2]);
-        const { batchCrudRouter } = await import("./routers/production/batch.crud.router");
-        const b = (batchCrudRouter as any).createCaller({ user: { id: 4, role: "admin", tenantId: T, email: "t@t" }, tenantId: T } as any);
-        // 실제로 읽히는지 1바이트 확인 — 네트워크 없이 응답만 흉내 (읽힘 206 / 거부 403)
-        const fetchSpy = vi.spyOn(globalThis, "fetch" as any).mockResolvedValue(new Response("x", { status: 206 }) as any);
-        const r = await b.completionReportLink({ batchId: 88902 });
-        expect(r.url).toContain("tenant-2/reports/batch-completion-report-QA-RPT-1-1.pdf");
-        expect(r.url).toMatch(/X-Amz-Signature=/);
-        expect(r.url).toMatch(/X-Amz-Expires=3600/);
-        expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(r.url);
-        expect((fetchSpy.mock.calls[0]?.[1] as any)?.headers?.Range).toBe("bytes=0-0");
-        // 파일이 없거나 읽기 거부(403) → 'Access Denied' 페이지를 열지 않고 [다시 만들기] 안내
-        fetchSpy.mockResolvedValue(new Response("<Error><Code>AccessDenied</Code></Error>", { status: 403 }) as any);
-        await expect(b.completionReportLink({ batchId: 88902 })).rejects.toThrow(/다시 만들기/);
-        fetchSpy.mockRestore();
-        // 저장된 주소가 다른 회사 경로면 발급하지 않음
-        await expect(b.completionReportLink({ batchId: 88903 })).rejects.toThrow(/완료 보고서 파일을 찾을 수 없습니다/);
-        // 다른 회사 caller 는 생산 건 자체를 못 봄
-        const other = (batchCrudRouter as any).createCaller({ user: { id: 9, role: "admin", tenantId: 99, email: "o@o" }, tenantId: 99 } as any);
-        await expect(other.completionReportLink({ batchId: 88902 })).rejects.toThrow(/생산 건을 찾을 수 없습니다/);
-      } finally {
-        process.env.AWS_S3_BUCKET = keep.b ?? ""; process.env.AWS_ACCESS_KEY_ID = keep.a ?? ""; process.env.AWS_SECRET_ACCESS_KEY = keep.s ?? "";
-        if (!keep.b) delete process.env.AWS_S3_BUCKET;
-      }
-    });
-
     it("번호 체계 2단계 — 생산 제품 번호는 FK 로만 BOM 을 찾는다 (같은 숫자의 다른 품목 BOM 을 고르지 않음)", async () => {
       const { selectBomVersion, asProductionProductId, bomProductV2IdExpr } = await import("./lib/identity/itemIdentityService");
       const linked = await mf.create(base());
@@ -3934,6 +3900,160 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(r2).toMatchObject({ id: 8373, trusted: false, source: "hm_direct_ambiguous" });
       // 번호 종류를 아는 곳은 FK 로 정확히
       expect(await inventoryMaterialIdOfItem(asItemMasterId(8373), T, pool)).toBe(8374);
+    });
+  });
+
+  describe("배치 완료 보고서 — 서버가 받아 같은 주소로 내려줌 · 검증 뒤에만 위치 교체 · 공식 기록지·실제 출고 LOT (2026-10-20 #621-622 재검증)", () => {
+    // 서명은 로컬 계산 (네트워크·실제 자격 없음) — 시험용 버킷 이름·가짜 키. 저장소 응답은 fetch 흉내.
+    const keep: Record<string, string | undefined> = {};
+    const ENV = { AWS_S3_BUCKET: "qa-test-bucket", AWS_ACCESS_KEY_ID: "AKIAQATESTONLY", AWS_SECRET_ACCESS_KEY: "qa-test-secret" } as const;
+    const PV = 8350, MAT = 88950, B_OK = 88902, B_OTHER_PATH = 88903, B_DATA = 88904;
+    const OLD = "https://cdn.example.test/tenant-2/reports/batch-completion-report-QA-RPT-1-1.pdf";
+    const ensureCol = async (table: string, col: string, ddl: string) => {
+      const [c]: any = await admin.query(`SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, col]);
+      if (!c.length) await admin.query(`ALTER TABLE ${table} ADD COLUMN ${col} ${ddl}`);
+    };
+    const caller = async (tenantId: number, role = "admin") => {
+      const { batchCrudRouter } = await import("./routers/production/batch.crud.router");
+      return (batchCrudRouter as any).createCaller({ user: { id: 4, role, tenantId, email: "t@t" }, tenantId } as any);
+    };
+    const urlOf = async (id: number) => (await q(`SELECT completion_report_url AS u FROM h_batches WHERE id = ?`, [id]))[0]?.u ?? null;
+    const audits = async () => q(`SELECT action, JSON_UNQUOTE(JSON_EXTRACT(changes, '$.stage')) AS stage, tenant_id FROM audit_logs WHERE entity_type = 'batch' AND entity_id = ? ORDER BY id`, [B_OK]);
+
+    beforeAll(async () => {
+      for (const k of Object.keys(ENV) as (keyof typeof ENV)[]) { keep[k] = process.env[k]; process.env[k] = ENV[k]; }
+      await ensureCol("h_ccp_form_records", "process_group_name", "varchar(100) NULL"); // 운영 표에는 있음 — 시험 DB 만 보충
+    });
+    afterAll(() => {
+      for (const k of Object.keys(ENV)) { if (keep[k] == null) delete process.env[k]; else process.env[k] = keep[k]; }
+    });
+    beforeEach(async () => {
+      await q(`DELETE FROM audit_logs WHERE entity_type = 'batch' AND entity_id IN (?, ?, ?)`, [B_OK, B_OTHER_PATH, B_DATA]);
+      await q(`DELETE FROM h_ccp_form_rows WHERE form_record_id BETWEEN 88911 AND 88915`);
+      await q(`DELETE FROM h_ccp_form_records WHERE id BETWEEN 88911 AND 88915`);
+      await q(`DELETE FROM h_inventory_transactions WHERE reference_type = 'batch' AND reference_id = ?`, [B_DATA]);
+      await q(`DELETE FROM h_inventory_lots WHERE id BETWEEN 88921 AND 88924`);
+      await q(`DELETE FROM h_materials WHERE id = ?`, [MAT]);
+      await q(`DELETE FROM h_batches WHERE id IN (?, ?, ?)`, [B_OK, B_OTHER_PATH, B_DATA]);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, created_by, completion_report_url) VALUES
+        (?, ?, 1, 'QA-RPT-1', ?, 20, '2026-10-20', 'completed', 4, ?),
+        (?, ?, 1, 'QA-RPT-2', ?, 20, '2026-10-20', 'completed', 4, 'https://cdn.example.test/tenant-9/reports/x.pdf'),
+        (?, ?, 1, 'QA-RPT-3', ?, 20, '2026-10-20', 'completed', 4, NULL)`, [B_OK, T, PV, OLD, B_OTHER_PATH, T, PV, B_DATA, T, PV]);
+    });
+
+    it("열기: 서버가 이 회사 경로 파일을 받아 PDF 로 넘김 — 브라우저는 저장소 주소를 받지 않는다", async () => {
+      const { fetchBatchReport } = await import("./lib/production/batchReportFile");
+      const pool = await (await import("./db/connection")).getRawConnection();
+      const fetchSpy = vi.spyOn(globalThis, "fetch" as any).mockResolvedValue(new Response("%PDF-1.3 x", { status: 200, headers: { "content-length": "10" } }) as any);
+      try {
+        const r: any = await fetchBatchReport(pool, T, B_OK);
+        expect(r.ok).toBe(true);
+        expect(r.contentType).toBe("application/pdf");
+        expect(r.fileName).toBe("batch-completion-report-QA-RPT-1.pdf");
+        expect(await new Response(r.body).text()).toBe("%PDF-1.3 x");
+        // 서버가 받은 주소 = 저장 위치에서 꺼낸 회사 경로 + 새 서명 (저장된 주소를 그대로 쓰지 않음)
+        const asked = String(fetchSpy.mock.calls[0]?.[0]);
+        expect(asked).toContain("tenant-2/reports/batch-completion-report-QA-RPT-1-1.pdf");
+        expect(asked).toMatch(/X-Amz-Signature=/);
+        // 저장소가 거부(403) → 오류 이유만 (거부 XML 을 넘기지 않음), 다시 만들기 안내
+        fetchSpy.mockResolvedValue(new Response("<Error><Code>AccessDenied</Code></Error>", { status: 403 }) as any);
+        const d: any = await fetchBatchReport(pool, T, B_OK);
+        expect(d).toMatchObject({ ok: false, status: 502 });
+        expect(d.reason).toMatch(/\(403\).*보고서 다시 만들기/);
+        // 연결 실패
+        fetchSpy.mockRejectedValue(Object.assign(new Error("x"), { name: "TypeError" }));
+        expect(await fetchBatchReport(pool, T, B_OK)).toMatchObject({ ok: false, status: 502 });
+        fetchSpy.mockClear();
+        // 다른 회사 경로가 저장돼 있으면 받지 않음 / 보고서 없음 / 다른 회사 생산 건 — 저장소에 묻지도 않는다
+        expect(await fetchBatchReport(pool, T, B_OTHER_PATH)).toMatchObject({ ok: false, status: 404 });
+        expect(await fetchBatchReport(pool, T, B_DATA)).toMatchObject({ ok: false, status: 404 });
+        expect(await fetchBatchReport(pool, 99, B_OK)).toMatchObject({ ok: false, status: 404, reason: "생산 건을 찾을 수 없습니다." });
+        expect(fetchSpy).not.toHaveBeenCalled();
+      } finally {
+        fetchSpy.mockRestore();
+      }
+    });
+
+    it("다시 만들기: 새 파일이 서버에서 읽힐 때만 위치 교체 — 실패하면 기존 위치 그대로, 성공·실패 이력 따로", async () => {
+      const NEW = "https://cdn.example.test/tenant-2/reports/batch-completion-report-QA-RPT-1-2.pdf";
+      let gen: (batchId: number, tenantId?: number) => Promise<string> = async () => NEW;
+      vi.doMock("./reports/batchCompletionReport", async (orig) => ({ ...(await orig<any>()), generateBatchCompletionReport: (b: number, t?: number) => gen(b, t) }));
+      const fetchSpy = vi.spyOn(globalThis, "fetch" as any).mockResolvedValue(new Response("%", { status: 206 }) as any);
+      try {
+        const b = await caller(T);
+        // 관리자만
+        await expect((await caller(T, "worker")).regenerateCompletionReport({ batchId: B_OK })).rejects.toThrow(/관리자/);
+        // ① 만들기 실패 → 위치 그대로 + 실패 이력(generate)
+        gen = async () => { throw new Error("한글 폰트 파일 없음"); };
+        await expect(b.regenerateCompletionReport({ batchId: B_OK })).rejects.toThrow(/보고서를 만들지 못했습니다/);
+        expect(await urlOf(B_OK)).toBe(OLD);
+        // ② 올렸지만 서버도 못 읽음(403) → 위치 그대로 + 실패 이력(verify)
+        gen = async () => NEW;
+        fetchSpy.mockResolvedValue(new Response("denied", { status: 403 }) as any);
+        await expect(b.regenerateCompletionReport({ batchId: B_OK })).rejects.toThrow(/기존 보고서 위치는 그대로/);
+        expect(await urlOf(B_OK)).toBe(OLD);
+        // ③ 그 사이 다른 사람이 바꿈 → 덮어쓰지 않음 (CONFLICT) + 실패 이력(swap)
+        fetchSpy.mockResolvedValue(new Response("%", { status: 206 }) as any);
+        const OTHER = "https://cdn.example.test/tenant-2/reports/batch-completion-report-QA-RPT-1-9.pdf";
+        gen = async () => { await q(`UPDATE h_batches SET completion_report_url = ? WHERE id = ?`, [OTHER, B_OK]); return NEW; };
+        await expect(b.regenerateCompletionReport({ batchId: B_OK })).rejects.toThrow(/그 사이 다른 사람이/);
+        expect(await urlOf(B_OK)).toBe(OTHER);
+        // ④ 읽힘 확인 → 교체, 성공 이력. 화면은 같은 주소(/api/batch-report/...)로 연다
+        gen = async () => NEW;
+        expect(await b.regenerateCompletionReport({ batchId: B_OK })).toEqual({ ok: true, openPath: `/api/batch-report/download/${B_OK}` });
+        expect(await urlOf(B_OK)).toBe(NEW);
+        const a = await audits();
+        expect(a.map((x: any) => [x.action, x.stage])).toEqual([
+          ["batch.completion_report.regenerate_failed", "generate"],
+          ["batch.completion_report.regenerate_failed", "verify"],
+          ["batch.completion_report.regenerate_failed", "swap"],
+          ["batch.completion_report.regenerate", null],
+        ]);
+        expect(a.every((x: any) => Number(x.tenant_id) === T)).toBe(true);
+        // 다른 회사는 이 생산 건을 다시 만들 수 없음
+        await expect((await caller(99)).regenerateCompletionReport({ batchId: B_OK })).rejects.toThrow(/생산 건을 찾을 수 없습니다/);
+      } finally {
+        fetchSpy.mockRestore();
+        vi.doUnmock("./reports/batchCompletionReport");
+      }
+    });
+
+    it("보고서 내용: 공식 기록지 행(가열=이 생산 건, 금속검출=이 생산 건 행만, 무효·다른 회사 제외) · 실제 출고 LOT(사용−반환) · 완제품 LOT · 한글 글꼴", async () => {
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit) VALUES (?, ?, 'QA-RPT-M', '시험용 찹쌀', 'kg')`, [MAT, T]);
+      await q(`INSERT INTO h_ccp_form_records (id, tenant_id, batch_id, ccp_type, work_date, status, process_group_name, voided_at) VALUES
+        (88911, ?, ?, 'CCP-1B', '2026-10-20', 'approved', '증숙', NULL),
+        (88912, ?, NULL, 'CCP-4P', '2026-10-20', 'approved', NULL, NULL),
+        (88913, ?, ?, 'CCP-1B', '2026-10-20', 'draft', NULL, NOW()),
+        (88914, 9, ?, 'CCP-1B', '2026-10-20', 'approved', NULL, NULL)`, [T, B_DATA, T, T, B_DATA, B_DATA]);
+      await q(`INSERT INTO h_ccp_form_rows (form_record_id, tenant_id, batch_id, is_deviation, row_version, row_confirmed_version, row_confirmed_at) VALUES
+        (88911, ?, ?, 0, 1, 1, NOW()), (88911, ?, ?, 0, 2, 2, NOW()),
+        (88912, ?, ?, 0, 1, 1, NOW()), (88912, ?, ?, 1, 1, 1, NOW()), (88912, ?, ?, 0, 1, NULL, NULL),
+        (88912, ?, 99999, 0, 1, 1, NOW()), (88912, ?, 99999, 0, 1, 1, NOW()),
+        (88913, ?, ?, 0, 1, 1, NOW()), (88914, 9, ?, 0, 1, 1, NOW())`,
+        [T, B_DATA, T, B_DATA, T, B_DATA, T, B_DATA, T, B_DATA, T, T, T, B_DATA, B_DATA]);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, lot_number, material_id, product_id, batch_id, quantity, available_quantity, unit) VALUES
+        (88921, ?, 'QA-LOT-A', ?, NULL, NULL, 10, 10, 'kg'), (88922, ?, 'QA-LOT-B', ?, NULL, NULL, 10, 10, 'kg'),
+        (88923, ?, 'QA-FG-1', NULL, ?, ?, 18, 18, 'kg')`, [T, MAT, T, MAT, T, PV, B_DATA]);
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, material_id, lot_id, transaction_type, quantity, unit, reference_type, reference_id, created_by) VALUES
+        (?, ?, 88921, 'usage', -5, 'kg', 'batch', ?, 4), (?, ?, 88921, 'return', 1, 'kg', 'batch', ?, 4),
+        (?, ?, 88922, 'usage', -2, 'kg', 'batch', ?, 4), (9, ?, 88922, 'usage', -7, 'kg', 'batch', ?, 4)`,
+        [T, MAT, B_DATA, T, MAT, B_DATA, T, MAT, B_DATA, MAT, B_DATA]);
+      const { loadBatchReportData, renderBatchReportPdf } = await import("./reports/batchCompletionReport");
+      const d = await loadBatchReportData(B_DATA, T);
+      expect(d.ccp).toEqual([
+        { ccpType: "CCP-1B", processName: "증숙", status: "approved", rows: 2, confirmedRows: 2, deviations: 0 },
+        { ccpType: "CCP-4P", processName: null, status: "approved", rows: 3, confirmedRows: 2, deviations: 1 },
+      ]);
+      expect(d.materials).toEqual([
+        { materialName: "시험용 찹쌀", lotNumber: "QA-LOT-A", qty: 4, unit: "kg" },
+        { materialName: "시험용 찹쌀", lotNumber: "QA-LOT-B", qty: 2, unit: "kg" },
+      ]);
+      expect(d.productLots.map((l) => l.lotNumber)).toEqual(["QA-FG-1"]);
+      await expect(loadBatchReportData(B_DATA, 99)).rejects.toThrow(/찾을 수 없습니다/);
+      const pdf = await renderBatchReportPdf(d);
+      expect(pdf.subarray(0, 5).toString()).toBe("%PDF-");
+      expect(pdf.toString("latin1")).toMatch(/NanumGothic/); // 한글 글꼴이 실제로 들어감 (기본 Helvetica 아님)
+      expect(pdf.toString("latin1")).not.toMatch(/\/BaseFont \/Helvetica/);
     });
   });
 });

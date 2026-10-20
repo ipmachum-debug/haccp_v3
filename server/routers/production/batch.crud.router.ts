@@ -565,61 +565,51 @@ export const batchCrudRouter = router({
 
     /** 배치 상세 조회 (최신 PDF URL 포함) */
     /**
-     * 배치 완료 보고서 열기 (2026-10-20, 신규 회사 시험 P1: 저장된 주소가 Access Denied).
-     *   저장소는 비공개 그대로 — 저장된 주소(영구 주소 또는 만료된 서명 주소)에서 파일 위치만 꺼내
-     *   누를 때마다 새 서명 주소(1시간)를 발급한다 (건강진단서 다운로드와 같은 방식). 이 회사의 생산 건·이 회사 경로만.
-     */
-    completionReportLink: tenantRequiredProcedure
-      .input(z.object({ batchId: z.number() }))
-      .mutation(async ({ input, ctx }) => {
-        const { getRawConnection } = await import("../../db");
-        const conn: any = await getRawConnection();
-        const [[b]]: any = await conn.execute(
-          `SELECT completion_report_url AS u FROM h_batches WHERE id = ? AND tenant_id = ?`,
-          [input.batchId, ctx.tenantId],
-        );
-        if (!b) throw new TRPCError({ code: "NOT_FOUND", message: "생산 건을 찾을 수 없습니다." });
-        const { reportKeyFromUrl, storageGet, probeStorageUrl } = await import("../../storage");
-        const key = reportKeyFromUrl(b.u ?? null, ctx.tenantId);
-        if (!key) throw new TRPCError({ code: "NOT_FOUND", message: "완료 보고서 파일을 찾을 수 없습니다 — [다시 만들기]로 새로 만드세요." });
-        const { url } = await storageGet(key);
-        // 열기 전에 실제로 읽히는지 1바이트 확인 — 'Access Denied' XML 페이지를 사용자에게 열지 않는다
-        const probe = await probeStorageUrl(url);
-        if (probe.result === "denied" || probe.result === "missing") {
-          // 진단은 서버 로그에만 (서명 값은 남기지 않음 — 파일 위치·상태만)
-          console.error("[completionReportLink] 보고서를 읽을 수 없음", { batchId: input.batchId, tenantId: ctx.tenantId, key: key.slice(0, 120), status: probe.status, tenantFolder: key.startsWith(`tenant-${ctx.tenantId}/`) });
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "저장된 보고서 파일을 열 수 없습니다 — [다시 만들기]로 새로 만드세요. (계속되면 저장소 읽기 권한 확인이 필요합니다)" });
-        }
-        return { url };
-      }),
-
-    /**
-     * 배치 완료 보고서 다시 만들기 (2026-10-20) — 같은 생산 건의 저장된 기록으로 PDF 를 새로 만들어 회사 폴더에 올리고,
-     *   새 파일 위치를 생산 건에 기록한 뒤 바로 읽히는지 확인해 새 서명 주소를 돌려준다. 완료된 생산 건만, 관리자만.
+     * 배치 완료 보고서 다시 만들기 (2026-10-20) — 저장된 기록으로 PDF 를 새로 만들어 회사 폴더에 올리고,
+     *   서버에서 새 파일이 실제로 읽히는지 확인한 **뒤에만** 생산 건의 보고서 위치를 새 파일로 바꾼다 (실패하면 기존 위치 그대로).
+     *   기존 파일은 지우지 않는다. 성공·실패 모두 변경 이력(감사 기록)에 남긴다. 완료된 생산 건만, 관리자만.
+     *   열기는 /api/batch-report/download/:batchId (서버 경유) — 브라우저가 저장소에 직접 가지 않는다.
      *   생산·재고·기록지 값은 바꾸지 않는다 (보고서 파일과 그 위치만).
      */
     regenerateCompletionReport: tenantRequiredProcedure
       .input(z.object({ batchId: z.number() }))
       .mutation(async ({ input, ctx }) => {
         if (!["admin", "super_admin"].includes(String(ctx.user?.role ?? ""))) throw new TRPCError({ code: "FORBIDDEN", message: "보고서는 관리자가 다시 만들 수 있습니다." });
-        const { getRawConnection } = await import("../../db");
+        const { getRawConnection, createAuditLog } = await import("../../db");
         const conn: any = await getRawConnection();
-        const [[b]]: any = await conn.execute(`SELECT id, status FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.batchId, ctx.tenantId]);
+        const [[b]]: any = await conn.execute(`SELECT id, status, completion_report_url AS u FROM h_batches WHERE id = ? AND tenant_id = ?`, [input.batchId, ctx.tenantId]);
         if (!b) throw new TRPCError({ code: "NOT_FOUND", message: "생산 건을 찾을 수 없습니다." });
         if (!["completed", "under_review", "shipped", "archived"].includes(String(b.status))) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "완료된 생산 건만 보고서를 만들 수 있습니다." });
+        const audit = (ok: boolean, detail: Record<string, unknown>) =>
+          createAuditLog({ tenantId: ctx.tenantId, userId: ctx.user.id, userRole: String(ctx.user?.role ?? ""), action: ok ? "batch.completion_report.regenerate" : "batch.completion_report.regenerate_failed", entityType: "batch", entityId: input.batchId,
+            changes: detail, ipAddress: "", description: ok ? "배치 완료 보고서 다시 만듦" : "배치 완료 보고서 다시 만들기 실패 (기존 위치 유지)" } as any).catch(() => undefined);
         const { generateBatchCompletionReport } = await import("../../reports/batchCompletionReport");
-        const stored = await generateBatchCompletionReport(input.batchId, ctx.tenantId);
-        await conn.execute(`UPDATE h_batches SET completion_report_url = ? WHERE id = ? AND tenant_id = ?`, [stored, input.batchId, ctx.tenantId]);
         const { reportKeyFromUrl, storageGet, probeStorageUrl } = await import("../../storage");
-        const key = reportKeyFromUrl(stored, ctx.tenantId);
-        if (!key) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "보고서를 올렸지만 파일 위치를 알 수 없습니다." });
-        const { url } = await storageGet(key);
-        const probe = await probeStorageUrl(url);
-        if (probe.result === "denied" || probe.result === "missing") {
-          console.error("[regenerateCompletionReport] 새로 올린 보고서도 읽을 수 없음 — 저장소 읽기 권한 확인 필요", { batchId: input.batchId, tenantId: ctx.tenantId, key: key.slice(0, 120), status: probe.status });
-          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "보고서는 새로 만들었지만 저장소에서 읽을 수 없습니다 — 서버 저장소 읽기 권한 확인이 필요합니다 (운영 담당)." });
+        let stored: string;
+        try {
+          stored = await generateBatchCompletionReport(input.batchId, ctx.tenantId);
+        } catch (e: any) {
+          await audit(false, { stage: "generate", message: String(e?.message ?? "").slice(0, 200) });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `보고서를 만들지 못했습니다: ${String(e?.message ?? "").slice(0, 120)}` });
         }
-        return { url };
+        const key = reportKeyFromUrl(stored, ctx.tenantId);
+        const probe = key ? await probeStorageUrl((await storageGet(key)).url) : { result: "missing" as const, status: undefined };
+        if (!key || probe.result === "denied" || probe.result === "missing") {
+          console.error("[regenerateCompletionReport] 새로 올린 보고서를 서버에서도 읽을 수 없음 — 기존 위치 유지", { batchId: input.batchId, tenantId: ctx.tenantId, key: key?.slice(0, 120), status: probe.status });
+          await audit(false, { stage: "verify", key, status: probe.status ?? null });
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: "보고서는 새로 만들었지만 저장소에서 읽을 수 없습니다 — 기존 보고서 위치는 그대로입니다. 서버 저장소 읽기 권한 확인이 필요합니다 (운영 담당)." });
+        }
+        // 확인된 뒤에만 위치 교체 (조건: 그 사이 다른 사람이 바꾸지 않았을 때)
+        const [upd]: any = await conn.execute(
+          `UPDATE h_batches SET completion_report_url = ? WHERE id = ? AND tenant_id = ? AND (completion_report_url <=> ?)`,
+          [stored, input.batchId, ctx.tenantId, b.u ?? null],
+        );
+        if (Number(upd?.affectedRows ?? 0) !== 1) {
+          await audit(false, { stage: "swap", key, reason: "concurrent_change" });
+          throw new TRPCError({ code: "CONFLICT", message: "그 사이 다른 사람이 보고서를 바꿨습니다 — 화면을 새로 고친 뒤 여세요." });
+        }
+        await audit(true, { previousKey: reportKeyFromUrl(b.u ?? null, ctx.tenantId), newKey: key, verified: probe.result });
+        return { ok: true, openPath: `/api/batch-report/download/${input.batchId}` };
       }),
 
     getById: tenantRequiredProcedure

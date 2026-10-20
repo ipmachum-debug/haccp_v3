@@ -431,13 +431,14 @@ export async function completeBatch(params: {
     // 회사 폴더(tenant-N/reports/…)에 저장 — 다른 회사 파일과 같은 경로 규칙 (2026-10-20: 회사 없이 reports/… 에 저장돼 읽기 거부)
     pdfUrl = await generateBatchCompletionReport(batchId, tenantId);
     pdfGenerated = true;
-    console.log(`[Batch Completion] PDF report generated: ${pdfUrl}`);
+    // 로그에 저장 주소(서명 포함 가능)를 남기지 않는다
+    console.log(`[Batch Completion] PDF report generated (batch ${batchId})`);
 
     // PDF URL을 DB에 저장
     await db
       .update(hBatches)
       .set({ completionReportUrl: pdfUrl })
-      .where(eq(hBatches.id, batchId));
+      .where(and(eq(hBatches.id, batchId), eq(hBatches.tenantId, tenantId)));
   } catch (error) {
     console.error(`[Batch Completion] PDF generation failed:`, error);
     // PDF 생성 실패해도 배치 완료는 진행
