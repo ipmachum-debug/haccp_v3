@@ -11,6 +11,8 @@ export type ClRecord = {
   clHeatTempLo?: string | number | null;
   clPressureMpaLo?: string | number | null;
   clProductTempLo?: string | number | null;
+  clHeatTempHi?: string | number | null;
+  clPressureMpaHi?: string | number | null;
   clMetalSensitivity?: number | null;
   clFeMm?: string | number | null;
   clSusMm?: string | number | null;
@@ -21,6 +23,8 @@ export type ClRecord = {
 export type ClValues = {
   heatTimeMinLo?: number; heatTimeMinHi?: number;
   heatTempLo?: number; pressureMpaLo?: number; productTempLo?: number;
+  /** 상한 (2026-10-20) — 비어 있으면 상한 없음. 품온 상한은 1B 의 온도 상한 */
+  heatTempHi?: number; pressureMpaHi?: number; productTempHi?: number;
   metalSensitivity?: number; feMm?: number; susMm?: number;
 };
 export const CCP_CL_DEFAULTS: Record<string, ClValues> = {};
@@ -38,6 +42,8 @@ export function clFromRecord(rec: ClRecord): ClValues {
     heatTimeMinLo: num(rec.clHeatTimeMinLo), heatTimeMinHi: num(rec.clHeatTimeMinHi),
     heatTempLo: num(rec.clHeatTempLo), pressureMpaLo: num(rec.clPressureMpaLo),
     productTempLo: num(rec.clProductTempLo) ?? (rec.ccpType === "CCP-1B" ? num(rec.clHeatTempLo) : undefined),
+    heatTempHi: num(rec.clHeatTempHi), pressureMpaHi: num(rec.clPressureMpaHi),
+    productTempHi: rec.ccpType === "CCP-1B" ? num(rec.clHeatTempHi) : undefined,
     ...metal,
   };
 }
@@ -50,8 +56,8 @@ export const clHasAny = (cl: ClValues, keys: Array<keyof ClValues>) => keys.some
 export const clOk = (v: number, lo?: number, hi?: number) =>
   (lo == null || (Number.isFinite(v) && v >= lo)) && (hi == null || (Number.isFinite(v) && v <= hi));
 export function clSummary(ccpType: string, cl: ClValues): string {
-  if (ccpType === "CCP-2B") return `가열시간 ${clRange(cl.heatTimeMinLo, cl.heatTimeMinHi, "분")} · 온도 ${clMin(cl.heatTempLo, "°C 이상")}`;
-  if (ccpType === "CCP-1B") return [`가열시간 ${clRange(cl.heatTimeMinLo, cl.heatTimeMinHi, "분")}`, cl.pressureMpaLo != null ? `압력 ${cl.pressureMpaLo}MPa 이상` : null, `품온 ${clMin(cl.productTempLo, "°C 이상")}`].filter(Boolean).join(" · ");
+  if (ccpType === "CCP-2B") return `가열시간 ${clRange(cl.heatTimeMinLo, cl.heatTimeMinHi, "분")} · 온도 ${clRange(cl.heatTempLo, cl.heatTempHi, "°C")}`;
+  if (ccpType === "CCP-1B") return [`가열시간 ${clRange(cl.heatTimeMinLo, cl.heatTimeMinHi, "분")}`, cl.pressureMpaLo != null || cl.pressureMpaHi != null ? `압력 ${clRange(cl.pressureMpaLo, cl.pressureMpaHi, "MPa")}` : null, `품온 ${clRange(cl.productTempLo, cl.productTempHi, "°C")}`].filter(Boolean).join(" · ");
   if (ccpType === "CCP-4P") return `감도 ${cl.metalSensitivity} · Fe ${cl.feMm}mmΦ 불검출 · SUS ${cl.susMm}mmΦ 불검출`;
   return "-";
 }

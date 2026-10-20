@@ -375,6 +375,7 @@ export async function planRecovery(conn: any, input: RecoveryInput): Promise<Rec
       errors.push(`#${bid} 원 출고 BOM 버전(${logVersions.join(",")})과 지금 계획 버전(${versionId ?? "-"})이 다릅니다.`);
     }
     if (meta?.bom.massBasis === "error") errors.push(`#${bid} BOM 계산 오류: ${meta.bom.error ?? ""}`);
+    if (meta?.bom.qtyError) errors.push(`#${bid} BOM 계산 오류: ${meta.bom.qtyError}`);
     const myInst = heatInst.filter((i) => Number(i.batch_id) === bid);
     const planGroups = new Set((plan?.processes ?? []).map((p) => p.processGroupId));
     const instGroups = new Set(myInst.map((i) => Number(i.process_group_id)));

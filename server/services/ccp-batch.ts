@@ -40,6 +40,8 @@ export interface ProcessGroupInfo {
   time_max: number | null;
   /** 공정 가열 운전시간 — ccp_time_profiles (활성 1개일 때만, 여러 개면 null = 확인 필요) */
   profile_time_min?: number | null;
+  /** 활성 시간 프로필 수 — 0 / 1 / 여러 개를 구분해 계획에 넘긴다 (여러 개 ≠ 없음, 2026-10-20 검토 2) */
+  profile_count?: number;
   pressure_min: number | null;
   pressure_max: number | null;
   mapping_source: "BOM" | "MANUAL" | "ALWAYS";
@@ -141,6 +143,7 @@ export async function getProcessGroupsForProduct(args: {
     time_min:        r.time_min        != null ? Number(r.time_min)        : null,
     time_max:        r.time_max        != null ? Number(r.time_max)        : null,
     profile_time_min: Number(r.profile_count) === 1 && r.profile_time_min != null ? Number(r.profile_time_min) : null,
+    profile_count:   Number(r.profile_count ?? 0) || 0,
     pressure_min:    r.pressure_min    != null ? Number(r.pressure_min)    : null,
     pressure_max:    r.pressure_max    != null ? Number(r.pressure_max)    : null,
     mapping_source:  source,
@@ -322,6 +325,7 @@ export function toPlannerGroup(g: ProcessGroupInfo, equipments: EquipmentAssignm
     intervalMin: g.equip_interval_min ?? 10,
     batchSize: Math.max(1, g.equip_batch_size ?? 1),
     profileTimeMin: g.profile_time_min ?? null,
+    profileCount: g.profile_count ?? (g.profile_time_min != null ? 1 : 0),
     equipments: equipments.map((e) => ({
       id: e.equipment_id, name: e.equipment_name, sortOrder: e.sort_order,
       defaultTemperature: e.default_temperature, defaultPressureMpa: e.default_pressure,

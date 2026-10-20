@@ -2,7 +2,7 @@
  * 하루 CCP 가열공정 계획 (PR-B) — 미리보기와 실제 생성이 같이 쓰는 순수 함수
  */
 import { describe, it, expect } from "vitest";
-import { planDay, roundsFor, splitInput, occupancyFor, type PlannerGroup, type PlannerItem, type PlannerEquipment } from "./lib/production/ccpDayPlanner";
+import { planDay, roundsFor, splitInput, occupancyFor, heatingFor, type PlannerGroup, type PlannerItem, type PlannerEquipment } from "./lib/production/ccpDayPlanner";
 
 const eq = (id: number, o: Partial<PlannerEquipment> = {}): PlannerEquipment => ({
   id, name: `교반기${id}`, sortOrder: id, defaultTemperature: 99, defaultPressureMpa: 0.18, cycleTotalMin: 70, defaultTimeMin: 10, ...o,
@@ -70,6 +70,20 @@ describe("planDay — 설비 시간표", () => {
   it("가열 운전시간은 공정 프로필 → 설비 기본, 한계기준 하한을 쓰지 않음", () => {
     const [p] = planDay([item({ plannedKg: 10, groups: [group({ profileTimeMin: null, equipments: [eq(1, { defaultTimeMin: 12, cycleTotalMin: 40 })] })] })]);
     expect(p.processes[0].rounds[0]).toMatchObject({ heatingMin: 12, occupancyMin: 40 });
+  });
+  it("시간 프로필 0/1/여러 개를 구분 — 여러 개면 가열시간을 정하지 않고 설비 기본으로 내려가지 않음 (검토 2)", () => {
+    expect([heatingFor(0, null, 10), heatingFor(1, 35, 10), heatingFor(2, null, 10), heatingFor(2, 35, 10), heatingFor(0, null, null), heatingFor(1, null, 12)])
+      .toEqual([10, 35, null, null, null, 12]);
+    // Codex 재현: 활성 프로필 2개(10분/35분), 설비 기본 10분·사이클 34분 → 이전: 가열 10분(설비 기본) / 지금: 가열 비움, 점유는 사이클 34분
+    const many = group({ profileTimeMin: null, profileCount: 2, equipments: [eq(1, { defaultTimeMin: 10, cycleTotalMin: 34 })] });
+    const [p] = planDay([item({ plannedKg: 20, groups: [many] })]);
+    expect(p.processes[0].rounds.map((r) => [r.heatingMin, r.occupancyMin, r.plannedStart])).toEqual([[null, 34, "05:00"], [null, 34, "05:34"]]);
+    expect(p.processes[0].warnings.join()).toMatch(/프로필\)이 2개라 가열 운전시간을 정하지 않았습니다/);
+    // 1개 → 프로필 값, 0개 → 설비 기본 (기존과 같음)
+    expect(planDay([item({ plannedKg: 10, groups: [group({ profileTimeMin: 35, profileCount: 1, equipments: [eq(1, { cycleTotalMin: 34 })] })] })])[0].processes[0].rounds[0]).toMatchObject({ heatingMin: 35, occupancyMin: 59 });
+    expect(planDay([item({ plannedKg: 10, groups: [group({ profileTimeMin: null, profileCount: 0, equipments: [eq(1, { cycleTotalMin: 34 })] })] })])[0].processes[0].rounds[0]).toMatchObject({ heatingMin: 10, occupancyMin: 34 });
+    // 여러 개 + 설비 기본 없음도 그대로 비움
+    expect(planDay([item({ plannedKg: 10, groups: [group({ profileTimeMin: null, profileCount: 3, equipments: [eq(1, { defaultTimeMin: null, cycleTotalMin: 34 })] })] })])[0].processes[0].rounds[0]).toMatchObject({ heatingMin: null, occupancyMin: 34 });
   });
   it("설비 없는 공정 → 설비·시각 비움 + 안내, 설정값을 한계기준으로 채우지 않음", () => {
     const [p] = planDay([item({ groups: [group({ equipments: [] })] })]);
@@ -168,3 +182,35 @@ describe("설비마다 다른 작업 시작 시각 (Codex #605 재검토 7)", ()
     expect(p.processes[0].rounds[0].plannedStart).toBe("06:30");
   });
 });
+
+describe("자정 — 하루 계획은 24:00 안에서만 (2026-10-20 BOM·설비 시간·인쇄 기준 검토 5)", () => {
+  const one = (o: Partial<PlannerEquipment> = {}) => group({ profileTimeMin: null, profileCount: 0, workStartTime: null, equipments: [eq(1, { cycleTotalMin: 30, defaultTimeMin: 10, ...o })] });
+  it("23:50 시작 30분 점유 → 끝 24:20 이라 막음 (HH:mm 으로 감싸 00:20 으로 저장하지 않음)", () => {
+    const [p] = planDay([item({ plannedKg: 10, startTime: "23:50", groups: [one()] })]);
+    expect(p.blocking.join()).toMatch(/1회차\(교반기1\)가 자정을 넘깁니다 \(끝 24:20\)/);
+  });
+  it("Codex 재현: 같은 설비 23:50~ 이미 점유 + 다음 계획 → 다음 날로 넘어가 막힘 (이전: 00:20 으로 저장 → 다시 읽으면 기준일 20분 → 세 번째 계획이 같은 00:20 에 배정)", () => {
+    const busy = [{ equipmentId: 1, processGroupId: 1, startMin: 23 * 60 + 50, endMin: 24 * 60 + 20 }];
+    const [p] = planDay([item({ plannedKg: 10, startTime: "09:00", groups: [one()] })], { busy });
+    expect(p.blocking.length).toBe(1);
+    expect(p.processes[0].rounds[0].plannedStart).toBe("00:20"); // 표시 값일 뿐 — blocking 이라 저장되지 않는다
+  });
+  it("24시간을 넘는 계획(회차가 많음) → 막힘, 자정 전에 끝나는 계획은 그대로", () => {
+    const [long] = planDay([item({ plannedKg: 600, subBatchKg: 10, startTime: "05:00", groups: [one({ cycleTotalMin: 30 })] })]);
+    expect(long.roundsCount).toBe(60);
+    expect(long.blocking.length).toBe(1);
+    const [ok] = planDay([item({ plannedKg: 30, startTime: "23:00", groups: [one({ cycleTotalMin: 20 })] })]);
+    expect(ok.processes[0].rounds.map((r) => r.plannedStart)).toEqual(["23:00", "23:20", "23:40"]);
+    expect(ok.blocking).toEqual([]);
+  });
+  it("여러 공정이 같은 실제 설비를 쓰면 같은 설비 ID 로 이어서 배정 — 뒤 공정이 자정을 넘으면 그 공정만 막힘 사유", () => {
+    const shared = eq(7, { cycleTotalMin: 60, defaultTimeMin: 10 });
+    const g1 = group({ id: 1, name: "교반", profileTimeMin: null, profileCount: 0, workStartTime: "22:00", equipments: [shared] });
+    const g2 = group({ id: 2, name: "증숙", profileTimeMin: null, profileCount: 0, workStartTime: "22:00", equipments: [shared] });
+    const [p] = planDay([item({ plannedKg: 10, inputByGroup: {}, groups: [g1, g2] })], { busy: [{ equipmentId: 7, processGroupId: 9, startMin: 21 * 60, endMin: 22 * 60 + 30 }] });
+    expect(p.processes.map((x) => x.rounds[0].plannedStart)).toEqual(["22:30", "23:30"]);
+    expect(p.processes[0].blocking).toEqual([]);
+    expect(p.processes[1].blocking.join()).toMatch(/증숙 1회차.*끝 24:30/);
+  });
+});
+

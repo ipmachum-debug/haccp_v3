@@ -670,7 +670,7 @@ export const batchCrudRouter = router({
         return {
           success: true,
           setupMissing: replan?.setupMissing ?? [],
-          message: replan?.setupMissing?.length ? `수정했지만 준비가 끝나지 않았습니다 (${replan.setupMissing.slice(0, 3).join(", ")}) — 같은 수정을 다시 저장하면 이어서 준비합니다.` : "배치가 수정되었습니다.",
+          message: replan?.setupMissing?.length ? `수정했지만 준비가 끝나지 않았습니다 (${replan.setupMissing.slice(0, 3).join(", ")}) — 같은 수정을 다시 저장하면 이어서 준비합니다.` : replan?.resumed ? "멈춰 있던 준비를 이어서 마쳤습니다." : "배치가 수정되었습니다.",
         };
       }),
     

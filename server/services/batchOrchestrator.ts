@@ -85,6 +85,26 @@ export async function resolveToHProductId(
 }
 
 /**
+ * 생산 건 하나를 만들거나 다시 계획하기 전에 볼 계획 막힘 — 미리보기(batch.previewDay)와 같은 planCcpForDay 결과에서
+ *   BOM 줄 양 계약 위반(qtyError)과 자정을 넘는 회차(blocking). 읽기만 한다.
+ */
+export async function planProblems(a: {
+  tenantId: number; workDate: string; productId: number; plannedKg: number; startTime: string;
+  startTimeOverride?: string | null; excludedEquipmentIds?: number[]; excludeBatchId?: number | null;
+}): Promise<string[]> {
+  const { planCcpForDay } = await import("./ccp-batch");
+  const day = await planCcpForDay({
+    tenantId: a.tenantId, workDate: a.workDate, excludedEquipmentIds: a.excludedEquipmentIds, excludeBatchId: a.excludeBatchId ?? null,
+    rows: [{ rowKey: "check", productId: a.productId, plannedKg: a.plannedKg, startTime: a.startTime, startTimeOverride: a.startTimeOverride ?? null }],
+  });
+  const out: string[] = [];
+  const bom = day.meta[0]?.bom;
+  if (bom?.qtyError) out.push(`원료 양 계산 불가 — ${bom.qtyError}`);
+  out.push(...(day.plans[0]?.blocking ?? []));
+  return out;
+}
+
+/**
  * 단일 배치 생성 파이프라인 (2026-10-20, 생산계획 생애주기 검토 1·4 — 생성 계약)
  *
  *   1) 생산 건 머리글 + 원료 투입 계획 = 한 트랜잭션 (createBatch). 요청 줄 번호·예정 표시·준비 미완(setup_pending=1)을 같은 INSERT 에.
@@ -135,6 +155,16 @@ export async function createSingleBatch(
           hasMetalDetection: ccpValidation.hasMetalDetection,
         },
       });
+    }
+    // 미리보기 막힘 사유와 같은 계획 함수로 먼저 본다 (2026-10-20 검토 1·5) — 만들고 나서 준비가 실패해 반쯤 남지 않게.
+    //   BOM 줄 양을 계약대로 정할 수 없음(원료 투입 계획 줄은 createBatch 가 같은 계약으로 다시 막음) · 자정을 넘는 회차.
+    {
+      const problems = await planProblems({ tenantId: input.tenantId, workDate: input.workDate, productId: input.productId, plannedKg: input.plannedQuantityKg,
+        startTime: input.startTime, startTimeOverride: input.startTimeOverride ?? null, excludedEquipmentIds: input.excludedEquipmentIds });
+      if (problems.length) {
+        const { TRPCError } = await import("@trpc/server");
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: problems.join(" / ") });
+      }
     }
     // === 1. 배치 생성 (머리글 + 원료 투입 계획 한 트랜잭션) ===
     // KST 날짜를 UTC 변환 없이 정확히 유지하기 위해 noon(12:00)으로 설정
@@ -260,6 +290,7 @@ export async function completeBatchSetup(a: SingleBatchInput & { batchId: number
             processGroupId: group.id, processGroupName: group.name, bomBatchKg, plannedQtyKg: a.plannedQuantityKg, writerId: a.userId,
             clHeatTimeMinLo: group.time_min ?? undefined, clHeatTimeMinHi: group.time_max ?? undefined, clHeatTempLo: group.temperature_min ?? undefined,
             clPressureMpaLo: group.pressure_min ?? undefined, clProductTempLo: group.temperature_min ?? undefined,
+            clHeatTempHi: group.temperature_max ?? undefined, clPressureMpaHi: group.pressure_max ?? undefined,
           });
         } catch (formErr: any) {
           console.error(`[batchSetup] 기록지 준비 실패 (${group.ccp_type}/${group.name}) batch=${batchId}:`, formErr?.message || formErr);

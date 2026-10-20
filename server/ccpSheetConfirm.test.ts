@@ -80,6 +80,20 @@ describe("validateSheetForConfirm", () => {
     const pass = row({ batchSeq: 2, measurementTime: null, heatTimeMin: null, equipmentType: "passage", passTimeStart: "08:31", passTimeEnd: "09:58", passQty: null });
     expect(validateSheetForConfirm(r4, [pass], NOW)[0]).toMatch(/통과량이 없습니다/);
   });
+  it("온도·압력 상한 (검토 4): 설정된 상한만 판정, 경계값은 적합, 빈 상한은 단방향 그대로", () => {
+    // Codex 예: 상한 99℃ 에 110℃ — 이전에는 하한만 있어 통과
+    const hi = rec({ clHeatTempHi: 99, clPressureMpaHi: 0.2 });
+    expect(validateSheetForConfirm(hi, [row({ tempCenterC: 110 })], NOW).join()).toMatch(/중심 품온 110 > 99℃.*'적합'/);
+    expect(validateSheetForConfirm(hi, [row({ tempCenterC: 99, tempEdgeC: 99, pressureMpa: 0.2 })], NOW)).toEqual([]); // 정확히 경계
+    expect(validateSheetForConfirm(hi, [row({ pressureMpa: 0.21 })], NOW).join()).toMatch(/압력 0.21 > 0.2MPa/);
+    expect(validateSheetForConfirm(rec(), [row({ tempCenterC: 110, tempEdgeC: 110 })], NOW)).toEqual([]); // 상한 없음 → 단방향
+    // 2B 가열온도 상한, 부적합 + 이탈내용·개선조치면 제출 가능
+    const b2 = rec({ ccpType: "CCP-2B", clHeatTempLo: 180, clHeatTempHi: 200, clPressureMpaLo: null, clProductTempLo: null });
+    expect(validateSheetForConfirm(b2, [row({ heatTempC: 205 })], NOW).join()).toMatch(/가열온도 205 > 200℃/);
+    expect(validateSheetForConfirm(b2, [row({ heatTempC: 205, result: "부적합", deviationNote: "과열", correctiveAction: "폐기" })], NOW)).toEqual([]);
+    // 상한만 있는 기준도 값이 있어야 함
+    expect(validateSheetForConfirm(rec({ clPressureMpaLo: null, clPressureMpaHi: 0.2 }), [row({ pressureMpa: null })], NOW).join()).toMatch(/압력이 없습니다/);
+  });
   it("승인된 기록지는 다시 제출할 수 없음", () => {
     expect(validateSheetForConfirm(rec({ status: "approved" }), [row()], NOW)).toEqual(["이미 승인된 기록지입니다."]);
   });

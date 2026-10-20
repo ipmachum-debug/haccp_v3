@@ -12,6 +12,7 @@
  *    지정 소실을 자동으로 구분할 근거가 없으므로 버전 데이터를 그대로 따른다. 소실은 화면에서 다시 지정한다.)
  * 공정 지정은 원료 행에 있는 그대로 읽기만 하고 새로 지정하지 않는다.
  */
+import { bomRowAmount, BomQtyError } from "./batchInputPlan";
 
 export interface CcpBomRow {
   version_id: number | string;
@@ -24,6 +25,7 @@ export interface CcpBomRow {
   adjusted_weight_kg?: string | number | null;
   material_name?: string | null;
   batch_target_kg?: string | number | null;
+  is_additional?: number | string | null;
 }
 
 export function isWaterName(name: string | null | undefined): boolean {
@@ -31,14 +33,18 @@ export function isWaterName(name: string | null | undefined): boolean {
   return n.includes("정제수") || n.includes("purified water") || n === "water" || n === "물";
 }
 
-/** 원료 행 하나의 kg — adjusted_weight_kg > corrected_quantity > quantity, % 는 그 버전의 batch_target_kg 기준 */
+/**
+ * 원료 행 하나의 1배치(batch_target_kg) kg — 조정량(adjusted_weight_kg, 공정 kg)이 있으면 그 값,
+ * 아니면 원료 계획과 같은 BOM 줄 계약(bomRowAmount): 주원료 % 는 그 버전의 batch_target_kg 기준, 추가 원재료 kg·g 는 절대량.
+ * 계약으로 정할 수 없는 줄(% 가 아닌 주원료 등)은 BomQtyError — 0 이나 kg 로 추정하지 않는다 (2026-10-20 검토 1).
+ */
 export function rowKg(r: CcpBomRow): number {
   if (r.adjusted_weight_kg != null) return parseFloat(String(r.adjusted_weight_kg)) || 0;
-  const raw = parseFloat(String(r.corrected_quantity || r.quantity || "0")) || 0;
+  const a = bomRowAmount({ quantity: r.quantity ?? null, correctedQuantity: r.corrected_quantity, unit: r.unit, isAdditional: r.is_additional != null ? Number(r.is_additional) : null });
+  if (a.kind === "invalid") throw new BomQtyError(`${r.material_name ?? "원료"}: ${a.reason}`);
+  if (a.kind === "kg") return a.kg;
   const target = parseFloat(String(r.batch_target_kg ?? "")) || 0;
-  if (r.unit === "%") return target > 0 ? (raw / 100) * target : 0;
-  if (r.unit === "g") return raw / 1000;
-  return raw;
+  return target > 0 ? (a.pct / 100) * target : 0;
 }
 
 /**
@@ -62,7 +68,7 @@ export function ccpInputKgByGroup(rows: CcpBomRow[], chosenVersionId: number): M
 /** 버전 하나의 공정 지정 원료 행. 바인딩: [versionId] */
 export const CCP_BOM_ROWS_SQL = `
   SELECT v.id AS version_id, v.version_no, v.approval_status, v.batch_target_kg,
-         i.process_group_id, i.corrected_quantity, i.quantity, i.unit, i.adjusted_weight_kg,
+         i.process_group_id, i.corrected_quantity, i.quantity, i.unit, i.adjusted_weight_kg, i.is_additional,
          i.material_id, i.material_type, im.item_name AS material_name, im.base_unit
     FROM h_mf_report_versions v
     JOIN h_mf_ingredients i ON i.mf_report_version_id = v.id

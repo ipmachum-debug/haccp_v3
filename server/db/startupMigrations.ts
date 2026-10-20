@@ -1093,6 +1093,10 @@ async function ensureInboundDocumentSchema(conn: any) {
   await addCol("h_ccp_form_records", "confirmed_by", "`confirmed_by` bigint NULL");
   await addCol("h_ccp_form_records", "confirmed_at", "`confirmed_at` timestamp NULL");
   await addCol("h_ccp_form_records", "confirmed_rows_version", "`confirmed_rows_version` int NULL");
+  // 기록지 한계기준 상한 스냅샷 — 공정 설정의 온도·압력 상한을 판정·현장 확인·인쇄까지 같은 값으로 (2026-10-20 BOM·설비 시간·인쇄 기준 검토 4).
+  //   기존 기록지는 NULL (상한 없음 = 이전과 같은 단방향 기준). 공정 설정 값을 기존 기록지에 채우지 않는다.
+  await addCol("h_ccp_form_records", "cl_heat_temp_hi", "`cl_heat_temp_hi` decimal(5,1) NULL");
+  await addCol("h_ccp_form_records", "cl_pressure_mpa_hi", "`cl_pressure_mpa_hi` decimal(5,3) NULL");
   // 금속검출 통과량 단위 — 통과량 = 생산량(SKU 판매단위 또는 kg), 인쇄에 단위 표기 (2026-10-18)
   await addCol("h_ccp_form_rows", "pass_unit", "`pass_unit` varchar(20) NULL");
   // 금속검출 통과 행 = 생산 건 + SKU 번호 (2026-10-20, #611 추가 검토 3) — 이름으로 합치지 않는다. 기존 행은 NULL
@@ -1209,6 +1213,8 @@ export const REQUIRED_COLUMNS: Array<{ table: string; column: string; why: strin
   { table: "h_ledger_event_links", column: "event_key", why: "원장 중복 정리 — 사건·원 거래·보충 거래 연결" },
   { table: "h_batch_line_issue_decisions", column: "decision", why: "애매한 투입 줄 출고 확인 결정" },
   { table: "h_ccp_form_records", column: "field_mode", why: "현장 확인 기록지 (행마다 확인)" },
+  { table: "h_ccp_form_records", column: "cl_heat_temp_hi", why: "기록지 온도 상한 스냅샷 — select(hCcpFormRecords) 가 읽는다 (BOM·설비 시간·인쇄 기준 검토 4)" },
+  { table: "h_ccp_form_records", column: "cl_pressure_mpa_hi", why: "기록지 압력 상한 스냅샷 — select(hCcpFormRecords) 가 읽는다 (BOM·설비 시간·인쇄 기준 검토 4)" },
   { table: "h_ccp_form_rows", column: "row_confirmed_at", why: "행 확인" },
   { table: "h_ccp_form_rows", column: "row_version", why: "행 버전 (확인 뒤 수정 무효)" },
   { table: "h_ccp_form_rows", column: "planned_time", why: "예정 시각 (측정 시각과 따로)" },

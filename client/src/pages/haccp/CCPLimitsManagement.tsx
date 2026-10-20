@@ -329,14 +329,19 @@ function ProcessGroupFormDialog({
                     <Input type="number" step="0.01" value={form.pressureMax} onChange={(e) => setForm({ ...form, pressureMax: e.target.value })} className="h-8 text-sm" placeholder="-" />
                   </div>
                   <div>
-                    <Label className="text-xs text-gray-500">최소 pH</Label>
+                    <Label className="text-xs text-gray-500">최소 pH <span className="text-[10px]">(참고 · 판정 안 함)</span></Label>
                     <Input type="number" step="0.1" value={form.phMin} onChange={(e) => setForm({ ...form, phMin: e.target.value })} className="h-8 text-sm" placeholder="-" />
                   </div>
                   <div>
-                    <Label className="text-xs text-gray-500">최대 pH</Label>
+                    <Label className="text-xs text-gray-500">최대 pH <span className="text-[10px]">(참고 · 판정 안 함)</span></Label>
                     <Input type="number" step="0.1" value={form.phMax} onChange={(e) => setForm({ ...form, phMax: e.target.value })} className="h-8 text-sm" placeholder="-" />
                   </div>
                 </div>
+                {/* 어떤 칸이 판정에 쓰이는지 (2026-10-20 검토 4) — 새로 만드는 기록지에 이 값이 고정되고, 이미 만든 기록지는 그대로 */}
+                <p className="mt-2 text-[11px] text-red-700/80" data-testid="cl-applies-note">
+                  기록지 판정·인쇄에 쓰는 칸: 가열(CCP-1B) 시간·온도(품온)·압력의 최소/최대, 가열(CCP-2B) 시간·온도의 최소/최대. 빈 칸은 그 방향 기준 없음.
+                  pH 와 2B 압력은 판정에 쓰지 않습니다. 바꾼 값은 새로 만드는 기록지부터 적용됩니다.
+                </p>
               </div>
 
               {/* 주기 · 모니터링 방법 · 시정 조치 — 기록지에 그대로 인쇄되는 문구 (회사마다 다름) */}

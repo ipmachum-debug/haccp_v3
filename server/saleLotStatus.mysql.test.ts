@@ -1183,6 +1183,68 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await loadCcpInputFromMassBasis(admin, bid + 999, T, 10)).toBeNull();
     });
   });
+  describe("BOM 줄 계약 — 원료 투입 계획 = CCP 투입량 해석 (2026-10-20, BOM·설비 시간·인쇄 기준 검토 1)", () => {
+    let createBatch: any;
+    beforeAll(async () => {
+      ({ createBatch } = await import("./db/production/batchCRUD"));
+    });
+    beforeEach(async () => {
+      for (const t of ["h_mf_reports", "h_mf_report_versions", "h_mf_ingredients", "h_batch_mass_basis", "h_batches", "h_batch_inputs", "item_master", "h_materials", "tenant_feature_settings"]) await q(`DELETE FROM ${t}`);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit) VALUES
+        (168, ?, 'M168', '멥쌀', 'kg'), (177, ?, 'M177', '설탕', 'kg'), (199, ?, 'M199', '천일염', 'g'), (191, ?, 'M191', '정제수', 'kg')`, [T, T, T, T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES
+        (168, ?, 'M168', '멥쌀', 'raw_material', 'kg', 1, 168), (177, ?, 'M177', '설탕', 'raw_material', 'kg', 1, 177),
+        (199, ?, 'M199', '천일염', 'raw_material', 'g', 1, 199), (191, ?, 'M191', '정제수', 'raw_material', 'kg', 1, 191)`, [T, T, T, T]);
+      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status, report_type) VALUES (390, ?, 39, 'R390', '2026-10-01', 'ACTIVE', 'BASIC')`, [T]);
+      await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg) VALUES (490, ?, 390, 1, '2026-10-01', 'APPROVED', 10)`, [T]);
+      // 주원료 % (멥쌀 62.6% · 천일염 5% — 천일염 재고 단위 g), 추가 원재료 설탕 500g (차감), 정제수 3kg (차감 안 함, 공정 2)
+      await q(`INSERT INTO h_mf_ingredients (id, mf_report_version_id, line_no, material_id, quantity, unit, is_deductible, material_type, process_group_id, adjusted_weight_kg, is_additional) VALUES
+        (4901, 490, 1, 168, '62.6', '%', 1, 'RAW', 2, NULL, 0), (4902, 490, 2, 199, '5', '%', 1, 'RAW', 2, NULL, 0),
+        (4903, 490, 3, 177, '500', 'g', 1, 'RAW', 2, NULL, 1), (4904, 490, 4, 191, '3', 'kg', 0, 'RAW', 2, 3, 1)`);
+    });
+    const newBatch = (kg: string, code: string) => createBatch({ siteId: 1, productId: 39, batchCode: code, plannedQuantity: kg, plannedDate: new Date("2026-10-21T00:00:00+09:00"), createdBy: 4, tenantId: T });
+    const inputs = async (bid: number) => (await q(`SELECT material_id, planned_quantity + 0 AS pq, unit FROM h_batch_inputs WHERE batch_id = ? ORDER BY material_id`, [bid])).map((r: any) => [Number(r.material_id), Number(r.pq), r.unit]);
+
+    it("기준 10kg · 생산 20kg: 주원료 % × 20, 추가 500g = 0.5kg × 2배, 천일염은 재고 단위 g 로 (이전: 설탕 '500%' → 100kg, 천일염 1 g)", async () => {
+      const bid = await newBatch("20", "BOM-20");
+      expect(await inputs(bid)).toEqual([[168, 12.52, "kg"], [177, 1, "kg"], [199, 1000, "g"]]);
+      // CCP 투입량(1회차 10kg 기준)도 같은 줄 해석: 6.26 + 0.5 + 0.5 + 정제수 조정량 3 = 10.26
+      const { loadPlanBom } = await import("./lib/production/ccpPlanContext");
+      const { getRawConnection } = await import("./db/connection");
+      const plan = await loadPlanBom(await getRawConnection(), T, 39, 20);
+      expect(plan.qtyError).toBeUndefined();
+      expect(plan.inputByGroup[2]).toBeCloseTo(10.26, 9);
+    });
+
+    it("부분 회차·기준량 96/100kg 도 같은 비례 (계획 475kg)", async () => {
+      for (const target of [96, 100]) {
+        await q(`DELETE FROM h_batch_inputs`); await q(`DELETE FROM h_batches`);
+        await q(`UPDATE h_mf_report_versions SET batch_target_kg = ? WHERE id = 490`, [target]);
+        const bid = await newBatch("475", `BOM-475-${target}`);
+        const got = new Map((await inputs(bid)).map((r: any) => [r[0], r[1]]));
+        expect(got.get(168)).toBeCloseTo(297.35, 3);
+        expect(got.get(177)).toBeCloseTo(Math.round(0.5 * 475 / target * 1000) / 1000, 3);
+      }
+    });
+
+    it("% 가 아닌 주원료 줄 → 생산 건을 만들지 않음 (머리글까지 되돌림), 미리보기 계획에도 같은 이유", async () => {
+      await q(`UPDATE h_mf_ingredients SET unit = 'kg' WHERE id = 4901`);
+      await expect(newBatch("20", "BOM-BAD")).rejects.toThrow(/\[원료 양\] 멥쌀: 주원료 줄이 'kg' 로 저장돼 있어/);
+      expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batches WHERE batch_code = 'BOM-BAD'`))[0].n)).toBe(0);
+      const { loadPlanBom } = await import("./lib/production/ccpPlanContext");
+      const { getRawConnection } = await import("./db/connection");
+      expect((await loadPlanBom(await getRawConnection(), T, 39, 20)).qtyError).toMatch(/비율\(%\)인지 kg 인지 정할 수 없습니다/);
+    });
+
+    it("기준량 없는 kg 줄 · 원료 단위 개 → 막음 (추정하지 않음)", async () => {
+      await q(`UPDATE h_mf_report_versions SET batch_target_kg = NULL WHERE id = 490`);
+      await expect(newBatch("20", "BOM-NOTARGET")).rejects.toThrow(/1배치 기준량이 없어/);
+      await q(`UPDATE h_mf_report_versions SET batch_target_kg = 10 WHERE id = 490`);
+      await q(`UPDATE item_master SET base_unit = 'ea' WHERE id = 199`);
+      await expect(newBatch("20", "BOM-EA")).rejects.toThrow(/원료 단위 'ea'/);
+    });
+  });
+
   describe("재고 쓰기 경로 PR-1 — 회사 격리 + 재고 관문 경유 (2026-10-17, 쓰기 경로 분류 #35~#39)", () => {
     const O = 3; // 다른 회사
     let inv: any;

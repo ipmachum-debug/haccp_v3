@@ -45,7 +45,7 @@ import { cn } from "../../lib/utils";
 import { useLocation } from "wouter";
 
 import { todayLocal } from "../../lib/dateUtils";
-import { type ClValues, clFromRecord, clRange, clMin, clOk, clHasAny, clSummary } from "./ccpCl";
+import { type ClValues, clFromRecord, clRange, clOk, clHasAny, clSummary } from "./ccpCl";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Constants & Types
@@ -74,6 +74,8 @@ interface CcpFormRecord {
   clHeatTempLo?: string | null;
   clPressureMpaLo?: string | null;
   clProductTempLo?: string | null;
+  clHeatTempHi?: string | null;
+  clPressureMpaHi?: string | null;
   clMetalSensitivity?: number | null;
   clFeMm?: string | null;
   clSusMm?: string | null;
@@ -232,7 +234,7 @@ function BatchCountCalc({
 // ─────────────────────────────────────────────────────────────────────────────
 function EquipmentAssignSection({
   batchId, batchCount, equipGroupMode, equipIntervalMin,
-  onModeChange, onIntervalChange, equipmentList,
+  onModeChange, onIntervalChange, equipmentList, savedEquipmentOf,
 }: {
   batchId: number; batchCount: number;
   equipGroupMode: "concurrent" | "sequential";
@@ -240,14 +242,19 @@ function EquipmentAssignSection({
   onModeChange: (v: "concurrent" | "sequential") => void;
   onIntervalChange: (v: number) => void;
   equipmentList: EquipmentInfo[];
+  /** 저장된 행의 실제 설비 (행이 없으면 undefined) — 아래 측정 카드와 같은 출처 */
+  savedEquipmentOf: (seq: number) => { equipment_name: string; equipment_type?: string } | null | undefined;
 }) {
-  // 배치 → 설비 순차 할당 표시
+  // 배치 → 설비: 저장된 행이 있으면 실제 배정, 없으면 순서 배정 '제안' (2026-10-20 #613 배포 검증 7 — 카드와 안내가 다른 설비를 보이지 않게)
   const assignments = Array.from({ length: batchCount }, (_, i) => {
+    const saved = savedEquipmentOf(i + 1);
     const equipIdx = equipmentList.length > 0 ? i % equipmentList.length : -1;
-    const equip = equipIdx >= 0 ? equipmentList[equipIdx] : null;
+    const equip = saved !== undefined ? saved : equipIdx >= 0 ? equipmentList[equipIdx] : null;
     const timeOffset = equipGroupMode === "sequential" ? i * equipIntervalMin : 0;
-    return { batchSeq: i + 1, equip, timeOffset };
+    return { batchSeq: i + 1, equip, timeOffset, suggested: saved === undefined };
   });
+  const anySuggested = assignments.some((a) => a.suggested);
+  const anySaved = assignments.some((a) => !a.suggested);
 
   return (
     <div className="p-3 border rounded-lg space-y-3">
@@ -286,14 +293,16 @@ function EquipmentAssignSection({
       {/* 배치→설비 할당 테이블 */}
       {equipmentList.length > 0 && (
         <div className="mt-2">
-          <div className="text-xs text-muted-foreground mb-1">배치별 설비 할당 (순차)</div>
+          <div className="text-xs text-muted-foreground mb-1" data-testid="equip-assign-title">
+            {anySaved && !anySuggested ? "배치별 설비 (저장된 실제 배정)" : anySaved ? "배치별 설비 (저장된 배정 · 입력 전 회차는 순서 제안)" : "배치별 설비 할당 제안 (순차 · 입력 전)"}
+          </div>
           <div className="flex flex-wrap gap-2">
             {assignments.map(a => (
-              <div key={a.batchSeq} className="flex items-center gap-1 px-2 py-1 bg-gray-50 border rounded text-xs">
+              <div key={a.batchSeq} className="flex items-center gap-1 px-2 py-1 bg-gray-50 border rounded text-xs" data-testid="equip-assign-item">
                 <span className="font-medium text-blue-700">배치{a.batchSeq}</span>
                 <span className="text-gray-400">→</span>
-                <span className="font-medium text-orange-700">
-                  {a.equip ? `${a.equip.equipment_name} (${a.equip.equipment_type})` : "설비없음"}
+                <span className={a.suggested ? "text-slate-600" : "font-medium text-orange-700"}>
+                  {a.equip ? `${a.equip.equipment_name}${a.equip.equipment_type ? ` (${a.equip.equipment_type})` : ""}` : "설비없음"}{a.suggested ? " (제안)" : ""}
                 </span>
                 {a.timeOffset > 0 && (
                   <span className="text-gray-400">+{a.timeOffset}분</span>
@@ -368,11 +377,11 @@ function RowInputForm({
     if (!autoResult) {
       if (ccpType === "CCP-2B") {
         const ht = parseFloat(heatTimeMin); const temp = parseFloat(heatTempC);
-        if (ht && temp && clHasAny(clDefaults, ["heatTimeMinLo", "heatTimeMinHi", "heatTempLo"])) autoResult = (clOk(ht, clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi) && clOk(temp, clDefaults.heatTempLo)) ? "적합" : "부적합";
+        if (ht && temp && clHasAny(clDefaults, ["heatTimeMinLo", "heatTimeMinHi", "heatTempLo", "heatTempHi"])) autoResult = (clOk(ht, clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi) && clOk(temp, clDefaults.heatTempLo, clDefaults.heatTempHi)) ? "적합" : "부적합";
       } else if (ccpType === "CCP-1B") {
         const ht = parseFloat(heatTimeMin); const p = parseFloat(pressureMpa);
         const tc = parseFloat(tempCenterC);
-        if (ht && tc && clHasAny(clDefaults, ["heatTimeMinLo", "heatTimeMinHi", "pressureMpaLo", "productTempLo"])) autoResult = (clOk(ht, clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi) && clOk(p, clDefaults.pressureMpaLo) && clOk(tc, clDefaults.productTempLo)) ? "적합" : "부적합";
+        if (ht && tc && clHasAny(clDefaults, ["heatTimeMinLo", "heatTimeMinHi", "pressureMpaLo", "pressureMpaHi", "productTempLo", "productTempHi"])) autoResult = (clOk(ht, clDefaults.heatTimeMinLo, clDefaults.heatTimeMinHi) && clOk(p, clDefaults.pressureMpaLo, clDefaults.pressureMpaHi) && clOk(tc, clDefaults.productTempLo, clDefaults.productTempHi)) ? "적합" : "부적합";
       } else if (ccpType === "CCP-4P") {
         const allPass = [metalFeMid, metalSusMid, metalProductOnly, metalFeProduct, metalSusProduct]
           .every(v => v === "O");
@@ -445,7 +454,7 @@ function RowInputForm({
               onChange={e => setHeatTimeMin(e.target.value)} className="h-8 text-sm mt-1" />
           </div>
           <div>
-            <Label className="text-xs">가열온도(°C) <span className="text-orange-600">CL: {clMin(clDefaults.heatTempLo, "°C 이상")}</span></Label>
+            <Label className="text-xs">가열온도(°C) <span className="text-orange-600">CL: {clRange(clDefaults.heatTempLo, clDefaults.heatTempHi, "°C")}</span></Label>
             <Input type="number" placeholder="예: 180" value={heatTempC}
               onChange={e => setHeatTempC(e.target.value)} className="h-8 text-sm mt-1" />
           </div>
@@ -469,7 +478,7 @@ function RowInputForm({
           </div>
           <div className="grid grid-cols-3 gap-2">
             <div>
-              <Label className="text-xs">압력(MPa) <span className="text-blue-600">CL: {clMin(clDefaults.pressureMpaLo, "MPa 이상")}</span></Label>
+              <Label className="text-xs">압력(MPa) <span className="text-blue-600">CL: {clRange(clDefaults.pressureMpaLo, clDefaults.pressureMpaHi, "MPa")}</span></Label>
               <Input type="number" step="0.01" placeholder="0.12" value={pressureMpa}
                 onChange={e => setPressureMpa(e.target.value)} className="h-8 text-sm mt-1" />
             </div>
@@ -479,7 +488,7 @@ function RowInputForm({
                 onChange={e => setTempEdgeC(e.target.value)} className="h-8 text-sm mt-1" />
             </div>
             <div>
-              <Label className="text-xs">중심온도(°C) <span className="text-blue-600">CL: {clMin(clDefaults.productTempLo, "°C↑")}</span></Label>
+              <Label className="text-xs">중심온도(°C) <span className="text-blue-600">CL: {clRange(clDefaults.productTempLo, clDefaults.productTempHi, "°C")}</span></Label>
               <Input type="number" placeholder="90" value={tempCenterC}
                 onChange={e => setTempCenterC(e.target.value)} className="h-8 text-sm mt-1" />
             </div>
@@ -894,6 +903,11 @@ function CcpFormPanel({
             onModeChange={handleModeChange}
             onIntervalChange={handleIntervalChange}
             equipmentList={equipmentList}
+            savedEquipmentOf={(seq) => {
+              const r = getRowForBatch(seq);
+              if (!r) return undefined;
+              return r.equipmentName ? { equipment_name: r.equipmentName, equipment_type: (r as any).equipmentType ?? undefined } : null;
+            }}
           />
           )}
 

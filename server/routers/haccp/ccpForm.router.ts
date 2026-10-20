@@ -175,6 +175,8 @@ export const ccpFormRouter = router({
         clHeatTempLo: z.number().optional(),
         clPressureMpaLo: z.number().optional(),
         clProductTempLo: z.number().optional(),
+        clHeatTempHi: z.number().nullable().optional(),
+        clPressureMpaHi: z.number().nullable().optional(),
         clMetalSensitivity: z.number().optional(),
         clFeMm: z.number().optional(),
         clSusMm: z.number().optional(),
@@ -183,19 +185,17 @@ export const ccpFormRouter = router({
       .mutation(async ({ input, ctx }) => {
         const { updateCcpFormRecord } = await import("../../db/haccp/ccpFormRecords");
         const { id, ...rest } = input;
+        // 숫자 판정 기준(CL)을 기존 기록지에 바꾸는 것은 명시적 저장 — 승인된 기록지는 거부, 바뀌면 기록지 버전을 올려
+        //   기존 제출 확인을 무효로 하고(다시 제출 = 새 기준으로 재검증) 이력을 남긴다. 조회·인쇄에서 몰래 바꾸지 않는다 (2026-10-20 검토 3).
+        await saveRecordCriteria(id, ctx.tenantId, ctx.user, rest as Record<string, unknown>);
         const updateData: Record<string, unknown> = {};
         if (rest.equipGroupMode !== undefined) updateData.equipGroupMode = rest.equipGroupMode;
         if (rest.equipIntervalMin !== undefined) updateData.equipIntervalMin = rest.equipIntervalMin;
         if (rest.batchCount !== undefined) updateData.batchCount = rest.batchCount;
-        if (rest.clHeatTimeMinLo !== undefined) updateData.clHeatTimeMinLo = rest.clHeatTimeMinLo;
-        if (rest.clHeatTimeMinHi !== undefined) updateData.clHeatTimeMinHi = rest.clHeatTimeMinHi;
-        if (rest.clHeatTempLo !== undefined) updateData.clHeatTempLo = rest.clHeatTempLo.toString();
-        if (rest.clPressureMpaLo !== undefined) updateData.clPressureMpaLo = rest.clPressureMpaLo.toString();
-        if (rest.clProductTempLo !== undefined) updateData.clProductTempLo = rest.clProductTempLo.toString();
         if (rest.clMetalSensitivity !== undefined) updateData.clMetalSensitivity = rest.clMetalSensitivity;
         if (rest.clFeMm !== undefined) updateData.clFeMm = rest.clFeMm.toString();
         if (rest.clSusMm !== undefined) updateData.clSusMm = rest.clSusMm.toString();
-        await updateCcpFormRecord(id, updateData, ctx.tenantId);
+        if (Object.keys(updateData).length) await updateCcpFormRecord(id, updateData, ctx.tenantId);
         
         // batchCount가 변경되면 누락된 행만 추가 (사용자 데이터 보호)
         if (rest.batchCount !== undefined) {
@@ -569,3 +569,57 @@ export const ccpFormRouter = router({
         };
       }),
 });
+
+/** 기록지 숫자 판정 기준 칸 — updateRecord 입력 키 → 칸 */
+const RECORD_CRITERIA_COLS: Record<string, string> = {
+  clHeatTimeMinLo: "cl_heat_time_min_lo", clHeatTimeMinHi: "cl_heat_time_min_hi", clHeatTempLo: "cl_heat_temp_lo", clHeatTempHi: "cl_heat_temp_hi",
+  clPressureMpaLo: "cl_pressure_mpa_lo", clPressureMpaHi: "cl_pressure_mpa_hi", clProductTempLo: "cl_product_temp_lo",
+};
+
+/**
+ * 기존 기록지의 판정 기준 바꾸기 — 한 트랜잭션: 기록지 잠금 → 승인이면 거부 → 바뀐 칸만 저장 + 기록지 버전 올림(제출 확인 무효) → 이력.
+ *   바뀐 것이 없으면 아무것도 하지 않는다.
+ */
+async function saveRecordCriteria(formRecordId: number, tenantId: number, user: any, input: Record<string, unknown>): Promise<void> {
+  const keys = Object.keys(RECORD_CRITERIA_COLS).filter((k) => input[k] !== undefined);
+  if (!keys.length) return;
+  const { getRawConnection } = await import("../../db");
+  const { bumpSheetVersion } = await import("../../lib/haccp/ccpSheetConfirm");
+  const pool: any = await getRawConnection();
+  const c = await pool.getConnection();
+  const changed: Record<string, [unknown, unknown]> = {};
+  try {
+    await c.beginTransaction();
+    try {
+      const cols = keys.map((k) => RECORD_CRITERIA_COLS[k]);
+      const [[rec]]: any = await c.execute(`SELECT status, ${cols.join(", ")} FROM h_ccp_form_records WHERE id = ? AND tenant_id = ? FOR UPDATE`, [formRecordId, tenantId]);
+      if (!rec) throw new TRPCError({ code: "NOT_FOUND", message: "기록지를 찾을 수 없습니다." });
+      if (rec.status === "approved") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "승인된 기록지의 판정 기준은 바꿀 수 없습니다 — 반려 후 수정하세요." });
+      const num = (v: unknown) => (v == null ? null : Number(v));
+      for (const k of keys) {
+        const before = num(rec[RECORD_CRITERIA_COLS[k]]);
+        const after = num(input[k]);
+        if (before !== after) changed[RECORD_CRITERIA_COLS[k]] = [before, after];
+      }
+      const set = Object.keys(changed);
+      if (set.length) {
+        await c.execute(`UPDATE h_ccp_form_records SET ${set.map((col) => `${col} = ?`).join(", ")}, updated_at = NOW() WHERE id = ? AND tenant_id = ?`,
+          [...set.map((col) => changed[col][1]), formRecordId, tenantId]);
+        await bumpSheetVersion(c, formRecordId, tenantId);
+      }
+      await c.commit();
+    } catch (e) {
+      try { await c.rollback(); } catch { /* 원래 오류 */ }
+      throw e;
+    }
+  } finally {
+    c.release();
+  }
+  if (Object.keys(changed).length) {
+    try {
+      const { createAuditLog } = await import("../../db");
+      await createAuditLog({ action: "ccp_form.criteria_change", entityType: "ccp_form_record", entityId: formRecordId, userId: user?.id, userEmail: user?.email ?? "", userRole: user?.role ?? "",
+        description: "CCP 기록지 판정 기준 변경 (기존 제출 확인 무효 — 다시 제출해야 승인)", changes: changed } as any, tenantId);
+    } catch { /* 감사 기록 실패는 기존 방식대로 무시 */ }
+  }
+}
