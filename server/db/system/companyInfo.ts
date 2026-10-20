@@ -43,6 +43,27 @@ export async function getCompanyInfo(tenantId: number): Promise<CompanyInfo> {
     }
   }
 
+  // 문서용 회사 정보가 비어 있으면 가입 때 넣은 회사명·사업자번호를 쓴다 — 같은 회사명을 두 번 입력시키지 않게
+  //   (2026-10-20 신규 회사 시험). 읽기만 — 저장은 관리자가 [저장] 할 때 기존 경로로.
+  if (!result.companyName || !result.companyBusinessNumber) {
+    try {
+      const { getRawConnection } = await import("../connection");
+      const pool: any = await getRawConnection();
+      const [rows]: any = await pool.execute(
+        `SELECT t.name, (SELECT u.business_number FROM users u WHERE u.tenant_id = t.id AND u.role = 'admin' AND u.business_number IS NOT NULL AND u.business_number <> '' ORDER BY u.id LIMIT 1) AS biz
+           FROM tenants t WHERE t.id = ? LIMIT 1`,
+        [tenantId],
+      );
+      const t = (rows as any[])[0];
+      if (t) {
+        if (!result.companyName && t.name) result.companyName = String(t.name);
+        if (!result.companyBusinessNumber && t.biz) result.companyBusinessNumber = String(t.biz);
+      }
+    } catch (e: any) {
+      if (e?.code !== "ER_BAD_FIELD_ERROR") throw e;
+    }
+  }
+
   return result;
 }
 

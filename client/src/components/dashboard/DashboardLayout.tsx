@@ -1,4 +1,5 @@
 import FloatingAIChatbot from "@/components/ai/FloatingAIChatbot";
+import FirstSetupBanner from "./FirstSetupBanner";
 import AIBriefingButton from "@/components/ai/AIBriefingButton";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -772,7 +773,8 @@ function DashboardLayoutContent({
     const labelMap: Record<string, string> = {
       "생산관리": `${industryLabel("product", "제품")} 생산관리`,
       "재고 관리": `${materialLabel} · 재고 관리`,
-      "마스터 데이터": `${materialLabel} 마스터`,
+      // 이 화면은 제품 탭부터 열린다 — 이름도 '제품·원재료' 로 (2026-10-20 신규 회사 시험: '원재료 마스터' 가 제품 탭을 열었음)
+      "마스터 데이터": `${industryLabel("product", "제품")}·${materialLabel} 마스터`,
       "품목 마스터": `품목 마스터`,
       "부적합제품관리": `부적합${industryLabel("product", "제품")}관리`,
     };
@@ -1311,7 +1313,7 @@ function DashboardLayoutContent({
             viewport 를 밀어내는 사고. SidebarInset 와 함께 적용해 모바일 좌우
             스와이프 + Table 자체 overflow-x-auto 가 정상 작동하게 한다. */}
         {/* 아래 여백 — 오른쪽 아래 AI 하나 버튼 자리를 비워 페이지 끝 버튼(저장 등)이 가려지지 않게 (지티 QA F06) */}
-        <main className="flex-1 min-w-0 w-full px-3 py-4 pb-40 md:px-5 md:py-5 md:pb-28">{children}</main>
+        <main className="flex-1 min-w-0 w-full px-3 py-4 pb-40 md:px-5 md:py-5 md:pb-28"><FirstSetupBanner />{children}</main>
         {showBottomNav && <AppBottomNav items={mobileNavItems} isActivePath={isActivePath} onOpenMenu={toggleSidebar} />}
       </SidebarInset>
       </HubMenuContext.Provider>

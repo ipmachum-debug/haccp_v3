@@ -158,6 +158,8 @@ export function useUpdateIndustry() {
   return trpc.industry.updateIndustry.useMutation({
     onSuccess: () => {
       utils.industry.getCurrentIndustry.invalidate();
+      // 업종별 메뉴(플러그인)도 바로 다시 — 새로고침 없이 메뉴가 바뀌게 (2026-10-20)
+      utils.domain.currentPlugin.invalidate();
     },
   });
 }

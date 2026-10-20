@@ -157,10 +157,11 @@ export const adminRouter = router({
    */
   initializeDatabase: tenantRequiredProcedure
     .mutation(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") {
+      // 플랫폼 관리자만 (고객 회사 관리자 불가, 2026-10-20 신규 회사 시험) + 운영 환경 불가
+      if (ctx.user.role !== "super_admin") {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "관리자만 접근할 수 있습니다",
+          message: "플랫폼 관리자만 쓸 수 있는 개발 도구입니다",
         });
       }
       if (process.env.NODE_ENV === "production") {
@@ -197,10 +198,11 @@ export const adminRouter = router({
    */
   seedSampleData: tenantRequiredProcedure
     .mutation(async ({ ctx }) => {
-      if (ctx.user.role !== "admin") {
+      // 플랫폼 관리자만 (고객 회사 관리자 불가, 2026-10-20 신규 회사 시험) + 운영 환경 불가
+      if (ctx.user.role !== "super_admin") {
         throw new TRPCError({
           code: "FORBIDDEN",
-          message: "관리자만 접근할 수 있습니다",
+          message: "플랫폼 관리자만 쓸 수 있는 개발 도구입니다",
         });
       }
       if (process.env.NODE_ENV === "production") {

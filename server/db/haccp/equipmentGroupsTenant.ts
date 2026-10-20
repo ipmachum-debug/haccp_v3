@@ -37,7 +37,11 @@ export async function createEquipment(equipment: {
     ccpType: equipment.ccpType || null,
     defaultTemperature: equipment.defaultTemperature || null,
     defaultPressure: equipment.defaultPressure || null,
-    defaultTime: equipment.defaultTime || null,
+    defaultTime: equipment.defaultTime ?? null,
+    // 받은 값을 버리지 않는다 — 한 번 도는 시간·가장자리/중심 온도 (2026-10-20 신규 회사 시험: 우리 공장에서 넣은 사이클이 저장되지 않았음)
+    batchOperationTime: equipment.batchOperationTime ?? null,
+    edgeTemperature: equipment.edgeTemperature || null,
+    centerTemperature: equipment.centerTemperature || null,
     monitoringInterval: equipment.monitoringInterval || 10,
     rowsPerBatch: equipment.rowsPerBatch || 4,
     status: equipment.status || "active",

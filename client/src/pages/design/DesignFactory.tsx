@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { Loader2, Pencil, RefreshCw } from "lucide-react";
+import { Loader2, Pencil, Plus, RefreshCw } from "lucide-react";
 
 const KIND: Record<string, string> = { "CCP-1B": "가열·증숙", "CCP-2B": "굽기", "CCP-4P": "금속검출" };
 function modeText(g: any): string {
@@ -131,12 +131,153 @@ function EquipmentEditor({ e, isMetal, onDone }: { e: any; isMetal: boolean; onD
   );
 }
 
+/** 설비 종류 (CCP 관리 설비 등록과 같은 목록) */
+const EQUIP_TYPES: Record<string, string[]> = {
+  "CCP-1B": ["증숙기", "교반기", "살균기", "레토르트", "기타"],
+  "CCP-2B": ["오븐", "기타"],
+  "CCP-4P": ["금속검출기"],
+};
+const blankLimits = { tLo: "", tHi: "", hLo: "", hHi: "", pLo: "", pHi: "" };
+
+/**
+ * 첫 공정·설비 등록 — 우리 공장 안에서 끝낸다 (2026-10-20 신규 회사 시험 P2).
+ *   저장은 CCP 관리와 같은 경로·같은 자료 (equipment.create · ccpMonitoring.createProcessGroup) — 두 번째 관리 자료 없음.
+ *   한계기준 빈칸 = 그 방향 기준 없음. 실패하면 이유를 이 칸에 두고 입력은 그대로 (만든 설비는 골라진 채로 남아 다시 만들지 않음).
+ */
+function NewProcess({ allEquipments, onDone, first }: { allEquipments: any[]; onDone: () => void; first: boolean }) {
+  const utils = trpc.useUtils();
+  const [name, setName] = useState("");
+  const [kind, setKind] = useState<"CCP-1B" | "CCP-2B" | "CCP-4P">("CCP-1B");
+  const [lim, setLim] = useState(blankLimits);
+  const [eqIds, setEqIds] = useState<number[]>([]);
+  // 새 설비 — 이름·종류 + (가열 공정이면) 가열 분·한 번 도는 시간·평소 온도. 비우면 나중에 설비 이름을 눌러 고친다
+  const [newEq, setNewEq] = useState({ name: "", type: "", heat: "", cycle: "", temp: "" });
+  const [err, setErr] = useState<string | null>(null);
+  const candidates = allEquipments.filter((e) => !e.ccpType || e.ccpType === kind || eqIds.includes(e.id));
+  const addEq = trpc.equipment.create.useMutation({
+    onSuccess: (r: any) => {
+      setEqIds((x) => [...x, Number(r.equipmentId)]);
+      setNewEq({ name: "", type: "", heat: "", cycle: "", temp: "" });
+      setErr(null);
+      utils.productionDesign.invalidate();
+      utils.equipment.invalidate();
+    },
+    onError: (e: { message: string }) => setErr(e.message),
+  });
+  const create = trpc.ccpMonitoring.createProcessGroup.useMutation({
+    onSuccess: () => {
+      toast.success(`${name} 공정을 등록했습니다`);
+      utils.productionDesign.invalidate();
+      utils.ccpMonitoring.getProcessGroups.invalidate();
+      onDone();
+    },
+    onError: (e: any) => {
+      const z = e?.data?.zodError?.fieldErrors as Record<string, string[]> | undefined;
+      setErr(z && Object.keys(z).length ? Object.entries(z).map(([k, v]) => `${k}: ${(v ?? []).join(", ")}`).join(" / ") : e.message);
+    },
+  });
+  const n = (v: string) => (v.trim() === "" ? null : Number(v));
+  const bad = Object.values(lim).some((v) => v.trim() !== "" && !Number.isFinite(Number(v)));
+  const submit = () => {
+    setErr(null);
+    if (!name.trim()) return setErr("공정 이름을 넣으세요.");
+    if (bad) return setErr("기준 칸에는 숫자만 넣으세요.");
+    create.mutate({
+      name: name.trim(), ccpType: kind, equipmentIds: eqIds,
+      ...(kind === "CCP-4P" ? {} : {
+        temperatureMin: n(lim.tLo), temperatureMax: n(lim.tHi), timeMin: n(lim.hLo), timeMax: n(lim.hHi),
+        ...(kind === "CCP-1B" ? { pressureMin: n(lim.pLo), pressureMax: n(lim.pHi) } : {}),
+      }),
+    } as any);
+  };
+  const limitRow = (label: string, lo: keyof typeof lim, hi: keyof typeof lim, unit: string) => (
+    <div className="flex flex-wrap items-center gap-2">
+      <span className="w-24">{label}</span>
+      <Input className="h-11 w-24" inputMode="decimal" placeholder="최소" value={lim[lo]} onChange={(e) => setLim({ ...lim, [lo]: e.target.value })} aria-label={`${label} 최소`} />
+      <span>~</span>
+      <Input className="h-11 w-24" inputMode="decimal" placeholder="최대" value={lim[hi]} onChange={(e) => setLim({ ...lim, [hi]: e.target.value })} aria-label={`${label} 최대`} />
+      <span className="text-muted-foreground">{unit}</span>
+    </div>
+  );
+  return (
+    <Card data-testid="new-process">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">{first ? "첫 공정 등록 — 설비와 공정을 여기서 바로" : "공정 추가"}</CardTitle>
+        {first && <p className="text-sm text-muted-foreground">어떤 일을(가열·굽기·금속검출) 어떤 설비로 하는지 적으면, 생산 계획과 CCP 기록지가 이것을 씁니다.</p>}
+      </CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <label className="block">공정 이름
+          <Input className="h-11 max-w-sm" value={name} onChange={(e) => setName(e.target.value)} placeholder="예: 찹쌀 증숙" data-testid="np-name" />
+        </label>
+        <div>
+          <div className="mb-1">무슨 일을 하나요?</div>
+          <div className="flex flex-wrap gap-1.5">
+            {(["CCP-1B", "CCP-2B", "CCP-4P"] as const).map((k) => (
+              <button key={k} type="button" onClick={() => { setKind(k); setEqIds([]); }}
+                className={cn("min-h-11 rounded-md border px-3", kind === k ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent")}>{KIND[k]}</button>
+            ))}
+          </div>
+        </div>
+        {kind !== "CCP-4P" && (
+          <div className="space-y-2 rounded-md border bg-muted/20 p-2" data-testid="np-limits">
+            <div className="font-medium">한계기준 (법정 기준 — 판정·제출 검사용)</div>
+            {limitRow("온도", "tLo", "tHi", "℃")}
+            {limitRow("가열시간", "hLo", "hHi", "분")}
+            {kind === "CCP-1B" && limitRow("압력", "pLo", "pHi", "MPa")}
+            <p className="text-xs text-muted-foreground">빈 칸 = 그 방향 기준 없음 (예: 최소 90℃만 넣고 최대는 비움). 0 을 넣으면 0 이 기준입니다.</p>
+          </div>
+        )}
+        <div>
+          <div className="mb-1">이 공정에 쓰는 설비</div>
+          <div className="flex flex-wrap gap-1.5">
+            {candidates.map((e) => (
+              <button key={e.id} type="button" onClick={() => setEqIds((x) => (x.includes(e.id) ? x.filter((i) => i !== e.id) : [...x, e.id]))}
+                className={cn("min-h-11 rounded-md border px-3", eqIds.includes(e.id) ? "bg-primary text-primary-foreground border-primary" : "bg-background hover:bg-accent")}>{e.name}</button>
+            ))}
+            {!candidates.length && <span className="text-muted-foreground">아직 설비가 없습니다 — 아래에서 바로 등록하세요.</span>}
+          </div>
+          <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="np-new-equipment">
+            <Input className="h-11 w-48" value={newEq.name} onChange={(e) => setNewEq({ ...newEq, name: e.target.value })} placeholder="새 설비 이름 (예: 증숙기 1호)" />
+            <select className="h-11 rounded-md border bg-background px-2" value={newEq.type} onChange={(e) => setNewEq({ ...newEq, type: e.target.value })} aria-label="설비 종류">
+              <option value="">설비 종류</option>
+              {EQUIP_TYPES[kind].map((t) => <option key={t} value={t}>{t}</option>)}
+            </select>
+            {kind !== "CCP-4P" && (
+              <>
+                <Input className="h-11 w-24" inputMode="numeric" value={newEq.heat} onChange={(e) => setNewEq({ ...newEq, heat: e.target.value })} placeholder="가열 분" aria-label="가열 시간(분)" />
+                <Input className="h-11 w-28" inputMode="numeric" value={newEq.cycle} onChange={(e) => setNewEq({ ...newEq, cycle: e.target.value })} placeholder="한 번 도는 분" aria-label="한 번 도는 시간(분)" />
+                <Input className="h-11 w-24" inputMode="decimal" value={newEq.temp} onChange={(e) => setNewEq({ ...newEq, temp: e.target.value })} placeholder="평소 ℃" aria-label="평소 온도(℃)" />
+              </>
+            )}
+            <Button className="h-11" variant="outline" disabled={addEq.isPending || !newEq.name.trim() || !newEq.type}
+              onClick={() => {
+                const int = (v: string) => (v.trim() !== "" && Number.isFinite(Number(v)) ? Math.round(Number(v)) : undefined);
+                addEq.mutate({
+                  name: newEq.name.trim(), type: newEq.type, ccpType: kind, code: `${kind}-${newEq.name.trim()}`.slice(0, 50),
+                  ...(kind !== "CCP-4P" ? { defaultTime: int(newEq.heat), batchOperationTime: int(newEq.cycle), defaultTemperature: newEq.temp.trim() || undefined } : {}),
+                });
+              }}>
+              {addEq.isPending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Plus className="h-4 w-4 mr-1" />}설비 추가
+            </Button>
+          </div>
+        </div>
+        {err && <p className="rounded border border-red-200 bg-red-50 px-3 py-2 text-red-700 dark:bg-red-500/10 dark:text-red-300" role="alert" data-testid="np-error">저장하지 못했습니다 — {err} (넣은 값은 그대로 있습니다)</p>}
+        <div className="flex gap-2">
+          <Button className="h-11" disabled={create.isPending} onClick={submit} data-testid="np-save">{create.isPending && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}공정 저장</Button>
+          {!first && <Button className="h-11" variant="outline" onClick={onDone}>닫기</Button>}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DesignFactory() {
   const q = trpc.productionDesign.factory.useQuery(undefined, { retry: 1 });
   const groups: any[] = (q.data as any)?.groups ?? [];
   const allEquipments: any[] = (q.data as any)?.equipments ?? [];
   const [editGroup, setEditGroup] = useState<number | null>(null);
   const [editEquip, setEditEquip] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
   // 설비 → 그 설비를 쓰는 공정 (공유 표시)
   const shared = useMemo(() => {
     const m = new Map<number, string[]>();
@@ -151,7 +292,11 @@ export default function DesignFactory() {
           secondary={{ label: "새로고침", icon: RefreshCw, onClick: () => q.refetch() }} />
         {q.isLoading && <Card><CardContent className="py-10 text-center text-sm text-muted-foreground"><Loader2 className="inline h-4 w-4 mr-1 animate-spin" />불러오는 중…</CardContent></Card>}
         {q.isError && <Card><CardContent className="py-8 text-center text-sm text-red-700">{q.error?.message}</CardContent></Card>}
-        {!q.isLoading && !groups.length && !q.isError && <Card><CardContent className="py-8 text-center text-sm text-muted-foreground">등록된 공정이 없습니다. 공정과 설비를 먼저 등록하세요 (CCP 관리).</CardContent></Card>}
+        {/* 공정이 없으면 첫 등록 칸을 바로 연다 — 다른 메뉴로 보내지 않음 */}
+        {!q.isLoading && !q.isError && (!groups.length || adding) && <NewProcess allEquipments={allEquipments} first={!groups.length} onDone={() => setAdding(false)} />}
+        {!q.isLoading && !q.isError && groups.length > 0 && !adding && (
+          <Button variant="outline" className="h-11" onClick={() => setAdding(true)} data-testid="add-process"><Plus className="h-4 w-4 mr-1" />공정 추가</Button>
+        )}
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" data-testid="factory-map">
           {groups.map((g) => (

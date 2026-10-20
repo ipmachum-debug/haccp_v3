@@ -8,13 +8,14 @@ import { z } from "zod";
 import { router, publicProcedure } from "../../_core/trpc";
 import { getDb } from "../../db";
 import { TRPCError } from "@trpc/server";
+import { TRIAL_DAYS } from "@shared/const";
 import { eq, sql } from "drizzle-orm";
 import { PLAN_CONFIG, type PlanType } from "../../utils/planConfig";
 
 export const onboardingRouter = router({
   /**
    * Step 1: SaaS 회원가입 + 테넌트 자동 생성 + 즉시 활성화
-   * 기존 register와 달리 승인 없이 바로 사용 가능 (14일 무료 체험)
+   * 기존 register와 달리 승인 없이 바로 사용 가능 (무료 체험 TRIAL_DAYS 일)
    */
   register: publicProcedure
     .input(
@@ -61,15 +62,23 @@ export const onboardingRouter = router({
         ? `${slug}-${Date.now().toString(36)}`
         : slug;
 
-      // 구독 기간 계산 (14일 무료 체험)
+      // 업종 — 회사 첫 입력에서 정한다 (2026-10-20 신규 회사 시험 P1). 목록에 없는 코드는 받지 않는다.
+      //   업종이 없으면 일반제조로 열려 식품 메뉴(생산·생산 설계·CCP)가 숨는다 — 로그인 뒤 첫 화면에서 정하게 안내.
+      const { INDUSTRY_PROFILES, resolveIndustryProfile } = await import("../../lib/industry/industryConfig");
+      if (input.industryCode && !INDUSTRY_PROFILES[input.industryCode]) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "업종을 목록에서 고르세요" });
+      }
+      const industryCategory = input.industryCode ? resolveIndustryProfile(input.industryCode).category : null;
+
+      // 구독 기간 계산 (무료 체험 — 안내 문구와 같은 값 TRIAL_DAYS)
       const now = new Date();
       const trialEnd = new Date(now);
-      trialEnd.setDate(trialEnd.getDate() + 14);
+      trialEnd.setDate(trialEnd.getDate() + TRIAL_DAYS);
 
       // 1. 테넌트 생성
       const [newTenant] = await db.execute(sql`
-        INSERT INTO tenants (name, slug, status, subscription_package, subscription_start_date, subscription_end_date, subscription_days, is_read_only, industry_code)
-        VALUES (${input.companyName}, ${finalSlug}, 'active', ${input.plan}, ${now.toISOString().slice(0, 10)}, ${trialEnd.toISOString().slice(0, 10)}, 14, 0, ${input.industryCode || null})
+        INSERT INTO tenants (name, slug, status, subscription_package, subscription_start_date, subscription_end_date, subscription_days, is_read_only, industry_code, industry_category)
+        VALUES (${input.companyName}, ${finalSlug}, 'active', ${input.plan}, ${now.toISOString().slice(0, 10)}, ${trialEnd.toISOString().slice(0, 10)}, ${TRIAL_DAYS}, 0, ${input.industryCode || null}, ${industryCategory})
       `);
       const tenantId = (newTenant as { insertId: number }).insertId;
 
@@ -96,7 +105,7 @@ export const onboardingRouter = router({
         `);
       }
 
-      console.log(`[Onboarding] 신규 테넌트 생성: ${input.companyName} (ID: ${tenantId}, plan: ${input.plan}, trial: 14일)`);
+      console.log(`[Onboarding] 신규 테넌트 생성: ${input.companyName} (ID: ${tenantId}, plan: ${input.plan}, trial: ${TRIAL_DAYS}일)`);
 
       return {
         success: true,
@@ -104,7 +113,7 @@ export const onboardingRouter = router({
         slug: finalSlug,
         plan: input.plan,
         trialEndDate: trialEnd.toISOString().slice(0, 10),
-        message: `${input.companyName} 계정이 생성되었습니다. 14일 무료 체험이 시작됩니다.`,
+        message: `${input.companyName} 계정이 생성되었습니다. ${TRIAL_DAYS}일 무료 체험이 시작됩니다.`,
       };
     }),
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { TRIAL_DAYS } from "@shared/const";
 import { motion as _motion, useScroll, useTransform, AnimatePresence } from "framer-motion";
 const motion = _motion as any;
 import {
@@ -30,7 +31,7 @@ const translations = {
       headline1: "공장의 모든 데이터,",
       headline2: "AI가 하나로 연결합니다",
       sub: "생산 · 재고 · 품질 · LOT 추적 · 회계까지. Millio AI는 만드는 사람을 위한 AI 기반 제조 ERP입니다. 현재 식품 제조 HACCP에 특화되어 있으며, 화장품 GMP · 건기식 · 일반 제조로 확장 중입니다.",
-      cta1: "30일 무료로 시작",
+      cta1: `${TRIAL_DAYS}일 무료로 시작`,
       cta2: "1분 데모 보기",
       trust: "100+ 제조업체가 Millio AI로 공장을 운영 중",
       trustRating: "4.9 / 5 고객 만족도",
@@ -119,8 +120,8 @@ const translations = {
     pricing: {
       badge: "요금제",
       headline: "공장 규모에 맞게, 부담 없이 시작하세요",
-      sub: "모든 플랜은 30일 무료. 신용카드 없이, 언제든 해지 가능합니다.",
-      guarantee: "30일 무료 체험 · 언제든 해지 가능 · 모든 요금 부가세 별도",
+      sub: `모든 플랜은 ${TRIAL_DAYS}일 무료. 신용카드 없이, 언제든 해지 가능합니다.`,
+      guarantee: `${TRIAL_DAYS}일 무료 체험 · 언제든 해지 가능 · 모든 요금 부가세 별도`,
       plans: [
         {
           name: "ERP Basic",
@@ -204,12 +205,12 @@ const translations = {
         { q: "직원들이 사용하기 어렵지 않나요?", a: "Millio AI는 별도 교육 없이도 바로 사용할 수 있도록 직관적인 UI로 설계되었습니다. 모바일에서도 동일하게 사용할 수 있습니다." },
         { q: "기존에 사용하던 엑셀 데이터는 어떻게 하나요?", a: "품목 마스터, 거래처 정보, 재고 데이터 등 기존 엑셀 데이터를 시스템으로 마이그레이션하는 것을 도와드립니다." },
         { q: "HACCP 인증 심사에 도움이 되나요?", a: "네, Millio AI에서 기록되는 모든 HACCP 데이터와 체크리스트는 인증 심사에 필요한 형식으로 자동 출력됩니다." },
-        { q: "무료 체험 기간에 제한되는 기능이 있나요?", a: "없습니다. 30일 무료 체험 기간 동안 선택하신 요금제의 모든 기능을 제한 없이 사용할 수 있습니다." },
+        { q: "무료 체험 기간에 제한되는 기능이 있나요?", a: `없습니다. ${TRIAL_DAYS}일 무료 체험 기간 동안 선택하신 요금제의 모든 기능을 제한 없이 사용할 수 있습니다.` },
       ],
     },
     cta: {
       headline: "오늘 시작하면, 내일 공장이 바뀝니다",
-      sub: "30일 무료. 30분 설치. 신용카드 없이 시작하세요.",
+      sub: `${TRIAL_DAYS}일 무료. 30분 설치. 신용카드 없이 시작하세요.`,
       btn1: "무료 체험 시작",
       btn2: "1:1 상담 요청",
     },
@@ -331,8 +332,8 @@ const translations = {
     pricing: {
       badge: "Pricing",
       headline: "Simple, Transparent Pricing",
-      sub: "Choose the plan that fits your business. All plans include a 30-day free trial.",
-      guarantee: "30-day free trial · Cancel anytime · All prices exclude VAT",
+      sub: `Choose the plan that fits your business. All plans include a ${TRIAL_DAYS}-day free trial.`,
+      guarantee: `${TRIAL_DAYS}-day free trial · Cancel anytime · All prices exclude VAT`,
       plans: [
         {
           name: "Starter",
@@ -368,12 +369,12 @@ const translations = {
         { q: "Is it difficult for staff to use?", a: "Millio AI is designed with an intuitive UI that requires no training. It works the same way on mobile devices too." },
         { q: "What about our existing Excel data?", a: "We help migrate your item master, supplier info, inventory data, and other existing Excel data into the system." },
         { q: "Does it help with HACCP certification audits?", a: "Yes. All HACCP data and checklists recorded in Millio AI are automatically formatted and printable for certification audits." },
-        { q: "Are features limited during the free trial?", a: "No. During the 30-day free trial, you have unlimited access to all features in your selected plan." },
+        { q: "Are features limited during the free trial?", a: `No. During the ${TRIAL_DAYS}-day free trial, you have unlimited access to all features in your selected plan.` },
       ],
     },
     cta: {
       headline: "Start today. Tomorrow your factory is different.",
-      sub: "30 days free. 30-minute setup. No credit card required.",
+      sub: `${TRIAL_DAYS} days free. 30-minute setup. No credit card required.`,
       btn1: "Start Free Trial",
       btn2: "Talk to Sales",
     },

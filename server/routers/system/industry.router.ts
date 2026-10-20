@@ -7,6 +7,7 @@
  */
 
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { router, publicProcedure, tenantRequiredProcedure } from "../../_core/trpc";
 import { getRawConnection } from "../../db";
 import {
@@ -93,6 +94,13 @@ export const industryRouter = router({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      // 관리자만 — 업종을 바꾸면 회사 전체 메뉴·기능이 바뀐다 (2026-10-20: 이전엔 누구나 바꿀 수 있었음)
+      if (!["admin", "super_admin"].includes(String(ctx.user?.role ?? ""))) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "업종은 관리자만 바꿀 수 있습니다" });
+      }
+      if (!INDUSTRY_PROFILES[input.industryCode]) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "업종을 목록에서 고르세요" });
+      }
       const profile = resolveIndustryProfile(input.industryCode);
       const pool = await getRawConnection();
 
