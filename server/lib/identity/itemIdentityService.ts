@@ -209,6 +209,22 @@ export function materialRefOf(input: { itemMasterId?: number | null; inventoryMa
   return im != null ? { kind: "item", id: im as ItemMasterId } : { kind: "inventory", id: inv as InventoryMaterialId };
 }
 
+/**
+ * 조회 화면의 원료 거르기 (2026-10-20, 번호 체계 2d) — 번호를 안 줬으면 undefined(거르지 않음),
+ * 줬는데 연결 없음·다른 회사면 null(그 원료 자료 없음 — 숫자로 다른 원료 자료를 보여 주지 않음), 아니면 재고 원료 번호.
+ */
+export async function inventoryMaterialIdForQuery(
+  input: { itemMasterId?: number | null; inventoryMaterialId?: number | null }, tenantId: number, c?: IdentityConn,
+): Promise<InventoryMaterialId | null | undefined> {
+  if (num(input.itemMasterId) == null && num(input.inventoryMaterialId) == null) return undefined;
+  try {
+    return await inventoryMaterialIdOfRef(materialRefOf(input), tenantId, c);
+  } catch (e) {
+    if (e instanceof MaterialRefError) return null;
+    throw e;
+  }
+}
+
 /** 원료 번호(종류 명시) → 이 회사의 재고 원료 번호. 연결 없음·다른 회사·없는 번호는 쓰기 전에 거부 (추측·이름 매칭 없음) */
 export async function inventoryMaterialIdOfRef(ref: MaterialRef, tenantId: number, c?: IdentityConn): Promise<InventoryMaterialId> {
   if (ref.kind === "item") {

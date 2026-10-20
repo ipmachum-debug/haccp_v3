@@ -38,7 +38,8 @@ export function EditPurchaseDialog({
   const [formData, setFormData] = useState({
     transactionDate: "",
     partnerId: "none",
-    materialId: null as number | null, // ★ 2026-04-13 추가: h_materials FK
+    /** 이 화면에서 새로 고른 품목 번호 — 고르지 않았으면 null (저장된 원료 그대로, 번호 체계 2d) */
+    materialId: null as number | null,
     itemName: "",
     category: "",
     quantity: "",
@@ -50,6 +51,12 @@ export function EditPurchaseDialog({
     notes: "",
     accountCategoryId: "none",
   });
+
+  // 저장된 원료의 품목 번호 — 서버가 섞인 칸 규칙으로 풀어 준 값 (표시용, 번호 체계 2d)
+  const { data: storedItem } = trpc.haccpIntegration.purchaseMaterialItem.useQuery(
+    { id: Number(purchase?.id ?? 0) },
+    { enabled: !!purchase?.id },
+  );
 
   // 거래처 목록 조회
   const { data: partners = [] } = trpc.partners.list.useQuery();
@@ -64,7 +71,7 @@ export function EditPurchaseDialog({
       setFormData({
         transactionDate: purchase.transactionDate?.split("T")[0] || "",
         partnerId: purchase.partnerId?.toString() || "none",
-        materialId: purchase.materialId ? Number(purchase.materialId) : null,
+        materialId: null, // 저장된 원료는 아래 purchaseMaterialItem 로 (저장 번호를 품목 번호로 바로 쓰지 않음)
         itemName: purchase.itemName || "",
         category: purchase.category || "",
         quantity: purchase.quantity?.toString() || "",
@@ -124,7 +131,7 @@ export function EditPurchaseDialog({
       id: purchase.id,
       transactionDate: formData.transactionDate,
       partnerId: formData.partnerId && formData.partnerId !== "none" ? parseInt(formData.partnerId) : undefined,
-      materialId: formData.materialId || undefined, // ★ 원재료 FK
+      itemMasterId: formData.materialId || undefined, // 새로 고른 품목만 — 서버가 같은 원료로 읽히는 번호로 저장
       itemName: formData.itemName,
       category: formData.category || undefined,
       quantity: formData.quantity ? parseFloat(formData.quantity) : undefined,
@@ -191,7 +198,7 @@ export function EditPurchaseDialog({
             <div className="space-y-2 col-span-2">
               <Label htmlFor="itemName">품목 *</Label>
               <MaterialCombobox
-                selectedId={formData.materialId}
+                selectedId={formData.materialId ?? storedItem?.itemMasterId ?? null}
                 selectedName={formData.itemName}
                 itemTypes={["raw_material", "subsidiary", "external_product"]}
                 placeholder="품목 검색... (원재료/부재료/외주제품)"

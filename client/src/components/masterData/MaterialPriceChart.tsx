@@ -38,7 +38,7 @@ export function MaterialPriceChart({
   onOpenChange,
 }: MaterialPriceChartProps) {
   const { data: priceHistory, isLoading } = trpc.material.getPriceHistory.useQuery(
-    { materialId },
+    { itemMasterId: materialId }, // 품목 번호 — 서버가 FK 로 재고 원료 단가 이력 (번호 체계 2d)
     { enabled: open }
   );
 

@@ -51,7 +51,7 @@ export default function InventoryTrend() {
   const { data: inventoryData, isLoading } = trpc.dashboard.getInventoryTrendData.useQuery({
     startDate,
     endDate,
-    materialId: selectedMaterialId,
+    itemMasterId: selectedMaterialId, // 품목 선택창 번호 — 서버가 FK 로 재고 원료로 (번호 체계 2d)
   }, {
     staleTime: 5 * 60 * 1000, // 5분
     gcTime: 10 * 60 * 1000, // 10분

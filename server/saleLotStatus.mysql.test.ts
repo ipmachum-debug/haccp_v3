@@ -4341,5 +4341,70 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(sugar[0]).toMatchObject({ itemMasterId: null, linked: false }); // 쌀A 추천에 섞이지 않음
       expect(String(sugar[0].materialProblem)).toMatch(/서로 다른 원료/);
     });
+
+    it("2d 조회 화면: 재고 추이·단가 이력·원가 절감·발주 제안 이력 — 품목 번호는 FK 로 쌀A, 연결 없음은 빈 결과 (다른 원료 자료 안 보임)", async () => {
+      const inv = await caller("./routers/inventory/inventory.router", "inventoryRouter");
+      await inv.receiveMaterial({ itemMasterId: RICE_IM, quantity: 7, unit: "kg", receiptDate: "2026-10-17", idempotencyKey: "qa2d-rice-1" });
+      await inv.receiveMaterial({ inventoryMaterialId: SUGAR_INV, quantity: 3, unit: "kg", receiptDate: "2026-10-17", idempotencyKey: "qa2d-sugar-1" });
+      const dash = (await import("./routers/dashboard/dashboard.router")).dashboardRouter.createCaller({ user: { id: 4, role: "admin", tenantId: T, siteId: 1, email: "t@t" }, tenantId: T } as any);
+      const trend = async (input: any) => ((await dash.getInventoryTrendData({ startDate: "2026-10-01", endDate: "2026-10-31", ...input })) as any).inventoryTrend.reduce((s: number, r: any) => s + Number(r.receiptQuantity ?? 0), 0);
+      expect(await trend({ itemMasterId: RICE_IM })).toBe(7); // 이전: 품목 88600 을 재고 번호로 읽어 설탕B(3)
+      expect(await trend({ inventoryMaterialId: SUGAR_INV })).toBe(3);
+      expect(((await dash.getInventoryTrendData({ startDate: "2026-10-01", endDate: "2026-10-31", itemMasterId: UNLINKED_IM })) as any).inventoryTrend).toEqual([]);
+      // 단가 이력 — 공식 이력 표, 쌀A 것만
+      await q(`DELETE FROM h_material_price_history WHERE material_id IN (?, ?)`, [RICE_INV, SUGAR_INV]);
+      await q(`INSERT INTO h_material_price_history (tenant_id, material_id, old_price, new_price, reason) VALUES (?, ?, NULL, 1000, '쌀'), (?, ?, NULL, 900, '설탕')`, [T, RICE_INV, T, SUGAR_INV]);
+      const mat = await caller("./routers/master/material.router", "materialRouter");
+      const ph = await mat.getPriceHistory({ itemMasterId: RICE_IM });
+      expect(ph.map((r: any) => [r.newPrice, r.price, r.reason])).toEqual([[1000, 1000, "쌀"]]);
+      expect(await mat.getPriceHistory({ itemMasterId: UNLINKED_IM })).toEqual([]);
+      // 원가 절감 — 쌀A 를 분석 (함수 인자 순서도 바로잡음: 회사, 원료)
+      const cs = await caller("./routers/production/costSavingAI.router", "costSavingAIRouter");
+      const tr: any = await cs.analyzePriceTrend({ itemMasterId: RICE_IM, startDate: "2026-01-01", endDate: "2026-12-31" });
+      expect(tr.materialName ?? tr.material?.materialName).toBe("쌀A");
+      await expect(cs.recommendPurchaseTiming({ itemMasterId: UNLINKED_IM })).rejects.toThrow(/연결되지 않았습니다/);
+      // 발주 제안 이력 — 연결 없는 품목은 빈 목록
+      expect(await inv.getPurchaseProposalHistory({ itemMasterId: UNLINKED_IM })).toEqual([]);
+    });
+
+    it("2d 매입 전표: 수정은 새로 고른 품목만(같은 원료로 읽히는 번호로 저장) · 확정은 이름으로 원료를 찾지 않고 · 모호한 번호는 확정 전에 멈춤", async () => {
+      const hiR = await caller("./routers/haccp/haccpIntegration.router", "haccpIntegrationRouter");
+      const mk = async (id: number, mid: number | null, name: string) => q(
+        `INSERT INTO accounting_purchases (id, tenant_id, transaction_date, partner_id, item_name, material_id, quantity, unit, unit_price, total_amount, tax_amount, tax_rate, status, created_by)
+         VALUES (?, ?, '2026-10-12', ?, ?, ?, 10, 'kg', 1000, 10000, 0, 0, 'pending', 4)`, [id, T, PARTNER, name, mid]);
+      await q(`DELETE FROM accounting_purchases WHERE id IN (88681, 88682, 88683)`);
+      await mk(88681, null, "쌀A");
+      // 수정 화면: 저장 번호 없음 → 표시 없음 / 쌀A 를 새로 고름 → 다시 읽어도 쌀A 인 재고 번호로 저장
+      expect(await hiR.purchaseMaterialItem({ id: 88681 })).toEqual({ itemMasterId: null, problem: null });
+      await hiR.updatePurchase({ id: 88681, itemMasterId: RICE_IM });
+      expect(Number((await q(`SELECT material_id FROM accounting_purchases WHERE id = 88681`))[0].material_id)).toBe(RICE_INV);
+      expect(await hiR.purchaseMaterialItem({ id: 88681 })).toEqual({ itemMasterId: RICE_IM, problem: null });
+      // 원료를 안 고른 수정(메모만)은 원료 그대로
+      await hiR.updatePurchase({ id: 88681, notes: "메모" });
+      expect(Number((await q(`SELECT material_id FROM accounting_purchases WHERE id = 88681`))[0].material_id)).toBe(RICE_INV);
+      // 확정: 번호 없는 전표 — 이름이 같아도 원료를 찾지 않는다 (LOT 없음, 분개만)
+      const { postPurchase } = await import("./lib/accounting/purchasePost");
+      await mk(88682, null, "쌀A");
+      await postPurchase(88682, 4, T);
+      expect(await lotsOf(RICE_INV)).toEqual([]);
+      // 모호한 번호(품목 쌀A / 재고 설탕B) → 확정 전에 멈춤, LOT 도 분개도 없음
+      await mk(88683, RICE_IM, "쌀A");
+      await expect(postPurchase(88683, 4, T)).rejects.toThrow(/서로 다른 원료/);
+      expect(await lotsOf(SUGAR_INV)).toEqual([]);
+      expect((await q(`SELECT status FROM accounting_purchases WHERE id = 88683`))[0].status).toBe("pending");
+      await q(`DELETE FROM accounting_purchases WHERE id IN (88681, 88682, 88683)`);
+    });
+
+    it("2d 중간재 구성: 품목 선택창 번호 → 재고 원료 번호로 저장 (읽는 쪽이 재고 원료로 이어 '미매칭'·다른 원료로 보이지 않게) · 연결 없음 거부", async () => {
+      await q(`CREATE TABLE IF NOT EXISTS h_mixed_material_components (id bigint NOT NULL AUTO_INCREMENT PRIMARY KEY, tenant_id int NOT NULL, intermediate_material_id bigint NOT NULL,
+        component_material_id bigint NOT NULL, ratio_percent decimal(5,2) NULL, grams_per_kg decimal(10,2) NULL, note text NULL, created_at timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP)`);
+      await q(`DELETE FROM h_mixed_material_components WHERE intermediate_material_id = ?`, [SALT]);
+      const im = await caller("./routers/master/intermediate.router", "intermediateRouter");
+      await im.componentAdd({ intermediateId: SALT, itemMasterId: RICE_IM, ratioPercent: 50 });
+      expect((await q(`SELECT component_material_id AS c FROM h_mixed_material_components WHERE intermediate_material_id = ?`, [SALT])).map((r: any) => Number(r.c))).toEqual([RICE_INV]); // 이전: 88600(설탕B 재고 번호)
+      await expect(im.componentAdd({ intermediateId: SALT, itemMasterId: UNLINKED_IM })).rejects.toThrow(/연결되지 않았습니다/);
+      await expect(im.componentAdd({ intermediateId: OTHER_INV, itemMasterId: RICE_IM })).rejects.toThrow(/혼합재제를 찾을 수 없습니다/);
+      await q(`DELETE FROM h_mixed_material_components WHERE intermediate_material_id = ?`, [SALT]);
+    });
   });
 });
