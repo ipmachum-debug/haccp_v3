@@ -4,6 +4,8 @@
 // 검토 대기, 승인 대기, 처리 이력, 품목제조보고 승인 탭
 // ═══════════════════════════════════════════════════════════════
 import { useState, useEffect } from "react";
+import { useUrlFilters } from "@/components/common/FilterBar";
+import { pickAllowed, pickDate, pickPage, withReturnTo } from "@/lib/urlState";
 import { useAuth } from "@/_core/hooks/useAuth";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 // Phase Plugin-6: Approval Engine — Plugin 기반 승인 entity / 탭 동적화
@@ -64,10 +66,20 @@ export default function ApprovalManagement() {
   const approvalEntityTypes = domainPlugin ? getApprovalEntityTypes(domainPlugin) : [];
   const showRecipeTab = !domainPlugin // 폴백: legacy 동작 (모두 노출)
     || approvalEntityTypes.some((t) => t.code === "food_product_report");
-  const [activeTab, setActiveTab] = useState<"review" | "approval" | "history" | "recipe" | "recipeHistory" | "writerPending">("review");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  // 탭·분류·처리이력 조건·페이지는 URL 이 기준 (2026-10-21 작업 위치 보존) — 배치 상세에 다녀오거나 새로고침해도 같은 자리.
+  //   기본값이면 쿼리에서 뺀다. 검색 입력은 타자 중엔 화면에만 두고, 잠시 멈추면(300ms) URL 로
+  const [q, setQ] = useUrlFilters({ tab: "review", cat: "all", status: "all", type: "all", hFrom: "", hTo: "", hq: "", hPage: "1", rStatus: "all" });
+  type ApprovalTab = "review" | "approval" | "history" | "recipe" | "recipeHistory" | "writerPending";
+  const APPROVAL_TABS: ApprovalTab[] = ["review", "approval", "history", "writerPending", ...(showRecipeTab ? (["recipe", "recipeHistory"] as const) : [])];
+  const activeTab = pickAllowed(q.tab, "review", APPROVAL_TABS) as ApprovalTab;
+  const setActiveTab = (v: ApprovalTab) => setQ({ tab: v });
+  const statusFilter = q.status;
+  const typeFilter = q.type;
+  const categoryFilter = q.cat;
+  // 처리이력 조건을 바꾸면 첫 페이지로 (한 번의 URL 변경으로)
+  const setStatusFilter = (v: string) => setQ({ status: v, hPage: "1" });
+  const setTypeFilter = (v: string) => setQ({ type: v, hPage: "1" });
+  const setCategoryFilter = (v: string) => setQ({ cat: v });
   const [selectedRequest, setSelectedRequest] = useState<any>(null);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [approveDialogOpen, setApproveDialogOpen] = useState(false);
@@ -81,23 +93,27 @@ export default function ApprovalManagement() {
   const [rejectionReason, setRejectionReason] = useState("");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   // 처리이력 날짜 필터
-  const [historyDateFrom, setHistoryDateFrom] = useState("");
-  const [historyDateTo, setHistoryDateTo] = useState("");
+  const historyDateFrom = pickDate(q.hFrom, "");
+  const historyDateTo = pickDate(q.hTo, "");
+  const setHistoryDateFrom = (v: string) => setQ({ hFrom: v, hPage: "1" });
+  const setHistoryDateTo = (v: string) => setQ({ hTo: v, hPage: "1" });
   // 처리이력 문서제목 검색 (2026-09-10) — 서버 side LIKE 검색용, 300ms debounce
-  const [historySearchInput, setHistorySearchInput] = useState("");
-  const [historySearchDebounced, setHistorySearchDebounced] = useState("");
+  const historySearchDebounced = q.hq.trim();
+  const [historySearchInput, setHistorySearchInput] = useState(q.hq);
   useEffect(() => {
-    const t = setTimeout(() => setHistorySearchDebounced(historySearchInput.trim()), 300);
+    const t = setTimeout(() => { if (historySearchInput.trim() !== historySearchDebounced) setQ({ hq: historySearchInput.trim(), hPage: "1" }); }, 300);
     return () => clearTimeout(t);
-  }, [historySearchInput]);
-  // 처리이력 페이지네이션 (2026-09-10) — 서버 side limit/offset
+  }, [historySearchInput]); // eslint-disable-line react-hooks/exhaustive-deps
+  // 뒤로/앞으로로 URL 검색어가 바뀌면 입력칸도 맞춘다
+  useEffect(() => {
+    setHistorySearchInput((cur) => (cur.trim() === historySearchDebounced ? cur : historySearchDebounced));
+  }, [historySearchDebounced]);
+  const setHistorySearchDebounced = (v: string) => setQ({ hq: v, hPage: "1" });
+  // 처리이력 페이지네이션 (2026-09-10) — 서버 side limit/offset. 페이지 번호는 URL (조건을 바꾸면 위 setter 가 1페이지로)
   const HISTORY_PAGE_SIZE = 100;
   const HISTORY_DONE_STATUSES: Array<"approved" | "rejected" | "cancelled"> = ["approved", "rejected", "cancelled"];
-  const [historyOffset, setHistoryOffset] = useState(0);
-  // 검색어 / 필터 변경 시 offset 초기화
-  useEffect(() => {
-    setHistoryOffset(0);
-  }, [historySearchDebounced, statusFilter, typeFilter, historyDateFrom, historyDateTo]);
+  const historyOffset = (pickPage(q.hPage) - 1) * HISTORY_PAGE_SIZE;
+  const setHistoryOffset = (offset: number) => setQ({ hPage: String(Math.floor(Math.max(0, offset) / HISTORY_PAGE_SIZE) + 1) });
   // 일괄승인 확인 다이얼로그
   const [batchConfirmDialogOpen, setBatchConfirmDialogOpen] = useState(false);
   const [batchConfirmAction, setBatchConfirmAction] = useState<"review" | "approve">("review");
@@ -186,7 +202,8 @@ export default function ApprovalManagement() {
   );
 
   // 품목제조보고 승인 이력 조회
-  const [recipeStatusFilter, setRecipeStatusFilter] = useState<string>("all");
+  const recipeStatusFilter = q.rStatus;
+  const setRecipeStatusFilter = (v: string) => setQ({ rStatus: v });
   const { data: recipeHistory, refetch: refetchRecipeHistory } = trpc.recipeApproval.getHistory.useQuery(
     {
       approvalStatus: recipeStatusFilter === "all" ? undefined : recipeStatusFilter,
@@ -1093,7 +1110,7 @@ function WriterPendingBanner({ onGoToWriterTab }: { onGoToWriterTab?: () => void
                 <Button
                   size="sm" variant="outline"
                   className="h-6 text-[11px] px-2"
-                  onClick={() => navigate(editPathFor(item))}
+                  onClick={() => navigate(withReturnTo(editPathFor(item)))}
                 >
                   작성/수정
                 </Button>
@@ -1283,7 +1300,7 @@ function WriterPendingTabContent() {
                   <Button
                     size="sm" variant="outline"
                     className="h-7 text-[11px] px-2"
-                    onClick={() => navigate(editPathFor(item))}
+                    onClick={() => navigate(withReturnTo(editPathFor(item)))}
                   >
                     작성/수정
                   </Button>

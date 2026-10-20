@@ -6,7 +6,9 @@
  * ═══════════════════════════════════════════════════════════════
  */
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
+import { returnToFromSearch } from "@/lib/urlState";
+import { allowNextNavigation, useUnsavedChangesGuard } from "@/hooks/useUnsavedChangesGuard";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { Button } from "@/components/ui/button";
@@ -74,8 +76,13 @@ export default function PurchaseOrderCreate() {
   );
 }
 
+const PO_LIST = "/dashboard/accounting/purchase-orders";
+
 function PurchaseOrderCreateContent() {
   const [, navigate] = useLocation();
+  // 돌아갈 곳 (2026-10-21 작업 위치 보존) — 발주 목록(조건 그대로)·재고 화면 등 들어온 곳. 직접 링크면 발주 목록
+  const backTo = returnToFromSearch(useSearch(), PO_LIST);
+  const backIsList = backTo === PO_LIST || backTo.startsWith(`${PO_LIST}?`);
   const [partnerId, setPartnerId] = useState<number | null>(null);
   const [partnerName, setPartnerName] = useState<string>("");
   const [orderDate, setOrderDate] = useState<string>(todayLocal());
@@ -85,6 +92,10 @@ function PurchaseOrderCreateContent() {
   // 발주 제안 승인에서 넘어온 경우 품목·수량·단위를 미리 채운다 (2026-10-17 — 승인은 재고가 아니라 발주서)
   const [lines, setLines] = useState<POLine[]>(() => [lineFromQuery() ?? emptyLine()]);
   const [showSuggestions, setShowSuggestions] = useState<boolean>(true);
+  // 저장하지 않은 입력 보호 — 처음 열었을 때(미리 채운 품목 포함)와 달라졌을 때만 묻는다
+  const snapshot = JSON.stringify([partnerId, partnerName, orderDate, expectedDeliveryDate, deliveryAddress, notes, lines]);
+  const [initialSnapshot] = useState(snapshot);
+  const { confirmLeave } = useUnsavedChangesGuard(snapshot !== initialSnapshot);
 
   // Phase B (2026-04-14): 거래처 선택 시 반복구매 이력 추천
   const { data: suggestions = [] } = trpc.purchaseOrder.suggestRepeatItems.useQuery(
@@ -97,7 +108,9 @@ function PurchaseOrderCreateContent() {
     onSuccess: (result: any) => {
       toast({ title: "발주서 생성 완료", description: result.message });
       utils.purchaseOrder.list.invalidate();
-      navigate("/dashboard/accounting/purchase-orders");
+      // 저장됨 — 묻지 않고 발주 목록으로 (발주 목록에서 왔으면 그 조건 그대로)
+      allowNextNavigation();
+      navigate(backIsList ? backTo : PO_LIST);
     },
     onError: (err: { message: string }) => {
       toast({ title: "생성 실패", description: err.message, variant: "destructive" });
@@ -257,8 +270,8 @@ function PurchaseOrderCreateContent() {
             공급업체에 구매할 품목을 선택하여 발주서를 작성합니다
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => navigate("/dashboard/accounting/purchase-orders")}>
-          <ArrowLeft className="h-4 w-4 mr-1" /> 목록으로
+        <Button variant="outline" size="sm" onClick={() => { if (confirmLeave()) navigate(backTo); }}>
+          <ArrowLeft className="h-4 w-4 mr-1" /> {backIsList ? "목록으로" : "돌아가기"}
         </Button>
       </div>
 

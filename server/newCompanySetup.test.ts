@@ -342,3 +342,29 @@ describe("작업 위치 보존 — 우선 3흐름 (2026-10-21 Codex 조사)", ()
     expect(read("client/src/pages/design/DesignRecipeDetail.tsx")).toMatch(/allowNextNavigation\(\)/);
   });
 });
+
+describe("작업 위치 보존 2차 — 남은 화면 (2026-10-21)", () => {
+  it("조회 상태는 URL 에서 읽는다 (처음 한 번 읽고 따로 들고 있지 않음)", () => {
+    const ledger = read("client/src/pages/accounting/MaterialLedger.tsx");
+    expect(ledger).toMatch(/pickAllowed\(sp\.get\("ledgerTab"\), "daily"/);
+    expect(ledger).not.toMatch(/useState\(formatDate\(new Date\(\)\)\)/);
+    expect(read("client/src/pages/master/ItemMasterManagement.tsx")).toMatch(/useTabWithUrl\("tab", "own_product", \[/);
+    for (const f of ["client/src/pages/accounting/PurchasesList.tsx", "client/src/pages/accounting/SalesList.tsx"]) expect(read(f)).toMatch(/= pickPage\(urlFilters\.page\)/);
+    const appr = read("client/src/pages/system/ApprovalManagement.tsx");
+    expect(appr).toMatch(/useUrlFilters\(\{ tab: "review"/);
+    expect(appr).not.toMatch(/setHistoryOffset\(0\);\n\s*\}, \[/); // 첫 화면에서 URL 페이지를 지우던 초기화 효과 없음
+    expect(read("client/src/components/ccp/CCPRecordsList.tsx")).toMatch(/useUrlFilters\(\{ ccpType: "all"/);
+    const today = read("client/src/pages/production/TodayProduction.tsx");
+    expect(today).toMatch(/new URLSearchParams\(useSearch\(\)\)/);
+    expect(today).not.toMatch(/replaceState\(null/);
+  });
+  it("상세·작성 화면의 뒤로는 들어온 곳(returnTo), 들어가는 쪽은 돌아올 곳을 넘긴다", () => {
+    for (const f of ["client/src/pages/accounting/PurchaseDetail.tsx", "client/src/pages/accounting/SaleDetail.tsx", "client/src/pages/haccp/CcpInspection.tsx", "client/src/pages/accounting/PurchaseOrderCreate.tsx"]) {
+      expect(read(f)).toMatch(/returnToFromSearch\(useSearch\(\)/);
+    }
+    expect(read("client/src/pages/accounting/PurchaseOrderCreate.tsx")).toMatch(/useUnsavedChangesGuard\(/);
+    expect(read("client/src/pages/accounting/PurchaseOrderList.tsx")).toMatch(/withReturnTo\("\/dashboard\/accounting\/purchase-orders\/create"\)/);
+    expect(read("client/src/pages/system/ApprovalManagement.tsx")).not.toMatch(/navigate\(editPathFor\(item\)\)/);
+    expect(read("client/src/pages/production/TodayProduction.tsx")).not.toMatch(/<Link href=\{`\/dashboard\/batch\//);
+  });
+});

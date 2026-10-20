@@ -928,7 +928,7 @@ function EquipmentCcpSettingsForm({
 export default function CCPMonitoring() {
   const L = useIndustryLabel();
   // 3-c: 탭은 URL 에 유지 (새로고침·뒤로가기·링크 공유에도 같은 탭)
-  const [activeTab, setActiveTab] = useTabWithUrl("tab", "records");
+  const [activeTab, setActiveTab] = useTabWithUrl("tab", "records", ["records", "equipment", "limits", "stats", "reports"]);
   const [selectedCcpType, setSelectedCcpType] = useState<"CCP-1B" | "CCP-2B" | "CCP-3B" | "CCP-4P">("CCP-1B");
   const [pdfPeriod, setPdfPeriod] = useState<"daily" | "weekly" | "monthly">("daily");
   const [reportStartDate, setReportStartDate] = useState("");

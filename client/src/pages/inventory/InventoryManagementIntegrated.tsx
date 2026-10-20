@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from "react";
 import { useLocation } from "wouter";
+import { withReturnTo } from "@/lib/urlState";
 import { PageHeader } from "@/components/common/PageHeader";
 import { Tabs, TabsContent, TabsTrigger, TabsList } from "@/components/ui/tabs";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -45,13 +46,17 @@ import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
    ═══════════════════════════════════════════════════ */
 export default function InventoryManagement() {
   const L = useIndustryLabel();
-  const [activeTab, setActiveTab] = useTabWithUrl("tab", "current");
   const [trendPeriod, setTrendPeriod] = useState<"week" | "month" | "quarter">("month");
   const [lotModalOpen, setLotModalOpen] = useState(false);
-  const [inventoryView, setInventoryView] = useTabWithUrl("view", "material");
+  const [inventoryView, setInventoryView] = useTabWithUrl("view", "material", ["material", "product", "subsidiary", "external"]);
   const isMat = inventoryView === "material";
   const isSub = inventoryView === "subsidiary";
   const isExt = inventoryView === "external";
+  // 탭은 URL — 지금 보기(원재료·제품·부자재·외부상품)에 없는 탭 값(옛 링크·잘못된 쿼리)이면 현황으로 (2026-10-21 작업 위치 보존)
+  const viewTabs = isSub || isExt ? ["current", "adjustment"]
+    : ["current", "release", "receipt", "trend", "turnover", "prediction", "purchase", "adjustment", ...(isMat ? [] : ["count"])];
+  const [rawTab, setActiveTab] = useTabWithUrl("tab", "current");
+  const activeTab = viewTabs.includes(rawTab) ? rawTab : "current";
 
   const { data: dashboard, isLoading: isLoadingDashboard } = trpc.inventory.getDashboard.useQuery();
 
@@ -431,7 +436,7 @@ function PurchaseOrderTab() {
   const { data: suggs, isLoading } = trpc.inventory.getPurchaseOrderSuggestions.useQuery({ days });
   const [, navigate] = useLocation();
   const approveMut = trpc.inventory.approvePurchaseOrder.useMutation({
-    onSuccess: (r: { draft: Parameters<typeof purchaseOrderDraftUrl>[0] }) => navigate(purchaseOrderDraftUrl(r.draft)),
+    onSuccess: (r: { draft: Parameters<typeof purchaseOrderDraftUrl>[0] }) => navigate(withReturnTo(purchaseOrderDraftUrl(r.draft))),
     onError: (e: { message: string }) => alert(`오류: ${e.message}`),
   });
   const rejectMut = trpc.inventory.rejectPurchaseOrder.useMutation({

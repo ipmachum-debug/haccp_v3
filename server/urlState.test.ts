@@ -2,7 +2,7 @@
  * 작업 위치 보존 — URL 쿼리·돌아갈 주소 순수 함수 (2026-10-21)
  */
 import { describe, it, expect } from "vitest";
-import { patchSearch, pickAllowed, pickPage, safeReturnTo, withReturnTo, returnToFromSearch } from "../client/src/lib/urlState";
+import { patchSearch, pickAllowed, pickPage, pickDate, pickMonth, safeReturnTo, withReturnTo, returnToFromSearch } from "../client/src/lib/urlState";
 
 describe("patchSearch — 바꿀 키만, 나머지 키는 그대로", () => {
   it("설정·삭제·다른 키 보존", () => {
@@ -24,6 +24,16 @@ describe("pickAllowed·pickPage — 잘못된 쿼리는 안전한 기본값", ()
   it("페이지는 1 이상의 정수만", () => {
     expect(pickPage("3")).toBe(3);
     for (const bad of ["0", "-1", "1.5", "abc", "", null, "999999999"]) expect(pickPage(bad as any)).toBe(1);
+  });
+});
+
+describe("pickDate·pickMonth — 실제 있는 날짜·월만", () => {
+  it("모양·달력이 맞으면 그대로, 아니면 기본", () => {
+    expect(pickDate("2026-09-14", "x")).toBe("2026-09-14");
+    expect(pickDate("2024-02-29", "x")).toBe("2024-02-29");
+    for (const bad of ["2026-02-31", "2026-13-01", "2026-9-14", "20260914", "", null, "2026-09-14T00:00"]) expect(pickDate(bad as any, "x")).toBe("x");
+    expect(pickMonth("2026-09", "m")).toBe("2026-09");
+    for (const bad of ["2026-00", "2026-13", "2026-9", "", null]) expect(pickMonth(bad as any, "m")).toBe("m");
   });
 });
 

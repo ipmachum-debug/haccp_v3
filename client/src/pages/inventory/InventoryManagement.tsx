@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
 import { useLocation } from "wouter";
+import { withReturnTo } from "@/lib/urlState";
 import { useTabWithUrl } from "@/hooks/useTabWithUrl";
 import { Tabs, TabsContent, TabsTrigger } from "@/components/ui/tabs"
 import { TabsList } from "@/components/ui/tabs";
@@ -527,7 +528,7 @@ function PurchaseOrderTab() {
   const [, navigate] = useLocation();
   const approveMutation = trpc.inventory.approvePurchaseOrder.useMutation({
     onSuccess: (r: { draft: Parameters<typeof purchaseOrderDraftUrl>[0] }) => {
-      navigate(purchaseOrderDraftUrl(r.draft));
+      navigate(withReturnTo(purchaseOrderDraftUrl(r.draft)));
     },
     onError: (error: { message: string }) => {
       alert(`오류: ${error.message}`);

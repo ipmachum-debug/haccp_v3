@@ -10,6 +10,11 @@ import path from "path";
 import type { AddressInfo } from "net";
 
 let server: http.Server | null = null;
+// 합성 조회 값 (회사 자료 아님) — 매입 60건(서로 다른 날짜 = 60묶음 = 3페이지), 매입 상세 1건
+const SYNTHETIC_DATA = `window.__NAV_DATA__={
+  "haccpIntegration.getAllPurchases": Array.from({length:60},(_,i)=>({id:i+1,transactionDate:"2026-0"+(1+Math.floor(i/28))+"-"+String(1+(i%28)).padStart(2,"0"),partnerId:1,partnerName:"시험 거래처",itemName:"시험 품목 "+(i+1),quantity:1,unitPrice:1,supplyAmount:1,totalTax:0,grandTotal:1,status:"draft",type:"purchase"})),
+  "haccpIntegration.getPurchaseById": {id:5,transactionDate:"2026-01-05",partnerName:"시험 거래처",status:"draft",type:"purchase",supplyAmount:0,totalTax:0,grandTotal:0,items:[],notes:""}
+};`;
 let browser: any = null;
 let base = "";
 let skipReason: string | null = null;
@@ -31,7 +36,7 @@ beforeAll(async () => {
     const js = out.outputFiles.find((f) => f.path.endsWith(".js"))!.text;
     // 즐겨찾기 한 개 — 실제 메뉴에 있는 경로 (통합 대시보드)
     const html = `<!doctype html><html><head><meta charset="utf-8"></head><body><div id="root"></div>`
-      + `<script>window.__NAV_FAVORITES__=[{id:1,menuPath:"/dashboard",sortOrder:0}]</script>`
+      + `<script>window.__NAV_FAVORITES__=[{id:1,menuPath:"/dashboard",sortOrder:0}];${SYNTHETIC_DATA}</script>`
       + `<script type="module" src="/app.js"></script></body></html>`;
     server = http.createServer((req, res) => {
       if ((req.url ?? "").startsWith("/app.js")) { res.writeHead(200, { "content-type": "text/javascript" }); res.end(js); return; }
@@ -260,6 +265,174 @@ describe("작업 위치 보존 — 실제 브라우저", () => {
     await page.evaluate(() => history.pushState(null, "", "/somewhere-else"));
     expect(urlOf(page)).toBe("/somewhere-else");
     expect(dialogs.length).toBe(m + 1);
+    await page.close();
+  }, 60000);
+});
+
+describe("작업 위치 보존 2차 — 실제 운영 화면 (서버 연결만 대역, 화면 코드는 그대로)", () => {
+  const param = (page: any, k: string) => new URL(page.url()).searchParams.get(k);
+  const openReal = async (p: string) => {
+    const page = await browser.newPage();
+    const dialogs: string[] = [];
+    page.on("dialog", async (d: any) => { dialogs.push(d.message()); await d.dismiss(); });
+    await page.goto(base + p);
+    await page.getByTestId("sidebar-logo-home").waitFor();
+    return { page, dialogs };
+  };
+  const reload = async (page: any) => { await page.reload(); await page.getByTestId("sidebar-logo-home").waitFor(); };
+  const selectedTab = async (page: any) => (await page.locator('main [role="tab"][data-state="active"]').first().innerText()).trim();
+
+  it("승인 관리: 탭·처리이력 검색은 URL — 새로고침·뒤로/앞으로 뒤 같은 탭·검색어, 잘못된 탭 값은 기본, 방문 이력은 쌓지 않음", async () => {
+    if (skipReason) return;
+    const { page } = await openReal("/dashboard/approval");
+    const len0 = await page.evaluate(() => history.length);
+    await page.getByRole("tab", { name: "처리 이력" }).click();
+    expect(param(page, "tab")).toBe("history");
+    await page.getByPlaceholder("제목 또는 설명 검색...").fill("떡");
+    await page.waitForFunction(() => new URL(location.href).searchParams.get("hq") === "떡");
+    expect(await page.evaluate(() => history.length)).toBe(len0);
+    await reload(page);
+    expect(await selectedTab(page)).toBe("처리 이력");
+    expect(await page.getByPlaceholder("제목 또는 설명 검색...").inputValue()).toBe("떡");
+    // 다른 화면에 갔다가 뒤로 → 같은 탭·검색어
+    await page.evaluate(() => history.pushState(null, "", "/dashboard/accounting/material-ledger"));
+    await page.getByRole("tab", { name: "일일 입출고" }).waitFor();
+    await page.goBack();
+    await page.getByRole("tab", { name: "처리 이력" }).waitFor();
+    expect(await selectedTab(page)).toBe("처리 이력");
+    expect(await page.getByPlaceholder("제목 또는 설명 검색...").inputValue()).toBe("떡");
+    await page.goto(base + "/dashboard/approval?tab=hack");
+    await page.getByRole("tab", { name: "검토 대기" }).waitFor();
+    expect(await selectedTab(page)).toBe("검토 대기");
+    await page.close();
+  }, 60000);
+
+  it("원료 수불부: 안쪽 탭·날짜·검색은 URL(ledger… 키) — 새로고침 뒤 같은 자리, 잘못된 날짜는 오늘", async () => {
+    if (skipReason) return;
+    const { page } = await openReal("/dashboard/accounting/material-ledger");
+    await page.locator('main input[type="date"]').first().fill("2026-09-14");
+    await page.getByPlaceholder("원재료 검색...").first().fill("찹쌀");
+    expect([param(page, "ledgerDate"), param(page, "ledgerQ")]).toEqual(["2026-09-14", "찹쌀"]);
+    await page.getByRole("tab", { name: "기간 보고서 (인쇄·엑셀)" }).click();
+    expect(param(page, "ledgerTab")).toBe("report");
+    await reload(page);
+    expect(await selectedTab(page)).toBe("기간 보고서 (인쇄·엑셀)");
+    await page.getByRole("tab", { name: "일일 입출고" }).click();
+    expect(await page.locator('main input[type="date"]').first().inputValue()).toBe("2026-09-14");
+    expect(await page.getByPlaceholder("원재료 검색...").first().inputValue()).toBe("찹쌀");
+    expect(param(page, "ledgerTab")).toBeNull(); // 기본 탭은 쿼리에서 뺀다
+    await page.goto(base + "/dashboard/accounting/material-ledger?ledgerDate=2026-02-31");
+    await page.locator('main input[type="date"]').first().waitFor();
+    expect(await page.locator('main input[type="date"]').first().inputValue()).not.toBe("2026-02-31");
+    await page.close();
+  }, 60000);
+
+  it("품목 마스터: 구분 탭·검색·상태는 URL — 새로고침 뒤 같은 목록 조건", async () => {
+    if (skipReason) return;
+    const { page } = await openReal("/dashboard/item-master");
+    await page.getByRole("tab", { name: "원재료" }).click();
+    await page.getByPlaceholder("검색...").fill("쌀");
+    await page.locator("main select").first().selectOption("ALL");
+    expect([param(page, "tab"), param(page, "q"), param(page, "status")]).toEqual(["raw_material", "쌀", "ALL"]);
+    await reload(page);
+    expect(await selectedTab(page)).toBe("원재료");
+    expect(await page.getByPlaceholder("검색...").inputValue()).toBe("쌀");
+    expect(await page.locator("main select").first().inputValue()).toBe("ALL");
+    await page.close();
+  }, 60000);
+
+  it("매입 조회: 페이지는 URL — 새로고침 뒤 같은 페이지, 조건을 바꾸면 1페이지 · 매입 상세의 뒤로는 들어온 목록으로", async () => {
+    if (skipReason) return;
+    const { page } = await openReal("/dashboard/accounting/purchases/list");
+    await page.locator('main button[title="다음"]').first().click();
+    expect(param(page, "page")).toBe("2");
+    const firstRow = async () => (await page.locator("main tbody tr").first().innerText()).replace(/\s+/g, " ");
+    const onPage2 = await firstRow();
+    await reload(page);
+    expect(param(page, "page")).toBe("2");
+    expect(await firstRow()).toBe(onPage2);
+    // 매입 상세(돌아올 곳 = 지금 목록) → 뒤로 → 같은 페이지
+    const listUrl = urlOf(page);
+    await page.evaluate((u: string) => history.pushState(null, "", "/dashboard/accounting/purchases/5?returnTo=" + encodeURIComponent(u)), listUrl);
+    await page.getByText("매입 거래 상세").waitFor();
+    await page.locator("main button").filter({ has: page.locator("svg.lucide-arrow-left") }).first().click();
+    await page.locator('main button[title="다음"]').first().waitFor();
+    expect(urlOf(page)).toBe(listUrl);
+    // 직접 링크로 연 상세는 기본 목록으로
+    await page.goto(base + "/dashboard/accounting/purchases/5");
+    await page.getByText("매입 거래 상세").waitFor();
+    await page.locator("main button").filter({ has: page.locator("svg.lucide-arrow-left") }).first().click();
+    await page.waitForFunction(() => location.pathname === "/dashboard/accounting/purchases/list");
+    expect(param(page, "page")).toBeNull();
+    // 조건을 바꾸면 1페이지로 (한 번의 주소 변경으로)
+    await page.locator('main button[title="다음"]').first().click();
+    expect(param(page, "page")).toBe("2");
+    await page.getByPlaceholder("품목명 검색").fill("시험");
+    expect([param(page, "item"), param(page, "page")]).toEqual(["시험", null]);
+    await page.close();
+  }, 60000);
+
+  it("발주서 등록: 들어온 곳으로 돌아가기 · 입력하면 화면 버튼·사이드 메뉴 모두 묻고 취소하면 그대로", async () => {
+    if (skipReason) return;
+    const back = "/dashboard/item-master?tab=raw_material";
+    const start = "/dashboard/accounting/purchase-orders/create?returnTo=" + encodeURIComponent(back);
+    const { page, dialogs } = await openReal(start);
+    await page.getByRole("button", { name: "돌아가기" }).click(); // 바뀐 게 없음 → 묻지 않고 들어온 곳으로
+    await page.getByRole("tab", { name: "원재료" }).waitFor();
+    expect(urlOf(page)).toBe(back);
+    expect(dialogs).toEqual([]);
+    await page.goto(base + start);
+    await page.getByPlaceholder("발주 관련 특이사항").fill("시험 메모");
+    await page.getByRole("button", { name: "돌아가기" }).click();
+    expect(dialogs.length).toBe(1);
+    await page.getByRole("button", { name: "승인 관리", exact: true }).first().click();
+    expect(dialogs.length).toBe(2);
+    expect(urlOf(page)).toBe(start);
+    expect(await page.getByPlaceholder("발주 관련 특이사항").inputValue()).toBe("시험 메모");
+    await page.close();
+  }, 60000);
+
+  it("생산: 날짜·보기·걸러 보기는 URL — 뒤로/앞으로가 주소와 화면을 함께 바꾸고, 기존 history.state 를 지우지 않음", async () => {
+    if (skipReason) return;
+    const { page } = await openReal("/dashboard/production/today?date=2026-09-14&view=all");
+    const dateInput = () => page.getByTestId("work-date").inputValue();
+    expect(await dateInput()).toBe("2026-09-14");
+    await page.evaluate(() => history.replaceState({ keep: 1 }, "", location.href));
+    await page.getByTestId("filter-done").click();
+    expect(param(page, "filter")).toBe("done");
+    await page.getByRole("button", { name: "다음날" }).click();
+    expect(param(page, "date")).toBe("2026-09-15");
+    expect(await page.evaluate(() => (history.state as any)?.keep)).toBe(1);
+    // 다른 날짜 링크로 이동(방문 이력) → 뒤로 → 화면 날짜도 돌아온다 (이전엔 주소만 바뀌고 화면은 그대로였다)
+    await page.evaluate(() => history.pushState(null, "", "/dashboard/production/today?date=2026-10-01&view=all"));
+    await page.waitForFunction(() => (document.querySelector('[data-testid="work-date"]') as HTMLInputElement)?.value === "2026-10-01");
+    await page.goBack();
+    await page.waitForFunction(() => (document.querySelector('[data-testid="work-date"]') as HTMLInputElement)?.value === "2026-09-15");
+    expect(param(page, "filter")).toBe("done");
+    await reload(page);
+    expect(await dateInput()).toBe("2026-09-15");
+    expect(param(page, "filter")).toBe("done");
+    await page.close();
+  }, 60000);
+
+  it("CCP 관리: 탭·기록 조건은 URL, 잘못된 탭은 기본 · CCP 기록 상세의 '목록으로'는 들어온 조건으로", async () => {
+    if (skipReason) return;
+    const { page } = await openReal("/quality/ccp-monitoring");
+    await page.locator('main input[type="date"]').first().fill("2026-09-01");
+    expect(param(page, "ccpFrom")).toBe("2026-09-01");
+    await page.getByRole("tab", { name: "통계" }).click();
+    await reload(page);
+    expect(await selectedTab(page)).toBe("통계");
+    await page.getByRole("tab", { name: "모니터링 기록" }).click();
+    expect(await page.locator('main input[type="date"]').first().inputValue()).toBe("2026-09-01");
+    const listUrl = urlOf(page);
+    await page.evaluate((u: string) => history.pushState(null, "", "/dashboard/ccp/3?returnTo=" + encodeURIComponent(u)), listUrl);
+    await page.getByRole("button", { name: "목록으로" }).click();
+    await page.getByRole("tab", { name: "모니터링 기록" }).waitFor();
+    expect(urlOf(page)).toBe(listUrl);
+    await page.goto(base + "/quality/ccp-monitoring?tab=hack");
+    await page.getByRole("tab", { name: "모니터링 기록" }).waitFor();
+    expect(await selectedTab(page)).toBe("모니터링 기록");
     await page.close();
   }, 60000);
 });

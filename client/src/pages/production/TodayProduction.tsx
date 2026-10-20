@@ -11,7 +11,8 @@
  * 쓰기는 모두 기존 서버 경로 — 새 쓰기 없음. '생산 시작' 버튼 없음 (첫 현장 확인에서 시작·원료 출고).
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
+import { pickAllowed, pickDate, replaceQuery, withReturnTo } from "@/lib/urlState";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -84,28 +85,32 @@ export default function TodayProduction() {
   const role = String((user as any)?.role ?? "");
   const isAdmin = ["admin", "super_admin"].includes(role);
   const isManager = MANAGER.includes(role);
-  const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
-  const [date, setDate] = useState(params.get("date") || todayLocal());
+  // 날짜·보기·걸러 보기는 URL 이 기준 (2026-10-21 작업 위치 보존) — 뒤로/앞으로·새로고침·배치 상세에서 돌아와도 같은 화면.
+  //   이전에는 처음 한 번만 읽어 뒤로/앞으로가 주소만 바뀌고 화면은 그대로였다
+  const params = new URLSearchParams(useSearch());
+  const date = pickDate(params.get("date"), todayLocal());
+  const setDate = (next: string | ((d: string) => string)) => replaceQuery({ date: typeof next === "function" ? next(date) : next });
   // 보기 — 관리(계획·목록·마감) / 현장(내 설비의 지금 할 일). 작업자는 현장만 (관리용 상태를 판단시키지 않음)
-  const [chosen, setView] = useState<"all" | "mine" | null>(() => {
-    const p = params.get("view");
-    if (p === "mine" || p === "all") return p;
-    if (params.get("add") === "1") return "all";
-    try { const v = localStorage.getItem("production-view"); return v === "all" || v === "mine" ? v : null; } catch { return null; }
-  });
+  const [first] = useState(() => ({ batch: Number(params.get("batch")), add: params.get("add") === "1" }));
+  const urlView = params.get("view");
+  const chosen: "all" | "mine" | null = urlView === "mine" || urlView === "all" ? urlView : first.add ? "all"
+    : (() => { try { const v = localStorage.getItem("production-view"); return v === "all" || v === "mine" ? v : null; } catch { return null; } })();
+  const setView = (v: "all" | "mine") => {
+    try { localStorage.setItem("production-view", v); } catch { /* 저장 못 해도 화면은 그대로 */ }
+    replaceQuery({ view: v });
+  };
   // 고른 적이 없으면 작업자 = 현장, 관리자 = 관리 (로그인 정보가 늦게 와도 역할로 정한다). 기기마다 마지막 보기를 기억
   const viewPref: "all" | "mine" = chosen ?? (role === "worker" ? "mine" : "all");
   const view: "all" | "mine" = isManager ? viewPref : "mine";
-  const [filter, setFilter] = useState<Filter>("all");
-  const [open, setOpen] = useState<Record<number, boolean>>(() => { const b = Number(params.get("batch")); return b > 0 ? { [b]: true } : {}; });
-  const [adding, setAdding] = useState(params.get("add") === "1");
+  const filter = pickAllowed(params.get("filter"), "all", ["all", "plan", "work", "rows", "stop", "done"]) as Filter;
+  const setFilter = (f: Filter) => replaceQuery({ filter: f === "all" ? null : f });
+  const [open, setOpen] = useState<Record<number, boolean>>(() => (first.batch > 0 ? { [first.batch]: true } : {}));
+  const [adding, setAdding] = useState(first.add);
 
+  // 주소에 날짜·보기를 적어 둔다 (링크 복사·새로고침이 같은 화면) — 기존 history.state 는 지우지 않고, 방문 이력도 쌓지 않음
   useEffect(() => {
-    try { if (chosen) localStorage.setItem("production-view", chosen); } catch { /* 저장 못 해도 화면은 그대로 */ }
-    const q = new URLSearchParams(window.location.search);
-    q.set("date", date); q.set("view", view); q.delete("add");
-    window.history.replaceState(null, "", `${window.location.pathname}?${q.toString()}`);
-  }, [date, view, chosen]);
+    replaceQuery({ date, view, add: null });
+  }, [date, view]);
 
   const utils = trpc.useUtils();
   const board = trpc.batch.todayBoard.useQuery({ workDate: date }, { refetchInterval: 60_000, enabled: view === "all" });
@@ -234,9 +239,9 @@ export default function TodayProduction() {
               <div className="mt-1 space-y-1" data-testid="void-history">
                 {voided.map((b) => (
                   <p key={b.id}>
-                    <Link href={`/dashboard/batch/${b.id}`} className="hover:underline">{b.productName} · {b.batchCode}</Link> — {b.next.label}
+                    <Link href={withReturnTo(`/dashboard/batch/${b.id}`)} className="hover:underline">{b.productName} · {b.batchCode}</Link> — {b.next.label}
                     {!!b.voidedSupersededBy && (
-                      <Link href={`/dashboard/batch/${b.voidedSupersededBy}`} className="ml-1 text-blue-600 hover:underline">
+                      <Link href={withReturnTo(`/dashboard/batch/${b.voidedSupersededBy}`)} className="ml-1 text-blue-600 hover:underline">
                         → 대체 {rows.find((x) => x.id === b.voidedSupersededBy)?.batchCode ?? `#${b.voidedSupersededBy}`}
                       </Link>
                     )}
@@ -391,7 +396,7 @@ function BatchLine({ b, open, onToggle, isAdmin, past, heat, onChanged, solo }: 
           {heat.length > 0
             ? <FieldRowsPanel pastDate={past} heat={heat} bare onChanged={onChanged} />
             : <p className="text-sm text-muted-foreground">{b.planOnly ? "예정 — 그날 현장 확인을 하면 시작합니다." : rowsLeft > 0 ? "현장 확인할 행이 있습니다." : "현장 확인할 가열 기록이 없습니다."}</p>}
-          <Link href={`/dashboard/batch/${b.id}`} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline">
+          <Link href={withReturnTo(`/dashboard/batch/${b.id}`)} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline">
             <ExternalLink className="h-3 w-3" />전체 상세 (수정·삭제·인쇄 · {b.batchCode})
           </Link>
         </div>
@@ -516,7 +521,7 @@ function DayClose({ date, live, sheets, isAdmin, canSubmit, canApprove, userRole
               ? <span className="text-emerald-700 text-xs">완료 {it.b.actualKg ?? it.b.plannedKg}kg</span>
               : it.b.planOnly ? <span className="text-xs text-muted-foreground">예정</span>
               // 예전 방식 기록지(현장 확인 이전에 만든 생산 건) — 여기서 제출하지 않는다. 미리 채운 예정 시각·평상값을 실제 값으로 고친 뒤 기록지 화면에서 제출
-              : it.legacy ? <span className="text-xs text-amber-700" data-testid="close-legacy">예전 방식 기록지 — 실제 값·시각으로 고친 뒤 <Link href={`/dashboard/batch/${it.b.id}`} className="underline">기록지 화면</Link>에서 제출</span>
+              : it.legacy ? <span className="text-xs text-amber-700" data-testid="close-legacy">예전 방식 기록지 — 실제 값·시각으로 고친 뒤 <Link href={withReturnTo(`/dashboard/batch/${it.b.id}`)} className="underline">기록지 화면</Link>에서 제출</span>
               : it.rowsLeft > 0 ? <span className="text-xs text-amber-700">현장 확인 {it.rowsLeft}건 남음</span>
               : it.blocked.length > 0 ? <span className="text-xs text-red-700">기록지 막힘: {it.blocked[0].problems[0]}{it.blocked[0].problems.length > 1 ? ` 외 ${it.blocked[0].problems.length - 1}` : ""}</span>
               : <span className="text-xs text-muted-foreground">{it.ready.length ? `기록지 ${it.ready.length}건 제출 대기` : "기록지 제출됨"}</span>}

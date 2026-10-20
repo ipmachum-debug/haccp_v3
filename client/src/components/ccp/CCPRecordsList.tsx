@@ -1,4 +1,6 @@
 import { useState, useMemo } from "react";
+import { useUrlFilters } from "@/components/common/FilterBar";
+import { pickAllowed, pickDate, withReturnTo } from "@/lib/urlState";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,12 +39,18 @@ const CCP_TYPE_COLORS: Record<string, string> = {
 };
 
 export function CCPRecordsList() {
-  const [filters, setFilters] = useState({
-    ccpType: "all" as "all" | "CCP-1B" | "CCP-2B" | "CCP-3B" | "CCP-4P",
-    status: "all" as "all" | "draft" | "submitted" | "approved" | "rejected",
-    startDate: "",
-    endDate: "",
-  });
+  // 조회 조건은 URL 이 기준 (2026-10-21 작업 위치 보존) — 기록 상세에 다녀오거나 새로고침해도 같은 조건.
+  //   CCP 관리의 바깥 탭(tab)과 겹치지 않게 ccp… 키. 잘못된 값은 '전체'
+  const [uf, setUf] = useUrlFilters({ ccpType: "all", ccpStatus: "all", ccpFrom: "", ccpTo: "" });
+  type CcpTypeFilter = "all" | "CCP-1B" | "CCP-2B" | "CCP-3B" | "CCP-4P";
+  type CcpStatusFilter = "all" | "draft" | "submitted" | "approved" | "rejected";
+  const filters = {
+    ccpType: pickAllowed(uf.ccpType, "all", ["all", "CCP-1B", "CCP-2B", "CCP-3B", "CCP-4P"]) as CcpTypeFilter,
+    status: pickAllowed(uf.ccpStatus, "all", ["all", "draft", "submitted", "approved", "rejected"]) as CcpStatusFilter,
+    startDate: pickDate(uf.ccpFrom, ""),
+    endDate: pickDate(uf.ccpTo, ""),
+  };
+  const setFilters = (f: typeof filters) => setUf({ ccpType: f.ccpType, ccpStatus: f.status, ccpFrom: f.startDate, ccpTo: f.endDate });
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
 
@@ -265,7 +273,7 @@ export function CCPRecordsList() {
                   </div>
 
                   {/* 상세보기 */}
-                  <Link href={`/dashboard/ccp/${record.id}`}>
+                  <Link href={withReturnTo(`/dashboard/ccp/${record.id}`)}>
                     <Button variant="ghost" size="sm" className="h-8 px-2">
                       <Eye className="h-4 w-4 mr-1" />
                       상세

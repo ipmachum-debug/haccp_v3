@@ -76,6 +76,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import * as XLSX from "xlsx";
 import { EditPurchaseDialog } from "@/components/accounting/EditPurchaseDialog";
 import { useLocation } from "wouter";
+import { pickPage } from "@/lib/urlState";
 import ExcelBulkUploadModal from "@/components/ExcelBulkUploadModal";
 
 import { todayLocal } from "../../lib/dateUtils";
@@ -98,19 +99,21 @@ export default function PurchasesList() {
 function PurchasesListContent() {
   const [, navigate] = useLocation();
   // 3-c 2차: 조회 조건은 URL 쿼리에 유지 — 기존 이름(startDate·setStartDate …)은 그대로 두고 URL 로 연결
-  const [urlFilters, setUrlFilters, resetUrlFilters] = useUrlFilters({ from: "", to: "", partner: "all", item: "", status: "all" });
+  const [urlFilters, setUrlFilters, resetUrlFilters] = useUrlFilters({ from: "", to: "", partner: "all", item: "", status: "all", page: "1" });
   const startDate = urlFilters.from, endDate = urlFilters.to, selectedPartnerId = urlFilters.partner, itemNameSearch = urlFilters.item, selectedStatus = urlFilters.status;
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [editingPurchase, setEditingPurchase] = useState<any>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [bulkUploadOpen, setBulkUploadOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  // 페이지도 URL (2026-10-21 작업 위치 보존) — 수정·상세 뒤 돌아오거나 새로고침해도 같은 페이지
+  const currentPage = pickPage(urlFilters.page);
+  const setCurrentPage = (p: number) => setUrlFilters({ page: String(p) });
   // 필터를 바꾸면 1페이지로 (기존 동작 유지)
-  const setStartDate = (v: string) => { setUrlFilters({ from: v }); setCurrentPage(1); };
-  const setEndDate = (v: string) => { setUrlFilters({ to: v }); setCurrentPage(1); };
-  const setSelectedPartnerId = (v: string) => { setUrlFilters({ partner: v }); setCurrentPage(1); };
-  const setItemNameSearch = (v: string) => { setUrlFilters({ item: v }); setCurrentPage(1); };
-  const setSelectedStatus = (v: string) => { setUrlFilters({ status: v }); setCurrentPage(1); };
+  const setStartDate = (v: string) => { setUrlFilters({ from: v, page: "1" }); };
+  const setEndDate = (v: string) => { setUrlFilters({ to: v, page: "1" }); };
+  const setSelectedPartnerId = (v: string) => { setUrlFilters({ partner: v, page: "1" }); };
+  const setItemNameSearch = (v: string) => { setUrlFilters({ item: v, page: "1" }); };
+  const setSelectedStatus = (v: string) => { setUrlFilters({ status: v, page: "1" }); };
   const PAGE_SIZE = 25;
 
   // ★ 2026-04-13: PDF base64 → Blob 공통 헬퍼
