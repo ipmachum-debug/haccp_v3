@@ -3249,6 +3249,30 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
     });
     afterAll(async () => { await q(`DELETE FROM h_batches WHERE id IN (9301, 9302)`); });
     const row = async (id: number) => (await q(`SELECT plan_only, status FROM h_batches WHERE id = ?`, [id]))[0];
+    /** 시험 DB 는 최소 표 — 기록지 생성·행 조회·현장 화면·결재 화면이 읽는 운영 칸을 보충 */
+    const ensureFormTables = async () => {
+        // 시험 DB 는 최소 표 — 운영 표에 있는 칸 중 이 경로(기록지 생성·행 조회)가 읽는 칸을 보충
+        const ensureCols = async (table: string, cols: Array<[string, string]>) => {
+          for (const [c, ddl] of cols) {
+            const [x]: any = await admin.query(`SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, c]);
+            if (!x.length) await admin.query(`ALTER TABLE ${table} ADD COLUMN ${c} ${ddl}`);
+          }
+        };
+        await ensureCols("h_ccp_form_records", [["site_id", "bigint NULL"], ["product_id", "bigint NULL"], ["equip_group_mode", "varchar(20) NULL DEFAULT 'sequential'"], ["equip_interval_min", "int NULL DEFAULT 10"],
+          ["cl_heat_time_min_lo", "int NULL"], ["cl_heat_time_min_hi", "int NULL"], ["cl_heat_temp_lo", "decimal(5,1) NULL"], ["cl_pressure_mpa_lo", "decimal(5,3) NULL"], ["cl_product_temp_lo", "decimal(5,1) NULL"],
+          ["cl_metal_sensitivity", "int NULL"], ["cl_fe_mm", "decimal(4,1) NULL"], ["cl_sus_mm", "decimal(4,1) NULL"], ["writer_id", "bigint NULL"], ["approver_id", "bigint NULL"],
+          ["submitted_at", "timestamp NULL"], ["approved_at", "timestamp NULL"], ["rejected_reason", "text NULL"], ["created_at", "timestamp NULL DEFAULT CURRENT_TIMESTAMP"], ["updated_at", "timestamp NULL DEFAULT CURRENT_TIMESTAMP"]]);
+        await ensureCols("h_ccp_form_rows", [["equipment_id", "int NULL"], ["equipment_name", "varchar(100) NULL"], ["measurement_time", "varchar(10) NULL"], ["input_qty_kg", "decimal(10,2) NULL"], ["result", "varchar(10) NULL"],
+          ["heat_time_min", "int NULL"], ["heat_temp_c", "decimal(5,1) NULL"], ["siru_name", "varchar(50) NULL"], ["pressure_mpa", "decimal(5,3) NULL"], ["temp_edge_c", "decimal(5,1) NULL"], ["temp_center_c", "decimal(5,1) NULL"],
+          ["metal_pass_time", "varchar(10) NULL"], ["metal_fe_mid", "varchar(10) NULL"], ["metal_sus_mid", "varchar(10) NULL"], ["metal_product_only", "varchar(10) NULL"], ["metal_fe_product", "varchar(10) NULL"], ["metal_sus_product", "varchar(10) NULL"],
+          ["pass_time_start", "varchar(10) NULL"], ["pass_time_end", "varchar(10) NULL"], ["detected_qty", "int NULL"], ["special_note", "text NULL"], ["deviation_note", "text NULL"], ["note", "text NULL"],
+          ["created_at", "timestamp NULL DEFAULT CURRENT_TIMESTAMP"], ["updated_at", "timestamp NULL DEFAULT CURRENT_TIMESTAMP"]]);
+        await ensureCols("equipments", [["ccp_type", "varchar(50) NULL"], ["fe_sensitivity", "decimal(5,2) NULL"], ["sts_sensitivity", "decimal(5,2) NULL"]]);
+        await q(`CREATE TABLE IF NOT EXISTS users (id int NOT NULL PRIMARY KEY, name varchar(100) NULL, tenant_id int NULL)`); // 현장 화면이 확인한 사람 이름을 붙인다
+        await ensureCols("h_approval_requests", [["approved_at", "timestamp NULL"], ["approved_by", "bigint NULL"], ["created_at", "timestamp NULL"], ["description", "text NULL"], ["priority", "varchar(10) NULL"],
+          ["rejected_at", "timestamp NULL"], ["rejected_by", "bigint NULL"], ["rejection_reason", "text NULL"], ["requested_at", "timestamp NULL"], ["requested_by", "bigint NULL"],
+          ["review_comments", "text NULL"], ["reviewed_at", "timestamp NULL"], ["reviewed_by", "bigint NULL"], ["site_id", "bigint NULL"]]);
+    };
 
     it("예정일 전에는 실행하지 않고 막는다 — 상태·예정 표시 그대로", async () => {
       const { ensureBatchActivated } = await import("./services/batchOrchestrator");
@@ -3297,27 +3321,7 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       const { ensureBatchActivated, verifyBatchSetup } = await import("./services/batchOrchestrator");
       const fr = await import("./db/haccp/ccpFormRecords");
       const D = today(), A = 9311, B = 9312, MAT = 999998;
-      // 시험 DB 는 최소 표 — 운영 표에 있는 칸 중 이 경로(기록지 생성·행 조회)가 읽는 칸을 보충
-      const ensureCols = async (table: string, cols: Array<[string, string]>) => {
-        for (const [c, ddl] of cols) {
-          const [x]: any = await admin.query(`SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`, [table, c]);
-          if (!x.length) await admin.query(`ALTER TABLE ${table} ADD COLUMN ${c} ${ddl}`);
-        }
-      };
-      await ensureCols("h_ccp_form_records", [["site_id", "bigint NULL"], ["product_id", "bigint NULL"], ["equip_group_mode", "varchar(20) NULL DEFAULT 'sequential'"], ["equip_interval_min", "int NULL DEFAULT 10"],
-        ["cl_heat_time_min_lo", "int NULL"], ["cl_heat_time_min_hi", "int NULL"], ["cl_heat_temp_lo", "decimal(5,1) NULL"], ["cl_pressure_mpa_lo", "decimal(5,3) NULL"], ["cl_product_temp_lo", "decimal(5,1) NULL"],
-        ["cl_metal_sensitivity", "int NULL"], ["cl_fe_mm", "decimal(4,1) NULL"], ["cl_sus_mm", "decimal(4,1) NULL"], ["writer_id", "bigint NULL"], ["approver_id", "bigint NULL"],
-        ["submitted_at", "timestamp NULL"], ["approved_at", "timestamp NULL"], ["rejected_reason", "text NULL"], ["created_at", "timestamp NULL DEFAULT CURRENT_TIMESTAMP"], ["updated_at", "timestamp NULL DEFAULT CURRENT_TIMESTAMP"]]);
-      await ensureCols("h_ccp_form_rows", [["equipment_id", "int NULL"], ["equipment_name", "varchar(100) NULL"], ["measurement_time", "varchar(10) NULL"], ["input_qty_kg", "decimal(10,2) NULL"], ["result", "varchar(10) NULL"],
-        ["heat_time_min", "int NULL"], ["heat_temp_c", "decimal(5,1) NULL"], ["siru_name", "varchar(50) NULL"], ["pressure_mpa", "decimal(5,3) NULL"], ["temp_edge_c", "decimal(5,1) NULL"], ["temp_center_c", "decimal(5,1) NULL"],
-        ["metal_pass_time", "varchar(10) NULL"], ["metal_fe_mid", "varchar(10) NULL"], ["metal_sus_mid", "varchar(10) NULL"], ["metal_product_only", "varchar(10) NULL"], ["metal_fe_product", "varchar(10) NULL"], ["metal_sus_product", "varchar(10) NULL"],
-        ["pass_time_start", "varchar(10) NULL"], ["pass_time_end", "varchar(10) NULL"], ["detected_qty", "int NULL"], ["special_note", "text NULL"], ["deviation_note", "text NULL"], ["note", "text NULL"],
-        ["created_at", "timestamp NULL DEFAULT CURRENT_TIMESTAMP"], ["updated_at", "timestamp NULL DEFAULT CURRENT_TIMESTAMP"]]);
-      await ensureCols("equipments", [["ccp_type", "varchar(50) NULL"], ["fe_sensitivity", "decimal(5,2) NULL"], ["sts_sensitivity", "decimal(5,2) NULL"]]);
-      await q(`CREATE TABLE IF NOT EXISTS users (id int NOT NULL PRIMARY KEY, name varchar(100) NULL, tenant_id int NULL)`); // 현장 화면이 확인한 사람 이름을 붙인다
-      await ensureCols("h_approval_requests", [["approved_at", "timestamp NULL"], ["approved_by", "bigint NULL"], ["created_at", "timestamp NULL"], ["description", "text NULL"], ["priority", "varchar(10) NULL"],
-        ["rejected_at", "timestamp NULL"], ["rejected_by", "bigint NULL"], ["rejection_reason", "text NULL"], ["requested_at", "timestamp NULL"], ["requested_by", "bigint NULL"],
-        ["review_comments", "text NULL"], ["reviewed_at", "timestamp NULL"], ["reviewed_by", "bigint NULL"], ["site_id", "bigint NULL"]]);
+      await ensureFormTables();
       const cleanup = async () => {
         await q(`DELETE r FROM h_ccp_form_rows r JOIN h_ccp_form_records f ON f.id = r.form_record_id WHERE f.tenant_id = ? AND f.ccp_type = 'CCP-4P' AND f.work_date = ?`, [T, D]);
         await q(`DELETE FROM h_ccp_form_records WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?`, [T, D]);
@@ -3385,6 +3389,60 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
         expect(await ensureBatchActivated(B, T, 4)).toEqual({ activated: false });
         expect(await usage()).toBe(1);
         expect(await snap()).toBe(before);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it("어제 '예정'으로 만든 생산 건을 오늘 같은 요청으로 준비 재시도: 준비만 이어서 완료 — 예정 그대로, 금속검출 기록지 제출·결재 요청·일지·출고 없음 (2026-10-21 #627 운영 시험)", async () => {
+      await ensureFormTables();
+      const yesterday = new Date(Date.now() + 9 * 3600_000 - 86400_000).toISOString().slice(0, 10);
+      const B = 9321, MAT = 999997, KEY = "qa-plan-retry-key-1";
+      const reqKeys = await import("./lib/production/batchCreateRequests");
+      await q(reqKeys.BATCH_CREATE_REQUESTS_DDL);
+      const cleanup = async () => {
+        await q(`DELETE r FROM h_ccp_form_rows r JOIN h_ccp_form_records f ON f.id = r.form_record_id WHERE f.tenant_id = ? AND f.ccp_type = 'CCP-4P' AND f.work_date = ?`, [T, yesterday]);
+        await q(`DELETE FROM h_approval_requests WHERE tenant_id = ? AND reference_type = 'ccp_form_record' AND reference_id IN (SELECT id FROM (SELECT id FROM h_ccp_form_records WHERE tenant_id = ? AND work_date = ?) x)`, [T, T, yesterday]);
+        await q(`DELETE FROM h_ccp_form_records WHERE tenant_id = ? AND ccp_type = 'CCP-4P' AND work_date = ?`, [T, yesterday]);
+        await q(`DELETE FROM h_inventory_transactions WHERE source_id = ? AND transaction_type = 'usage'`, [B]);
+        await q(`DELETE FROM h_batch_inputs WHERE batch_id = ?`, [B]);
+        await q(`DELETE FROM h_ccp_instances WHERE batch_id = ?`, [B]);
+        await q(`DELETE FROM h_batches WHERE id = ?`, [B]);
+        await q(`DELETE FROM h_batch_create_requests WHERE tenant_id = ? AND request_key = ?`, [T, KEY]);
+        await q(`DELETE FROM h_inventory_lots WHERE material_id = ?`, [MAT]);
+        await q(`DELETE FROM h_materials WHERE id = ?`, [MAT]);
+      };
+      await cleanup();
+      try {
+        const item = { productId: 892, plannedQuantityKg: 1, rowKey: "row-1" };
+        const fp = reqKeys.rowFingerprint({ workDate: yesterday, siteId: 1, productId: 892, plannedQuantityKg: 1, batchCount: undefined, mode: "auto", startTime: "09:00",
+          startTimeOverride: undefined, separateRun: undefined, skuOutputs: [], excluded: [] });
+        // 어제 만든 요청 줄(준비 미완으로 실패) + 그 줄로 만든 '예정' 생산 건 (실행 단계 없음: plan_only 1 · activation_pending 0)
+        const [rq]: any = await admin.query(`INSERT INTO h_batch_create_requests (tenant_id, request_key, row_key, day_batch_group, status, row_fingerprint) VALUES (?, ?, 'row-1', 'DAY-QA-001', 'failed', ?)`, [T, KEY, fp]);
+        await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, mode, plan_only, activation_pending, setup_pending, create_request_id, created_by)
+          VALUES (?, ?, 1, 'QA-PLANRETRY-1', 892, 1, ?, 'planned', 'auto', 1, 0, 1, ?, 4)`, [B, T, yesterday, Number(rq.insertId)]);
+        await q(`INSERT INTO h_ccp_instances (tenant_id, batch_id, process_group_id, ccp_type) VALUES (?, ?, 8921, 'CCP-4P')`, [T, B]);
+        const [f]: any = await admin.query(`INSERT INTO h_ccp_form_records (tenant_id, batch_id, ccp_type, work_date, status, field_mode, product_name) VALUES (?, ?, 'CCP-4P', ?, 'draft', 1, '금속검출 통합')`, [T, B, yesterday]);
+        const F = Number(f.insertId);
+        await q(`INSERT INTO h_ccp_form_rows (tenant_id, form_record_id, batch_seq, equipment_type, product_name, batch_id, pass_qty, pass_unit, row_version) VALUES (?, ?, 1, 'passage', '예정 떡', ?, 1, 'kg', 0)`, [T, F, B]);
+        await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit, is_active) VALUES (?, ?, 'QA-PR', '시험 원료', 'kg', 1)`, [MAT, T]);
+        await q(`INSERT INTO h_inventory_lots (tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, receipt_date, status) VALUES (?, ?, 'PR-LOT', 5, 5, 5, 'kg', ?, 'available')`, [T, MAT, yesterday]);
+        await q(`INSERT INTO h_batch_inputs (tenant_id, batch_id, material_id, planned_quantity, unit) VALUES (?, ?, ?, 1, 'kg')`, [T, B, MAT]);
+        const approvals = async () => Number((await q(`SELECT COUNT(*) AS n FROM h_approval_requests WHERE tenant_id = ? AND reference_type = 'ccp_form_record' AND reference_id = ?`, [T, F]))[0].n);
+        expect(await approvals()).toBe(0);
+        // 오늘(다음 날) 같은 요청 키·같은 내용으로 다시 보냄
+        const { batchCrudRouter } = await import("./routers/production/batch.crud.router");
+        const b = (batchCrudRouter as any).createCaller({ user: { id: 4, role: "admin", tenantId: T, email: "t@t" }, tenantId: T } as any);
+        const r: any = await b.bulkCreateForDay({ requestKey: KEY, siteId: 1, workDate: yesterday, items: [item] });
+        expect(r.batches[0]).toMatchObject({ batchId: B, status: "reused", executedNow: false }); // 새 생산 건 없음
+        expect(Number((await q(`SELECT COUNT(*) AS n FROM h_batches WHERE create_request_id = ?`, [Number(rq.insertId)]))[0].n)).toBe(1);
+        const st = (await q(`SELECT plan_only, activation_pending, setup_pending, status FROM h_batches WHERE id = ?`, [B]))[0];
+        expect([Number(st.plan_only), Number(st.activation_pending), Number(st.setup_pending), String(st.status)]).toEqual([1, 0, 0, "planned"]); // 준비만 완료, 예정 그대로
+        // 이전: 그룹 후속 단계가 금속검출 기록지를 'submitted' 로 바꾸고 검토 대기 결재를 만들었다
+        expect(String((await q(`SELECT status FROM h_ccp_form_records WHERE id = ?`, [F]))[0].status)).toBe("draft");
+        expect(await approvals()).toBe(0);
+        expect(Number((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE source_id = ? AND transaction_type = 'usage'`, [B]))[0].n)).toBe(0);
+        expect(Number((await q(`SELECT inventory_deducted AS d FROM h_batch_inputs WHERE batch_id = ?`, [B]))[0].d)).toBe(0);
       } finally {
         await cleanup();
       }

@@ -28,7 +28,7 @@ describe("현장 확인 기록지 — 행마다 사람의 확인", () => {
 
 describe("배선 — 오늘도 예정, 첫 확인에서 출고, 결재 앞 단계 관문", () => {
   it("오늘·미래는 예정(plan_only), 지난 날짜만 바로 실행", () => {
-    expect(read("services/batchOrchestrator.ts")).toMatch(/const planOnly = input\.workDate >= todayKST\(\);/);
+    expect(read("services/batchOrchestrator.ts")).toMatch(/let planOnly = input\.workDate >= todayKST\(\);/);
   });
   it("현장 쓰기: 같은 요청 키는 한 번, 행 버전이 다르면 거부, 가열 확인·통과 시작에서만 예정 생산 건 실행, 이력은 추가만", () => {
     const f = read("services/fieldWork.ts");
