@@ -144,7 +144,7 @@ export default function TodayProduction() {
       </div>
 
       {view === "mine" ? (
-        <FieldTodo heat={heat} metal={metal} error={work.isError} onChanged={() => utils.batch.todayBoard.invalidate()} />
+        <FieldTodo heat={heat} metal={metal} error={work.isError} past={date < todayLocal()} onChanged={() => utils.batch.todayBoard.invalidate()} />
       ) : (
         <>
           <div className="flex flex-wrap gap-1.5" data-testid="day-status">
@@ -173,7 +173,7 @@ export default function TodayProduction() {
           {board.isLoading && <p className="text-sm text-muted-foreground">불러오는 중…</p>}
           <div className="space-y-2" data-testid="work-list" ref={listRef}>
             {shown.map((b) => (
-              <BatchLine key={b.id} b={b} open={!!open[b.id]} onToggle={() => setOpen((o) => ({ ...o, [b.id]: !o[b.id] }))} isAdmin={isAdmin}
+              <BatchLine key={b.id} b={b} open={!!open[b.id]} onToggle={() => setOpen((o) => ({ ...o, [b.id]: !o[b.id] }))} isAdmin={isAdmin} past={date < todayLocal()}
                 heat={heat.filter((r) => r.batchId === b.id)} onChanged={refresh} />
             ))}
           </div>
@@ -201,7 +201,7 @@ export default function TodayProduction() {
  *   확인 전 행(과 저장 안 됨·확인 거부로 다시 해야 할 행)만 크게, 끝난 행은 접어서 개수만. 마감·제출·상태는 여기 없다.
  *   설비 고르기는 처음 한 번 — 고른 뒤에는 접힌 한 줄.
  */
-function FieldTodo({ heat, metal, error, onChanged }: { heat: any[]; metal: any; error: boolean; onChanged: () => void }) {
+function FieldTodo({ heat, metal, error, past, onChanged }: { heat: any[]; metal: any; error: boolean; past: boolean; onChanged: () => void }) {
   const utils = trpc.useUtils();
   const eq = trpc.field.equipments.useQuery();
   const setMine = trpc.field.setMyEquipments.useMutation({
@@ -240,21 +240,21 @@ function FieldTodo({ heat, metal, error, onChanged }: { heat: any[]; metal: any;
       )}
       {error && <p className="text-sm text-red-700">불러오지 못했습니다 — 새로고침을 누르세요.</p>}
       {todoCount === 0 && !error && <p className="text-base py-6 text-center text-emerald-700 flex items-center justify-center gap-2" data-testid="field-all-done"><CheckCircle2 className="h-5 w-5" />지금 할 확인이 없습니다</p>}
-      {todoCount > 0 && <FieldRowsPanel heat={todoHeat} metal={todoMetal && todoMetal.rows.length ? todoMetal : null} onChanged={onChanged} />}
+      {todoCount > 0 && <FieldRowsPanel pastDate={past} heat={todoHeat} metal={todoMetal && todoMetal.rows.length ? todoMetal : null} onChanged={onChanged} />}
       {doneCount > 0 && (
         <div>
           <button type="button" className="text-sm text-muted-foreground" onClick={() => setShowDone((v) => !v)} data-testid="field-done-toggle">
             확인 끝난 {doneCount}건 {showDone ? "접기" : "보기"}
           </button>
-          {showDone && <div className="mt-2"><FieldRowsPanel heat={doneHeat} metal={doneMetal && doneMetal.rows.length ? doneMetal : null} onChanged={onChanged} /></div>}
+          {showDone && <div className="mt-2"><FieldRowsPanel pastDate={past} heat={doneHeat} metal={doneMetal && doneMetal.rows.length ? doneMetal : null} onChanged={onChanged} /></div>}
         </div>
       )}
     </div>
   );
 }
 
-function BatchLine({ b, open, onToggle, isAdmin, heat, onChanged }: {
-  b: Board; open: boolean; onToggle: () => void; isAdmin: boolean; heat: any[]; onChanged: () => void;
+function BatchLine({ b, open, onToggle, isAdmin, past, heat, onChanged }: {
+  b: Board; open: boolean; onToggle: () => void; isAdmin: boolean; past: boolean; heat: any[]; onChanged: () => void;
 }) {
   const ws = useFieldWriteState();
   const unsaved = heat.filter((r) => ["failed", "rejected"].includes(ws?.pending[r.rowId]?.state ?? "")).length;
@@ -290,7 +290,7 @@ function BatchLine({ b, open, onToggle, isAdmin, heat, onChanged }: {
             <p className="text-sm text-amber-800 dark:text-amber-300">그날 필요한 양이 남은 LOT 보다 많습니다: {b.check.shortMaterials.join(", ")} — 입고하면 사라집니다 (회사 음수 정책대로 진행).</p>
           )}
           {heat.length > 0
-            ? <FieldRowsPanel heat={heat} bare onChanged={onChanged} />
+            ? <FieldRowsPanel pastDate={past} heat={heat} bare onChanged={onChanged} />
             : <p className="text-sm text-muted-foreground">{b.planOnly ? "예정 — 그날 현장 확인을 하면 시작합니다." : rowsLeft > 0 ? "현장 확인할 행이 있습니다." : "현장 확인할 가열 기록이 없습니다."}</p>}
           <Link href={`/dashboard/batch/${b.id}`} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:underline">
             <ExternalLink className="h-3 w-3" />전체 상세 (수정·삭제·인쇄 · {b.batchCode})
@@ -332,7 +332,9 @@ function DayClose({ date, live, sheets, isAdmin, canSubmit, canApprove, userRole
     const ready = canSubmit ? open.filter((s) => s.problems.length === 0) : [];
     const finished = DONE.includes(b.status);
     const canComplete = isAdmin && !finished && !b.planOnly && ["in_progress", "paused"].includes(b.status) && b.check.rows.total > 0 && rowsLeft === 0 && blocked.length === 0;
-    return { b, ss, rowsLeft, open, blocked, ready, finished, canComplete };
+    // 현장 확인 행이 없는데 기록지가 있는 생산 건 = 예전 방식 기록지 (예: 10/15 생산) — 이 표에서 '제출됨' 으로 보이지 않게
+    const legacy = !finished && !b.planOnly && b.check.rows.total === 0 && b.ccpForms.total > 0;
+    return { b, ss, rowsLeft, open, blocked, ready, finished, canComplete, legacy };
   });
   const runnable = items.filter((i) => !i.finished && (i.ready.length > 0 || i.canComplete));
 
@@ -414,6 +416,8 @@ function DayClose({ date, live, sheets, isAdmin, canSubmit, canApprove, userRole
             {it.finished
               ? <span className="text-emerald-700 text-xs">완료 {it.b.actualKg ?? it.b.plannedKg}kg</span>
               : it.b.planOnly ? <span className="text-xs text-muted-foreground">예정</span>
+              // 예전 방식 기록지(현장 확인 이전에 만든 생산 건) — 여기서 제출하지 않는다. 미리 채운 예정 시각·평상값을 실제 값으로 고친 뒤 기록지 화면에서 제출
+              : it.legacy ? <span className="text-xs text-amber-700" data-testid="close-legacy">예전 방식 기록지 — 실제 값·시각으로 고친 뒤 <Link href={`/dashboard/batch/${it.b.id}`} className="underline">기록지 화면</Link>에서 제출</span>
               : it.rowsLeft > 0 ? <span className="text-xs text-amber-700">현장 확인 {it.rowsLeft}건 남음</span>
               : it.blocked.length > 0 ? <span className="text-xs text-red-700">기록지 막힘: {it.blocked[0].problems[0]}{it.blocked[0].problems.length > 1 ? ` 외 ${it.blocked[0].problems.length - 1}` : ""}</span>
               : <span className="text-xs text-muted-foreground">{it.ready.length ? `기록지 ${it.ready.length}건 제출 대기` : "기록지 제출됨"}</span>}

@@ -74,9 +74,20 @@ export interface FieldRowsPanelProps {
   bare?: boolean;
   /** 저장 뒤 다시 읽을 것 (생산 화면 목록 등) */
   onChanged?: () => void;
+  /**
+   * 지난 날짜 기록 (2026-10-20) — [확인] 이 누른 시각을 쓰지 않고, 실제 시각(종이 기록 등)을 넣는 칸을 그 자리에서 연다.
+   *   예정 시각을 미리 채우지 않는다 (계획값을 실측으로 인정하지 않음). 서버도 같은 규칙으로 막는다.
+   */
+  pastDate?: boolean;
 }
 
-export default function FieldRowsPanel({ heat, metal = null, sheets = [], bare = false, onChanged }: FieldRowsPanelProps) {
+/** 지난 날짜 기록에서 사람이 넣는 실제 시각 칸 */
+const timeFieldsOf = (r: FieldRow): Array<{ key: string; label: string }> =>
+  r.kind === "heat" ? [{ key: "measurementTime", label: "측정 시각" }]
+    : r.kind === "passage" ? [{ key: "passTimeStart", label: "통과 시작" }, { key: "passTimeEnd", label: "통과 종료" }]
+    : [{ key: "metalPassTime", label: "점검 시각" }];
+
+export default function FieldRowsPanel({ heat, metal = null, sheets = [], bare = false, onChanged, pastDate = false }: FieldRowsPanelProps) {
   const utils = trpc.useUtils();
   const write = trpc.field.write.useMutation();
   const addSens = trpc.field.addSensitivity.useMutation();
@@ -157,6 +168,12 @@ export default function FieldRowsPanel({ heat, metal = null, sheets = [], bare =
     return (
       <div className="mt-2 space-y-2 rounded-md border bg-muted/30 p-2" data-testid="row-editor">
         <div className="flex flex-wrap gap-2">
+          {pastDate && timeFieldsOf(r).map((f) => (
+            <label key={f.key} className="text-xs space-y-0.5">
+              <span className="block text-muted-foreground">실제 {f.label} *</span>
+              <Input type="time" className="h-11 w-32" value={e[f.key] ?? ""} onChange={(ev) => set(f.key, ev.target.value || null)} data-testid="actual-time" />
+            </label>
+          ))}
           {fields.map((f) => (
             <label key={f.key} className="text-xs space-y-0.5">
               <span className="block text-muted-foreground">{f.label}{f.unit ? ` (${f.unit})` : ""}</span>
@@ -194,9 +211,20 @@ export default function FieldRowsPanel({ heat, metal = null, sheets = [], bare =
     if (r.confirmed && !window.confirm("이미 확인한 행입니다. 고치면 그 확인은 무효가 되고 다시 확인해야 합니다. 고칠까요?")) return;
     setEditing((x) => ({ ...x, [r.rowId]: editInit(r) }));
   };
+  // 지난 날짜: [확인] = 실제 시각 넣는 칸 열기 (누른 시각·예정 시각으로 저장하지 않음). 이미 확인한 행의 시각만 그대로 보여 준다
+  const openPast = (r: FieldRow) => setEditing((x) => ({
+    ...x,
+    [r.rowId]: { ...editInit(r), ...Object.fromEntries(timeFieldsOf(r).map((f) => [f.key, r.confirmed ? (r.values?.[f.key] ?? r.measurementTime ?? null) : null])) },
+  }));
+  const confirmBtn = (r: FieldRow) => pastDate
+    ? <Button className="h-12 px-6" onClick={() => openPast(r)} data-testid="confirm">실제 시각 넣고 확인</Button>
+    : <Button className="h-12 px-6" onClick={() => send(r, "confirm")} data-testid="confirm">확인</Button>;
 
   return (
     <div className="space-y-2">
+      {pastDate && (heat.some((r) => !r.confirmed) || (metal?.rows ?? []).some((r: FieldRow) => !r.confirmed)) && (
+        <p className="text-xs text-amber-800 dark:text-amber-300" data-testid="past-date-note">지난 날짜 기록입니다 — 실제 시각을 종이 기록 등에서 옮겨 적어 확인합니다 (지금 시각·예정 시각으로 저장하지 않습니다).</p>
+      )}
       {!bare && heat.length > 0 && <div className="text-sm font-semibold">가열·증숙·굽기 ({heat.filter((r) => r.confirmed).length}/{heat.length})</div>}
       {heat.map((r) => (r.confirmed && !editing[r.rowId] && !pending[r.rowId]) ? (
         // 확인한 행은 한 줄 — 남은 일만 크게 보이게 (2026-10-20 생산 화면 하나로)
@@ -219,7 +247,7 @@ export default function FieldRowsPanel({ heat, metal = null, sheets = [], bare =
             {r.values?.result && r.values.result !== "적합" ? ` · ${r.values.result}` : ""}
           </p>
           <div className="flex flex-wrap gap-2 mt-2">
-            {!r.confirmed && !editing[r.rowId] && !busy(r) && <Button className="h-12 px-6" onClick={() => send(r, "confirm")} data-testid="confirm">확인</Button>}
+            {!r.confirmed && !editing[r.rowId] && !busy(r) && confirmBtn(r)}
             {!editing[r.rowId] && !busy(r) && <Button variant="outline" className="h-12" onClick={() => startEdit(r)}><Pencil className="h-4 w-4 mr-1" />고치기</Button>}
           </div>
           {editor(r, HEAT_FIELDS, "number")}
@@ -244,9 +272,10 @@ export default function FieldRowsPanel({ heat, metal = null, sheets = [], bare =
                 <span className="ml-auto">{rowStatus(r)}</span>
               </div>
               <div className="flex flex-wrap gap-2 mt-2">
-                {!busy(r) && r.kind === "passage" && !r.values?.passTimeStart && <Button className="h-12 px-6" onClick={() => send(r, "pass_start")} data-testid="pass-start">통과 시작</Button>}
-                {!busy(r) && r.kind === "passage" && r.values?.passTimeStart && !r.confirmed && !editing[r.rowId] && <Button className="h-12 px-6" onClick={() => send(r, "pass_end")} data-testid="pass-end">통과 종료</Button>}
-                {!busy(r) && r.kind === "sensitivity" && !r.confirmed && !editing[r.rowId] && <Button className="h-12 px-6" onClick={() => send(r, "confirm")} data-testid="confirm">확인</Button>}
+                {!busy(r) && r.kind === "passage" && pastDate && !r.confirmed && !editing[r.rowId] && <Button className="h-12 px-6" onClick={() => openPast(r)} data-testid="pass-end">실제 통과 시각 넣고 확인</Button>}
+                {!busy(r) && r.kind === "passage" && !pastDate && !r.values?.passTimeStart && <Button className="h-12 px-6" onClick={() => send(r, "pass_start")} data-testid="pass-start">통과 시작</Button>}
+                {!busy(r) && r.kind === "passage" && !pastDate && r.values?.passTimeStart && !r.confirmed && !editing[r.rowId] && <Button className="h-12 px-6" onClick={() => send(r, "pass_end")} data-testid="pass-end">통과 종료</Button>}
+                {!busy(r) && r.kind === "sensitivity" && !r.confirmed && !editing[r.rowId] && confirmBtn(r)}
                 {!editing[r.rowId] && !busy(r) && <Button variant="outline" className="h-12" onClick={() => startEdit(r)}><Pencil className="h-4 w-4 mr-1" />고치기</Button>}
               </div>
               {r.kind === "passage" ? editor(r, [{ key: "passQty", label: "통과량" }, { key: "detectedQty", label: "검출" }], "number") : editor(r, SENS_FIELDS, "ox")}

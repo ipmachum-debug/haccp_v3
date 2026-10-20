@@ -852,6 +852,13 @@ function CcpFormPanel({
 
       {expanded && (
         <div className="p-3 space-y-3">
+          {/* 지난 날짜 기록지를 나중에 확인할 때 (2026-10-20, 10/15 복구 뒤) — 미리 채운 시각·값은 예정값이다. 실제 기록으로 고친 뒤 제출 */}
+          {String(formRecord.workDate ?? "").slice(0, 10) < todayLocal() && formRecord.status !== "approved" && !(formRecord as any).confirmed && (
+            <div className="p-2 bg-amber-50 border border-amber-300 rounded text-xs text-amber-900" data-testid="past-form-note">
+              지난 날짜 기록지입니다. 칸에 미리 채워진 시각·온도·시간은 계획(예정)값입니다 — 실제 기록(종이 일지 등)과 다르면 행마다 고친 뒤 제출하세요.
+              제출하면 보이는 값을 확인한 것으로 남습니다.
+            </div>
+          )}
           {/* CL 기준값 표시 */}
           <div className="p-2 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
             <span className="font-semibold">CL 기준:</span>{" "}
