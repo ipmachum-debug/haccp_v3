@@ -75,3 +75,6 @@ drizzle/baseline/*.sql
 _diag_*
 _backfill_temp_*
 
+
+# 2026-10-21: #377 에 실수로 들어간 하위 저장소 연결(gitlink, .gitmodules 없음) — 추적하지 않는다 (로컬 폴더는 그대로)
+/haccp_v3_clone

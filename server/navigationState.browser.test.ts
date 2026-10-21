@@ -51,6 +51,8 @@ beforeAll(async () => {
     browser = await chromium.launch(fs.existsSync(pre) ? { executablePath: pre } : {});
   } catch (e: any) {
     skipReason = String(e?.message ?? e).slice(0, 200);
+    // CI(내비게이션 시험 작업)에서는 건너뛰지 않고 실패 — 브라우저가 없어 '통과'로 보이는 것을 막는다
+    if (process.env.NAV_BROWSER_REQUIRED === "1") throw new Error(`브라우저 시험을 실행할 수 없음: ${skipReason}`);
   }
 }, 60000);
 
