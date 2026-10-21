@@ -58,7 +58,10 @@ type ApplyResult = {
   before: number;
   after: number;
   diff: number;
-  status: "applied" | "skipped" | "failed";
+  status: "applied" | "skipped" | "needs_review" | "failed";
+  countedQty?: number;
+  postCountNet?: number;
+  expectedNow?: number;
   message?: string;
   affectedLots?: Array<{ lotNumber: string; changeQty: number; newAvailable: number }>;
 };
@@ -142,7 +145,7 @@ export function InventoryCountTab() {
   }, [rows, inputs]);
 
   const mutation = (trpc as any).inventory.bulkApplyInventoryCount.useMutation({
-    onSuccess: (data: { results: ApplyResult[]; summary: { total: number; applied: number; skipped: number; failed: number } }) => {
+    onSuccess: (data: { results: ApplyResult[]; summary: { total: number; applied: number; skipped: number; needsReview?: number; failed: number } }) => {
       setResults(data.results);
       utils.inventory.list.invalidate();
       utils.inventory.getDashboard.invalidate();
@@ -150,7 +153,7 @@ export function InventoryCountTab() {
       (utils as any).inventory.getMaterialInventorySnapshot?.invalidate?.();
       toast({
         title: "실사 적용 완료",
-        description: `적용 ${data.summary.applied} · skip ${data.summary.skipped} · 실패 ${data.summary.failed}`,
+        description: `적용 ${data.summary.applied} · skip ${data.summary.skipped}${data.summary.needsReview ? ` · 확인 필요 ${data.summary.needsReview}` : ""} · 실패 ${data.summary.failed}`,
         variant: data.summary.failed > 0 ? "destructive" : "default",
       });
       setInputs({});
@@ -180,7 +183,8 @@ export function InventoryCountTab() {
       `${label} ${items.length}건 실사 적용\n` +
       `실사일: ${countDate} · 사유: ${defaultReason}\n\n` +
       `감소: 가장 오래된 LOT 부터 자동 차감 (FEFO)\n` +
-      `증가: 최신 LOT 에 가산 (활성 LOT 없으면 실사 LOT 신규 생성)\n\n` +
+      `증가: 최신 LOT 에 가산 (활성 LOT 없으면 실사 LOT 신규 생성)\n` +
+      `실사일이 지난 날이면: 그날 센 수량 + 그 뒤 입출고 = 지금 있어야 할 양으로 비교 (실사일 당일 거래·단위 다름 등은 '확인 필요' 로 남김)\n\n` +
       `진행하시겠습니까?`,
     )) {
       return;
@@ -447,6 +451,8 @@ export function InventoryCountTab() {
                     <CheckCircle className="h-3.5 w-3.5 text-emerald-600" />
                   ) : r.status === "failed" ? (
                     <AlertCircle className="h-3.5 w-3.5 text-red-600" />
+                  ) : r.status === "needs_review" ? (
+                    <AlertCircle className="h-3.5 w-3.5 text-amber-600" />
                   ) : (
                     <FileSpreadsheet className="h-3.5 w-3.5 text-muted-foreground" />
                   );
@@ -465,6 +471,9 @@ export function InventoryCountTab() {
                         </span>
                         )
                         {r.message && <span className="ml-2">— {r.message}</span>}
+                        {r.postCountNet != null && r.postCountNet !== 0 && (
+                          <span className="ml-2" data-testid="count-carry">· 실사 {r.countedQty} + 실사일 뒤 {r.postCountNet > 0 ? "+" : ""}{r.postCountNet} = 기대 {r.expectedNow}</span>
+                        )}
                       </div>
                       {r.affectedLots && r.affectedLots.length > 0 && (
                         <details className="mt-1">
@@ -483,10 +492,10 @@ export function InventoryCountTab() {
                       )}
                     </div>
                     <Badge
-                      variant={r.status === "applied" ? "default" : r.status === "failed" ? "destructive" : "secondary"}
+                      variant={r.status === "applied" ? "default" : r.status === "failed" ? "destructive" : r.status === "needs_review" ? "outline" : "secondary"}
                       className="text-[9px]"
                     >
-                      {r.status === "applied" ? "적용" : r.status === "failed" ? "실패" : "skip"}
+                      {r.status === "applied" ? "적용" : r.status === "failed" ? "실패" : r.status === "needs_review" ? "확인 필요" : "skip"}
                     </Badge>
                   </div>
                 );

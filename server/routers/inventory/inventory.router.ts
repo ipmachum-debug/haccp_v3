@@ -861,7 +861,8 @@ export const inventoryRouter = router({
             reason: z.string().optional(),
           }).refine((v) => (v.productId && !v.materialId) || (!v.productId && v.materialId), { message: "productId 또는 materialId 중 하나" })).min(1),
           defaultReason: z.string().min(1).default("정기 재고 실사"),
-          /** 실사일 (YYYY-MM-DD). 생략 시 오늘. 현장은 며칠 뒤 입력하므로 실제 센 날을 넣는다. */
+          /** 실사일 (YYYY-MM-DD). 생략 시 오늘. 현장은 며칠 뒤 입력하므로 실제 센 날을 넣는다.
+           *  지난 날이면 그 날 센 수량 + 그 뒤 업무일의 LOT 이동 = 지금 기대량으로 비교한다 (2026-10-21, applyPhysicalCount) */
           countDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
         }),
       )
@@ -879,7 +880,8 @@ export const inventoryRouter = router({
           productId?: number; materialId?: number;
           productCode?: string; productName?: string;
           before: number; after: number; diff: number;
-          status: "applied" | "skipped" | "failed";
+          status: "applied" | "skipped" | "needs_review" | "failed";
+          countedQty?: number; postCountNet?: number; expectedNow?: number;
           message?: string;
           affectedLots?: Array<{ lotNumber: string; changeQty: number; newAvailable: number }>;
         };
@@ -913,6 +915,7 @@ export const inventoryRouter = router({
               `physicalCount:${key}`,
             );
             results.push({ ...base, before: r.before, after: r.after, diff: r.diff, status: r.status, message: r.message,
+              countedQty: r.countedQty, postCountNet: r.postCountNet, expectedNow: r.expectedNow,
               affectedLots: r.affected.map((l) => ({ lotNumber: l.lotNumber, changeQty: l.changeQty, newAvailable: l.newAvailable })) });
           } catch (e: any) {
             const msg = e instanceof NoActiveLotsError || e instanceof StockShortageError ? e.message : (e?.message || String(e));
@@ -924,6 +927,7 @@ export const inventoryRouter = router({
           total: results.length,
           applied: results.filter((r) => r.status === "applied").length,
           skipped: results.filter((r) => r.status === "skipped").length,
+          needsReview: results.filter((r) => r.status === "needs_review").length,
           failed: results.filter((r) => r.status === "failed").length,
         };
         return { results, summary };
