@@ -4580,4 +4580,42 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await linkOf(L.ready)).toBe(INV.a);
     });
   });
+
+  describe("원재료 흐름 역대조(materialFlow) — BOM 품목 번호는 FK 로만 재고 원료로, 연결 없으면 따로 보고 (2026-10-21, 번호 체계 2단계 뒤 불러오기 실패 수정)", () => {
+    const P = 9851, IMP = 9852, IMR = 9853, MAT = 9854, IMX = 9855, REP = 9856, VER = 9857, B = 9858;
+    const clean = async () => {
+      await q(`DELETE FROM h_batches WHERE id = ?`, [B]);
+      await q(`DELETE FROM h_mf_ingredients WHERE mf_report_version_id = ?`, [VER]);
+      await q(`DELETE FROM h_mf_report_versions WHERE id = ?`, [VER]);
+      await q(`DELETE FROM h_mf_reports WHERE id = ?`, [REP]);
+      await q(`DELETE FROM item_master WHERE id IN (?, ?, ?)`, [IMP, IMR, IMX]);
+      await q(`DELETE FROM h_materials WHERE id = ?`, [MAT]);
+      await q(`DELETE FROM h_products_v2 WHERE id = ?`, [P]);
+    };
+    beforeEach(async () => {
+      await clean();
+      await q(`INSERT INTO h_products_v2 (id, tenant_id, product_code, product_name) VALUES (?, ?, 'MF-P', '흐름시험떡')`, [P, T]);
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (?, ?, 'MF-R', '흐름시험쌀')`, [MAT, T]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_product_id) VALUES (?, ?, 'IM-MF-P', '흐름시험떡', 'own_product', 'kg', 1, ?)`, [IMP, T, P]);
+      await q(`INSERT INTO item_master (id, tenant_id, item_code, item_name, item_type, base_unit, is_active, legacy_material_id) VALUES
+        (?, ?, 'IM-MF-R', '흐름시험쌀', 'raw_material', 'kg', 1, ?), (?, ?, 'IM-MF-X', '연결없는원료', 'raw_material', 'kg', 1, NULL)`, [IMR, T, MAT, IMX, T]);
+      await q(`INSERT INTO h_mf_reports (id, tenant_id, product_id, report_no, report_date, status) VALUES (?, ?, ?, 'R-MF', '2026-01-01', 'ACTIVE')`, [REP, T, IMP]);
+      await q(`INSERT INTO h_mf_report_versions (id, tenant_id, mf_report_id, version_no, effective_from, approval_status, batch_target_kg, reference_finished_kg, mass_basis_enabled)
+        VALUES (?, ?, ?, 1, '2026-01-01', 'APPROVED', 10, NULL, 0)`, [VER, T, REP]);
+      await q(`INSERT INTO h_mf_ingredients (mf_report_version_id, line_no, material_id, quantity, unit, is_deductible, material_type) VALUES
+        (?, 1, ?, '60', '%', 1, 'RAW'), (?, 2, ?, '40', '%', 1, 'RAW')`, [VER, IMR, VER, IMX]);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, actual_quantity, planned_date, status, mode, plan_only, created_by)
+        VALUES (?, ?, 1, 'MF-B', ?, 10, 10, '2026-02-01', 'completed', 'auto', 0, 4)`, [B, T, P]);
+    });
+    afterAll(clean);
+
+    it("소요: 연결된 품목 → 재고 원료 번호로 · 연결 없는 품목은 추측하지 않고 unlinked 로", async () => {
+      const { batchNeeds } = await import("../scripts/_lib/materialFlow");
+      const pool = await (await import("./db/connection")).getRawConnection();
+      const n = (await batchNeeds(pool, T, "2026-02-01", "2026-02-01")).find((x) => x.batchId === B)!;
+      expect(n.versionId).toBe(VER);
+      expect(n.lines).toEqual([{ materialId: MAT, required: 6, unit: "kg", source: "version" }]);
+      expect(n.unlinked).toEqual([{ itemMasterId: IMX, required: 4 }]);
+    });
+  });
 });
