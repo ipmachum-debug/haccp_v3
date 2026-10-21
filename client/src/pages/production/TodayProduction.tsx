@@ -13,6 +13,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Link, useSearch } from "wouter";
 import { pickAllowed, pickDate, replaceQuery, withReturnTo } from "@/lib/urlState";
+import { ROUTES } from "@/lib/routePaths";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
@@ -82,14 +83,18 @@ const filterOf = (b: Board): Exclude<Filter, "all">[] => {
 
 export default function TodayProduction() {
   const { user } = useAuth();
+  // 로그인 정보(역할)가 왔는가 — 오기 전 빈 역할을 '현장 전용'으로 오해해 주소에 mine 을 쓰지 않게 (#633 검증 P2-2)
+  const authReady = !!user;
   const role = String((user as any)?.role ?? "");
   const isAdmin = ["admin", "super_admin"].includes(role);
   const isManager = MANAGER.includes(role);
   // 날짜·보기·걸러 보기는 URL 이 기준 (2026-10-21 작업 위치 보존) — 뒤로/앞으로·새로고침·배치 상세에서 돌아와도 같은 화면.
   //   이전에는 처음 한 번만 읽어 뒤로/앞으로가 주소만 바뀌고 화면은 그대로였다
   const params = new URLSearchParams(useSearch());
+  // 주소는 생산 화면에 있을 때만 고친다 — 다른 화면으로 떠나는 순간 이 화면이 한 번 더 그려져도 그 화면의 view·date 를 덮지 않게 (#633 검증 P2-1)
+  const writeHere = (patch: Record<string, string | null>) => { if (window.location.pathname === ROUTES.PRODUCTION_TODAY) replaceQuery(patch); };
   const date = pickDate(params.get("date"), todayLocal());
-  const setDate = (next: string | ((d: string) => string)) => replaceQuery({ date: typeof next === "function" ? next(date) : next });
+  const setDate = (next: string | ((d: string) => string)) => writeHere({ date: typeof next === "function" ? next(date) : next });
   // 보기 — 관리(계획·목록·마감) / 현장(내 설비의 지금 할 일). 작업자는 현장만 (관리용 상태를 판단시키지 않음)
   const [first] = useState(() => ({ batch: Number(params.get("batch")), add: params.get("add") === "1" }));
   const urlView = params.get("view");
@@ -97,24 +102,27 @@ export default function TodayProduction() {
     : (() => { try { const v = localStorage.getItem("production-view"); return v === "all" || v === "mine" ? v : null; } catch { return null; } })();
   const setView = (v: "all" | "mine") => {
     try { localStorage.setItem("production-view", v); } catch { /* 저장 못 해도 화면은 그대로 */ }
-    replaceQuery({ view: v });
+    writeHere({ view: v });
   };
   // 고른 적이 없으면 작업자 = 현장, 관리자 = 관리 (로그인 정보가 늦게 와도 역할로 정한다). 기기마다 마지막 보기를 기억
   const viewPref: "all" | "mine" = chosen ?? (role === "worker" ? "mine" : "all");
-  const view: "all" | "mine" = isManager ? viewPref : "mine";
+  //   로그인 정보가 오기 전에는 주소의 보기를 그대로 둔다 (그동안 화면은 틀이 불러오는 중이라 내용·조회가 없다). 온 뒤에 권한으로 제한
+  const view: "all" | "mine" = !authReady ? viewPref : isManager ? viewPref : "mine";
   const filter = pickAllowed(params.get("filter"), "all", ["all", "plan", "work", "rows", "stop", "done"]) as Filter;
-  const setFilter = (f: Filter) => replaceQuery({ filter: f === "all" ? null : f });
+  const setFilter = (f: Filter) => writeHere({ filter: f === "all" ? null : f });
   const [open, setOpen] = useState<Record<number, boolean>>(() => (first.batch > 0 ? { [first.batch]: true } : {}));
   const [adding, setAdding] = useState(first.add);
 
   // 주소에 날짜·보기를 적어 둔다 (링크 복사·새로고침이 같은 화면) — 기존 history.state 는 지우지 않고, 방문 이력도 쌓지 않음
+  //   권한이 확정된 뒤에만 쓴다 (P2-2), 생산 화면에 있을 때만 (P2-1)
   useEffect(() => {
-    replaceQuery({ date, view, add: null });
-  }, [date, view]);
+    if (!authReady) return;
+    writeHere({ date, view, add: null });
+  }, [date, view, authReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const utils = trpc.useUtils();
-  const board = trpc.batch.todayBoard.useQuery({ workDate: date }, { refetchInterval: 60_000, enabled: view === "all" });
-  const work = trpc.field.work.useQuery({ workDate: date, scope: view === "all" ? "all" : "mine" }, { refetchInterval: 60_000 });
+  const board = trpc.batch.todayBoard.useQuery({ workDate: date }, { refetchInterval: 60_000, enabled: authReady && view === "all" });
+  const work = trpc.field.work.useQuery({ workDate: date, scope: view === "all" ? "all" : "mine" }, { refetchInterval: 60_000, enabled: authReady });
   const refresh = () => { utils.batch.todayBoard.invalidate(); utils.field.work.invalidate(); utils.batch.lineIssueExceptions.invalidate(); utils.batch.dayApprovals.invalidate(); };
 
   const rows = (board.data ?? []) as Board[];
@@ -164,7 +172,7 @@ export default function TodayProduction() {
         {isManager && (
           <div className="flex rounded-md border overflow-hidden" role="tablist">
             {(["all", "mine"] as const).map((v) => (
-              <button key={v} type="button" onClick={() => setView(v)} data-testid={`view-${v}`}
+              <button key={v} type="button" onClick={() => setView(v)} data-testid={`view-${v}`} aria-pressed={view === v}
                 className={cn("h-10 px-3 text-sm", view === v ? "bg-primary text-primary-foreground" : "bg-background hover:bg-accent")}>
                 {v === "all" ? "관리" : "현장"}
               </button>

@@ -357,6 +357,10 @@ describe("작업 위치 보존 2차 — 남은 화면 (2026-10-21)", () => {
     const today = read("client/src/pages/production/TodayProduction.tsx");
     expect(today).toMatch(/new URLSearchParams\(useSearch\(\)\)/);
     expect(today).not.toMatch(/replaceState\(null/);
+    // #633 검증 P2: 생산 화면에 있을 때만, 로그인 정보(역할)가 온 뒤에만 주소를 고친다
+    expect(today).toMatch(/window\.location\.pathname === ROUTES\.PRODUCTION_TODAY\) replaceQuery\(patch\)/);
+    expect(today).toMatch(/if \(!authReady\) return;\n\s*writeHere\(\{ date, view, add: null \}\)/);
+    expect(today).not.toMatch(/\breplaceQuery\(\{/); // 모든 주소 쓰기는 writeHere 경유
   });
   it("상세·작성 화면의 뒤로는 들어온 곳(returnTo), 들어가는 쪽은 돌아올 곳을 넘긴다", () => {
     for (const f of ["client/src/pages/accounting/PurchaseDetail.tsx", "client/src/pages/accounting/SaleDetail.tsx", "client/src/pages/haccp/CcpInspection.tsx", "client/src/pages/accounting/PurchaseOrderCreate.tsx"]) {

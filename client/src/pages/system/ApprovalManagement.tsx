@@ -57,6 +57,8 @@ import { CcpInspectionCard } from "@/components/ccp/CcpInspectionCard";
 
 import { useIndustryLabel } from "@/hooks/useIndustryFeatures";
 
+const APPROVAL_PATH = "/dashboard/approval";
+
 export default function ApprovalManagement() {
   const L = useIndustryLabel();
   const [, setLocation] = useLocation();
@@ -101,7 +103,11 @@ export default function ApprovalManagement() {
   const historySearchDebounced = q.hq.trim();
   const [historySearchInput, setHistorySearchInput] = useState(q.hq);
   useEffect(() => {
-    const t = setTimeout(() => { if (historySearchInput.trim() !== historySearchDebounced) setQ({ hq: historySearchInput.trim(), hPage: "1" }); }, 300);
+    // 300ms 사이에 다른 화면으로 떠났으면 쓰지 않는다 — 그 화면 주소에 hq 를 덧붙이지 않게 (#633 검증 P2-1 과 같은 경계)
+    const t = setTimeout(() => {
+      if (window.location.pathname !== APPROVAL_PATH) return;
+      if (historySearchInput.trim() !== historySearchDebounced) setQ({ hq: historySearchInput.trim(), hPage: "1" });
+    }, 300);
     return () => clearTimeout(t);
   }, [historySearchInput]); // eslint-disable-line react-hooks/exhaustive-deps
   // 뒤로/앞으로로 URL 검색어가 바뀌면 입력칸도 맞춘다

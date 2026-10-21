@@ -51,6 +51,8 @@ beforeAll(async () => {
     browser = await chromium.launch(fs.existsSync(pre) ? { executablePath: pre } : {});
   } catch (e: any) {
     skipReason = String(e?.message ?? e).slice(0, 200);
+    // CI(내비게이션 시험 작업)에서는 건너뛰지 않고 실패 — 브라우저가 없어 '통과'로 보이는 것을 막는다
+    if (process.env.NAV_BROWSER_REQUIRED === "1") throw new Error(`브라우저 시험을 실행할 수 없음: ${skipReason}`);
   }
 }, 60000);
 
@@ -433,6 +435,101 @@ describe("작업 위치 보존 2차 — 실제 운영 화면 (서버 연결만 �
     await page.goto(base + "/quality/ccp-monitoring?tab=hack");
     await page.getByRole("tab", { name: "모니터링 기록" }).waitFor();
     expect(await selectedTab(page)).toBe("모니터링 기록");
+    await page.close();
+  }, 60000);
+});
+
+describe("생산 화면 #633 검증 P2 — 다른 화면 주소를 고치지 않음 · 로그인 정보가 늦어도 관리 보기 유지", () => {
+  const openWith = async (p: string, init: Record<string, unknown> = {}) => {
+    const page = await browser.newPage();
+    await page.addInitScript((g: Record<string, unknown>) => { Object.assign(window as any, g); }, init);
+    await page.goto(base + p);
+    await page.getByTestId("sidebar-logo-home").waitFor();
+    return page;
+  };
+  // 재고 보기 표시: 원재료 = '소모' 탭, 제품 = '출고' 탭, 부자재·외부상품 = '재고 조정' 두 탭만
+  const inventoryShows = async (page: any) => {
+    const tabs: string[] = (await page.locator('main [role="tab"]').allInnerTexts()).map((t: string) => t.trim());
+    return tabs.includes("소모") ? "material" : tabs.includes("출고") ? "product" : tabs.includes("재고 조정") ? "sub-or-ext" : `?${tabs.join(",")}`;
+  };
+
+  for (const [view, shows] of [["product", "product"], ["subsidiary", "sub-or-ext"], ["external", "sub-or-ext"]] as const) {
+    it(`재고(${view}) → 생산 → 전날 → 뒤로: 재고 주소·보기 그대로 · 다시 앞으로 → 생산 그대로 · 재고에 date/view 를 덧붙이지 않음`, async () => {
+      if (skipReason) return;
+      const inv = `/inventory-management?view=${view}`;
+      const page = await openWith(inv);
+      expect(await inventoryShows(page)).toBe(shows);
+      await page.evaluate(() => history.pushState(null, "", "/dashboard/production/today")); // 메뉴 버튼과 같은 이동
+      await page.getByTestId("work-date").waitFor();
+      await page.getByRole("button", { name: "전날" }).click();
+      const prodUrl = urlOf(page);
+      expect(new URL(page.url()).searchParams.get("view")).toBe("all");
+      await page.goBack();
+      await page.waitForFunction(() => location.pathname === "/inventory-management");
+      await page.waitForTimeout(300);
+      expect(urlOf(page)).toBe(inv);
+      expect(await inventoryShows(page)).toBe(shows);
+      await page.goForward();
+      await page.getByTestId("work-date").waitFor();
+      expect(urlOf(page)).toBe(prodUrl);
+      await page.goBack();
+      await page.waitForFunction(() => location.pathname === "/inventory-management");
+      await page.waitForTimeout(300);
+      expect(urlOf(page)).toBe(inv);
+      await page.close();
+    }, 60000);
+  }
+
+  it("승인 관리: 검색어 입력 직후(300ms 안) 다른 화면으로 가도 그 화면 주소에 검색어를 덧붙이지 않음", async () => {
+    if (skipReason) return;
+    const page = await openWith("/dashboard/approval?tab=history");
+    await page.getByPlaceholder("제목 또는 설명 검색...").fill("떡");
+    await page.evaluate(() => history.pushState(null, "", "/inventory-management?view=product"));
+    await page.waitForTimeout(600);
+    expect(urlOf(page)).toBe("/inventory-management?view=product");
+    await page.close();
+  }, 60000);
+
+  it("관리자: 로그인 정보가 늦게 와도 view=all 직접 링크·새로고침 뒤 관리 보기 유지 (그 사이 주소에 mine 을 쓰지 않음)", async () => {
+    if (skipReason) return;
+    const start = "/dashboard/production/today?date=2026-10-15&view=all";
+    const page = await openWith(start, { __NAV_AUTH_DELAY_MS__: 700 });
+    await page.getByTestId("work-date").waitFor();
+    await page.waitForTimeout(300);
+    expect(new URL(page.url()).searchParams.get("view")).toBe("all");
+    expect(await page.getByTestId("work-date").inputValue()).toBe("2026-10-15");
+    expect(await page.getByTestId("view-all").getAttribute("aria-pressed")).toBe("true");
+    await page.reload();
+    await page.getByTestId("work-date").waitFor();
+    await page.waitForTimeout(300);
+    expect(new URL(page.url()).searchParams.get("view")).toBe("all");
+    expect(await page.getByTestId("view-all").getAttribute("aria-pressed")).toBe("true");
+    await page.close();
+  }, 60000);
+
+  // 관리 보기를 열 수 없는 역할(검사원 등 — TodayProduction MANAGER 밖). 작업자는 기존 정책대로 계획하므로 관리 보기를 연다
+  it("관리 보기 권한 없는 역할(검사원): view=all 링크로 들어와도 관리 보기로 우회할 수 없음 (로그인 정보가 늦어도)", async () => {
+    if (skipReason) return;
+    const page = await openWith("/dashboard/production/today?date=2026-10-15&view=all", { __NAV_AUTH_DELAY_MS__: 700, __NAV_ROLE__: "inspector" });
+    await page.getByTestId("work-date").waitFor();
+    await page.waitForFunction(() => new URL(location.href).searchParams.get("view") === "mine");
+    expect(await page.getByTestId("view-all").count()).toBe(0); // 관리 버튼 없음
+    expect(await page.getByTestId("filter-done").count()).toBe(0); // 관리용 목록 없음
+    await page.close();
+  }, 60000);
+
+  it("작업자: 로그인 정보가 늦어도 직접 고른 관리 보기(view=all) 유지 — 기본은 현장", async () => {
+    if (skipReason) return;
+    const page = await openWith("/dashboard/production/today?date=2026-10-15&view=all", { __NAV_AUTH_DELAY_MS__: 700, __NAV_ROLE__: "worker" });
+    await page.getByTestId("work-date").waitFor();
+    await page.waitForTimeout(300);
+    expect(new URL(page.url()).searchParams.get("view")).toBe("all");
+    await page.goto(base + "/dashboard/production/today?date=2026-10-15");
+    await page.getByTestId("work-date").waitFor();
+    await page.evaluate(() => { try { localStorage.removeItem("production-view"); } catch {} });
+    await page.reload();
+    await page.getByTestId("work-date").waitFor();
+    await page.waitForFunction(() => new URL(location.href).searchParams.get("view") === "mine");
     await page.close();
   }, 60000);
 });

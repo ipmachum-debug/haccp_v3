@@ -25,6 +25,7 @@ import PurchaseDetail from "@/pages/accounting/PurchaseDetail";
 import TodayProduction from "@/pages/production/TodayProduction";
 import CCPMonitoring from "@/pages/haccp/CCPMonitoring";
 import CcpInspection from "@/pages/haccp/CcpInspection";
+import InventoryManagementIntegrated from "@/pages/inventory/InventoryManagementIntegrated";
 
 function List() {
   const [tab, setTab] = useTabWithUrl("tab", "a", ["a", "b", "c"]);
@@ -89,6 +90,7 @@ function App() {
       <Route path="/dashboard/production/today" component={TodayProduction} />
       <Route path="/quality/ccp-monitoring" component={CCPMonitoring} />
       <Route path="/dashboard/ccp/:id" component={CcpInspection} />
+      <Route path="/inventory-management" component={InventoryManagementIntegrated} />
       <Route><div data-testid="page">other</div></Route>
     </Switch>
   );

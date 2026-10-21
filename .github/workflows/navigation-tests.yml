@@ -1,0 +1,51 @@
+name: Navigation Tests
+
+# 작업 위치 보존·미저장 보호 회귀 시험 (2026-10-21, #633 검증 요청)
+#   - 실제 Chromium + 실제 라우터(wouter) + 실제 DashboardLayout·운영 화면 (서버 연결만 대역, DB 없음)
+#   - 다른 화면 이동·뒤로/앞으로·새로고침·로그인 응답 지연 포함 (server/navigationState.browser.test.ts)
+#   - 같은 영역의 단위·소스 시험
+# 전체 단위 시험은 아직 환경 의존 실패가 남아 있어 여기서는 이 묶음만 막는다 (전체 편입은 별도 정리 후).
+# 브라우저를 띄우지 못하면 건너뛰지 않고 실패한다 (NAV_BROWSER_REQUIRED=1).
+
+on:
+  pull_request:
+    paths:
+      - 'client/**'
+      - 'shared/**'
+      - 'server/navigationState.browser.test.ts'
+      - 'server/__fixtures__/**'
+      - 'server/urlState.test.ts'
+      - 'server/newCompanySetup.test.ts'
+      - 'server/linksCleanup.test.ts'
+      - 'server/todayWorkbench.test.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/navigation-tests.yml'
+
+jobs:
+  navigation:
+    name: 작업 위치 보존·미저장 보호 시험
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: npm install
+        run: npm install
+
+      - name: Chromium 설치
+        run: npx playwright install --with-deps chromium
+
+      - name: 단위·소스 시험 (URL 상태·돌아갈 곳·화면 계약)
+        run: npx vitest run server/urlState.test.ts server/newCompanySetup.test.ts server/linksCleanup.test.ts server/todayWorkbench.test.ts
+
+      - name: 브라우저 회귀 시험 (실제 라우터·실제 화면)
+        env:
+          NAV_BROWSER_REQUIRED: '1'
+        run: npx vitest run server/navigationState.browser.test.ts
