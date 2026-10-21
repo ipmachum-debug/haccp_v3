@@ -624,17 +624,20 @@ export async function approveRequest(requestId: number, approvedBy: number, note
           const batchId = (request as any).batchId;
 
           // 해당 배치의 미승인 요청 수 확인
+          // 2026-10-21: 승인 요청의 회사로 범위를 묶는다 (이전엔 batch_id 로만 — 회사 조건 없음)
+          const reqTenantId = (request as any).tenantId;
+          if (reqTenantId == null) throw new Error("승인 요청에 회사 정보가 없어 배치 문서 상태를 바꾸지 않는다");
           const [pendingResult] = await rawConn.execute(
-            "SELECT COUNT(*) as pending_count FROM h_approval_requests WHERE batch_id = ? AND status = 'pending'",
-            [batchId]
+            "SELECT COUNT(*) as pending_count FROM h_approval_requests WHERE batch_id = ? AND tenant_id = ? AND status = 'pending'",
+            [batchId, reqTenantId]
           );
           const pendingCount = (pendingResult as any[])[0]?.pending_count || 0;
 
           if (pendingCount === 0) {
             // 모든 승인 완료 -> 해당 배치의 모든 document_instances도 approved로 업데이트
             await rawConn.execute(
-              "UPDATE document_instances SET status = 'approved', approver_id = ?, approved_at = NOW() WHERE batch_id = ? AND status != 'approved'",
-              [approvedBy, batchId]
+              "UPDATE document_instances SET status = 'approved', approver_id = ?, approved_at = NOW() WHERE batch_id = ? AND tenant_id = ? AND status != 'approved'",
+              [approvedBy, batchId, reqTenantId]
             );
             console.log(`[approveRequest] 배치 ${batchId}의 모든 문서를 approved로 업데이트`);
           }

@@ -168,7 +168,7 @@ export async function generateSaleStatementPDF(saleId: number, tenantId?: number
     // 4. 대표 계좌 조회 (null 허용)
     let primaryAccount: any = null;
     try {
-      primaryAccount = await getPrimaryBankAccount();
+      primaryAccount = await getPrimaryBankAccount(tenantId);
     } catch (bankErr) {
       console.warn(`[generateSaleStatementPDF] getPrimaryBankAccount 실패 (graceful):`, bankErr);
     }
@@ -455,7 +455,7 @@ export async function generateSaleStatementPDFByIds(
     // 4. 대표 계좌 (있으면)
     let primaryAccount: any = null;
     try {
-      primaryAccount = await getPrimaryBankAccount();
+      primaryAccount = await getPrimaryBankAccount(tenantId);
     } catch (bankErr) {
       console.warn(`[generateSaleStatementPDFByIds] getPrimaryBankAccount 실패 (graceful):`, bankErr);
     }

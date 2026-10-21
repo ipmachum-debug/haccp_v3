@@ -134,19 +134,18 @@ export async function deleteBankAccount(id: number) {
  * 대표 계좌 설정
  * 기존 대표 계좌를 해제하고 새로운 계좌를 대표로 설정
  */
-export async function setPrimaryBankAccount(id: number) {
+export async function setPrimaryBankAccount(id: number, tenantId: number) {
+  if (!Number.isFinite(tenantId) || tenantId <= 0) throw new Error("테넌트 정보가 필요합니다");
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
-  // 트랜잭션으로 처리
-  // 1. 모든 계좌의 isPrimary를 0으로 설정
-  await db.update(bankAccounts).set({ isPrimary: 0 });
-
-  // 2. 선택한 계좌를 대표 계좌로 설정
-  await db
-    .update(bankAccounts)
-    .set({ isPrimary: 1 })
-    .where(eq(bankAccounts.id, id));
+  // 2026-10-21: 이전엔 조건 없이 모든 회사의 대표 계좌를 해제했다 — 이 회사 계좌만
+  await db.transaction(async (tx) => {
+    const [target] = await tx.select({ id: bankAccounts.id }).from(bankAccounts).where(and(eq(bankAccounts.id, id), eq(bankAccounts.tenantId, tenantId)));
+    if (!target) throw new Error("계좌를 찾을 수 없습니다");
+    await tx.update(bankAccounts).set({ isPrimary: 0 }).where(eq(bankAccounts.tenantId, tenantId));
+    await tx.update(bankAccounts).set({ isPrimary: 1 }).where(and(eq(bankAccounts.id, id), eq(bankAccounts.tenantId, tenantId)));
+  });
 
   return { success: true };
 }
@@ -154,14 +153,16 @@ export async function setPrimaryBankAccount(id: number) {
 /**
  * 대표 계좌 조회
  */
-export async function getPrimaryBankAccount() {
+export async function getPrimaryBankAccount(tenantId: number | null | undefined) {
+  // 2026-10-21: 이전엔 회사 조건이 없어 거래명세서에 다른 회사의 대표 계좌가 찍힐 수 있었다
+  if (tenantId == null || !Number.isFinite(Number(tenantId)) || Number(tenantId) <= 0) return null;
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
   const [account] = await db
     .select()
     .from(bankAccounts)
-    .where(and(eq(bankAccounts.isPrimary, 1), eq(bankAccounts.isActive, 1 as any) ) as any)
+    .where(and(eq(bankAccounts.tenantId, Number(tenantId)), eq(bankAccounts.isPrimary, 1), eq(bankAccounts.isActive, 1 as any)) as any)
     .limit(1);
 
   return account || null;
