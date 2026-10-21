@@ -4465,4 +4465,119 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await q(`DELETE FROM h_mixed_material_components WHERE intermediate_material_id = ?`, [SALT]);
     });
   });
+
+  describe("LOT ↔ 재고 묶음 연결 정리 — 다른 원료 묶음에 연결된 LOT 을 같은 원료 묶음으로, 연결만 (2026-10-21, 단지 재고 정합 1단계)", () => {
+    // 원료: 가루(MA) · 쌀(MB) · 묶음 없는 원료(MC) · 다른 원료(MD). 같은 원료 묶음 2개(HOLD_DEST_MULTI)는 운영 스키마의
+    //   고유 키 uk_inv_material(tenant_id, material_id) 때문에 만들 수 없다 — 순수 분류 시험(server/lotRelink.test.ts)에서만
+    const MA = 9801, MB = 9802, MC = 9803, MD = 9804;
+    const INV = { a: 9831, b: 9832, d1: 9833, other: 9835 };
+    const L = { ready: 9811, txOther: 9812, noTx: 9813, destNone: 9814, unit: 9816, missing: 9817, ok: 9818, nul: 9819, txNull: 9820, otherTenant: 9821 };
+    const lotIds = Object.values(L);
+    const clean = async () => {
+      await q(`DELETE FROM h_inventory_transactions WHERE id BETWEEN 98200 AND 98299`);
+      await q(`DELETE FROM h_inventory_lots WHERE id IN (?)`, [lotIds]);
+      await q(`DELETE FROM h_inventory WHERE id IN (?)`, [Object.values(INV)]);
+      await q(`DELETE FROM h_materials WHERE id IN (?, ?, ?, ?)`, [MA, MB, MC, MD]);
+    };
+    beforeEach(async () => {
+      await clean();
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (?, ?, 'RL-A', '가루(시험)'), (?, ?, 'RL-B', '쌀(시험)'), (?, ?, 'RL-C', '묶음없음(시험)'), (?, ?, 'RL-D', '묶음둘(시험)')`,
+        [MA, T, MB, T, MC, T, MD, T]);
+      await q(`INSERT INTO h_inventory (id, tenant_id, material_id, total_quantity, available_quantity, reserved_quantity, unit) VALUES
+        (?, ?, ?, 0, 0, 0, 'kg'), (?, ?, ?, 50, 50, 0, 'kg'), (?, ?, ?, 0, 0, 0, 'kg'), (?, ?, ?, 0, 0, 0, 'kg')`,
+        [INV.a, T, MA, INV.b, T, MB, INV.d1, T, MD, INV.other, T + 1, MB]);
+      const lot = (id: number, mat: number, inv: number | null, unit = "kg", expiry = "2027-06-30") =>
+        q(`INSERT INTO h_inventory_lots (id, tenant_id, inventory_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status, receipt_date, expiry_date)
+           VALUES (?, ?, ?, ?, ?, 10, 10, 10, ?, 'available', '2026-10-01', ?)`, [id, T, inv, mat, `RL-${id}`, unit, expiry]);
+      await lot(L.ready, MB, INV.a, "kg", "2026-12-31");   // 쌀 LOT 이 가루 묶음에 — 유통기한이 더 빠름
+      await lot(L.txOther, MB, INV.a);
+      await lot(L.noTx, MB, INV.a);
+      await lot(L.destNone, MC, INV.a);
+      await lot(L.unit, MB, INV.a, "g");
+      await lot(L.missing, MB, 999999);
+      await lot(L.ok, MB, INV.b, "kg", "2027-06-30");      // 바르게 연결된 쌀 LOT — 유통기한 늦음
+      await lot(L.nul, MB, null);
+      await lot(L.txNull, MB, INV.a);
+      await lot(L.otherTenant, MB, INV.other);
+      const tx = (id: number, lotId: number, mat: number | null, unit = "kg") =>
+        q(`INSERT INTO h_inventory_transactions (id, tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date, created_by) VALUES (?, ?, ?, ?, 'receipt', 10, ?, '2026-10-01', 4)`,
+          [id, T, lotId, mat, unit]);
+      await tx(98201, L.ready, MB);
+      await tx(98202, L.txOther, MB); await tx(98203, L.txOther, MA);
+      await tx(98204, L.destNone, MC);
+      await tx(98206, L.unit, MB, "g");
+      await tx(98207, L.missing, MB);
+      await tx(98208, L.ok, MB);
+      await tx(98209, L.txNull, null);
+      await tx(98210, L.otherTenant, MB);
+    });
+    afterAll(clean);
+    const lib = () => import("../scripts/_lib/lotRelink");
+    const lotState = async () => JSON.stringify(await q(`SELECT id, quantity, current_quantity, available_quantity, status, material_id, unit FROM h_inventory_lots WHERE id IN (?) ORDER BY id`, [lotIds]));
+    const aggState = async () => JSON.stringify(await q(`SELECT id, total_quantity, available_quantity, reserved_quantity FROM h_inventory WHERE id IN (?) ORDER BY id`, [Object.values(INV)]));
+    const txState = async () => JSON.stringify(await q(`SELECT * FROM h_inventory_transactions WHERE id BETWEEN 98200 AND 98299 ORDER BY id`));
+    const linkOf = async (id: number) => Number((await q(`SELECT inventory_id FROM h_inventory_lots WHERE id = ?`, [id]))[0].inventory_id);
+
+    it("미리보기: 연결이 틀린 원료 LOT 만, 분류대로 (바른 연결·빈 연결은 대상 아님) · 쓰기 없음", async () => {
+      const { loadRelinkEntries } = await lib();
+      const before = [await lotState(), await aggState(), await txState()];
+      const pool = await (await import("./db/connection")).getRawConnection();
+      const got = (await loadRelinkEntries(pool, T)).filter((e) => lotIds.includes(e.lotId));
+      expect(Object.fromEntries(got.map((e) => [e.lotId, e.category]))).toEqual({
+        [L.ready]: "READY", [L.txOther]: "HOLD_TX_MATERIAL", [L.noTx]: "HOLD_NO_TX", [L.destNone]: "HOLD_DEST_NONE",
+        [L.unit]: "HOLD_UNIT", [L.missing]: "REPORT_PARENT_MISSING", [L.txNull]: "HOLD_TX_MATERIAL_NULL", [L.otherTenant]: "REPORT_PARENT_OTHER_TENANT",
+      });
+      expect(got.find((e) => e.lotId === L.ready)).toMatchObject({ fromInventoryId: INV.a, fromMaterialId: MA, toInventoryId: INV.b });
+      expect([await lotState(), await aggState(), await txState()]).toEqual(before);
+    });
+
+    it("적용: READY 승인 LOT 의 연결만 바뀜 — 수량·상태·거래·집계 그대로 · 출고 LOT 고르기가 유통기한 빠른 LOT 을 찾게 됨 · 되돌리기", async () => {
+      const { loadRelinkEntries, relinkFingerprint, approvedFromPlan, applyRelink, restoreRelink } = await lib();
+      const { withInventoryTx } = await import("./lib/inventory/applyInventoryDelta");
+      const { allocateLotsFEFO } = await import("./lib/inventory/fefoLotAllocation");
+      const pool = await (await import("./db/connection")).getRawConnection();
+      // 적용 전: 쌀 묶음에서 2kg 을 고르면 바르게 연결된(유통기한 늦은) LOT 만 보인다 — 빠른 LOT 은 가루 묶음에 숨어 있음
+      expect((await allocateLotsFEFO(INV.b, 2, "kg", T, MB)).map((a: any) => a.lotId)).toEqual([L.ok]);
+      const lots = await loadRelinkEntries(pool, T);
+      const plan = { tool: "lot-inventory-relink" as const, tenant: T, generatedAt: "t", fingerprint: relinkFingerprint(T, lots), lots };
+      const before = { lots: await lotState(), agg: await aggState(), tx: await txState() };
+      const res = await applyRelink(withInventoryTx, T, approvedFromPlan(plan, T, [L.ready]));
+      expect(res).toEqual([{ lotId: L.ready, from: INV.a, to: INV.b, ok: true, reason: "연결 변경" }]);
+      expect(await linkOf(L.ready)).toBe(INV.b);
+      for (const id of [L.txOther, L.noTx, L.destNone, L.unit, L.txNull]) expect(await linkOf(id)).toBe(INV.a); // 승인 밖·보류는 그대로
+      expect(await linkOf(L.missing)).toBe(999999);
+      expect([await lotState(), await aggState(), await txState()]).toEqual([before.lots, before.agg, before.tx]);
+      // 적용 뒤: 같은 요청이 유통기한 빠른 LOT 부터
+      expect((await allocateLotsFEFO(INV.b, 2, "kg", T, MB)).map((a: any) => a.lotId)).toEqual([L.ready]);
+      // 같은 승인 다시 실행 → 더 이상 틀린 연결 아님 (건너뜀, 변경 없음)
+      expect((await applyRelink(withInventoryTx, T, approvedFromPlan(plan, T, [L.ready])))[0]).toMatchObject({ ok: false, reason: expect.stringMatching(/이미 바뀜/) });
+      // 되돌리기: 이 도구가 바꾼 값일 때만
+      expect((await restoreRelink(withInventoryTx, T, [{ lotId: L.ready, from: INV.a, to: INV.b }]))[0].ok).toBe(true);
+      expect(await linkOf(L.ready)).toBe(INV.a);
+      expect((await restoreRelink(withInventoryTx, T, [{ lotId: L.ready, from: INV.a, to: INV.b }]))[0]).toMatchObject({ ok: false });
+      expect(await lotState()).toBe(before.lots);
+    });
+
+    it("미리보기 뒤 바뀐 LOT 은 건너뜀 — 연결이 바뀜 / 거래가 생겨 보류가 됨 / 다른 회사 번호로는 아무것도 바꾸지 않음", async () => {
+      const { loadRelinkEntries, relinkFingerprint, approvedFromPlan, applyRelink } = await lib();
+      const { withInventoryTx } = await import("./lib/inventory/applyInventoryDelta");
+      const pool = await (await import("./db/connection")).getRawConnection();
+      const lots = await loadRelinkEntries(pool, T);
+      const plan = { tool: "lot-inventory-relink" as const, tenant: T, generatedAt: "t", fingerprint: relinkFingerprint(T, lots), lots };
+      const approved = approvedFromPlan(plan, T, [L.ready]);
+      // ① 다른 원료 거래가 생김 → 지금 분류 HOLD_TX_MATERIAL → 건너뜀
+      await q(`INSERT INTO h_inventory_transactions (id, tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date, created_by) VALUES (98250, ?, ?, ?, 'usage', 1, 'kg', '2026-10-02', 4)`, [T, L.ready, MA]);
+      expect((await applyRelink(withInventoryTx, T, approved))[0]).toMatchObject({ ok: false, reason: expect.stringMatching(/HOLD_TX_MATERIAL/) });
+      expect(await linkOf(L.ready)).toBe(INV.a);
+      await q(`DELETE FROM h_inventory_transactions WHERE id = 98250`);
+      // ② 그 사이 다른 원료 묶음으로 연결이 바뀜 → 미리보기와 다름 → 건너뜀
+      await q(`UPDATE h_inventory_lots SET inventory_id = ? WHERE id = ?`, [INV.d1, L.ready]);
+      expect((await applyRelink(withInventoryTx, T, approved))[0]).toMatchObject({ ok: false, reason: expect.stringMatching(/지금 연결 9833/) });
+      expect(await linkOf(L.ready)).toBe(INV.d1);
+      await q(`UPDATE h_inventory_lots SET inventory_id = ? WHERE id = ?`, [INV.a, L.ready]);
+      // ③ 다른 회사 번호로 실행 → 그 회사에 이 LOT 없음
+      expect((await applyRelink(withInventoryTx, T + 1, approved))[0]).toMatchObject({ ok: false, reason: "LOT 없음" });
+      expect(await linkOf(L.ready)).toBe(INV.a);
+    });
+  });
 });
