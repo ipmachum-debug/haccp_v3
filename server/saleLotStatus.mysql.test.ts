@@ -4618,4 +4618,82 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(n.unlinked).toEqual([{ itemMasterId: IMX, required: 4 }]);
     });
   });
+
+  describe("생산 건 승인 — 생산 화면·일괄·배치 상세(approveRequest)도 공통 관문·완료 처리, 승인됐는데 완료가 빠진 건 이어서 끝내기 (2026-10-21, 단지 10/15 마감 검증)", () => {
+    const B1 = 9861, B2 = 9862, R1 = 98611, R2 = 98621, MAT = 9863;
+    const clean = async () => {
+      await q(`DELETE FROM h_inventory_lots WHERE tenant_id = ? AND batch_id IN (?, ?)`, [T, B1, B2]).catch(() => undefined);
+      await q(`DELETE FROM h_ccp_form_rows WHERE form_record_id IN (98613, 98623)`);
+      await q(`DELETE FROM h_ccp_form_records WHERE id IN (98613, 98623)`);
+      await q(`DELETE FROM h_approval_history WHERE request_id IN (?, ?)`, [R1, R2]);
+      await q(`DELETE FROM h_approval_requests WHERE id IN (?, ?)`, [R1, R2]);
+      await q(`DELETE FROM h_batch_inputs WHERE batch_id IN (?, ?)`, [B1, B2]);
+      await q(`DELETE FROM h_batches WHERE id IN (?, ?)`, [B1, B2]);
+      await q(`DELETE FROM h_materials WHERE id = ?`, [MAT]);
+    };
+    beforeEach(async () => {
+      await clean();
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name) VALUES (?, ?, 'AP-M', '승인시험원료')`, [MAT, T]);
+      await q(`INSERT INTO h_batches (id, tenant_id, site_id, batch_code, product_id, planned_quantity, planned_date, status, mode, plan_only, created_by) VALUES
+        (?, ?, 1, 'AP-1', 99901, 20, '2026-10-15', 'in_progress', 'auto', 0, 4), (?, ?, 1, 'AP-2', 99901, 30, '2026-10-15', 'in_progress', 'auto', 0, 4)`, [B1, T, B2, T]);
+      // 두 생산 건 모두 공식 CCP 기록지 작업자 제출(시트 확인) 완료 — 기록지 관문은 통과, 원료 관문만 본다
+      await q(`INSERT INTO h_ccp_form_records (id, tenant_id, batch_id, ccp_type, status, rows_version, confirmed_by, confirmed_at, confirmed_rows_version) VALUES
+        (98613, ?, ?, 'CCP-1B', 'submitted', 1, 4, NOW(), 1), (98623, ?, ?, 'CCP-1B', 'submitted', 1, 4, NOW(), 1)`, [T, B1, T, B2]);
+      await q(`INSERT INTO h_ccp_form_rows (tenant_id, form_record_id, batch_seq, is_deviation) VALUES (?, 98613, 1, 0), (?, 98623, 1, 0)`, [T, T]);
+      // B1: 출고 보류 줄 1개 (복구 때 남긴 미출고) — 승인 관문이 막아야 한다
+      await q(`INSERT INTO h_batch_inputs (id, batch_id, tenant_id, material_id, planned_quantity, actual_quantity, unit, inventory_deducted, issue_hold, issue_hold_reason) VALUES (98612, ?, ?, ?, 0.5, 0.5, 'kg', 0, 1, '시험 보류')`, [B1, T, MAT]);
+      await q(`INSERT INTO h_approval_requests (id, tenant_id, request_type, reference_type, reference_id, title, status, requested_by) VALUES
+        (?, ?, 'batch_production', 'batch', ?, '[생산] AP-1', 'pending', 4), (?, ?, 'batch_production', 'batch', ?, '[생산] AP-2', 'pending', 4)`, [R1, T, B1, R2, T, B2]);
+    });
+    afterAll(clean);
+    const reqStatus = async (id: number) => (await q(`SELECT status FROM h_approval_requests WHERE id = ?`, [id]))[0].status;
+    const batch = async (id: number) => (await q(`SELECT status, actual_quantity + 0 AS a, completed_at FROM h_batches WHERE id = ?`, [id]))[0];
+
+    it("관문에 걸리면(출고 안 된 줄) 요청도 승인하지 않음 — 생산 건·재고 그대로 · 보류 줄을 자동 출고하지 않음", async () => {
+      const { approveRequest } = await import("./db/system/auditApprovalSupplier");
+      const txBefore = (await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE tenant_id = ? AND material_id = ?`, [T, MAT]))[0].n;
+      await expect(approveRequest(R1, 4)).rejects.toThrow(/출고되지 않았습니다/);
+      expect(await reqStatus(R1)).toBe("pending");
+      expect((await batch(B1)).status).toBe("in_progress");
+      expect((await q(`SELECT COUNT(*) AS n FROM h_inventory_transactions WHERE tenant_id = ? AND material_id = ?`, [T, MAT]))[0].n).toBe(txBefore);
+      expect(Number((await q(`SELECT issue_hold FROM h_batch_inputs WHERE id = 98612`))[0].issue_hold)).toBe(1);
+    });
+
+    it("관문 통과 → 요청 승인 + 생산 완료(실제 처리 시각) + 후속 처리 경고를 돌려줌 (이전: 요청만 approved)", async () => {
+      const { approveRequest } = await import("./db/system/auditApprovalSupplier");
+      const r = await approveRequest(R2, 4);
+      expect(await reqStatus(R2)).toBe("approved");
+      const b = await batch(B2);
+      expect(b.status).toBe("completed");
+      expect(b.completed_at).not.toBeNull();
+      expect(Array.isArray(r.warnings)).toBe(true);
+    });
+
+    it("이어서 끝내기: 승인된 요청 + 미완료 생산 건만 · 출고 안 된 줄이 있으면 거부(재출고 없음) · 실제 생산량은 비어 있을 때만", async () => {
+      const { resumeApprovedBatchCompletion } = await import("./lib/production/batchApprovalGate");
+      // 승인 요청이 아직 대기 → 거부 (승인을 새로 만들지 않음)
+      await expect(resumeApprovedBatchCompletion(B2, T, 4, 30)).rejects.toThrow(/승인된 생산 승인 요청이 없습니다/);
+      // 예전 생산 화면 승인처럼 요청만 approved 인 상태
+      await q(`UPDATE h_approval_requests SET status = 'approved' WHERE id IN (?, ?)`, [R1, R2]);
+      await expect(resumeApprovedBatchCompletion(B1, T, 4, 20)).rejects.toThrow(/원료 1줄이 출고되지 않았습니다 — 이어서 끝내기는 원료를 다시 출고하지 않습니다/);
+      expect((await batch(B1)).status).toBe("in_progress");
+      await expect(resumeApprovedBatchCompletion(B2, T + 1, 4, 30)).rejects.toThrow(/이 회사의 생산 건이 아닙니다/);
+      const r = await resumeApprovedBatchCompletion(B2, T, 4, 29.5);
+      expect(r.requestId).toBe(R2);
+      const b = await batch(B2);
+      expect([b.status, Number(b.a)]).toEqual(["completed", 29.5]);
+      await expect(resumeApprovedBatchCompletion(B2, T, 4, 30)).rejects.toThrow(/이미 completed/);
+    });
+
+    it("완료 전 점검: 예전 방식 공식 기록지(field_mode 0)도 확인 제출이면 CCP 완료 — 예전 점검 기록만 세지 않음 · 확인 뒤 바뀌면 미완료", async () => {
+      const { checkBatchCompletionReadiness } = await import("./db/production/batchLifecycle");
+      await q(`INSERT INTO h_batch_inputs (id, batch_id, tenant_id, material_id, planned_quantity, actual_quantity, unit, inventory_deducted) VALUES (98622, ?, ?, ?, 1, 1, 'kg', 1)`, [B2, T, MAT]);
+      expect(Number((await q(`SELECT COALESCE(field_mode, 0) AS fm FROM h_ccp_form_records WHERE id = 98623`))[0].fm)).toBe(0);
+      const ok = await checkBatchCompletionReadiness(B2, T);
+      expect([ok.canComplete, ok.checks.ccpCompleted.message]).toEqual([true, "CCP 점검 완료 (1/1)"]);
+      await q(`UPDATE h_ccp_form_records SET rows_version = 2 WHERE id = 98623`); // 확인 뒤 행이 바뀜
+      const no = await checkBatchCompletionReadiness(B2, T);
+      expect([no.canComplete, no.checks.ccpCompleted.message]).toEqual([false, "CCP 점검 미완료 (0/1)"]);
+    });
+  });
 });

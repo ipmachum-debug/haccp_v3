@@ -256,7 +256,9 @@ export const batchLifecycleRouter = router({
         if (!requestId) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: "대기 중인 배치 승인 요청이 없습니다." });
         }
-        await approveRequest(requestId, ctx.user.id, input.notes);
+        // 생산 건 요청 → 공통 관문·완료 처리까지 (approveRequest). 후속 처리 경고는 응답 문구로 (2026-10-21)
+        const approved = await approveRequest(requestId, ctx.user.id, input.notes);
+        const { approvalMessage } = await import("../../lib/production/batchApprovalGate");
 
         await createAuditLog({
           action: "batch.approve",
@@ -269,7 +271,29 @@ export const batchLifecycleRouter = router({
           changes: { approved: true, requestId, notes: input.notes }
         });
 
-        return { success: true, requestId, message: "배치 승인 요청이 승인되었습니다." };
+        return { success: true, requestId, warnings: approved.warnings ?? [], message: approvalMessage("배치 승인 요청이 승인되었습니다.", approved.warnings ?? []) };
+      }),
+
+    /**
+     * 승인됐는데 완료 처리가 빠진 생산 건 이어서 끝내기 (2026-10-21) — 원료 재출고·새 승인 없음. 조건은 resumeApprovedBatchCompletion
+     */
+    resumeApprovedCompletion: monitorProcedure
+      .input(z.object({ batchId: z.number(), actualQuantity: z.number().positive() }))
+      .mutation(async ({ input, ctx }) => {
+        const { resumeApprovedBatchCompletion, approvalMessage } = await import("../../lib/production/batchApprovalGate");
+        const { createAuditLog } = await import("../../db");
+        const r = await resumeApprovedBatchCompletion(input.batchId, ctx.tenantId, ctx.user.id, input.actualQuantity);
+        await createAuditLog({
+          action: "batch.resumeApprovedCompletion",
+          entityType: "batch",
+          entityId: input.batchId,
+          userId: ctx.user.id,
+          userEmail: ctx.user.email,
+          userRole: ctx.user.role,
+          description: `승인된 생산 건 완료 이어서: ID ${input.batchId} (승인요청 #${r.requestId}, 실제 ${input.actualQuantity}kg)`,
+          changes: { requestId: r.requestId, actualQuantity: input.actualQuantity, warnings: r.warnings },
+        });
+        return { success: true, requestId: r.requestId, warnings: r.warnings, message: approvalMessage("완료 처리를 이어서 끝냈습니다", r.warnings) };
       }),
 
     /** 배치 반려 — 승인관리와 같은 흐름 (rejectRequest). 반려 사유 필수 */

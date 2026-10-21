@@ -550,6 +550,17 @@ export async function approveRequest(requestId: number, approvedBy: number, note
   const requestInfo = await db.select().from(hApprovalRequests).where(eq(hApprovalRequests.id, requestId)).limit(1);
   const request = requestInfo[0];
 
+  // 1-0. 생산 건 승인 요청이면 모든 승인 경로와 같은 관문 — 상태를 바꾸기 전에 (2026-10-21, 단지 10/15 마감 검증)
+  //   이전: 생산 화면 '결재 → 승인'(approval.approve)·일괄 승인·배치 상세 승인(batch.approve)은 이 함수만 불러
+  //   요청만 approved 가 되고 생산 완료·제품 LOT·원가는 처리되지 않았다 (승인관리 바로 승인만 처리 — 생산 건 1127 사례).
+  //   지금: CCP 기록지·원료 출고 관문(prepareBatchForApproval) → 요청 승인 → 완료·후속 처리(completeApprovedBatch).
+  const batchProduction = !!request && (request as any).requestType === "batch_production" && (request as any).referenceType === "batch"
+    && (request as any).referenceId != null && (request as any).tenantId != null;
+  if (batchProduction) {
+    const { prepareBatchForApproval } = await import("../../lib/production/batchApprovalGate");
+    await prepareBatchForApproval(Number((request as any).referenceId), Number((request as any).tenantId), approvedBy);
+  }
+
   // 1-1. CCP 기록지 단독 요청이면 작업자 제출(시트 확인) 확인 — 상태를 바꾸기 전에 (2026-10-18)
   if (request && (request as any).referenceType === "ccp_form_record" && (request as any).referenceId && (request as any).tenantId) {
     const { approveCcpFormRecord } = await import("../../lib/haccp/ccpSheetConfirm");
@@ -594,8 +605,13 @@ export async function approveRequest(requestId: number, approvedBy: number, note
     });
     console.log(`[approveRequest] CCP 기록지 #${(request as any).referenceId} 승인 반영: form=${r.formUpdated} instances=${r.instancesUpdated}`);
   }
-  // 3-2. [후처리] 배치 승인 요청("[CCP 기록지]" batch_production) 결재 → 그 배치의 CCP-1B/2B 기록지 승인 (2026-10-13)
-  if (request && (request as any).referenceType === "batch" && (request as any).referenceId) {
+  // 3-2. [후처리] 생산 건 승인 → 완료(실제 처리 시각)·CCP 기록지 승인 반영·제품 LOT·완료 훅 — 경고는 돌려준다 (숨기지 않음)
+  let warnings: string[] = [];
+  if (batchProduction) {
+    const { completeApprovedBatch } = await import("../../lib/production/batchApprovalGate");
+    warnings = await completeApprovedBatch(Number((request as any).referenceId), Number((request as any).tenantId), approvedBy, "approveRequest");
+  } else if (request && (request as any).referenceType === "batch" && (request as any).referenceId) {
+    // 그 밖의 배치 연결 요청 — 그 배치의 CCP-1B/2B 기록지 승인 (2026-10-13)
     const { applyBatchDecisionToCcpForms } = await import("../haccp/ccpStatusSync");
     await applyBatchDecisionToCcpForms({
       batchId: Number((request as any).referenceId),
@@ -649,7 +665,7 @@ export async function approveRequest(requestId: number, approvedBy: number, note
     }
   }
 
-  return { success: true };
+  return { success: true, warnings };
 }
 
 /**
