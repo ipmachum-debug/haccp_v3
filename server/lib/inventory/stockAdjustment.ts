@@ -127,11 +127,13 @@ async function loadActiveLots(
     subjectForDelta = { materialId: canonicalId };
   }
 
+  // ★ 2026-10-21 (단지 10/18 실사 정합): 순서는 입고일 기준 (없으면 등록일). 이전: 등록 시각 — 엑셀 일괄 등록 LOT 은
+  //   등록 시각이 모두 같은 날이라 실제 입고 순서와 달랐다 (감소 = 먼저 들어온 LOT 부터, 증가 = 가장 최근 LOT).
   const [rows] = await conn.execute(
     `SELECT id, lot_number, quantity, available_quantity, unit, material_id, product_id, created_at
        FROM h_inventory_lots
       WHERE tenant_id = ? AND ${col} IN (${ids.map(() => "?").join(", ")}) AND status = 'available'
-      ORDER BY created_at ${p.order}, id ${p.order}
+      ORDER BY COALESCE(receipt_date, DATE(created_at)) ${p.order}, created_at ${p.order}, id ${p.order}
       FOR UPDATE`,
     [p.tenantId, ...ids],
   );
@@ -213,7 +215,11 @@ export interface PhysicalCountResult {
  */
 export async function applyPhysicalCount(
   conn: InvConn,
-  p: { tenantId: number; subject: AdjustSubject; actualQty: number; reason: string; userId: number; unit?: string | null; countDate?: string | null },
+  p: {
+    tenantId: number; subject: AdjustSubject; actualQty: number; reason: string; userId: number; unit?: string | null; countDate?: string | null;
+    /** 쓸 수 없는 상태(사용완료·만료·폐기) LOT 에 남은 잔량을 실사와 함께 0 으로 — 센 수량은 쓸 수 있는 재고만이라는 뜻 (기본 꺼짐) */
+    clearUnusableLots?: boolean;
+  },
 ): Promise<PhysicalCountResult> {
   if (!Number.isFinite(p.actualQty) || p.actualQty < 0) throw new Error("실사 수량은 0 이상이어야 합니다");
   if (p.countDate && !/^\d{4}-\d{2}-\d{2}$/.test(p.countDate)) throw new Error("실사일은 YYYY-MM-DD 형식이어야 합니다");
@@ -221,18 +227,30 @@ export async function applyPhysicalCount(
   if (p.countDate && p.countDate > today) throw new Error("실사일이 오늘보다 뒤입니다");
   const { lots, before, subjectForDelta, canonicalId, col } = await loadActiveLots(conn, { tenantId: p.tenantId, subject: p.subject, order: "ASC" });
   const counted = r3(p.actualQty);
-  const review = (message: string, postCountNet?: number): PhysicalCountResult =>
-    ({ before, after: before, diff: 0, status: "needs_review", message, affected: [], countedQty: counted, postCountNet, expectedNow: postCountNet == null ? undefined : r3(counted + postCountNet) });
 
-  // ★ 2026-10-21 (단지 10/18 실사 정합): 쓸 수 없는 상태(used·expired·disposed)인데 잔량이 남은 LOT 이 있으면 맞추지 않는다.
-  //   실사 반영은 'available' LOT 만 조정하므로, 그 잔량은 반영 뒤에도 장부에 남는다 (출고 후보로 다시 쓰일 수 있음) — 먼저 정리.
-  const [stale]: any = await conn.execute(
-    `SELECT COUNT(*) AS n, COALESCE(SUM(available_quantity), 0) + 0 AS q FROM h_inventory_lots
-      WHERE tenant_id = ? AND ${col} = ? AND status IN ('used', 'expired', 'disposed') AND available_quantity > ?`,
+  // ★ 2026-10-21 (단지 10/18 실사 정합): 쓸 수 없는 상태(used·expired·disposed)인데 잔량이 남은 LOT.
+  //   실사 반영은 'available' LOT 만 조정하므로, 그 잔량은 반영 뒤에도 장부에 남는다 (출고 후보로 다시 쓰일 수 있음).
+  //   기본: 맞추지 않고 확인 필요. clearUnusableLots: 실사와 같은 날짜·같은 트랜잭션에서 0 으로 (따로 먼저 정리하면
+  //   그 정리 거래가 '실사일 뒤 이동'이나 '실사일 당일 거래'로 잡혀 실사를 막는다 — Codex 10/18 보정표 차단 2·3).
+  const [staleRows]: any = await conn.execute(
+    `SELECT id, lot_number, available_quantity + 0 AS a, unit, status FROM h_inventory_lots
+      WHERE tenant_id = ? AND ${col} = ? AND status IN ('used', 'expired', 'disposed') AND available_quantity > ?
+      ORDER BY COALESCE(receipt_date, DATE(created_at)), created_at, id
+      FOR UPDATE`,
     [p.tenantId, canonicalId, EPS],
   );
-  if (Number(stale?.[0]?.n ?? 0) > 0) {
-    return review(`쓸 수 없는 상태(사용완료·만료·폐기) LOT ${stale[0].n}개에 잔량 ${r3(Number(stale[0].q))} 이 남아 있음 — 그 LOT 을 먼저 정리한 뒤 실사 반영`);
+  const stale = staleRows as Array<{ id: number; lot_number: string; a: number; unit: string | null; status: string }>;
+  const staleQty = r3(stale.reduce((s, l) => s + Number(l.a), 0));
+  const shownBefore = p.clearUnusableLots ? r3(before + staleQty) : before;
+  const review = (message: string, postCountNet?: number): PhysicalCountResult =>
+    ({ before: shownBefore, after: shownBefore, diff: 0, status: "needs_review", message, affected: [], countedQty: counted, postCountNet, expectedNow: postCountNet == null ? undefined : r3(counted + postCountNet) });
+  if (stale.length > 0 && !p.clearUnusableLots) {
+    return review(`쓸 수 없는 상태(사용완료·만료·폐기) LOT ${stale.length}개에 잔량 ${staleQty} 이 남아 있음 — 그 LOT 을 먼저 정리하거나 '쓸 수 없는 LOT 잔량 함께 정리'로 실사 반영`);
+  }
+  if (stale.length > 0) {
+    const unit = (p.unit || lots[0]?.unit || "kg").trim().toLowerCase();
+    const otherUnit = stale.filter((l) => String(l.unit ?? "").trim().toLowerCase() !== unit);
+    if (otherUnit.length > 0) return review(`정리할 LOT ${otherUnit.map((l) => l.lot_number).join(", ")} 의 단위가 ${unit} 와 다름 — 환산 없이 정리하지 않음`);
   }
 
   // ★ 2026-10-21: 실사일이 지난 날이면 '그날 센 수량' 에 그 뒤 업무일의 실제 LOT 이동을 더한 값이 지금 있어야 할 양이다.
@@ -268,9 +286,29 @@ export async function applyPhysicalCount(
   const expectedNow = r3(counted + postCountNet);
   if (expectedNow < -EPS) return review(`실사 ${counted} + 실사일 뒤 순변동 ${postCountNet} = ${expectedNow} — 0 보다 작음 (실사일 뒤 출고가 센 양보다 많음)`, postCountNet);
   const extra = { countedQty: counted, postCountNet, expectedNow };
+  // 화면에 보이는 차이 = 기대량 − (가용 + 정리할 잔량). LOT 조정량은 가용 LOT 기준 (정리 잔량은 따로 0 으로).
+  const shownDiff = r3(expectedNow - shownBefore);
   const diff = r3(expectedNow - before);
-  if (Math.abs(diff) < EPS) {
+  if (Math.abs(diff) < EPS && stale.length === 0) {
     return { before, after: expectedNow, diff: 0, status: "skipped", message: "차이 없음 — 적용 skip", affected: [], ...extra };
+  }
+
+  // 쓸 수 없는 LOT 잔량 0 으로 — 실사일 날짜의 조정 거래 (가용 집계는 원래 'available' 만 세므로 바뀌지 않음)
+  const cleared: AffectedLot[] = [];
+  for (const l of stale) {
+    const q = r3(Number(l.a));
+    const r = await applyLotDelta(conn, {
+      tenantId: p.tenantId, lotId: Number(l.id), subject: subjectForDelta,
+      quantity: q, direction: "decrease", transactionType: "adjustment",
+      unit: l.unit || "kg", transactionDate: p.countDate || todayStr(),
+      reference: { referenceType: "adjustment", actionType: "PHYSICAL_COUNT_CLEAR_UNUSABLE" },
+      notes: `[실사] ${p.reason} — 쓸 수 없는 상태(${l.status}) LOT 잔량 ${q} 정리`, createdBy: p.userId,
+    });
+    cleared.push({ lotId: Number(l.id), lotNumber: l.lot_number, changeQty: -q, newAvailable: r.remaining });
+  }
+  const clearedNote = cleared.length ? `쓸 수 없는 LOT ${cleared.length}개 잔량 ${staleQty} 정리` : "";
+  if (Math.abs(diff) < EPS) {
+    return { before: shownBefore, after: expectedNow, diff: shownDiff, status: "applied", ...extra, message: clearedNote, affected: cleared };
   }
 
   if (lots.length === 0 && diff > 0) {
@@ -290,9 +328,9 @@ export async function applyPhysicalCount(
       createdBy: p.userId,
     });
     return {
-      before, after: expectedNow, diff, status: "applied", ...extra,
-      message: `활성 LOT 없음 → 실사 LOT ${r.lotNumber} 생성`,
-      affected: [{ lotId: r.lotId, lotNumber: r.lotNumber, changeQty: diff, newAvailable: diff }],
+      before: shownBefore, after: expectedNow, diff: shownDiff, status: "applied", ...extra,
+      message: [clearedNote, `활성 LOT 없음 → 실사 LOT ${r.lotNumber} 생성`].filter(Boolean).join(" · "),
+      affected: [...cleared, { lotId: r.lotId, lotNumber: r.lotNumber, changeQty: diff, newAvailable: diff }],
       createdLotNumber: r.lotNumber,
     };
   }
@@ -301,6 +339,7 @@ export async function applyPhysicalCount(
     tenantId: p.tenantId, subject: p.subject, delta: diff, reason: p.reason, userId: p.userId, source: "PHYSICAL_COUNT",
     businessDate: p.countDate || null,
   });
-  return { before: r.before, after: r.after, diff, status: "applied", ...extra,
-    message: `${r.affected.length}개 LOT 조정${postCountNet ? ` (실사 ${counted} + 실사일 뒤 순변동 ${postCountNet})` : ""}`, affected: r.affected };
+  return { before: shownBefore, after: r.after, diff: shownDiff, status: "applied", ...extra,
+    message: [clearedNote, `${r.affected.length}개 LOT 조정${postCountNet ? ` (실사 ${counted} + 실사일 뒤 순변동 ${postCountNet})` : ""}`].filter(Boolean).join(" · "),
+    affected: [...cleared, ...r.affected] };
 }

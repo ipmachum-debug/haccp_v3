@@ -4761,5 +4761,48 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect(await avail()).toEqual(before);
       await expect(run(40, "2099-01-01")).rejects.toThrow(/오늘보다 뒤/);
     });
+
+    // 쓸 수 없는 LOT 잔량 함께 정리 (Codex 10/18 보정표 차단 2·3: 따로 먼저 정리하면 그 거래가 실사일 뒤·당일 거래로 잡혀 실사를 막음)
+    const runClear = async (actualQty: number, countDate: string | null) => {
+      const { withInventoryTx } = await import("./lib/inventory/applyInventoryDelta");
+      const { applyPhysicalCount } = await import("./lib/inventory/stockAdjustment");
+      return withInventoryTx((c) => applyPhysicalCount(c, { tenantId: T, subject, actualQty, reason: "시험 실사", userId: 4, unit: "kg", countDate, clearUnusableLots: true }), "pc-test");
+    };
+
+    it("정리 포함: 사용완료·만료 LOT 잔량 0 + 가용 LOT 은 기대량에 맞춤 — 같은 실사일 거래로 한 번에, 다시 실사하면 확인 필요", async () => {
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status, receipt_date, created_at) VALUES
+        (?, ?, ?, 'PC-3', 9, 9, 9, 'kg', 'expired', '2026-09-01', '2026-09-01 09:00:00')`, [L3, T, M]);
+      const r = await runClear(40, CD);
+      // 기대량 40 + 970 = 1010 · 보이는 이전 = 가용 1020 + 정리 9 = 1029 → 차이 −19 (정리 −9, 가용 −10)
+      expect([r.status, r.before, r.expectedNow, r.diff]).toEqual(["applied", 1029, 1010, -19]);
+      expect(r.affected.map((a) => [a.lotNumber, a.changeQty])).toEqual([["PC-3", -9], ["PC-1", -10]]);
+      expect(await avail()).toEqual([40, 970, 0]);
+      const adj = await q(`SELECT lot_id, quantity + 0 AS q, DATE_FORMAT(transaction_date, '%Y-%m-%d') AS d, action_type AS a FROM h_inventory_transactions WHERE material_id = ? AND transaction_type = 'adjustment' ORDER BY id`, [M]);
+      expect(adj.map((x: any) => [Number(x.lot_id), Number(x.q), x.d, x.a])).toEqual([[L3, -9, CD, "PHYSICAL_COUNT_CLEAR_UNUSABLE"], [L1, -10, CD, "PHYSICAL_COUNT"]]);
+      const [inv] = await q(`SELECT available_quantity + 0 AS a FROM h_inventory WHERE tenant_id = ? AND material_id = ?`, [T, M]);
+      expect(Number(inv.a)).toBe(1010); // 집계 = 가용 LOT 합
+      expect((await runClear(40, CD)).status).toBe("needs_review"); // 실사일 당일 거래가 생겼으므로 두 번 맞추지 않음
+    });
+
+    it("정리 포함: 가용은 이미 맞고 잔량만 남았으면 잔량만 0 · 정리할 LOT 단위가 다르면 확인 필요(아무것도 안 바꿈)", async () => {
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status, receipt_date) VALUES (?, ?, ?, 'PC-3', 2, 2, 2, 'g', 'used', '2026-09-01')`, [L3, T, M]);
+      const bad = await runClear(50, CD);
+      expect([bad.status, bad.message]).toEqual(["needs_review", expect.stringMatching(/PC-3 의 단위가 kg 와 다름/)]);
+      expect(await avail()).toEqual([50, 970, 2]);
+      await q(`UPDATE h_inventory_lots SET unit = 'kg' WHERE id = ?`, [L3]);
+      const r = await runClear(50, CD);
+      expect([r.status, r.before, r.diff, r.affected.length]).toEqual(["applied", 1022, -2, 1]);
+      expect(await avail()).toEqual([50, 970, 0]);
+    });
+
+    it("감소 순서 = 입고일 (등록 시각이 늦어도 먼저 들어온 LOT 부터)", async () => {
+      // 9/01 입고분을 10/20 에 늦게 등록 (엑셀 일괄 등록과 같은 모양)
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status, receipt_date, created_at) VALUES
+        (?, ?, ?, 'PC-3', 5, 5, 5, 'kg', 'available', '2026-09-01', '2026-10-20 18:00:00')`, [L3, T, M]);
+      const { todayKST } = await import("./utils/timezone");
+      const r = await run(1020, todayKST()); // 지금 1025 → 5 줄임
+      expect(r.affected.map((a) => [a.lotNumber, a.changeQty])).toEqual([["PC-3", -5]]);
+      expect(await avail()).toEqual([50, 970, 0]);
+    });
   });
 });

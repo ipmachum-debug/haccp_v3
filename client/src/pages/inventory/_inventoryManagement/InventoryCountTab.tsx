@@ -92,6 +92,7 @@ export function InventoryCountTab() {
   const [inputs, setInputs] = useState<Record<number, CountInput>>({});
   const [defaultReason, setDefaultReason] = useState("정기 재고 실사");
   const [countDate, setCountDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [clearUnusableLots, setClearUnusableLots] = useState(false);
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<ApplyResult[] | null>(null);
 
@@ -182,14 +183,17 @@ export function InventoryCountTab() {
     if (!confirm(
       `${label} ${items.length}건 실사 적용\n` +
       `실사일: ${countDate} · 사유: ${defaultReason}\n\n` +
-      `감소: 가장 오래된 LOT 부터 자동 차감 (FEFO)\n` +
+      `감소: 입고일이 가장 이른 LOT 부터 자동 차감\n` +
       `증가: 최신 LOT 에 가산 (활성 LOT 없으면 실사 LOT 신규 생성)\n` +
-      `실사일이 지난 날이면: 그날 센 수량 + 그 뒤 입출고 = 지금 있어야 할 양으로 비교 (실사일 당일 거래·단위 다름 등은 '확인 필요' 로 남김)\n\n` +
+      `실사일이 지난 날이면: 그날 센 수량 + 그 뒤 입출고 = 지금 있어야 할 양으로 비교 (실사일 당일 거래·단위 다름 등은 '확인 필요' 로 남김)\n` +
+      (clearUnusableLots
+        ? `쓸 수 없는 LOT(사용완료·만료·폐기)에 남은 잔량: 실사일 날짜로 함께 0 으로 정리 (센 수량 = 쓸 수 있는 재고)\n\n`
+        : `쓸 수 없는 LOT(사용완료·만료·폐기)에 잔량이 남은 품목: '확인 필요' 로 남김\n\n`) +
       `진행하시겠습니까?`,
     )) {
       return;
     }
-    mutation.mutate({ items, defaultReason, countDate });
+    mutation.mutate({ items, defaultReason, countDate, clearUnusableLots });
   };
 
   // ─── Excel 다운로드 (템플릿) ─────────────────────
@@ -313,6 +317,10 @@ export function InventoryCountTab() {
             placeholder="정기 재고 실사"
             className="h-8 text-xs flex-1 max-w-md"
           />
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap cursor-pointer" title="사용완료·만료·폐기 상태인데 잔량이 남은 LOT 을 실사일 날짜로 0 으로 정리합니다. 센 수량은 쓸 수 있는 재고만입니다.">
+            <input type="checkbox" checked={clearUnusableLots} onChange={(e) => setClearUnusableLots(e.target.checked)} className="h-3.5 w-3.5" />
+            쓸 수 없는 LOT 잔량 함께 정리
+          </label>
         </div>
 
         {/* 그리드 */}
