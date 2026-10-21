@@ -92,7 +92,8 @@ describe("생산 화면 하나 — 입력·클릭·이동이 줄었는가 (2026-
     expect(ui).toMatch(/value=\{qty\[it\.b\.id\] \?\? String\(it\.b\.plannedKg \?\? ""\)\}/);
     expect(ui).toMatch(/: Number\(it\.b\.plannedKg \?\? 0\);/);
     // 3 — 작업자는 현장(지금 할 일)만, 끝난 행은 접음
-    expect(ui).toMatch(/const view: "all" \| "mine" = isManager \? viewPref : "mine";/);
+    // 2026-10-21 (#633 검증 P2-2): 로그인 정보가 온 뒤 권한으로 제한 — 관리 보기 권한 없으면 현장만 (규칙 그대로)
+    expect(ui).toMatch(/const view: "all" \| "mine" = !authReady \? viewPref : isManager \? viewPref : "mine";/);
     expect(ui).toMatch(/const keep = \(r: any\) => !r\.confirmed \|\| !!ws\?\.pending\[r\.rowId\] \|\| !!ws\?\.editing\[r\.rowId\];/);
     // 4 — 마감: 기존 서버 경로 그대로 (제출·완료 전 점검·완료·작성자 제출·승인)
     for (const k of ["trpc.ccpForm.submit.useMutation", "utils.client.batch.checkCompletionReadiness.query", "trpc.batch.complete.useMutation", "trpc.approval.submitByWriter.useMutation", "trpc.approval.approve.useMutation"]) expect(ui).toContain(k);
