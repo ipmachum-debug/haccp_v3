@@ -4696,4 +4696,70 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       expect([no.canComplete, no.checks.ccpCompleted.message]).toEqual([false, "CCP 점검 미완료 (0/1)"]);
     });
   });
+
+  describe("실사 반영 — 지난 실사일이면 그날 센 수량 + 그 뒤 LOT 이동으로 비교, 자동으로 정할 수 없으면 '확인 필요' (2026-10-21, 단지 10/18 실사 정합)", () => {
+    const M = 9871, L1 = 98711, L2 = 98712, L3 = 98713, CD = "2026-10-18";
+    const clean = async () => {
+      await q(`DELETE FROM h_inventory_transactions WHERE tenant_id = ? AND (material_id = ? OR lot_id IN (?, ?, ?))`, [T, M, L1, L2, L3]);
+      await q(`DELETE FROM h_inventory_lots WHERE tenant_id = ? AND material_id = ?`, [T, M]);
+      await q(`DELETE FROM h_inventory WHERE tenant_id = ? AND material_id = ?`, [T, M]);
+      await q(`DELETE FROM h_materials WHERE id = ?`, [M]);
+    };
+    beforeEach(async () => {
+      await clean();
+      await q(`INSERT INTO h_materials (id, tenant_id, material_code, material_name, unit) VALUES (?, ?, 'PC-M', '실사시험전분', 'kg')`, [M, T]);
+      await q(`INSERT INTO h_inventory (tenant_id, material_id, total_quantity, available_quantity, reserved_quantity, unit) VALUES (?, ?, 1020, 1020, 0, 'kg')`, [T, M]);
+      // 10/01 입고 50 (실사 전) · 10/19 입고 1000 · 10/20 사용 30 (실사 뒤) → 지금 50 + 970 = 1020
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status, receipt_date, created_at) VALUES
+        (?, ?, ?, 'PC-1', 50, 50, 50, 'kg', 'available', '2026-10-01', '2026-10-01 09:00:00'), (?, ?, ?, 'PC-2', 970, 970, 970, 'kg', 'available', '2026-10-19', '2026-10-19 09:00:00')`, [L1, T, M, L2, T, M]);
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date, created_by) VALUES
+        (?, ?, ?, 'receipt', 50, 'kg', '2026-10-01', 4), (?, ?, ?, 'receipt', 1000, 'kg', '2026-10-19', 4), (?, ?, ?, 'usage', 30, 'kg', '2026-10-20', 4),
+        (?, NULL, ?, 'usage', 5, 'kg', '2026-10-20', 4)`, [T, L1, M, T, L2, M, T, L2, M, T, M]); // 마지막: LOT 없는 원장 전용 행 — 재고를 바꾸지 않았으므로 빼지 않음
+    });
+    afterAll(clean);
+    const subject = { material: { kind: "inventory" as const, id: M as any } };
+    const run = async (actualQty: number, countDate: string | null) => {
+      const { withInventoryTx } = await import("./lib/inventory/applyInventoryDelta");
+      const { applyPhysicalCount } = await import("./lib/inventory/stockAdjustment");
+      return withInventoryTx((c) => applyPhysicalCount(c, { tenantId: T, subject, actualQty, reason: "시험 실사", userId: 4, unit: "kg", countDate }), "pc-test");
+    };
+    const avail = async () => (await q(`SELECT id, available_quantity + 0 AS a FROM h_inventory_lots WHERE material_id = ? ORDER BY id`, [M])).map((r: any) => Number(r.a));
+
+    it("10/18 에 40 셌으면 지금 기대량 = 40 + 1000 − 30 = 1010 → 10 만 줄임 (이전: 40 − 1020 = −980 으로 실사 뒤 입고를 지움) · 조정 거래는 실사일로", async () => {
+      const r = await run(40, CD);
+      expect([r.status, r.countedQty, r.postCountNet, r.expectedNow, r.before, r.diff]).toEqual(["applied", 40, 970, 1010, 1020, -10]);
+      expect(await avail()).toEqual([40, 970]); // 오래된 LOT 부터
+      const adj = await q(`SELECT quantity + 0 AS q, DATE_FORMAT(transaction_date, '%Y-%m-%d') AS d FROM h_inventory_transactions WHERE material_id = ? AND transaction_type = 'adjustment'`, [M]);
+      expect(adj.map((a: any) => [Number(a.q), a.d])).toEqual([[-10, CD]]);
+      // 다시 같은 실사 → 조정 거래(10/18)가 실사일 '당일' 거래가 되어 이제는 확인 필요 (두 번 맞추지 않음)
+      expect((await run(40, CD)).status).toBe("needs_review");
+      expect(await avail()).toEqual([40, 970]);
+    });
+
+    it("실사일이 오늘이면 그 뒤 이동 없음 — 센 수량 그대로 비교 (기존 동작)", async () => {
+      const { todayKST } = await import("./utils/timezone");
+      const r = await run(1000, todayKST());
+      expect([r.status, r.postCountNet, r.expectedNow, r.diff]).toEqual(["applied", 0, 1000, -20]);
+    });
+
+    it("확인 필요(아무것도 바꾸지 않음): 실사일 당일 거래 · 단위 다른 거래 · 쓸 수 없는 상태 LOT 의 잔량 · 기대량 음수 / 미래 실사일은 거부", async () => {
+      const before = await avail();
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date, created_by) VALUES (?, ?, ?, 'usage', 1, 'kg', ?, 4)`, [T, L1, M, CD]);
+      expect((await run(40, CD)).message).toMatch(/당일 거래 1건/);
+      await q(`DELETE FROM h_inventory_transactions WHERE material_id = ? AND transaction_date = ?`, [M, CD]);
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date, created_by) VALUES (?, ?, ?, 'usage', 2, 'g', '2026-10-20', 4)`, [T, L2, M]);
+      expect((await run(40, CD)).message).toMatch(/단위가 kg 와 다름/);
+      await q(`DELETE FROM h_inventory_transactions WHERE material_id = ? AND unit = 'g'`, [M]);
+      await q(`INSERT INTO h_inventory_lots (id, tenant_id, material_id, lot_number, quantity, current_quantity, available_quantity, unit, status, receipt_date) VALUES (?, ?, ?, 'PC-3', 9, 9, 9, 'kg', 'used', '2026-09-01')`, [L3, T, M]);
+      const st = await run(40, CD);
+      expect([st.status, st.message]).toEqual(["needs_review", expect.stringMatching(/쓸 수 없는 상태.*LOT 1개에 잔량 9/)]);
+      await q(`DELETE FROM h_inventory_lots WHERE id = ?`, [L3]);
+      // 실사 뒤 출고가 센 양보다 많음: 실사 0, 그 뒤 +1000 −30 이면 양수라 통과 → 사용을 크게
+      await q(`INSERT INTO h_inventory_transactions (tenant_id, lot_id, material_id, transaction_type, quantity, unit, transaction_date, created_by) VALUES (?, ?, ?, 'usage', 2000, 'kg', '2026-10-20', 4)`, [T, L2, M]);
+      expect((await run(0, CD)).message).toMatch(/0 보다 작음/);
+      await q(`DELETE FROM h_inventory_transactions WHERE material_id = ? AND quantity = 2000`, [M]);
+      expect(await avail()).toEqual(before);
+      await expect(run(40, "2099-01-01")).rejects.toThrow(/오늘보다 뒤/);
+    });
+  });
 });
