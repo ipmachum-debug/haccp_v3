@@ -864,6 +864,8 @@ export const inventoryRouter = router({
           /** 실사일 (YYYY-MM-DD). 생략 시 오늘. 현장은 며칠 뒤 입력하므로 실제 센 날을 넣는다.
            *  지난 날이면 그 날 센 수량 + 그 뒤 업무일의 LOT 이동 = 지금 기대량으로 비교한다 (2026-10-21, applyPhysicalCount) */
           countDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+          /** 쓸 수 없는 상태(사용완료·만료·폐기) LOT 잔량을 실사와 함께 0 으로 (기본 꺼짐 — 끄면 그런 품목은 '확인 필요') */
+          clearUnusableLots: z.boolean().optional(),
         }),
       )
       .mutation(async ({ input, ctx }) => {
@@ -911,7 +913,7 @@ export const inventoryRouter = router({
           const reason = `[실사] ${item.reason || input.defaultReason}`;
           try {
             const r = await withInventoryTx(
-              (conn) => applyPhysicalCount(conn, { tenantId: ctx.tenantId, subject, actualQty: item.actualQty, reason, userId: ctx.user.id, unit: meta?.unit, countDate: input.countDate ?? null }),
+              (conn) => applyPhysicalCount(conn, { tenantId: ctx.tenantId, subject, actualQty: item.actualQty, reason, userId: ctx.user.id, unit: meta?.unit, countDate: input.countDate ?? null, clearUnusableLots: input.clearUnusableLots === true }),
               `physicalCount:${key}`,
             );
             results.push({ ...base, before: r.before, after: r.after, diff: r.diff, status: r.status, message: r.message,
