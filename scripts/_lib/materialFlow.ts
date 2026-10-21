@@ -8,10 +8,12 @@
  *   (createBatch 와 같은 식. 버전은 '최신 승인' 이 아니라 effective_from ≤ 배치일 인 승인 버전 중 가장 최근)
  *   올바른 BOM 이 시스템 버전과 다르면 --bom-override CSV 로 덮는다: 제품ID(h_products_v2),시작일,종료일,원료ID(h_materials),완제품1kg당원료kg
  *   (쌀 등 불림 원료는 건조 원물 기준 kg — 불어난 무게를 원료에서 빼지 않는다)
- * 원료 id 는 ItemIdentityService(toInventoryMaterialId) 로만 바꾼다 — 이름 일치로 찾지 않는다.
+ * 원료 id: BOM 행(h_mf_ingredients.material_id)은 품목(item_master) 번호 → FK(legacy_material_id) 로만 재고 원료 번호로
+ *   (ItemIdentityService.inventoryMaterialIdOfItem). 연결이 없으면 추측하지 않고 'unlinked' 로 남긴다 — 이름 일치로 찾지 않는다.
+ *   (2026-10-21: 번호 체계 2단계에서 없어진 toInventoryMaterialId 를 쓰던 탓에 이 도구가 불러오기부터 실패했다)
  */
 import { resolveBomProductIds, inPlaceholders } from "../../server/lib/production/bomProductResolver";
-import { toInventoryMaterialId } from "../../server/lib/identity/itemIdentityService";
+import { inventoryMaterialIdOfItem, asItemMasterId, asProductionProductId } from "../../server/lib/identity/itemIdentityService";
 
 export const EPS = 0.0005;
 export const r3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -22,6 +24,8 @@ export type BatchNeed = {
   batchId: number; batchCode: string; date: string; productId: number; product: string | null; output: number;
   versionId: number | null; versionNote: string | null;
   lines: Array<{ materialId: number; required: number; unit: string | null; source: "version" | "override" }>;
+  /** 재고 원료로 이어지지 않는 BOM 행 (품목 번호·소요량) — 소요에서 빠지므로 보고서에 따로 */
+  unlinked: Array<{ itemMasterId: number; required: number }>;
 };
 
 const versionCache = new Map<string, { versionId: number | null; note: string | null; rows: any[] }>();
@@ -30,7 +34,7 @@ const versionCache = new Map<string, { versionId: number | null; note: string | 
 async function versionAt(conn: any, tenantId: number, productId: number, date: string) {
   const key = `${productId}|${date}`;
   if (versionCache.has(key)) return versionCache.get(key)!;
-  const ids = await resolveBomProductIds(productId, tenantId, conn);
+  const ids = await resolveBomProductIds(asProductionProductId(productId), tenantId, conn);
   const [reps]: any = await conn.execute(
     `SELECT id FROM h_mf_reports WHERE tenant_id = ? AND product_id IN (${inPlaceholders(ids)}) ORDER BY (product_id = ?) DESC, id ASC LIMIT 1`,
     [tenantId, ...ids, productId],
@@ -69,10 +73,10 @@ export async function batchNeeds(conn: any, tenantId: number, from: string, to: 
       ORDER BY b.planned_date, b.id`,
     [tenantId, from, to],
   );
-  const idCache = new Map<number, number>();
-  const canon = async (raw: number) => {
-    if (!idCache.has(raw)) idCache.set(raw, (await toInventoryMaterialId(raw, tenantId, conn)).id);
-    return idCache.get(raw)!;
+  const idCache = new Map<number, number | null>();
+  const canon = async (itemMasterId: number) => {
+    if (!idCache.has(itemMasterId)) idCache.set(itemMasterId, await inventoryMaterialIdOfItem(asItemMasterId(itemMasterId), tenantId, conn));
+    return idCache.get(itemMasterId) ?? null;
   };
   const out: BatchNeed[] = [];
   for (const b of bs as any[]) {
@@ -81,15 +85,18 @@ export async function batchNeeds(conn: any, tenantId: number, from: string, to: 
     const ov = overrides.filter((o) => o.productId === pid && o.from <= b.d && b.d <= o.to);
     const v = await versionAt(conn, tenantId, pid, b.d);
     const lines: BatchNeed["lines"] = [];
+    const unlinked: BatchNeed["unlinked"] = [];
     // 이 제품·기간에 바로잡은 BOM 이 있으면 그것만 쓴다 (시스템 버전과 섞지 않음)
     for (const o of ov) lines.push({ materialId: o.materialId, required: r3(o.kgPerKg * outQ), unit: "kg", source: "override" });
     for (const r of ov.length ? [] : v.rows) {
       if (Number(r.is_deductible) === 0) continue;
       const mid = await canon(Number(r.material_id));
       const ratio = r.cq != null && Number(r.cq) > 0 ? Number(r.cq) : Number(r.q);
-      lines.push({ materialId: mid, required: r3((ratio / 100) * outQ), unit: r.base_unit ?? null, source: "version" });
+      const required = r3((ratio / 100) * outQ);
+      if (mid == null) { unlinked.push({ itemMasterId: Number(r.material_id), required }); continue; }
+      lines.push({ materialId: mid, required, unit: r.base_unit ?? null, source: "version" });
     }
-    out.push({ batchId: Number(b.id), batchCode: b.batch_code, date: b.d, productId: pid, product: b.product_name, output: outQ, versionId: v.versionId, versionNote: ov.length ? "바로잡은 BOM(--bom-override)" : v.note, lines });
+    out.push({ batchId: Number(b.id), batchCode: b.batch_code, date: b.d, productId: pid, product: b.product_name, output: outQ, versionId: v.versionId, versionNote: ov.length ? "바로잡은 BOM(--bom-override)" : v.note, lines, unlinked });
   }
   return out;
 }

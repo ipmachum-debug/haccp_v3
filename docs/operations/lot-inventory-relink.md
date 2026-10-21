@@ -16,7 +16,7 @@
 
 | 하는 것 | 하지 않는 것 |
 |---|---|
-| 승인된 LOT 의 `h_inventory_lots.inventory_id` 를 같은 회사·같은 원료 묶음으로 | LOT 수량·가용·현재수량·상태 변경 |
+| 승인된 LOT 의 `h_inventory_lots.inventory_id` 를 같은 회사·같은 원료 묶음으로 (수정시각 `updated_at` 은 DB 가 자동 갱신 — 도구가 쓰는 값 아님) | LOT 수량·가용·현재수량·상태 변경 |
 | 적용 전 대상 LOT 행 전체를 백업 파일로 | 거래(`h_inventory_transactions`, 그 `inventory_id` 포함) 변경 |
 | LOT 을 잠근 뒤 다시 분류해 미리보기와 같을 때만 (조건부 UPDATE) | 재고 집계(`h_inventory`) 재계산·보정 |
 | 되돌리기: 지금 연결이 이 도구가 바꾼 값일 때만 원래 연결로 | 연결이 빈(NULL/0) LOT — 출고 때 앱이 같은 원료 묶음으로 채운다 |

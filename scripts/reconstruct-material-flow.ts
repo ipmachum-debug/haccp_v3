@@ -180,7 +180,18 @@ async function main() {
     console.log(`#${id} ${row.material ?? "?"}${row.stockExempt ? " [재고 차감 제외]" : ""}: 입고 ${row.receipts} · 소요 ${row.requiredUse} · 기록 차감 ${row.recordedUse} (차 ${row.useGap >= 0 ? "+" : ""}${row.useGap}) · 기타 ${row.otherNet} · 기말 ${row.endStock}(${row.endSource === "count" ? "실사" : "시스템"}) → 역산 기초 ${row.impliedOpeningByRequired}${firstNeg ? ` · ⚠ ${firstNeg} 에 잔량 음수 (최저 ${row.minBalanceBackward})` : ""}${Object.keys(counts).length ? ` · 배치 ${Object.entries(counts).map(([k, v]) => `${k} ${v}`).join(", ")}` : ""}${m.recvFlags.length ? ` · 입고 확인 ${m.recvFlags.length}` : ""}`);
     if (SHOW_BATCHES) for (const f of m.batchFlags) console.log(`    배치#${f.batchId} ${f.date} ${f.product ?? ""} 생산 ${f.output} — 소요 ${f.required} / 기록 ${f.recorded} → ${f.flag}${f.versionNote ? ` (${f.versionNote})` : ""}`);
   }
-  if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ tenant: TENANT, from: FROM, to: TO, generatedAt: new Date().toISOString(), overrides: overrides.length, endSource: COUNT_CSV ? "count" : "system", materials: result }, null, 2));
+  // 재고 원료로 이어지지 않는 BOM 행 — 그 소요는 위 원료별 합계에 없다 (추측해 붙이지 않음). 품목 번호별로 따로 보고
+  const unlinked = new Map<number, { required: number; batches: number }>();
+  for (const n of needs) for (const u of n.unlinked) {
+    const x = unlinked.get(u.itemMasterId) ?? { required: 0, batches: 0 };
+    unlinked.set(u.itemMasterId, { required: r3(x.required + u.required), batches: x.batches + 1 });
+  }
+  if (unlinked.size) {
+    console.log(`⚠ 재고 원료 연결(legacy_material_id) 없는 BOM 품목 ${unlinked.size}개 — 소요 합계에서 빠짐:`);
+    for (const [im, x] of unlinked) console.log(`    품목#${im}: 배치 ${x.batches}개 · 소요 ${x.required}`);
+  }
+  if (JSON_OUT) writeFileSync(JSON_OUT, JSON.stringify({ tenant: TENANT, from: FROM, to: TO, generatedAt: new Date().toISOString(), overrides: overrides.length, endSource: COUNT_CSV ? "count" : "system", materials: result,
+    unlinkedBomItems: [...unlinked].map(([itemMasterId, x]) => ({ itemMasterId, ...x })) }, null, 2));
   await (conn as any).end?.();
 }
 
