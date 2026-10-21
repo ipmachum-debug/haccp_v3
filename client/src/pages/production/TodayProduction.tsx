@@ -430,6 +430,7 @@ function DayClose({ date, live, sheets, isAdmin, canSubmit, canApprove, userRole
   const approvals = trpc.batch.dayApprovals.useQuery({ workDate: date }, { refetchInterval: 60_000 });
   const writerSubmit = trpc.approval.submitByWriter.useMutation();
   const approve = trpc.approval.approve.useMutation();
+  const resume = trpc.batch.resumeApprovedCompletion.useMutation();
   const [qty, setQty] = useState<Record<number, string>>({});
   const [result, setResult] = useState<Record<string, CloseResult>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -446,9 +447,11 @@ function DayClose({ date, live, sheets, isAdmin, canSubmit, canApprove, userRole
     const canComplete = isAdmin && !finished && !b.planOnly && ["in_progress", "paused"].includes(b.status) && b.check.rows.total > 0 && rowsLeft === 0 && blocked.length === 0;
     // 현장 확인 행이 없는데 기록지가 있는 생산 건 = 예전 방식 기록지 (예: 10/15 생산) — 이 표에서 '제출됨' 으로 보이지 않게
     const legacy = !finished && !b.planOnly && b.check.rows.total === 0 && b.ccpForms.total > 0;
-    return { b, ss, rowsLeft, open, blocked, ready, finished, canComplete, legacy };
+    // 결재는 승인됐는데 생산 완료·제품 LOT 이 빠진 건 (예전 생산 화면 승인 경로 — 2026-10-21 수정 전) — '완료 이어서' 로 끝낸다 (재출고 없음)
+    const approvedIncomplete = !finished && !b.planOnly && b.status !== "cancelled" && b.approvalStatus === "approved";
+    return { b, ss, rowsLeft, open, blocked, ready, finished, canComplete, legacy, approvedIncomplete };
   });
-  const runnable = items.filter((i) => !i.finished && (i.ready.length > 0 || i.canComplete));
+  const runnable = items.filter((i) => !i.finished && !i.approvedIncomplete && (i.ready.length > 0 || i.canComplete));
 
   const set = (k: string, r: CloseResult) => setResult((x) => ({ ...x, [k]: r }));
   const closeOne = async (it: (typeof items)[number]) => {
@@ -493,10 +496,23 @@ function DayClose({ date, live, sheets, isAdmin, canSubmit, canApprove, userRole
   const canAct = (a: (typeof ap)[number]) => (a.step === "writer" ? a.mine || ["admin", "super_admin"].includes(userRole) : canApprove);
   const act = async (a: (typeof ap)[number]) => {
     try {
-      if (a.step === "writer") await writerSubmit.mutateAsync({ approvalRequestId: a.id });
-      else await approve.mutateAsync({ requestId: a.id });
-      set(`a${a.id}`, { state: "ok", message: a.step === "writer" ? "제출했습니다 — 승인 단계로" : "승인했습니다" });
+      if (a.step === "writer") {
+        await writerSubmit.mutateAsync({ approvalRequestId: a.id });
+        set(`a${a.id}`, { state: "ok", message: "제출했습니다 — 승인 단계로" });
+      } else {
+        // 생산 건 승인은 서버가 공통 관문·완료 처리까지 한다 — 후속 처리 경고(제품 LOT·원가 보류 등)는 숨기지 않는다
+        const r: any = await approve.mutateAsync({ requestId: a.id });
+        set(`a${a.id}`, { state: (r?.warnings ?? []).length ? "warn" : "ok", message: r?.message ?? "승인했습니다" });
+      }
     } catch (e: any) { set(`a${a.id}`, { state: "error", message: e?.message ?? "처리하지 못했습니다" }); }
+  };
+  const resumeOne = async (it: (typeof items)[number]) => {
+    const k = `b${it.b.id}`;
+    try {
+      const actual = qty[it.b.id] !== undefined && qty[it.b.id] !== "" ? Number(qty[it.b.id]) : Number(it.b.actualKg ?? it.b.plannedKg ?? 0);
+      const r: any = await resume.mutateAsync({ batchId: it.b.id, actualQuantity: actual });
+      set(k, { state: (r?.warnings ?? []).length ? "warn" : "ok", message: r?.message ?? "완료 처리를 이어서 끝냈습니다" });
+    } catch (e: any) { set(k, { state: "error", message: e?.message ?? "처리하지 못했습니다" }); }
   };
   const actAll = async () => {
     setBusy("approve");
@@ -529,11 +545,12 @@ function DayClose({ date, live, sheets, isAdmin, canSubmit, canApprove, userRole
               ? <span className="text-emerald-700 text-xs">완료 {it.b.actualKg ?? it.b.plannedKg}kg</span>
               : it.b.planOnly ? <span className="text-xs text-muted-foreground">예정</span>
               // 예전 방식 기록지(현장 확인 이전에 만든 생산 건) — 여기서 제출하지 않는다. 미리 채운 예정 시각·평상값을 실제 값으로 고친 뒤 기록지 화면에서 제출
+              : it.approvedIncomplete ? <span className="text-xs text-amber-700" data-testid="close-approved-incomplete">결재는 승인됨 — 생산 완료·제품 LOT 이 빠졌습니다 (원료는 다시 출고하지 않음)</span>
               : it.legacy ? <span className="text-xs text-amber-700" data-testid="close-legacy">예전 방식 기록지 — 실제 값·시각으로 고친 뒤 <Link href={withReturnTo(`/dashboard/batch/${it.b.id}`)} className="underline">기록지 화면</Link>에서 제출</span>
               : it.rowsLeft > 0 ? <span className="text-xs text-amber-700">현장 확인 {it.rowsLeft}건 남음</span>
               : it.blocked.length > 0 ? <span className="text-xs text-red-700">기록지 막힘: {it.blocked[0].problems[0]}{it.blocked[0].problems.length > 1 ? ` 외 ${it.blocked[0].problems.length - 1}` : ""}</span>
               : <span className="text-xs text-muted-foreground">{it.ready.length ? `기록지 ${it.ready.length}건 제출 대기` : "기록지 제출됨"}</span>}
-            {it.canComplete && (
+            {(it.canComplete || (it.approvedIncomplete && canApprove)) && (
               <label className="flex items-center gap-1 text-xs">실제
                 <Input type="number" inputMode="decimal" className="h-9 w-24" value={qty[it.b.id] ?? String(it.b.plannedKg ?? "")}
                   onChange={(e) => setQty((q) => ({ ...q, [it.b.id]: e.target.value }))} data-testid="actual-qty" />kg
@@ -544,7 +561,13 @@ function DayClose({ date, live, sheets, isAdmin, canSubmit, canApprove, userRole
               {(it.rowsLeft > 0 || it.blocked.length > 0) && !it.finished && !it.b.planOnly && (
                 <Button size="sm" variant="outline" className="h-9" onClick={() => onFix(it.b.id)}>고치기</Button>
               )}
-              {!it.finished && (it.ready.length > 0 || it.canComplete) && (
+              {it.approvedIncomplete && canApprove && (
+                <Button size="sm" className="h-9" disabled={busy !== null} data-testid="resume-completion"
+                  onClick={async () => { setBusy(`b${it.b.id}`); await resumeOne(it); setBusy(null); onChanged(); }}>
+                  {busy === `b${it.b.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : "완료 이어서"}
+                </Button>
+              )}
+              {!it.finished && !it.approvedIncomplete && (it.ready.length > 0 || it.canComplete) && (
                 <Button size="sm" className="h-9" disabled={busy !== null} onClick={async () => { setBusy(`b${it.b.id}`); await closeOne(it); setBusy(null); onChanged(); }}>
                   {busy === `b${it.b.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : it.canComplete ? "마감" : "기록지 제출"}
                 </Button>

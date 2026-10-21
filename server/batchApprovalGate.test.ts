@@ -72,4 +72,19 @@ describe("모든 승인 경로가 공통 관문을 씀", () => {
     expect(f).toMatch(/completeApprovedBatch\(/);
     for (const src of [g, f]) expect(src).not.toMatch(/17:00:00/);
   });
+  it("생산 화면·일괄·배치 상세 승인(approveRequest)도 같은 관문·완료 처리 — 요청만 승인하고 끝나지 않음 (2026-10-21, 생산 건 1127)", () => {
+    const a = read("db/system/auditApprovalSupplier.ts");
+    expect(a).toMatch(/prepareBatchForApproval\(/);
+    expect(a).toMatch(/completeApprovedBatch\(/);
+    // 관문은 요청 상태를 바꾸기 전에
+    expect(a.indexOf("prepareBatchForApproval(")).toBeLessThan(a.indexOf("status: \"approved\""));
+    const t = readFileSync(join(__dirname, "../client/src/pages/production/TodayProduction.tsx"), "utf-8");
+    expect(t).toMatch(/resumeApprovedCompletion\.useMutation/);
+    expect(t).toMatch(/approvedIncomplete/);
+  });
+  it("완료 전 점검은 공식 기록지가 있으면 그것으로 (예전 방식 기록지 포함) — field_mode 1 만 보지 않음", () => {
+    const l = read("db/production/batchLifecycle.ts");
+    expect(l).not.toMatch(/ccp_type <> 'CCP-4P' AND field_mode = 1 AND voided_at IS NULL/); // 이전 조건 (현장 확인 기록지만)
+    expect(l).toMatch(/officialForms && officialForms\.length/);
+  });
 });

@@ -94,3 +94,48 @@ export function approvalMessage(base: string, warnings: string[]): string {
   if (!warnings.length) return base;
   return `${base} — 확인 필요: ${warnings.slice(0, 3).join(" / ")}${warnings.length > 3 ? ` 외 ${warnings.length - 3}건` : ""}`;
 }
+
+/**
+ * 승인은 됐는데 생산 완료·제품 LOT·원가가 빠진 생산 건을 이어서 끝낸다 (2026-10-21, 단지 생산 건 1127 사례).
+ *   예전 생산 화면 승인(approval.approve)은 요청만 approved 로 바꾸고 완료 처리를 하지 않았다 — 그때 승인된 건을 위한 길.
+ *   - 이 생산 건의 batch_production 요청이 approved 여야 한다 (승인을 새로 만들거나 우회하지 않음)
+ *   - 원료를 다시 출고하지 않는다: 출고 안 된 줄이 하나라도 있으면 거부 (줄 확인이 먼저)
+ *   - CCP 기록지 차단 사유가 있으면 거부 (승인 관문과 같은 판정)
+ *   - 실제 생산량: 비어 있을 때만 확인한 값으로 채운다 (이미 있으면 그대로)
+ *   - 완료·후속 처리는 다른 승인 경로와 같은 completeApprovedBatch — 경고는 돌려준다
+ */
+export async function resumeApprovedBatchCompletion(batchId: number, tenantId: number, userId: number, actualQuantity: number): Promise<{ requestId: number; warnings: string[] }> {
+  const conn: any = await getRawConnection();
+  const { assertBatchNotVoided } = await import("./batchVoidGuard");
+  try { await assertBatchNotVoided(conn, batchId, tenantId); } catch (e: any) { throw new TRPCError({ code: "PRECONDITION_FAILED", message: e?.message }); }
+  const [[b]]: any = await conn.execute(`SELECT id, status, actual_quantity FROM h_batches WHERE id = ? AND tenant_id = ?`, [batchId, tenantId]);
+  if (!b) throw new TRPCError({ code: "NOT_FOUND", message: "이 회사의 생산 건이 아닙니다." });
+  if (["completed", "shipped", "archived", "cancelled"].includes(String(b.status))) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: `생산 건 #${batchId} 은 이미 ${b.status} 상태입니다 — 이어서 끝낼 것이 없습니다.` });
+  }
+  const [reqs]: any = await conn.execute(
+    `SELECT id FROM h_approval_requests
+      WHERE tenant_id = ? AND request_type = 'batch_production' AND reference_type = 'batch' AND reference_id = ? AND status = 'approved'
+      ORDER BY id DESC LIMIT 1`,
+    [tenantId, batchId],
+  );
+  const requestId = Number((reqs as any[])[0]?.id ?? 0);
+  if (!requestId) throw new TRPCError({ code: "PRECONDITION_FAILED", message: `생산 건 #${batchId} 의 승인된 생산 승인 요청이 없습니다 — 정상 승인 경로로 승인하세요.` });
+  const { countUnissuedBatchLines } = await import("./issuedBatchLines");
+  const left = await countUnissuedBatchLines(batchId, tenantId);
+  if (left > 0) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: `생산 건 #${batchId}: 원료 ${left}줄이 출고되지 않았습니다 — 이어서 끝내기는 원료를 다시 출고하지 않습니다. 줄 확인을 먼저 하세요.` });
+  }
+  const { getBatchApprovalOverview } = await import("../../db/production/batchApprovalOverview");
+  const ov = await getBatchApprovalOverview(batchId, tenantId);
+  if (ov.formBlockers.length > 0) {
+    throw new TRPCError({ code: "PRECONDITION_FAILED", message: `생산 건 #${batchId}: CCP 기록지 확인 필요 — ${ov.formBlockers.join(" / ")}` });
+  }
+  if (!(Number.isFinite(actualQuantity) && actualQuantity > 0)) throw new TRPCError({ code: "BAD_REQUEST", message: "실제 생산량(kg)을 확인해 주세요." });
+  await conn.execute(
+    `UPDATE h_batches SET actual_quantity = ?, updated_at = NOW() WHERE id = ? AND tenant_id = ? AND (actual_quantity IS NULL OR actual_quantity = 0)`,
+    [actualQuantity, batchId, tenantId],
+  );
+  const warnings = await completeApprovedBatch(batchId, tenantId, userId, "resumeApprovedCompletion");
+  return { requestId, warnings };
+}

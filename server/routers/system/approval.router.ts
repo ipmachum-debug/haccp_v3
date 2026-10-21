@@ -199,8 +199,9 @@ export const approvalRouter = router({
         await assertOwnRequest(ctx.tenantId, input.requestId);
         await assertDailyLogGate(ctx.tenantId, input.requestId);
 
-        // 승인 처리
+        // 승인 처리 — 생산 건 요청이면 공통 관문·완료 처리까지 (approveRequest). 후속 처리 경고는 응답 문구로
         const result = await approveRequest(input.requestId, ctx.user.id, input.notes);
+        const { approvalMessage } = await import("../../lib/production/batchApprovalGate");
         
         // 요청 정보 조회
         const request = await getApprovalRequestById(input.requestId);
@@ -217,7 +218,7 @@ export const approvalRouter = router({
           });
         }
         
-        return result;
+        return { ...result, message: approvalMessage("승인했습니다", result.warnings ?? []) };
       }),
 
     // 일괄 승인 처리

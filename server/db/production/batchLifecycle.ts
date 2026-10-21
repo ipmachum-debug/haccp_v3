@@ -89,7 +89,7 @@ export async function generateBatchReport(batchId: number, tenantId?: number) {
   const ccpInstances = await db
     .select()
     .from(hCcpInstances)
-    .where(eq(hCcpInstances.batchId, batchId));
+    .where(and(eq(hCcpInstances.batchId, batchId), eq(hCcpInstances.tenantId, batch.tenantId)));
 
   // CCP 점검 기록 조회
   const ccpRecordsData: any[] = [];
@@ -185,47 +185,47 @@ export async function checkBatchCompletionReadiness(batchId: number, tenantId?: 
   const materialInputs = await db
     .select()
     .from(hBatchInputs)
-    .where(eq(hBatchInputs.batchId, batchId));
+    .where(and(eq(hBatchInputs.batchId, batchId), eq(hBatchInputs.tenantId, batch.tenantId)));
 
   const hasMaterialInputs = materialInputs.length > 0;
 
   // 2. CCP 점검 완료 확인
-  const ccpInstances = await db
-    .select()
-    .from(hCcpInstances)
-    .where(eq(hCcpInstances.batchId, batchId));
-
+  // ★ 공식 CCP 기록지(h_ccp_form_records)가 있으면 그 기록지로 판정한다 — 제출 확인과 같은 판정(isConfirmed: 확인 뒤 바뀌지 않음) 또는 승인.
+  //   2026-10-20: 현장 확인 기록지(field_mode = 1)만 이렇게 셌다.
+  //   2026-10-21 (단지 10/15 마감 검증): 예전 방식 기록지(field_mode = 0)도 같은 판정으로. 이전엔 공식 기록지를 확인 제출해도
+  //   예전 점검 기록(h_ccp_records)만 세어 'CCP 미완료 0/2' 로 완료 버튼이 꺼졌다 (승인 관문은 공식 기록지로 판정 — 서로 달랐다).
+  //   공식 기록지가 하나도 없는 아주 예전 생산 건만 예전 점검 기록(인스턴스마다 h_ccp_records 있음) 판정.
   let ccpCompletedCount = 0;
-  let ccpTotalCount = ccpInstances.length;
-
-  for (const instance of ccpInstances) {
-    const records = await db
-      .select()
-      .from(hCcpRecords)
-      .where(eq(hCcpRecords.instanceId, instance.id));
-
-    if (records.length > 0) {
-      ccpCompletedCount++;
-    }
-  }
-
-  // ★ 2026-10-20 (생산 화면 하나로): 현장 확인 기록지(field_mode = 1)가 있는 생산 건은 예전 점검 기록(h_ccp_records)이 생기지 않는다.
-  //   그 기록지를 제출 확인과 같은 판정(isConfirmed — 확인 뒤 바뀌지 않음, 또는 승인)으로 센다. 예전 생산 건은 위 기존 판정 그대로.
-  //   (이전: 현장 확인·제출을 다 해도 '0/2 미완료' 로 완료 버튼이 꺼졌다)
+  let ccpTotalCount = 0;
+  let officialForms: any[] | null = null;
   try {
     const conn: any = await getRawConnection();
     const [fr]: any = await conn.execute(
       `SELECT status, rows_version, confirmed_at, confirmed_rows_version FROM h_ccp_form_records
-        WHERE tenant_id = ? AND batch_id = ? AND ccp_type <> 'CCP-4P' AND field_mode = 1 AND voided_at IS NULL`,
+        WHERE tenant_id = ? AND batch_id = ? AND ccp_type <> 'CCP-4P' AND voided_at IS NULL`,
       [batch.tenantId, batchId],
     );
-    if ((fr as any[]).length) {
-      const { isConfirmed } = await import("../../lib/haccp/ccpSheetConfirm");
-      ccpTotalCount = (fr as any[]).length;
-      ccpCompletedCount = (fr as any[]).filter((f) => f.status === "approved" || isConfirmed({ confirmedAt: f.confirmed_at, confirmedRowsVersion: f.confirmed_rows_version, rowsVersion: f.rows_version })).length;
-    }
+    officialForms = fr as any[];
   } catch (e: any) {
-    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e; // 현장 확인 칸 생성 전 DB — 기존 판정
+    if (e?.code !== "ER_BAD_FIELD_ERROR") throw e; // 확인 칸 생성 전 DB — 예전 판정
+  }
+  if (officialForms && officialForms.length) {
+    const { isConfirmed } = await import("../../lib/haccp/ccpSheetConfirm");
+    ccpTotalCount = officialForms.length;
+    ccpCompletedCount = officialForms.filter((f) => f.status === "approved" || isConfirmed({ confirmedAt: f.confirmed_at, confirmedRowsVersion: f.confirmed_rows_version, rowsVersion: f.rows_version })).length;
+  } else {
+    const ccpInstances = await db
+      .select()
+      .from(hCcpInstances)
+      .where(and(eq(hCcpInstances.batchId, batchId), eq(hCcpInstances.tenantId, batch.tenantId)));
+    ccpTotalCount = ccpInstances.length;
+    for (const instance of ccpInstances) {
+      const records = await db
+        .select()
+        .from(hCcpRecords)
+        .where(eq(hCcpRecords.instanceId, instance.id));
+      if (records.length > 0) ccpCompletedCount++;
+    }
   }
   const ccpCompleted = ccpTotalCount === 0 || ccpCompletedCount === ccpTotalCount;
 
