@@ -1355,7 +1355,7 @@ export const inventoryRouter = router({
       )
       .mutation(async ({ input, ctx }) => {
         const { batchUpdateExpiryWarningDays } = await import("../../db.js");
-        const count = await batchUpdateExpiryWarningDays(input.expiryWarningDays);
+        const count = await batchUpdateExpiryWarningDays(input.expiryWarningDays, ctx.tenantId);
         return { success: true, count };
       }),
     

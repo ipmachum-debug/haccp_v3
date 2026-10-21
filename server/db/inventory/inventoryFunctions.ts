@@ -655,13 +655,15 @@ export async function updateMaterialPrice(id: number, unitPrice: number, changed
 // ============================================================================
 
 export async function batchUpdateExpiryWarningDays(expiryWarningDays: number, tenantId?: number): Promise<number> {
+  const t = requireTenantId(tenantId);
   const db = await getDb();
   if (!db) throw new Error("DB 연결 실패");
 
+  // 2026-10-21: 이전엔 tenantId 를 받고도 조건에 넣지 않아 모든 회사의 원재료를 바꿨다
   const result = await db
     .update(hMaterials)
     .set({ expiryWarningDays })
-    .where(eq(hMaterials.expiryWarningDays, 7)); // 기본값 7일인 원재료만 업데이트
+    .where(and(eq(hMaterials.tenantId, t), eq(hMaterials.expiryWarningDays, 7))); // 기본값 7일인 이 회사 원재료만
 
   return result[0].affectedRows || 0;
 }
