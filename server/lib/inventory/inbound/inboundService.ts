@@ -168,7 +168,8 @@ export async function createInboundDraft(p: CreateInboundDraftInput): Promise<{ 
         }
         resolved.push({
           ...l, canonicalMaterialId: id, stockQuantity: pack.stockQuantity, stockUnit: pack.baseUnit,
-          packConversionId: pack.conversionId, packFactor: pack.conversionId ? pack.factor : null,
+          packConversionId: pack.conversionId,
+          packFactor: normUnit(l.purchaseUnit) !== normUnit(pack.baseUnit) ? pack.factor : null,
         });
       }
       // 거래처는 이 회사 소속만 (Codex #560 검증 N4)

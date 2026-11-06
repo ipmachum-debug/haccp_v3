@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import DashboardLayout from "@/components/dashboard/DashboardLayout";
 import { SearchModal } from "@/components/common/SearchModal";
 import { trpc } from "@/lib/trpc";
@@ -77,6 +77,9 @@ function PurchasesManagementContent() {
   const [selectedPartnerName, setSelectedPartnerName] = useState<string>("");
   const [memo, setMemo] = useState<string>("");
   const [isSaving, setIsSaving] = useState(false);
+  const savingRef = useRef(false);
+  const [saveErrors, setSaveErrors] = useState<Record<string, string>>({});
+  const [packagingInputs, setPackagingInputs] = useState<Record<string, string>>({});
 
   const [isPartnerSearchOpen, setIsPartnerSearchOpen] = useState(false);
   const [materialSearchItemId, setMaterialSearchItemId] = useState<string | null>(null);
@@ -169,11 +172,7 @@ function PurchasesManagementContent() {
         });
       }
     },
-    onError: (error: { message: string }) => {
-      // 포장 환산 설정 없음은 저장 확인 창으로 처리한다 (오류 토스트 대신)
-      if (error.message.startsWith("PACK_UNIT_MISSING:")) return;
-      toast({ title: "오류", description: error.message, variant: "destructive" });
-    },
+    // 실패 원인은 handleSave에서 행별로 보존하고 최종 결과와 함께 표시한다.
   });
 
   // 거래명세표 PDF 다운로드 (단건 / 그룹)
@@ -188,6 +187,8 @@ function PurchasesManagementContent() {
     setMemo("");
     setSavedPurchaseIds([]);
     setSaveKeys({});
+    setSaveErrors({});
+    setPackagingInputs({});
     setItems([
       {
         id: `${Date.now()}-1`,
@@ -298,6 +299,11 @@ function PurchasesManagementContent() {
   };
 
   const handleItemChange = (id: string, field: keyof PurchaseItem, value: any) => {
+    setSaveErrors((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
     setItems(
       items.map((item) => {
         if (item.id !== id) return item;
@@ -366,6 +372,7 @@ function PurchasesManagementContent() {
           itemName: selectedMasterItem.itemName || "",
           unitPrice: resolvedUnitPrice,
           packagingUnit: selectedMasterItem.baseUnit || "kg",
+          unit: item.unit?.trim() || (String(selectedMasterItem.baseUnit).toLowerCase() === "ea" ? selectedMasterItem.baseUnit : item.unit),
           amount,
           taxAmount,
           totalAmount: amount + taxAmount,
@@ -381,6 +388,7 @@ function PurchasesManagementContent() {
   const grandTotal = items.reduce((sum, item) => sum + item.totalAmount, 0);
 
   const handleSave = () => {
+    if (savingRef.current) return;
     if (!selectedPartnerId) {
       toast({ title: "거래처를 선택해주세요.", variant: "destructive" });
       return;
@@ -391,7 +399,9 @@ function PurchasesManagementContent() {
       return;
     }
 
+    savingRef.current = true;
     setIsSaving(true);
+    setSaveErrors({});
     setSavedPurchaseIds([]); // 재저장 대비 초기화
     const keys: Record<string, string> = { ...saveKeys };
     for (const it of items) keys[it.id] ??= `pm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
@@ -406,6 +416,7 @@ function PurchasesManagementContent() {
       let postFailedCount = 0;
       let cancelledCount = 0;
       const newPurchaseIds: number[] = [];
+      const errors: Record<string, string> = {};
       for (const item of items) {
         const payload = {
           transactionDate,
@@ -431,7 +442,9 @@ function PurchasesManagementContent() {
           } catch (e: any) {
             const msg = String(e?.message ?? "");
             if (!msg.startsWith("PACK_UNIT_MISSING:")) throw e;
-            if (!window.confirm(`${msg.replace("PACK_UNIT_MISSING: ", "")}\n\n이 환산을 저장하고 등록할까요?`)) throw e;
+            if (!window.confirm(`${msg.replace("PACK_UNIT_MISSING: ", "")}\n\n이 환산을 저장하고 등록할까요?`)) {
+              throw new Error("포장 환산 저장을 취소했습니다. 이 품목은 등록하지 않았습니다.");
+            }
             data = await createMutation.mutateAsync({ ...payload, savePackUnit: true });
           }
           if (data?.pendingApproval) pendingCount++;
@@ -441,11 +454,14 @@ function PurchasesManagementContent() {
           else successCount++;
           const insertedId = Number(data?.insertId ?? data?.id ?? 0);
           if (insertedId > 0) newPurchaseIds.push(insertedId);
-        } catch {
+        } catch (error: unknown) {
           failCount++;
+          errors[item.id] = error instanceof Error ? error.message : "저장 요청을 처리하지 못했습니다. 연결 상태를 확인하고 다시 시도해 주세요.";
         }
       }
+      savingRef.current = false;
       setIsSaving(false);
+      setSaveErrors(errors);
       utils.haccpIntegration.getAllPurchases.invalidate();
       setSavedPurchaseIds(newPurchaseIds);
       toast({
@@ -458,7 +474,8 @@ function PurchasesManagementContent() {
           postFailedCount ? `분개 실패: ${postFailedCount}건 (재고는 반영, 전표 대기 — 다시 저장하거나 목록에서 승인)` : "",
           cancelledCount ? `이미 반품·취소된 입고: ${cancelledCount}건` : "",
           failCount ? `실패: ${failCount}건` : "",
-        ].filter(Boolean).join(", "),
+          ...items.filter((item) => errors[item.id]).map((item) => `${item.itemName}: ${errors[item.id]}`),
+        ].filter(Boolean).join(" / "),
         variant: failCount > 0 || postFailedCount > 0 ? "destructive" : "default",
       });
     })();
@@ -599,20 +616,26 @@ function PurchasesManagementContent() {
                         <Search className="h-3 w-3" />
                       </Button>
                     </div>
+                    {saveErrors[item.id] && (
+                      <p role="alert" className="mt-1 max-w-sm whitespace-normal break-words text-xs text-destructive">
+                        {saveErrors[item.id]}
+                      </p>
+                    )}
                   </TableCell>
                   <TableCell className="py-1">
                     <div className="flex items-center gap-0.5">
                       <Input
                         type="number"
-                        step="0.1"
+                        step="any"
                         min="0"
-                        value={item.packagingSize ?? ""}
+                        value={packagingInputs[item.id] ?? item.packagingSize ?? ""}
                         onChange={(e) => {
                           const val = e.target.value;
+                          setPackagingInputs((prev) => ({ ...prev, [item.id]: val }));
                           if (val === "") {
                             handleItemChange(item.id, "packagingSize", 0);
                           } else {
-                            const num = Math.round(parseFloat(val) * 10) / 10;
+                            const num = Number(val);
                             handleItemChange(item.id, "packagingSize", num);
                           }
                         }}
