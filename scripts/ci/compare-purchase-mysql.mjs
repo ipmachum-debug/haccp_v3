@@ -40,7 +40,7 @@ function run(name, cwd, databaseUrl) {
 }
 const before = run("baseline", baseline, baselineUrl.href);
 const after = run("head", root, url.href);
-const failure = test => (test.failureMessages?.[0] || "").split("\n")[0];
+const failure = test => (test.failureMessages?.[0] || "").split("\n")[0].replaceAll("haccp_baseline_it.", "haccp_it.");
 const baselineFailures = new Map(before.cases.filter(t => t.status === "failed").map(t => [t.fullName, failure(t)]));
 const regressions = after.cases.filter(t => t.status === "failed" && baselineFailures.get(t.fullName) !== failure(t));
 const required = ["우유 6개 × 0.9kg", "피자치즈 750g 2개", "양송이 1pack=1ea 설정", "1500g 직접 매입"];
