@@ -35,6 +35,11 @@ on:
         description: '호출 주체. auto-release 워크플로가 넘기는 "auto-release" 면 자동 배포로 취급(최신 release 검사·롤백 불가). 사람이 직접 실행하면 비워 둠(manual = 롤백 허용).'
         required: false
         default: 'manual'
+      build_only:
+        description: 'Release 자산만 만들고 서버 API 호출은 하지 않음 (AWS 수동 배포용)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   # ───────────────────────────────────────────
@@ -205,6 +210,7 @@ jobs:
   deploy:
     name: 운영 서버 배포
     needs: build
+    if: ${{ inputs.build_only != true }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # 동시 deploy 직렬화 (2026-04-28 v0.8.26 false negative 사고):

@@ -18,6 +18,10 @@ on:
       - 'server/newCompanySetup.test.ts'
       - 'server/linksCleanup.test.ts'
       - 'server/todayWorkbench.test.ts'
+      - 'server/purchase*.test.ts'
+      - 'server/saleLotStatus.mysql.test.ts'
+      - 'server/lib/inventory/inbound/**'
+      - 'server/db/haccp/haccpIntegration.ts'
       - 'package.json'
       - 'package-lock.json'
       - '.github/workflows/navigation-tests.yml'
@@ -25,7 +29,7 @@ on:
 jobs:
   navigation:
     name: 작업 위치 보존·미저장 보호 시험
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     steps:
@@ -45,7 +49,41 @@ jobs:
       - name: 단위·소스 시험 (URL 상태·돌아갈 곳·화면 계약)
         run: npx vitest run server/urlState.test.ts server/newCompanySetup.test.ts server/linksCleanup.test.ts server/todayWorkbench.test.ts
 
+      - name: 매입 단위·포장 환산 시험
+        run: npx vitest run server/purchaseMetricUnits.test.ts server/purchasePackaging.test.ts
+
       - name: 브라우저 회귀 시험 (실제 라우터·실제 화면)
         env:
           NAV_BROWSER_REQUIRED: '1'
-        run: npx vitest run server/navigationState.browser.test.ts
+          PURCHASE_BROWSER_REQUIRED: '1'
+        run: npx vitest run server/navigationState.browser.test.ts server/purchaseEntry.browser.test.ts
+
+  purchase-mysql:
+    name: 매입·재고 실 MySQL 회귀 시험
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: synthetic-ci-only
+          MYSQL_DATABASE: haccp_it
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -psynthetic-ci-only"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - name: npm install
+        run: npm install
+      - name: 실 MySQL 회귀 시험 (가짜 데이터 전용 DB)
+        env:
+          MYSQL_IT_URL: mysql://root:synthetic-ci-only@127.0.0.1:3306/haccp_it
+        run: npx vitest run server/saleLotStatus.mysql.test.ts --pool=forks --minWorkers=1 --maxWorkers=1
