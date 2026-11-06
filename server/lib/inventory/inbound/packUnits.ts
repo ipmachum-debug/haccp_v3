@@ -6,6 +6,8 @@
  * - 입고 줄은 그때 쓴 설정 id·배율을 보존 (나중에 설정을 바꿔도 과거 입고는 그대로).
  * - 불림 수율(전처리 배율) 과는 별개 — 생쌀 20kg 입고는 재고도 20kg. 불림은 생산 공정 투입량에만.
  */
+import { convertMetricQuantity } from "../../../../shared/uom/metricQuantity";
+
 const normUnit = (u: unknown) => String(u ?? "").trim().toLowerCase();
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
@@ -24,8 +26,9 @@ export async function resolvePackConversion(
   const baseRaw = (m as any[])[0]?.unit;
   const base = normUnit(baseRaw);
   if (!base) throw new Error(`${label}: 원재료 기준 단위가 비어 있어 입고할 수 없습니다 — 원재료 정보에 단위를 먼저 지정하세요.`);
-  if (normUnit(purchaseUnit) === base) {
-    return { baseUnit: String(baseRaw), factor: 1, conversionId: null, stockQuantity: round3(purchaseQuantity) };
+  const metricFactor = convertMetricQuantity(1, purchaseUnit, String(baseRaw));
+  if (metricFactor != null) {
+    return { baseUnit: String(baseRaw), factor: metricFactor, conversionId: null, stockQuantity: round3(purchaseQuantity * metricFactor) };
   }
   const [rows]: any = await conn.execute(
     `SELECT id, base_qty, base_unit FROM material_pack_units

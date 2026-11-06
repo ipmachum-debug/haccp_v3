@@ -1,5 +1,6 @@
 import { getDb, getRawConnection, withTransaction } from "../connection";
 import { asInventoryMaterialId } from "../../../shared/identity/itemIds";
+import { convertMetricQuantity } from "../../../shared/uom/metricQuantity";
 import { accountingPurchases, accountingSales } from "../../../drizzle/schema";
 import { eq, and} from "drizzle-orm";
 
@@ -26,7 +27,7 @@ export async function createPurchase(params: {
   expiryDate?: string; // 소비기한
   productionDate?: string; // 생산일자
   unit?: string; // 단위
-  packagingUnit?: string; // 포장규격 단위 (원재료 기준 단위여야 함)
+  packagingUnit?: string; // 포장규격 단위 (g/kg, mL/L는 재고 기준 단위로 환산)
   createdBy: number;
   idempotencyKey?: string | null;   // 같은 요청 재시도는 입고·전표 한 번
   savePackUnit?: boolean;           // 포장 환산 설정이 없을 때 이 입력(1 단위 = 포장규격)으로 저장하고 진행 — 사용자 확인 후에만
@@ -165,13 +166,19 @@ async function createMaterialPurchaseViaInbound(params: {
   const norm = (u: unknown) => String(u ?? "").trim().toLowerCase();
   // 포장규격(1 매입 단위 = N 기준 단위) — 재고 수량은 설정으로 계산하고 입력값과 같아야 한다
   let stockQuantity: number | null = null;
-  const pack = Number(params.packagingSize ?? 0);
+  let pack = Number(params.packagingSize ?? 0);
   if (tracking && pack > 0 && params.packagingUnit && norm(params.packagingUnit) !== norm(mat.unit)) {
-    throw new Error(`${mat.material_name}: 포장규격 단위(${params.packagingUnit}) 가 원재료 기준 단위(${mat.unit}) 와 다릅니다 — 기준 단위로 입력하세요.`);
+    const converted = convertMetricQuantity(pack, params.packagingUnit, String(mat.unit));
+    if (converted != null) pack = converted;
+    else {
+      const { resolvePackConversion } = await import("../../lib/inventory/inbound/packUnits");
+      const conversion = await resolvePackConversion(raw, tenantId, materialId, params.packagingUnit, pack, `${mat.material_name}: 포장규격`);
+      pack *= conversion.factor;
+    }
   }
   if (tracking && pack > 0 && !(norm(purchaseUnit) === norm(mat.unit) && pack === 1)) {
     stockQuantity = Math.round(params.quantity * pack * 1000) / 1000;
-    if (norm(purchaseUnit) !== norm(mat.unit)) {
+    if (convertMetricQuantity(1, purchaseUnit, String(mat.unit)) == null) {
       const [pu]: any = await raw.execute(
         `SELECT id FROM material_pack_units WHERE tenant_id = ? AND material_id = ? AND LOWER(TRIM(pack_unit)) = ? AND is_active = 1 LIMIT 1`,
         [tenantId, materialId, norm(purchaseUnit)],

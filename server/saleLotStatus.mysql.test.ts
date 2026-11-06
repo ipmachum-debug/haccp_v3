@@ -702,7 +702,51 @@ describe.skipIf(!URL_)("실 MySQL — 판매 확정 LOT 상태·금액", () => {
       await milk({ idempotencyKey: "pm-milk-0002" });
       expect(await ledger()).toBe(10.8);
       await expect(milk({ packagingSize: 1, idempotencyKey: "pm-milk-0003" })).rejects.toThrow(/환산 결과 5\.4kg/);
-      await expect(milk({ packagingUnit: "g", idempotencyKey: "pm-milk-0004" })).rejects.toThrow(/포장규격 단위\(g\)/);
+      await expect(milk({ packagingUnit: "g", idempotencyKey: "pm-milk-0004" })).rejects.toThrow(/환산 결과/);
+      const grams = await milk({ packagingSize: 900, packagingUnit: "g", idempotencyKey: "pm-milk-grams" });
+      expect([grams.posted, await ledger()]).toEqual([true, 16.2]);
+      expect((await milk({ packagingSize: 900, packagingUnit: "g", idempotencyKey: "pm-milk-grams" })).id).toBe(grams.id);
+      expect(await ledger()).toBe(16.2);
+      expect((await q(`SELECT base_qty + 0 AS factor FROM material_pack_units WHERE tenant_id = ? AND material_id = 635`, [T])).map((r: any) => Number(r.factor))).toEqual([0.9]);
+      await expect(milk({ packagingSize: 900, packagingUnit: "mL", idempotencyKey: "pm-milk-volume" })).rejects.toThrow(/환산 설정이 없습니다/);
+    });
+
+    it("피자치즈 750g 2개: 0.75kg 환산 확인 후 LOT·수불부 1.5kg, 재시도도 한 번", async () => {
+      const input = { itemName: "시험 피자치즈", quantity: 2, packagingSize: 750, packagingUnit: "g", unitPrice: 10455, amount: 20910, taxAmount: 2091, idempotencyKey: "pm-cheese-750g" };
+      await expect(milk(input)).rejects.toThrow(/1개 = 0\.75kg/);
+      expect((await lotOf()).length).toBe(0);
+      const result = await milk({ ...input, savePackUnit: true });
+      expect(result.posted).toBe(true);
+      expect((await lotOf()).map((l: any) => [l.q, l.unit])).toEqual([[1.5, "kg"]]);
+      expect(await ledger()).toBe(1.5);
+      expect((await milk(input)).id).toBe(result.id);
+      expect(await ledger()).toBe(1.5);
+      expect((await q(`SELECT purchase_quantity + 0 AS q, stock_quantity + 0 AS stock, pack_factor + 0 AS f, total_price + 0 AS amount, tax_amount + 0 AS tax FROM h_inbound_lines`)).map((r: any) => [Number(r.q), Number(r.stock), Number(r.f), Number(r.amount), Number(r.tax)])).toEqual([[2, 1.5, 0.75, 20910, 2091]]);
+    });
+
+    it("양송이 1pack=1ea 설정: pack 포장규격과 매입 단위로 저장·확정·재시도", async () => {
+      await q(`UPDATE h_materials SET unit='ea' WHERE tenant_id=? AND id=635`, [T]);
+      const { upsertPackUnit } = await import("./lib/inventory/inbound/packUnits");
+      await upsertPackUnit(admin, { tenantId: T, userId: 4, materialId: 635, packUnit: "pack", baseQty: 1 });
+      const input = { itemName: "시험 양송이", quantity: 3, packagingSize: 1, packagingUnit: "pack", unit: "pack", idempotencyKey: "pm-mushroom-pack" };
+      const result = await milk(input);
+      expect(result.posted).toBe(true);
+      expect((await lotOf()).map((l: any) => [l.q, l.unit])).toEqual([[3, "ea"]]);
+      expect(await ledger()).toBe(3);
+      expect((await milk(input)).id).toBe(result.id);
+      expect(await ledger()).toBe(3);
+      expect(Number((await q(`SELECT COUNT(*) n FROM material_pack_units WHERE tenant_id=? AND material_id=635`, [T]))[0].n)).toBe(1);
+    });
+
+    it("1500g 직접 매입: 설정 행 없이도 배율 0.001을 입고 줄에 보존해 확정", async () => {
+      const input = { quantity: 1500, packagingSize: 0, packagingUnit: "g", unit: "g", idempotencyKey: "pm-metric-direct-grams" };
+      const result = await milk(input);
+      expect(result.posted).toBe(true);
+      expect((await lotOf()).map((l: any) => [l.q, l.unit])).toEqual([[1.5, "kg"]]);
+      expect(Number((await q(`SELECT pack_factor + 0 AS factor FROM h_inbound_lines`))[0].factor)).toBe(0.001);
+      expect(Number((await q(`SELECT COUNT(*) n FROM material_pack_units`))[0].n)).toBe(0);
+      expect((await milk(input)).id).toBe(result.id);
+      expect(await ledger()).toBe(1.5);
     });
 
     it("검수 불합격 입력은 격리(재고·전표 없음), 회계 전용 회사는 LOT 없이 전표만, 승인 필요 회사는 대기", async () => {
