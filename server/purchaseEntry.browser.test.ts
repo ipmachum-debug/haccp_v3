@@ -6,7 +6,9 @@ import type { AddressInfo } from "node:net";
 let server: http.Server;
 let browser: any;
 let base: string;
+const browserEnabled = process.env.PURCHASE_BROWSER_REQUIRED === "1" || Boolean(process.env.PURCHASE_BROWSER_CHANNEL);
 beforeAll(async () => {
+  if (!browserEnabled) return;
   const { build } = await import("esbuild");
   const result = await build({
     entryPoints: [path.resolve(__dirname, "__fixtures__/purchaseHarness.tsx")], bundle: true, write: false,
@@ -46,7 +48,7 @@ async function filledPage(itemName = "시험 피자치즈", packageSize = "750",
   await row.locator('input[type="number"]').nth(1).fill("2");
   return page;
 }
-describe("purchase entry in Chromium, synthetic data only", () => {
+describe.skipIf(!browserEnabled)("purchase entry in Chromium, synthetic data only", () => {
   it("keeps failure reason and input on the item row, then retries with the same request key", async () => {
     const page = await filledPage();
     await page.getByRole("button", { name: "저장", exact: true }).click();
